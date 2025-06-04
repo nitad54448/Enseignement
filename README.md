@@ -20,7 +20,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 ## Description des Simulateurs
 
 ### 1. Visualiseur de Sphère d'Ewald et Diffraction RX
-[**Ewald.html**](https://nitad54448.github.io/Enseignement/ewald.html)
+[**Ewald**](https://nitad54448.github.io/Enseignement/ewald.html)
 
 Ce simulateur permet de visualiser la construction de la sphère d'Ewald dans l'espace réciproque pour une maille orthorhombique.
 * **Fonctionnalités :**
@@ -50,7 +50,7 @@ Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur 
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
 
 ### 3. Diagramme des Niveaux d'Énergie Atomique
-[**Niveaux_atomiques.html**](https://nitad5448.github.io/Enseignement/niveaux_atomiques.html)
+[**Niveaux_atomiques**](https://nitad5448.github.io/Enseignement/niveaux_atomiques.html)
 
 Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, M) pour différents éléments et permet de visualiser les transitions électroniques courantes (Kα, Kβ, Lα, etc.).
 * **Fonctionnalités :**
@@ -62,7 +62,7 @@ Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, 
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
 
 ### 4. WaveXplorer - Explorateur de Phénomènes Ondulatoires
-[**WaveXplorer.html**](https://nitad54448.github.io/Enseignement/WaveXplorer.html)
+[**WaveXplorer**](https://nitad54448.github.io/Enseignement/WaveXplorer.html)
 
 WaveXplorer est un outil polyvalent pour visualiser et comprendre divers concepts fondamentaux des ondes.
 * **Fonctionnalités (Concepts) :**
@@ -76,7 +76,7 @@ WaveXplorer est un outil polyvalent pour visualiser et comprendre divers concept
 * **Technologies :** HTML, JavaScript, Three.js.
 
 ### 5. Simulateur de Spectres d'Émission RX
- [**Emission.html**](https://nitad54448.github.io/Enseignement/Emission.html)
+ [**Emission**](https://nitad54448.github.io/Enseignement/Emission.html)
 
 Ce simulateur permet de générer et de visualiser des spectres d'émission de rayons X, incluant le rayonnement de Bremsstrahlung et les raies caractéristiques.
 * **Fonctionnalités :**
