@@ -35,11 +35,8 @@ Ce simulateur permet de visualiser la construction de la sphère d'Ewald dans l'
     * Calcul de l'angle 2θ pour les points en diffraction en cliquant dessus.
 * **Technologies :** HTML, JavaScript, Three.js.
 
-*(Suggestion : Ajoutez ici une capture d'écran de `ewald.html`)*
-`![Aperçu Ewald](./images/ewald.png)`
-
 ### 2. Simulateur d'Absorption et Filtres RX
-Lien direct : [**Lancer `filtres.html`**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/filtres.html)
+[**Filtres**](https://nitad54448.github.io/Enseignement/filtres.html)
 
 Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur ce spectre, et affiche le coefficient d'absorption massique du filtre.
 * **Fonctionnalités :**
@@ -51,9 +48,6 @@ Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur 
     * Affichage du spectre après filtrage.
     * Ajustement manuel des limites de l'axe des abscisses (longueur d'onde).
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
-
-*(Suggestion : Ajoutez ici une capture d'écran de `filtres.html`)*
-`![Aperçu Filtres RX](./images/filtres_preview.png)`
 
 ### 3. Diagramme des Niveaux d'Énergie Atomique
 Lien direct : [**Lancer `niveaux_atomiques.html`**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/niveaux_atomiques.html)
