@@ -50,7 +50,7 @@ Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur 
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
 
 ### 3. Diagramme des Niveaux d'Énergie Atomique
-[**Niveaux_atomiques**](https://nitad5448.github.io/Enseignement/niveaux_atomiques.html)
+[**Niveaux_atomiques**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html)
 
 Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, M) pour différents éléments et permet de visualiser les transitions électroniques courantes (Kα, Kβ, Lα, etc.).
 * **Fonctionnalités :**
