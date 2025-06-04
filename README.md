@@ -89,26 +89,6 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
     * En cliquant près d'une raie caractéristique sur le spectre principal, une petite fenêtre (tooltip) s'affiche avec un diagramme schématique de la transition électronique correspondante (K, L, M).
 * **Technologies :** HTML, JavaScript, API Canvas 2D, SVG (pour le diagramme de transition).
 
-
-## Comment utiliser ce dépôt sur GitHub Pages
-
-1.  **Forkez ou clonez ce dépôt** sur votre propre compte GitHub. Si vous le clonez, créez un nouveau dépôt public sur GitHub et poussez-y les fichiers.
-2.  Assurez-vous que tous les fichiers HTML (`ewald.html`, `filtres.html`, etc.) sont à la **racine** de votre dépôt.
-3.  Allez dans les **Settings (Paramètres)** de votre dépôt GitHub.
-4.  Naviguez vers la section **Pages** dans le menu de gauche.
-5.  Sous "Build and deployment", pour "Source", sélectionnez **"Deploy from a branch"**.
-6.  Sous "Branch", choisissez la branche `main` (ou `master`) et le dossier `/ (root)`.
-7.  Cliquez sur **Save**.
-8.  Après quelques instants, votre site devrait être déployé. L'URL sera généralement de la forme `https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/`.
-9.  **Important :** Mettez à jour les liens dans ce fichier `README.md` pour qu'ils pointent vers votre URL GitHub Pages (remplacez `VOTRE_NOM_UTILISATEUR` et `VOTRE_NOM_DEPOT`).
-
-## Suggestions d'amélioration
-
-* Créez un dossier `images` à la racine de votre dépôt.
-* Prenez des captures d'écran pour chaque simulateur et sauvegardez-les dans le dossier `images` (par exemple, `ewald_preview.png`, `filtres_preview.png`, etc.).
-* Décommentez ou modifiez les lignes `![Aperçu...]` dans ce README pour afficher les images.
-* Vous pouvez également créer un fichier `index.html` principal qui sert de portail vers les autres simulateurs, plutôt que d'utiliser `README.md` comme page d'accueil par défaut de GitHub Pages (bien que `README.md` fonctionne bien s'il est le seul fichier `index` ou `readme` à la racine).
-
 ---
 
 N'hésitez pas à contribuer ou à signaler des problèmes !
