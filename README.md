@@ -1,4 +1,4 @@
-# Ma petite collection de simulateurs
+# Une petite collection de simulateurs pour l'enseignement
 
 Bienvenue dans cette collection de simulateurs interactifs conçus pour explorer divers concepts de physique, notamment en cristallographie, science des matériaux et optique. Ces outils ont été développés en HTML et JavaScript, avec une utilisation de la bibliothèque Three.js pour les visualisations 3D.
 
