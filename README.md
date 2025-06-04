@@ -50,7 +50,7 @@ Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur 
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
 
 ### 3. Diagramme des Niveaux d'Énergie Atomique
-Lien direct : [**Lancer `niveaux_atomiques.html`**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/niveaux_atomiques.html)
+[**Niveaux_atomiques.html**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/niveaux_atomiques.html)
 
 Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, M) pour différents éléments et permet de visualiser les transitions électroniques courantes (Kα, Kβ, Lα, etc.).
 * **Fonctionnalités :**
@@ -61,11 +61,8 @@ Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, 
     * Rappel des règles de sélection pour les transitions dipolaires électriques.
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
 
-*(Suggestion : Ajoutez ici une capture d'écran de `niveaux_atomiques.html`)*
-`![Aperçu Niveaux Atomiques](./images/niveaux_atomiques_preview.png)`
-
 ### 4. WaveXplorer - Explorateur de Phénomènes Ondulatoires
-Lien direct : [**Lancer `WaveXplorer.html`**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/WaveXplorer.html)
+[**WaveXplorer.html**](https://nitad54448.github.io/Enseignement/WaveXplorer.html)
 
 WaveXplorer est un outil polyvalent pour visualiser et comprendre divers concepts fondamentaux des ondes.
 * **Fonctionnalités (Concepts) :**
@@ -78,11 +75,8 @@ WaveXplorer est un outil polyvalent pour visualiser et comprendre divers concept
     * **Front d'Onde :** Visualisation de fronts d'onde plans et sphériques.
 * **Technologies :** HTML, JavaScript, Three.js.
 
-*(Suggestion : Ajoutez ici une capture d'écran de `WaveXplorer.html`)*
-`![Aperçu WaveXplorer](./images/wavexplorer_preview.png)`
-
 ### 5. Simulateur de Spectres d'Émission RX
-Lien direct : [**Lancer `Emission.html`**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/Emission.html)
+ [**Emission.html**](https://nitad54448.github.io/Enseignement/Emission.html)
 
 Ce simulateur permet de générer et de visualiser des spectres d'émission de rayons X, incluant le rayonnement de Bremsstrahlung et les raies caractéristiques.
 * **Fonctionnalités :**
@@ -95,10 +89,6 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
     * En cliquant près d'une raie caractéristique sur le spectre principal, une petite fenêtre (tooltip) s'affiche avec un diagramme schématique de la transition électronique correspondante (K, L, M).
 * **Technologies :** HTML, JavaScript, API Canvas 2D, SVG (pour le diagramme de transition).
 
-*(Suggestion : Ajoutez ici une capture d'écran de `Emission.html`)*
-`![Aperçu Emission RX](./images/emission_preview.png)`
-
----
 
 ## Comment utiliser ce dépôt sur GitHub Pages
 
