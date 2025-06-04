@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulateur de spectre RX</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 15px; background-color: #eef1f5; color: #333; display: flex; flex-direction: column; min-height: 95vh; }
+        .container { background-color: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); flex-grow: 1; }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 25px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 25px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;}
+        .control-group { display: flex; flex-direction: column; min-width: 160px; flex-grow: 1; }
+        .control-group.x-scale { min-width: 120px; flex-grow: 0.5;} /* Smaller group for X scale inputs */
+        label { margin-bottom: 8px; font-weight: 600; color: #495057; font-size: 0.9em;}
+        select, input[type="range"], input[type="number"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ced4da;
+            margin-bottom: 5px;
+            font-size: 0.95em;
+            box-sizing: border-box; /* Ensures padding doesn't expand width */
+            width: 100%;
+        }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        button {
+            padding: 10px 18px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+            font-size: 0.95em;
+        }
+        button:hover { background-color: #0056b3; }
+        #spectrumCanvas { border: 1px solid #ced4da; border-radius: 5px; background-color: #fff; cursor: crosshair; }
+        .legend { margin-top: 15px; padding-left: 5px; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.9em; }
+        .legend-color { width: 20px; height: 12px; margin-right: 10px; border: 1px solid #ccc; }
+        #transitionInsert {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.95);
+            border: 1px solid #adb5bd;
+            border-radius: 6px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: none;
+            font-size: 0.9em;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #transitionInsert h4 { margin-top: 0; margin-bottom: 10px; color: #2c3e50; }
+        #transitionInsert svg { display: block; margin: 0 auto; }
+        footer { text-align: center; font-size: 0.8em; color: #555; margin-top: 25px; padding: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Spectres d'émission RX</h1>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="elementSelect">Élément de l'anode :</label>
+                <select id="elementSelect">
+                    <option value="Sc">Scandium (Sc)</option>
+                    <option value="Ti">Titane (Ti)</option>
+                    <option value="V">Vanadium (V)</option>
+                    <option value="Cr">Chrome (Cr)</option>
+                    <option value="Mn">Manganèse (Mn)</option>
+                    <option value="Fe">Fer (Fe)</option>
+                    <option value="Co">Cobalt (Co)</option>
+                    <option value="Ni">Nickel (Ni)</option>
+                    <option value="Cu" selected>Cuivre (Cu)</option>
+                    <option value="Zn">Zinc (Zn)</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="voltageSlider">Potentiel d'accélération (kV) : <span id="voltageValue">15.0</span> kV</label>
+                <input type="range" id="voltageSlider" min="2" max="35" value="15" step="0.1">
+            </div>
+
+            <div class="control-group">
+                <label for="currentSlider">Courant du tube (mA) : <span id="currentValue">30</span> mA</label>
+                <input type="range" id="currentSlider" min="10" max="50" value="30" step="1">
+            </div>
+             <div class="control-group x-scale">
+                <label for="lambdaMinUser">X Min (Å):</label>
+                <input type="number" id="lambdaMinUser" step="0.01" min="0" placeholder="Auto (0)">
+            </div>
+            <div class="control-group x-scale">
+                <label for="lambdaMaxUser">X Max (Å):</label>
+                <input type="number" id="lambdaMaxUser" step="0.01" min="0.1" placeholder="Auto">
+            </div>
+            <div class="control-group" style="justify-content: flex-end; min-width:auto;">
+                 <button id="addSpectrumButton">Superposer le spectre</button>
+            </div>
+            <div class="control-group" style="justify-content: flex-end; min-width:auto;">
+                <button id="clearSuperposedButton">Effacer superpositions</button>
+           </div>
+        </div>
+
+        <canvas id="spectrumCanvas" width="900" height="550"></canvas>
+        <div id="legend" class="legend"></div>
+
+        <div id="transitionInsert">
+            <h4>Transition Énergétique</h4>
+            <svg id="transitionSvg" width="150" height="220"></svg>
+        </div>
+    </div>
+    <footer>
+        <p>NitaD, Univ Paris-Saclay, version 04 juin 2025</p>
+    </footer>
+
+    <script>
+        // --- Constants & Configuration ---
+        const h = 6.62607015e-34;
+        const c = 2.99792458e8;
+        const e_charge = 1.602176634e-19;
+        const hc_keV_A = (h * c / e_charge) * 1e7;
+
+        const CHAR_LINE_INTENSITY_SCALAR = 45; 
+        const L_LINE_INTENSITY_FACTOR = 0.04; 
+
+        const AXIS_TITLE_FONT_SIZE = "13px";
+        const AXIS_TICK_FONT_SIZE = "11px";
+        const AXIS_FONT_FAMILY = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+
+        const elementData = {
+            "Sc": { Z: 21, Ka1_energy: 4.0906, Ka2_energy: 4.0861, Kb_energy: 4.4605, K_edge: 4.492, La1_energy: 0.395, L_III_edge: 0.402, L_II_edge: 0.407, M_V_shell_approx: 0.03, color: "#8c564b" },
+            "Ti": { Z: 22, Ka1_energy: 4.5108, Ka2_energy: 4.5049, Kb_energy: 4.9318, K_edge: 4.966, La1_energy: 0.452, L_III_edge: 0.456, L_II_edge: 0.462, M_V_shell_approx: 0.035, color: "#e377c2" },
+            "V":  { Z: 23, Ka1_energy: 4.9522, Ka2_energy: 4.9447, Kb_energy: 5.4273, K_edge: 5.465, La1_energy: 0.511, L_III_edge: 0.513, L_II_edge: 0.520, M_V_shell_approx: 0.04, color: "#7f7f7f" },
+            "Cr": { Z: 24, Ka1_energy: 5.4147, Ka2_energy: 5.4055, Kb_energy: 5.9467, K_edge: 5.989, La1_energy: 0.573, L_III_edge: 0.575, L_II_edge: 0.584, M_V_shell_approx: 0.045, color: "#bcbd22" },
+            "Mn": { Z: 25, Ka1_energy: 5.8987, Ka2_energy: 5.8876, Kb_energy: 6.4904, K_edge: 6.539, La1_energy: 0.637, L_III_edge: 0.639, L_II_edge: 0.651, M_V_shell_approx: 0.05, color: "#1f77b4" },
+            "Fe": { Z: 26, Ka1_energy: 6.4038, Ka2_energy: 6.3908, Kb_energy: 7.0580, K_edge: 7.112, La1_energy: 0.705, L_III_edge: 0.708, L_II_edge: 0.721, M_V_shell_approx: 0.055, color: "#17becf" },
+            "Co": { Z: 27, Ka1_energy: 6.9303, Ka2_energy: 6.9153, Kb_energy: 7.6494, K_edge: 7.709, La1_energy: 0.776, L_III_edge: 0.778, L_II_edge: 0.793, M_V_shell_approx: 0.06, color: "#ff7f0e" },
+            "Ni": { Z: 28, Ka1_energy: 7.4782, Ka2_energy: 7.4609, Kb_energy: 8.2647, K_edge: 8.333, La1_energy: 0.852, L_III_edge: 0.855, L_II_edge: 0.872, M_V_shell_approx: 0.068, color: "#2ca02c" },
+            "Cu": { Z: 29, Ka1_energy: 8.0478, Ka2_energy: 8.0278, Kb_energy: 8.9053, K_edge: 8.979, La1_energy: 0.930, L_III_edge: 0.933, L_II_edge: 0.952, M_V_shell_approx: 0.074, color: "#d62728" },
+            "Zn": { Z: 30, Ka1_energy: 8.6389, Ka2_energy: 8.6158, Kb_energy: 9.5720, K_edge: 9.659, La1_energy: 1.012, L_III_edge: 1.022, L_II_edge: 1.045, M_V_shell_approx: 0.087, color: "#9467bd" }
+        };
+
+        const canvas = document.getElementById('spectrumCanvas');
+        const ctx = canvas.getContext('2d');
+        const transitionInsertDiv = document.getElementById('transitionInsert');
+        const transitionSvg = document.getElementById('transitionSvg');
+
+        const elementSelect = document.getElementById('elementSelect');
+        const voltageSlider = document.getElementById('voltageSlider');
+        const voltageValueSpan = document.getElementById('voltageValue');
+        const currentSlider = document.getElementById('currentSlider');
+        const currentValueSpan = document.getElementById('currentValue');
+        const lambdaMinUserInput = document.getElementById('lambdaMinUser');
+        const lambdaMaxUserInput = document.getElementById('lambdaMaxUser');
+        const addSpectrumButton = document.getElementById('addSpectrumButton');
+        const clearSuperposedButton = document.getElementById('clearSuperposedButton');
+        const legendDiv = document.getElementById('legend');
+
+        let currentSpectrumParams = {};
+        let superposedSpectra = [];
+        const superposedColors = ["#1abc9c", "#e74c3c", "#f1c40f", "#8e44ad", "#34495e", "#3498db", "#2ecc71"];
+
+        function energyToWavelength_A(energy_keV) {
+            if (energy_keV <= 0) return Infinity;
+            return hc_keV_A / energy_keV;
+        }
+
+        function gaussianPeak(x, mean_lambda, intensity_factor, sigma_A = 0.005) { 
+            const exponent = -Math.pow(x - mean_lambda, 2) / (2 * Math.pow(sigma_A, 2));
+            return intensity_factor * Math.exp(exponent);
+        }
+
+        function calculateSpectrumData(params, requested_lambda_max_for_data = null) {
+            const { voltage, current, data } = params;
+            const Z = data.Z;
+            const lambda_min_A = energyToWavelength_A(voltage);
+
+            let internal_dynamic_max = energyToWavelength_A(1.5); 
+            if (voltage > data.L_III_edge && data.La1_energy > 0) {
+                internal_dynamic_max = Math.max(internal_dynamic_max, energyToWavelength_A(data.La1_energy) * 1.25);
+            }
+            if (voltage > data.K_edge && data.Kb_energy > 0) {
+                 internal_dynamic_max = Math.max(internal_dynamic_max, energyToWavelength_A(data.Kb_energy) * 1.5); 
+            }
+            internal_dynamic_max = Math.min(Math.max(2.5, internal_dynamic_max), 25.0); 
+
+
+            const lambda_max_for_calculation = Math.max(internal_dynamic_max, requested_lambda_max_for_data || 0);
+
+            const spectrumPoints = [];
+            // Augmentation du nombre de points pour une meilleure résolution
+            const num_points = canvas.width * 10; // Anciennement canvas.width * 3
+            let max_intensity_calc = 0;
+
+            for (let i = 0; i < num_points; i++) {
+                const lambda_A = (i / (num_points -1)) * lambda_max_for_calculation;
+                if (lambda_A < 1e-3 && lambda_A !==0) { 
+                     spectrumPoints.push({ lambda: lambda_A, intensity: 0});
+                     continue;
+                }
+
+                let intensity_brems = 0;
+                if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity && lambda_A !== 0) {
+                    intensity_brems = current * Z * ( (1 / lambda_min_A) - (1 / lambda_A) ) / (lambda_A * lambda_A * lambda_min_A);
+                    intensity_brems = Math.max(0, intensity_brems); 
+                }
+
+                let intensity_lines = 0;
+                const line_current_factor = current / 10.0; 
+
+                if (voltage > data.K_edge) {
+                    const overvoltage_K_factor = Math.pow(Math.max(0, voltage - data.K_edge), 1.65); 
+                    const base_K_char_peak_intensity = line_current_factor * overvoltage_K_factor * CHAR_LINE_INTENSITY_SCALAR;
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka1_energy), base_K_char_peak_intensity * 2.0, 0.0005); 
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka2_energy), base_K_char_peak_intensity * 1.0, 0.0005); 
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Kb_energy), base_K_char_peak_intensity * 0.5, 0.0007);  
+                }
+
+                if (data.La1_energy && data.L_III_edge && voltage > data.L_III_edge) {
+                    const overvoltage_L_factor = Math.pow(Math.max(0, voltage - data.L_III_edge), 1.65);
+                    const base_L_char_peak_intensity = line_current_factor * overvoltage_L_factor * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.La1_energy), base_L_char_peak_intensity, 0.015); 
+                }
+
+                const total_intensity = intensity_brems + intensity_lines;
+                spectrumPoints.push({ lambda: lambda_A, intensity: total_intensity });
+                if (total_intensity > max_intensity_calc) max_intensity_calc = total_intensity;
+            }
+            return { points: spectrumPoints, max_intensity: max_intensity_calc, lambda_min_A_calc: lambda_min_A, lambda_max_data_calculated_A: lambda_max_for_calculation };
+        }
+
+        function updateCurrentSpectrumParams() {
+            const selectedElement = elementSelect.value;
+            const voltage = parseFloat(voltageSlider.value);
+            const current = parseFloat(currentSlider.value);
+            const newId = `spec_${selectedElement}_${voltage.toFixed(1)}kV_${current}mA_${Date.now()}`;
+            currentSpectrumParams = {
+                id: newId, element: selectedElement, voltage: voltage, current: current,
+                data: elementData[selectedElement], color: elementData[selectedElement].color, isSuperposed: false
+            };
+        }
+
+        function getDisplayLambdaRange() {
+            let userMin = parseFloat(lambdaMinUserInput.value);
+            let userMax = parseFloat(lambdaMaxUserInput.value);
+            let finalMin = 0, finalMax = 0;
+            let useCustomScale = false;
+
+            if (isFinite(userMin) && isFinite(userMax) && userMin >= 0 && userMax > userMin) {
+                finalMin = userMin;
+                finalMax = userMax;
+                useCustomScale = true;
+            } else if (isFinite(userMin) && userMin >= 0 && !isFinite(userMax)) { 
+                finalMin = userMin;
+                useCustomScale = true; 
+            } else if (!isFinite(userMin) && isFinite(userMax) && userMax > 0) { 
+                finalMin = 0;
+                finalMax = userMax;
+                useCustomScale = true; 
+            }
+            return { userMin: (isFinite(userMin) && userMin >=0) ? userMin : null,
+                     userMax: (isFinite(userMax) && userMax > 0) ? userMax : null,
+                     useCustomScale: useCustomScale};
+        }
+
+
+        function drawSpectra() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const userDisplayRange = getDisplayLambdaRange();
+            let display_min_A = userDisplayRange.userMin !== null ? userDisplayRange.userMin : 0;
+            let display_max_A;
+
+            let max_lambda_for_data_calc_and_auto_display = 0;
+            const tempCurrentCalcForRange = calculateSpectrumData(currentSpectrumParams);
+            max_lambda_for_data_calc_and_auto_display = Math.max(max_lambda_for_data_calc_and_auto_display, tempCurrentCalcForRange.lambda_max_data_calculated_A);
+            superposedSpectra.forEach(sp => {
+                const tempSpCalcForRange = calculateSpectrumData(sp); 
+                max_lambda_for_data_calc_and_auto_display = Math.max(max_lambda_for_data_calc_and_auto_display, tempSpCalcForRange.lambda_max_data_calculated_A);
+            });
+             if (max_lambda_for_data_calc_and_auto_display === 0 && tempCurrentCalcForRange) {
+                max_lambda_for_data_calc_and_auto_display = tempCurrentCalcForRange.lambda_max_data_calculated_A || energyToWavelength_A(1.5); 
+            }
+
+
+            if (userDisplayRange.userMax !== null && userDisplayRange.userMax > display_min_A) {
+                display_max_A = userDisplayRange.userMax;
+            } else {
+                display_max_A = max_lambda_for_data_calc_and_auto_display;
+                if (userDisplayRange.userMin !== null) {
+                     display_max_A = Math.max(display_max_A, userDisplayRange.userMin + 0.1); 
+                }
+            }
+            if (display_max_A <= display_min_A) display_max_A = display_min_A + 1.0; 
+
+
+            const spectraToPlot = [];
+            superposedSpectra.forEach(sp => {
+                spectraToPlot.push({ ...sp, calculated: calculateSpectrumData(sp, display_max_A), isTrulySuperposed: true });
+            });
+
+            const currentActiveCalculated = calculateSpectrumData(currentSpectrumParams, display_max_A);
+            spectraToPlot.push({ ...currentSpectrumParams, calculated: currentActiveCalculated, isTrulySuperposed: false });
+
+
+            let overall_max_intensity = 0;
+            spectraToPlot.forEach(spec => {
+                let max_intensity_in_display_range = 0;
+                spec.calculated.points.forEach(p => {
+                    if (p.lambda >= display_min_A && p.lambda <= display_max_A) {
+                        if (p.intensity > max_intensity_in_display_range) {
+                            max_intensity_in_display_range = p.intensity;
+                        }
+                    }
+                });
+                if (max_intensity_in_display_range > overall_max_intensity) {
+                    overall_max_intensity = max_intensity_in_display_range;
+                }
+            });
+            if (overall_max_intensity === 0) overall_max_intensity = 1;
+
+
+            const padding = 70;
+            const plotWidth = canvas.width - 2 * padding;
+            const plotHeight = canvas.height - 2 * padding;
+
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, canvas.height - padding);
+            ctx.lineTo(canvas.width - padding, canvas.height - padding);
+            ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.stroke();
+
+            ctx.fillStyle = "#333"; ctx.textAlign = "center";
+            ctx.font = `${AXIS_TITLE_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            ctx.fillText("Longueur d'onde (Ångström)", padding + plotWidth / 2, canvas.height - padding / 3);
+
+            ctx.save(); ctx.translate(padding / 3, padding + plotHeight / 2); ctx.rotate(-Math.PI / 2);
+            ctx.font = `${AXIS_TITLE_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            ctx.fillText("Intensité (unités relatives)", 0, 0);
+            ctx.restore();
+
+            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            const x_range = display_max_A - display_min_A;
+            const num_x_ticks = Math.min(10, Math.floor(x_range / Math.max(0.05, x_range/15) )); 
+            for (let i = 0; i <= num_x_ticks; i++) {
+                const lambda_val = display_min_A + (i / num_x_ticks) * x_range;
+                const x = padding + ((lambda_val - display_min_A) / x_range) * plotWidth;
+                 if (x >= padding - 1 && x <= canvas.width - padding + 1 ) {
+                    ctx.moveTo(x, canvas.height - padding); ctx.lineTo(x, canvas.height - padding + 5); ctx.stroke();
+                    let tickLabel;
+                    if (x_range < 0.02) tickLabel = lambda_val.toFixed(4); 
+                    else if (x_range < 0.2) tickLabel = lambda_val.toFixed(3);
+                    else if (x_range < 2) tickLabel = lambda_val.toFixed(2);
+                    else if (x_range < 10) tickLabel = lambda_val.toFixed(1);
+                    else tickLabel = lambda_val.toFixed(0);
+                    ctx.fillText(tickLabel, x, canvas.height - padding + 20);
+                }
+            }
+
+            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            const relevantEnergiesKeV = [0.5, 1, 2, 3, 4, 5, 7, 10, 12, 15, 18, 20, 25, 30, 35]; 
+            relevantEnergiesKeV.forEach(keV => {
+                const voltageForTick = currentSpectrumParams.voltage || parseFloat(voltageSlider.max);
+                if (keV <= voltageForTick && keV > 0.1) {
+                    const lambda_for_keV = energyToWavelength_A(keV);
+                    if (lambda_for_keV >= display_min_A && lambda_for_keV <= display_max_A) {
+                        const x = padding + ((lambda_for_keV - display_min_A) / x_range) * plotWidth;
+                        if (x >= padding && x <= canvas.width - padding) {
+                            ctx.moveTo(x, padding); ctx.lineTo(x, padding - 5); ctx.stroke();
+                            ctx.fillText(keV.toFixed(keV < 2 ? 1:0), x, padding - 10);
+                        }
+                    }
+                }
+            });
+            ctx.font = `${AXIS_TITLE_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            ctx.fillText("Énergie (keV)", padding + plotWidth / 2, padding / 2.5);
+
+            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            const num_y_ticks = 5; ctx.textAlign = "right";
+            for (let i = 0; i <= num_y_ticks; i++) {
+                const intensity_val = (i / num_y_ticks) * overall_max_intensity;
+                const y = canvas.height - padding - (i / num_y_ticks) * plotHeight;
+                ctx.moveTo(padding, y); ctx.lineTo(padding - 5, y); ctx.stroke();
+                ctx.fillText( (i === 0 && overall_max_intensity > 0.0001) ? "0" : intensity_val.toExponential(1), padding - 10, y + 3);
+            }
+
+            legendDiv.innerHTML = '';
+            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+
+            spectraToPlot.forEach((spec_info) => {
+                const { element, voltage, current, color, calculated, isTrulySuperposed, superposedColor } = spec_info;
+                const displayColor = spec_info.isSuperposed ? spec_info.superposedColor : spec_info.color;
+
+                ctx.beginPath();
+                let firstPoint = true;
+                calculated.points.forEach(p => {
+                    if (p.lambda >= display_min_A && p.lambda <= display_max_A) {
+                        const x = padding + ((p.lambda - display_min_A) / x_range) * plotWidth;
+                        const y = canvas.height - padding - (p.intensity / overall_max_intensity) * plotHeight;
+                        const y_clipped = Math.max(padding, Math.min(y, canvas.height - padding));
+
+                        if (firstPoint) {
+                            ctx.moveTo(x, y_clipped);
+                            firstPoint = false;
+                        } else {
+                            ctx.lineTo(x, y_clipped);
+                        }
+                    }
+                });
+                ctx.strokeStyle = displayColor;
+                ctx.lineWidth = spec_info.isSuperposed ? 1.5 : 2.5;
+                ctx.stroke();
+
+                const legendItem = document.createElement('div');
+                legendItem.classList.add('legend-item');
+                const legendColorBox = document.createElement('div');
+                legendColorBox.classList.add('legend-color');
+                legendColorBox.style.backgroundColor = displayColor;
+                legendItem.appendChild(legendColorBox);
+                legendItem.append(`${element} (${voltage.toFixed(1)}kV, ${current}mA)`);
+                legendDiv.appendChild(legendItem);
+
+            });
+
+            canvas.characteristicLines = [];
+            const activeElementDataForLines = currentSpectrumParams.data;
+            const activeVoltageForLines = currentSpectrumParams.voltage;
+
+            if (activeVoltageForLines > activeElementDataForLines.K_edge) {
+                canvas.characteristicLines.push({ name: "Kα1", energy: activeElementDataForLines.Ka1_energy, lambda: energyToWavelength_A(activeElementDataForLines.Ka1_energy), transition: {from: "L III", to: "K"} });
+                canvas.characteristicLines.push({ name: "Kα2", energy: activeElementDataForLines.Ka2_energy, lambda: energyToWavelength_A(activeElementDataForLines.Ka2_energy), transition: {from: "L II", to: "K"} });
+                canvas.characteristicLines.push({ name: "Kβ", energy: activeElementDataForLines.Kb_energy, lambda: energyToWavelength_A(activeElementDataForLines.Kb_energy), transition: {from: "M III", to: "K"} }); 
+            }
+            if (activeElementDataForLines.La1_energy && activeElementDataForLines.L_III_edge && activeVoltageForLines > activeElementDataForLines.L_III_edge) {
+                 canvas.characteristicLines.push({ name: "Lα1", energy: activeElementDataForLines.La1_energy, lambda: energyToWavelength_A(activeElementDataForLines.La1_energy), transition: {from: "M V", to: "L III"} }); 
+            }
+        }
+
+        function drawTransitionDiagram(lineName, transition) {
+            transitionSvg.innerHTML = '';
+
+            const levelsY = { K: 200, L_I: 155, L_II: 150, L_III: 145, M_I:95, M_II:90, M_III:85, M_IV:80, M_V:75, N: 40 }; 
+            const levelLabels = { K: "K", L_I: "L\u2081", L_II: "L\u2082", L_III: "L\u2083", M_I:"M\u2081", M_II:"M\u2082", M_III:"M\u2083", M_IV:"M\u2084", M_V:"M\u2085", N:"N"};
+            const svgNS = "http://www.w3.org/2000/svg";
+
+            let relevantLevelKeys = new Set();
+            const fromKey = transition.from.replace(" ", "_"); 
+            const toKey = transition.to.replace(" ", "_");   
+
+            relevantLevelKeys.add(fromKey);
+            relevantLevelKeys.add(toKey);
+
+            if (toKey === "K") { 
+                relevantLevelKeys.add("L_I"); relevantLevelKeys.add("L_II"); relevantLevelKeys.add("L_III");
+                if (fromKey.startsWith("M")) { relevantLevelKeys.add("M_I"); relevantLevelKeys.add("M_II"); relevantLevelKeys.add("M_III"); relevantLevelKeys.add("M_IV"); relevantLevelKeys.add("M_V");}
+            } else if (fromKey.startsWith("M") && toKey.startsWith("L")) { 
+                relevantLevelKeys.add("L_I"); relevantLevelKeys.add("L_II"); relevantLevelKeys.add("L_III");
+                relevantLevelKeys.add("M_I"); relevantLevelKeys.add("M_II"); relevantLevelKeys.add("M_III"); relevantLevelKeys.add("M_IV"); relevantLevelKeys.add("M_V");
+                relevantLevelKeys.add("K"); 
+            }
+            Object.keys(levelsY).forEach(k => { if(Math.random() < 0.3) relevantLevelKeys.add(k);});
+
+
+            const sortedKeys = Object.keys(levelsY).filter(k => relevantLevelKeys.has(k)).sort((a,b) => levelsY[b] - levelsY[a]); 
+
+            sortedKeys.forEach(key => {
+                const yPos = levelsY[key];
+                const line = document.createElementNS(svgNS, "line");
+                line.setAttribute("x1", "40"); line.setAttribute("y1", yPos.toString());
+                line.setAttribute("x2", "110"); line.setAttribute("y2", yPos.toString());
+                line.setAttribute("stroke", "#333"); line.setAttribute("stroke-width", "1.5");
+                transitionSvg.appendChild(line);
+
+                const text = document.createElementNS(svgNS, "text");
+                text.setAttribute("x", "15"); text.setAttribute("y", (yPos + 4).toString());
+                text.setAttribute("font-size", "12px"); text.setAttribute("fill", "#111");
+                text.textContent = levelLabels[key] || key;
+                transitionSvg.appendChild(text);
+            });
+
+            let y_from = levelsY[fromKey];
+            let y_to = levelsY[toKey];
+
+            if (y_from !== undefined && y_to !== undefined) {
+                const arrow = document.createElementNS(svgNS, "line");
+                arrow.setAttribute("x1", "75"); arrow.setAttribute("y1", y_from.toString());
+                arrow.setAttribute("x2", "75"); arrow.setAttribute("y2", y_to.toString());
+                arrow.setAttribute("stroke", "#c0392b"); arrow.setAttribute("stroke-width", "2");
+                arrow.setAttribute("marker-end", "url(#arrowhead)");
+                transitionSvg.appendChild(arrow);
+            }
+
+            const defs = transitionSvg.querySelector("defs") || document.createElementNS(svgNS, "defs");
+            if (!defs.querySelector("#arrowhead")) { 
+                const marker = document.createElementNS(svgNS, "marker");
+                marker.setAttribute("id", "arrowhead"); marker.setAttribute("markerWidth", "8"); marker.setAttribute("markerHeight", "6");
+                marker.setAttribute("refX", "0"); marker.setAttribute("refY", "3"); marker.setAttribute("orient", "auto");
+                const polygon = document.createElementNS(svgNS, "polygon");
+                polygon.setAttribute("points", "0 0, 8 3, 0 6"); polygon.setAttribute("fill", "#c0392b");
+                marker.appendChild(polygon); defs.appendChild(marker);
+                if (!transitionSvg.querySelector("defs")) transitionSvg.insertBefore(defs, transitionSvg.firstChild); 
+            }
+
+            transitionInsertDiv.querySelector('h4').textContent = `Transition: ${lineName} (${transition.from.replace("_", " ")} → ${transition.to.replace("_", " ")})`;
+            transitionInsertDiv.style.display = 'block';
+        }
+
+
+        canvas.addEventListener('click', function(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x_click_canvas = event.clientX - rect.left;
+            const y_click_canvas = event.clientY - rect.top;
+
+            const padding = 70;
+            const plotWidth = canvas.width - 2 * padding;
+
+            const userDisplayRangeOnClick = getDisplayLambdaRange();
+            let current_display_min_A_onclick = userDisplayRangeOnClick.userMin !== null ? userDisplayRangeOnClick.userMin : 0;
+            let current_display_max_A_onclick;
+
+            if (userDisplayRangeOnClick.userMax !== null && userDisplayRangeOnClick.userMax > current_display_min_A_onclick) {
+                current_display_max_A_onclick = userDisplayRangeOnClick.userMax;
+            } else {
+                let dynamic_max_lambda_for_click = 0;
+                const tempCurrentCalcClick = calculateSpectrumData(currentSpectrumParams);
+                dynamic_max_lambda_for_click = Math.max(dynamic_max_lambda_for_click, tempCurrentCalcClick.lambda_max_data_calculated_A);
+                superposedSpectra.forEach(sp => {
+                    const tempSpCalcClick = calculateSpectrumData(sp);
+                    dynamic_max_lambda_for_click = Math.max(dynamic_max_lambda_for_click, tempSpCalcClick.lambda_max_data_calculated_A);
+                });
+                 if (dynamic_max_lambda_for_click === 0) dynamic_max_lambda_for_click = tempCurrentCalcClick.lambda_max_data_calculated_A || energyToWavelength_A(1.5);
+
+                current_display_max_A_onclick = dynamic_max_lambda_for_click;
+                 if (userDisplayRangeOnClick.userMin !== null) { 
+                     current_display_max_A_onclick = Math.max(current_display_max_A_onclick, userDisplayRangeOnClick.userMin + 0.01); 
+                }
+            }
+             if (current_display_max_A_onclick <= current_display_min_A_onclick) current_display_max_A_onclick = current_display_min_A_onclick + 1.0; 
+
+
+            if (x_click_canvas < padding || x_click_canvas > canvas.width - padding ||
+                y_click_canvas < padding || y_click_canvas > canvas.height - padding) {
+                transitionInsertDiv.style.display = 'none';
+                return;
+            }
+
+            const x_range_onclick = current_display_max_A_onclick - current_display_min_A_onclick;
+            if (x_range_onclick <= 0) { 
+                 transitionInsertDiv.style.display = 'none';
+                 return;
+            }
+            const clicked_lambda_A = current_display_min_A_onclick + ((x_click_canvas - padding) / plotWidth) * x_range_onclick;
+
+            let lineFound = false;
+            if(canvas.characteristicLines) {
+                for (const line of canvas.characteristicLines) {
+                    const clickTolerance = (line.name.startsWith("L")) ? 0.015 : 0.005; 
+                    if (Math.abs(clicked_lambda_A - line.lambda) < clickTolerance) {
+                        drawTransitionDiagram(line.name, line.transition);
+                        transitionInsertDiv.style.left = (event.pageX + 15) + 'px';
+                        transitionInsertDiv.style.top = (event.pageY - transitionInsertDiv.offsetHeight / 2) + 'px';
+                        lineFound = true;
+                        break;
+                    }
+                }
+            }
+            if (!lineFound) transitionInsertDiv.style.display = 'none';
+        });
+
+        // --- Event Listeners & Initial Draw ---
+        elementSelect.addEventListener('change', () => { updateCurrentSpectrumParams(); drawSpectra(); transitionInsertDiv.style.display = 'none'; });
+        voltageSlider.addEventListener('input', () => { voltageValueSpan.textContent = parseFloat(voltageSlider.value).toFixed(1); updateCurrentSpectrumParams(); drawSpectra(); transitionInsertDiv.style.display = 'none'; });
+        currentSlider.addEventListener('input', () => { currentValueSpan.textContent = currentSlider.value; updateCurrentSpectrumParams(); drawSpectra(); transitionInsertDiv.style.display = 'none'; });
+        lambdaMinUserInput.addEventListener('input', () => { drawSpectra(); transitionInsertDiv.style.display = 'none'; });
+        lambdaMaxUserInput.addEventListener('input', () => { drawSpectra(); transitionInsertDiv.style.display = 'none'; });
+
+
+        addSpectrumButton.addEventListener('click', () => {
+            const newSuperposed = JSON.parse(JSON.stringify(currentSpectrumParams));
+            newSuperposed.isSuperposed = true;
+            newSuperposed.superposedColor = superposedColors[superposedSpectra.length % superposedColors.length];
+            superposedSpectra.push(newSuperposed);
+            drawSpectra();
+        });
+
+        clearSuperposedButton.addEventListener('click', () => {
+            superposedSpectra = [];
+            drawSpectra();
+            transitionInsertDiv.style.display = 'none';
+        });
+
+        updateCurrentSpectrumParams();
+        drawSpectra();
+
+    </script>
+</body>
+</html>

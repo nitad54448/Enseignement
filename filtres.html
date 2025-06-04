@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absorption et filtres RX</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 15px; background-color: #eef1f5; color: #333; }
+        .main-container { display: flex; flex-direction: column; gap: 20px; }
+        .panel { background-color: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
+        h2 { margin-top: 0; font-size: 1.2em; }
+        .controls-main { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;}
+        .control-group { display: flex; flex-direction: column; min-width: 150px; flex-grow: 1; }
+        label { margin-bottom: 8px; font-weight: 600; color: #495057; font-size: 0.9em;}
+        select, input[type="range"], input[type="number"] {
+            padding: 9px; border-radius: 5px; border: 1px solid #ced4da; margin-bottom: 5px; font-size: 0.9em; box-sizing: border-box; width: 100%;
+        }
+        input[type="range"] { width: calc(100% - 0px); padding: 0; margin-top: 5px; margin-bottom: 8px;}
+        .canvas-container { margin-bottom: 10px; }
+        canvas { border: 1px solid #ced4da; border-radius: 5px; background-color: #fff; width: 100%; height: auto; }
+        .legend { margin-top: 10px; padding-left: 5px; font-size: 0.85em; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+        .legend-color { width: 18px; height: 10px; margin-right: 8px; border: 1px solid #ccc; }
+        .separator { width: 100%; height:1px; background-color: #dee2e6; margin: 15px 0; }
+        footer { text-align: center; font-size: 0.8em; color: #555; margin-top: 25px; padding: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <h1>Absorption et filtres RX</h1>
+
+        <div class="panel controls-main">
+            <div class="control-group">
+                <label for="anodeElementSelect">Anode (Source RX) :</label>
+                <select id="anodeElementSelect"></select>
+            </div>
+            <div class="control-group">
+                <label for="voltageSlider">Tension (kV): <span id="voltageValue">35.0</span> kV</label>
+                <input type="range" id="voltageSlider" min="5" max="50" value="35" step="0.1">
+            </div>
+            <div class="control-group">
+                <label for="currentSlider">Courant (mA): <span id="currentValue">30</span> mA</label>
+                <input type="range" id="currentSlider" min="1" max="50" value="30" step="1">
+            </div>
+
+            <div class="separator"></div>
+
+            <div class="control-group">
+                <label for="filterElementSelect">Élément du Filtre :</label>
+                <select id="filterElementSelect"></select>
+            </div>
+            <div class="control-group">
+                <label for="thicknessSlider">Épaisseur Filtre (µm): <span id="thicknessValue">10</span> µm</label>
+                <input type="range" id="thicknessSlider" min="1" max="200" value="10" step="1">
+            </div>
+            <div class="control-group">
+                <label for="muRhoScaleSelect">Échelle μ/ρ (Filtre):</label>
+                <select id="muRhoScaleSelect">
+                    <option value="linear" selected>Linéaire</option>
+                    <option value="log">Logarithmique</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="lambdaMinUser">X Min (Å):</label>
+                <input type="number" id="lambdaMinUser" step="0.01" min="0" placeholder="Auto (0)">
+            </div>
+            <div class="control-group">
+                <label for="lambdaMaxUser">X Max (Å):</label>
+                <input type="number" id="lambdaMaxUser" step="0.01" min="0.1" placeholder="Auto">
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Spectre d'Émission et Coefficient d'Absorption du Filtre</h2>
+            <div class="canvas-container">
+                <canvas id="spectrumCanvasEmission" width="900" height="450"></canvas>
+            </div>
+            <div id="legendEmission" class="legend"></div>
+        </div>
+
+        <div class="panel">
+            <h2>Spectre d'Émission après Filtrage</h2>
+            <div class="canvas-container">
+                <canvas id="spectrumCanvasFiltered" width="900" height="450"></canvas>
+            </div>
+            <div id="legendFiltered" class="legend"></div>
+        </div>
+    </div>
+    <footer>
+        <p>NitaD, Univ Paris-Saclay, version 04 juin 2025</p>
+    </footer>
+
+    <script>
+        // --- Constants & Configuration ---
+        const H_PLANCK = 6.62607015e-34; 
+        const C_LIGHT = 2.99792458e8;   
+        const E_CHARGE = 1.602176634e-19; 
+        const HC_KEV_A = (H_PLANCK * C_LIGHT / E_CHARGE) * 1e7; 
+
+        const CHAR_LINE_INTENSITY_SCALAR = 45; 
+        const L_LINE_INTENSITY_FACTOR = 0.05;  
+        const AXIS_FONT = "11px 'Segoe UI', Tahoma, sans-serif";
+        const TITLE_FONT = "13px 'Segoe UI', Tahoma, sans-serif";
+        const MU_RHO_PLOT_COLOR = "#008080"; 
+        const MIN_MU_RHO_LOG_SCALE = 0.01; // Lowered minimum for log scale display flexibility
+
+        // MODIFICATION: Corrected mu_K3_L values to be generally smaller than mu_K2
+        const elementData = { 
+            "Sc": { Z: 21, Ka1_energy: 4.0906, Ka2_energy: 4.0861, Kb_energy: 4.4605, K_edge: 4.492, La1_energy: 0.395, L_III_edge: 0.402, L_II_edge: 0.407, color: "#8c564b", density: 2.99, mu_K1: 180, mu_K2: 20, mu_K3_L: 5 },
+            "Ti": { Z: 22, Ka1_energy: 4.5108, Ka2_energy: 4.5049, Kb_energy: 4.9318, K_edge: 4.966, La1_energy: 0.452, L_III_edge: 0.456, L_II_edge: 0.462, color: "#e377c2", density: 4.51, mu_K1: 140, mu_K2: 15, mu_K3_L: 3.75 },
+            "V":  { Z: 23, Ka1_energy: 4.9522, Ka2_energy: 4.9447, Kb_energy: 5.4273, K_edge: 5.465, La1_energy: 0.511, L_III_edge: 0.513, L_II_edge: 0.520, color: "#7f7f7f", density: 6.11, mu_K1: 110, mu_K2: 12, mu_K3_L: 3 },
+            "Cr": { Z: 24, Ka1_energy: 5.4147, Ka2_energy: 5.4055, Kb_energy: 5.9467, K_edge: 5.989, La1_energy: 0.573, L_III_edge: 0.575, L_II_edge: 0.584, color: "#bcbd22", density: 7.19, mu_K1: 85, mu_K2: 9, mu_K3_L: 2.25 },
+            "Mn": { Z: 25, Ka1_energy: 5.8987, Ka2_energy: 5.8876, Kb_energy: 6.4904, K_edge: 6.539, La1_energy: 0.637, L_III_edge: 0.639, L_II_edge: 0.651, color: "#1f77b4", density: 7.43, mu_K1: 70, mu_K2: 7.5, mu_K3_L: 1.8 },
+            "Fe": { Z: 26, Ka1_energy: 6.4038, Ka2_energy: 6.3908, Kb_energy: 7.0580, K_edge: 7.112, La1_energy: 0.705, L_III_edge: 0.708, L_II_edge: 0.721, color: "#17becf", density: 7.87, mu_K1: 55, mu_K2: 6, mu_K3_L: 1.5 },
+            "Co": { Z: 27, Ka1_energy: 6.9303, Ka2_energy: 6.9153, Kb_energy: 7.6494, K_edge: 7.709, La1_energy: 0.776, L_III_edge: 0.778, L_II_edge: 0.793, color: "#ff7f0e", density: 8.90, mu_K1: 45, mu_K2: 5, mu_K3_L: 1.25 },
+            "Ni": { Z: 28, Ka1_energy: 7.4782, Ka2_energy: 7.4609, Kb_energy: 8.2647, K_edge: 8.333, La1_energy: 0.852, L_III_edge: 0.855, L_II_edge: 0.872, color: "#2ca02c", density: 8.91, mu_K1: 38, mu_K2: 4, mu_K3_L: 1 },
+            "Cu": { Z: 29, Ka1_energy: 8.0478, Ka2_energy: 8.0278, Kb_energy: 8.9053, K_edge: 8.979, La1_energy: 0.930, L_III_edge: 0.933, L_II_edge: 0.952, color: "#d62728", density: 8.96, mu_K1: 32, mu_K2: 3.5, mu_K3_L: 0.8 },
+            "Zn": { Z: 30, Ka1_energy: 8.6389, Ka2_energy: 8.6158, Kb_energy: 9.5720, K_edge: 9.659, La1_energy: 1.012, L_III_edge: 1.022, L_II_edge: 1.045, color: "#9467bd", density: 7.14, mu_K1: 27, mu_K2: 3, mu_K3_L: 0.75 }
+        };
+
+        const anodeElementSelect = document.getElementById('anodeElementSelect');
+        const voltageSlider = document.getElementById('voltageSlider');
+        const voltageValueSpan = document.getElementById('voltageValue');
+        const currentSlider = document.getElementById('currentSlider');
+        const currentValueSpan = document.getElementById('currentValue');
+        const filterElementSelect = document.getElementById('filterElementSelect');
+        const thicknessSlider = document.getElementById('thicknessSlider');
+        const thicknessValueSpan = document.getElementById('thicknessValue');
+        const muRhoScaleSelect = document.getElementById('muRhoScaleSelect');
+        const lambdaMinUserInput = document.getElementById('lambdaMinUser');
+        const lambdaMaxUserInput = document.getElementById('lambdaMaxUser');
+
+        const canvasEmission = document.getElementById('spectrumCanvasEmission');
+        const ctxEmission = canvasEmission.getContext('2d');
+        const legendEmissionDiv = document.getElementById('legendEmission');
+
+        const canvasFiltered = document.getElementById('spectrumCanvasFiltered');
+        const ctxFiltered = canvasFiltered.getContext('2d');
+        const legendFilteredDiv = document.getElementById('legendFiltered');
+        
+        Object.keys(elementData).forEach(key => {
+            const optionAnode = new Option(`${key} (Z=${elementData[key].Z})`, key);
+            const optionFilter = new Option(`${key} (Z=${elementData[key].Z})`, key);
+            anodeElementSelect.add(optionAnode);
+            filterElementSelect.add(optionFilter);
+        });
+        anodeElementSelect.value = "Cu";
+        filterElementSelect.value = "Ni"; 
+
+        function energyToWavelength_A(energy_keV) {
+            if (energy_keV <= 0) return Infinity;
+            return HC_KEV_A / energy_keV;
+        }
+
+        function wavelengthToEnergy_keV(lambda_A) {
+            if (lambda_A <= 1e-6) return Infinity; 
+            return HC_KEV_A / lambda_A;
+        }
+
+        function gaussianPeak(x_lambda, mean_lambda, intensity_factor, sigma_A = 0.005) {
+            const exponent = -Math.pow(x_lambda - mean_lambda, 2) / (2 * Math.pow(sigma_A, 2));
+            return intensity_factor * Math.exp(exponent);
+        }
+
+        function calculateEmissionSpectrumData(anodeParams, voltage_kV, current_mA, lambda_max_calc_A) {
+            const Z = anodeParams.Z;
+            const lambda_min_A = energyToWavelength_A(voltage_kV);
+            const num_points_emission = canvasEmission.width * 10; 
+            const spectrumPoints = [];
+            let max_intensity = 0;
+
+            for (let i = 0; i < num_points_emission; i++) {
+                const lambda_A = (i / (num_points_emission - 1)) * lambda_max_calc_A;
+                if (lambda_A < 1e-4) { 
+                     spectrumPoints.push({ lambda: lambda_A, intensity: 0}); continue;
+                }
+
+                let intensity_brems = 0;
+                if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity) {
+                    intensity_brems = current_mA * Z * ((1 / lambda_min_A) - (1 / lambda_A)) / (lambda_A * lambda_A * lambda_min_A);
+                    intensity_brems = Math.max(0, intensity_brems);
+                }
+
+                let intensity_lines = 0;
+                const line_current_factor = current_mA / 10.0;
+
+                if (voltage_kV > anodeParams.K_edge) {
+                    const overvoltage_K = Math.pow(Math.max(0, voltage_kV - anodeParams.K_edge), 1.65);
+                    const base_K_intensity = line_current_factor * overvoltage_K * CHAR_LINE_INTENSITY_SCALAR;
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Ka1_energy), base_K_intensity * 2.0, 0.0005);
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Ka2_energy), base_K_intensity * 1.0, 0.0005);
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Kb_energy), base_K_intensity * 0.5, 0.0007);
+                }
+                if (anodeParams.La1_energy && voltage_kV > anodeParams.L_III_edge) {
+                    const overvoltage_L = Math.pow(Math.max(0, voltage_kV - anodeParams.L_III_edge), 1.65);
+                    const base_L_intensity = line_current_factor * overvoltage_L * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.La1_energy), base_L_intensity, 0.010);
+                }
+                
+                const total_intensity = intensity_brems + intensity_lines;
+                spectrumPoints.push({ lambda: lambda_A, intensity: total_intensity });
+                if (total_intensity > max_intensity) max_intensity = total_intensity;
+            }
+            return { points: spectrumPoints, max_intensity: max_intensity, lambda_min_emission_A: lambda_min_A };
+        }
+        
+        function getMassAttenuationCoefficient_cm2_g(energy_keV, filterData) {
+            if (energy_keV <= 1e-3) return Infinity; 
+            const lambda_A = energyToWavelength_A(energy_keV);
+            if (lambda_A === Infinity) return 0; 
+            
+            let mu_coeff;
+            if (energy_keV > filterData.K_edge) mu_coeff = filterData.mu_K1;
+            else if (energy_keV > filterData.L_III_edge) mu_coeff = filterData.mu_K2;
+            else mu_coeff = filterData.mu_K3_L; 
+            
+            return mu_coeff * Math.pow(lambda_A, 2.8);
+        }
+        
+        function calculateMuRhoProfileData(filterElementParams, displayRange) {
+            const muRhoPoints = [];
+            let max_mu_rho = 0;
+            let min_mu_rho_finite = Infinity;
+            const num_points_profile = canvasEmission.width;
+
+            for (let i = 0; i < num_points_profile; i++) {
+                const lambda_A = displayRange.min_A + (i / (num_points_profile - 1)) * (displayRange.max_A - displayRange.min_A);
+                if (lambda_A < 1e-4) {
+                    muRhoPoints.push({ lambda: lambda_A, mu_rho: 0}); 
+                    continue;
+                }
+                const energy_keV = wavelengthToEnergy_keV(lambda_A);
+                const mu_rho_val = getMassAttenuationCoefficient_cm2_g(energy_keV, filterElementParams);
+                
+                muRhoPoints.push({ lambda: lambda_A, mu_rho: mu_rho_val });
+                if (isFinite(mu_rho_val)) {
+                    if (mu_rho_val > max_mu_rho) max_mu_rho = mu_rho_val;
+                    if (mu_rho_val > 0 && mu_rho_val < min_mu_rho_finite) min_mu_rho_finite = mu_rho_val;
+                }
+            }
+            if (max_mu_rho === 0 && muRhoPoints.some(p => isFinite(p.mu_rho) && p.mu_rho > 0)) {
+                 max_mu_rho = muRhoPoints.filter(p=>isFinite(p.mu_rho)).reduce((max, p) => Math.max(max, p.mu_rho), 0);
+            }
+            if (max_mu_rho === 0) max_mu_rho = 1; // Avoid issues if all zero
+            if (min_mu_rho_finite === Infinity || min_mu_rho_finite <=0) min_mu_rho_finite = MIN_MU_RHO_LOG_SCALE;
+
+
+            return { points: muRhoPoints, max_mu_rho: max_mu_rho, min_mu_rho_finite: min_mu_rho_finite };
+        }
+
+
+        function calculateFilteredSpectrumData(emissionSpectrum, filterData, thickness_um) {
+            const filteredPoints = [];
+            let max_intensity = 0;
+            const thickness_cm = thickness_um / 1e4; 
+
+            emissionSpectrum.points.forEach(p => {
+                if (p.lambda <= 1e-4) { 
+                    filteredPoints.push({ lambda: p.lambda, intensity: 0 }); return;
+                }
+                const I0 = p.intensity;
+                const energy_keV = wavelengthToEnergy_keV(p.lambda);
+                
+                const mu_rho_cm2_g = getMassAttenuationCoefficient_cm2_g(energy_keV, filterData);
+                const density_g_cm3 = filterData.density;
+                
+                let Ifiltered = I0;
+                if (isFinite(mu_rho_cm2_g) && density_g_cm3 > 0 && thickness_cm > 0) {
+                    const exponent = -mu_rho_cm2_g * density_g_cm3 * thickness_cm;
+                    Ifiltered = I0 * Math.exp(exponent);
+                } else if (!isFinite(mu_rho_cm2_g)) { 
+                    Ifiltered = 0;
+                }
+
+                filteredPoints.push({ lambda: p.lambda, intensity: Math.max(0, Ifiltered) });
+                if (Ifiltered > max_intensity) max_intensity = Ifiltered;
+            });
+            return { points: filteredPoints, max_intensity: max_intensity };
+        }
+        
+        function getDisplayLambdaRange(anodeElementParamsFromControls, voltageFromControls) {
+            let userMin = parseFloat(lambdaMinUserInput.value);
+            let userMax = parseFloat(lambdaMaxUserInput.value);
+            let finalMin = 0;
+            let finalMax = 2.5; 
+
+            const anode = anodeElementParamsFromControls; 
+            const currentVoltage = voltageFromControls;
+            let auto_max_candidate = 0;
+
+            if (currentVoltage > anode.K_edge) { 
+                auto_max_candidate = Math.max(auto_max_candidate, energyToWavelength_A(anode.Kb_energy) * 1.6);
+                if (anode.La1_energy && currentVoltage > anode.L_III_edge) {
+                    auto_max_candidate = Math.max(auto_max_candidate, energyToWavelength_A(anode.La1_energy) * 1.3);
+                }
+            } else if (anode.La1_energy && currentVoltage > anode.L_III_edge) { 
+                 auto_max_candidate = Math.max(auto_max_candidate, energyToWavelength_A(anode.La1_energy) * 1.8);
+            }
+            auto_max_candidate = Math.max(auto_max_candidate, energyToWavelength_A(currentVoltage / 6)); 
+            
+            finalMax = auto_max_candidate;
+            finalMax = Math.min(Math.max(finalMax, 1.0), 35.0); 
+
+            if (isFinite(userMin) && userMin >= 0) finalMin = userMin;
+            if (isFinite(userMax) && userMax > finalMin) finalMax = userMax;
+            
+            if (finalMax <= finalMin + 0.01) finalMax = finalMin + 1.0;
+
+            return { min_A: finalMin, max_A: finalMax };
+        }
+
+        function drawPanel1Spectra(canvas, ctx, legendDiv, emissionSpectrumData, muRhoProfileData, filterElementParams, displayRange, muRhoScaleType) { 
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const p = { left: 70, right: 80, top: 50, bottom: 50 }; 
+            const plotWidth = canvas.width - p.left - p.right;
+            const plotHeight = canvas.height - p.top - p.bottom;
+
+            ctx.beginPath(); ctx.rect(p.left, p.top, plotWidth, plotHeight);
+            ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.stroke();
+
+            const x_range_lambda = displayRange.max_A - displayRange.min_A;
+            ctx.font = AXIS_FONT; ctx.fillStyle = "#333";
+            const num_x_ticks = Math.min(8, Math.floor(x_range_lambda / Math.max(0.1, x_range_lambda / 10)));
+            ctx.textAlign = "center";
+            for (let i = 0; i <= num_x_ticks; i++) {
+                const lambda_val = displayRange.min_A + (i / num_x_ticks) * x_range_lambda;
+                const x = p.left + ((lambda_val - displayRange.min_A) / x_range_lambda) * plotWidth;
+                if (x >= p.left -1 && x <= p.left + plotWidth + 1) {
+                    ctx.moveTo(x, p.top + plotHeight); ctx.lineTo(x, p.top + plotHeight + 5); ctx.stroke();
+                    let prec = (x_range_lambda < 0.2) ? 3 : (x_range_lambda < 2) ? 2 : (x_range_lambda < 10) ? 1 : 0;
+                    ctx.fillText(lambda_val.toFixed(prec), x, p.top + plotHeight + 18);
+                }
+            }
+            ctx.font = TITLE_FONT;
+            ctx.fillText("Longueur d'onde (Å)", p.left + plotWidth / 2, p.top + plotHeight + p.bottom / 1.5 + 5);
+            
+            ctx.font = AXIS_FONT;
+            const relevantEnergiesKeV = [1,2,3,4,5,7,10,15,20,25,30,35,40,50];
+             relevantEnergiesKeV.forEach(keV => {
+                if (keV <= wavelengthToEnergy_keV(displayRange.min_A) && keV >= wavelengthToEnergy_keV(displayRange.max_A)) {
+                    const lambda_for_keV = energyToWavelength_A(keV);
+                    const x = p.left + ((lambda_for_keV - displayRange.min_A) / x_range_lambda) * plotWidth;
+                     if (x >= p.left && x <= p.left + plotWidth) {
+                        ctx.moveTo(x, p.top); ctx.lineTo(x, p.top - 5); ctx.stroke();
+                        ctx.fillText(keV.toFixed(0), x, p.top - 10);
+                    }
+                }
+            });
+            if (relevantEnergiesKeV.some(keV => keV <= wavelengthToEnergy_keV(displayRange.min_A) && keV >= wavelengthToEnergy_keV(displayRange.max_A))) {
+                 ctx.font = TITLE_FONT;
+                 ctx.fillText("Énergie (keV)", p.left + plotWidth / 2, p.top / 2);
+            }
+
+            const max_I = emissionSpectrumData.max_intensity === 0 ? 1 : emissionSpectrumData.max_intensity;
+            ctx.textAlign = "right"; ctx.font = AXIS_FONT;
+            for (let i = 0; i <= 5; i++) {
+                const val = (i / 5) * max_I;
+                const y = p.top + plotHeight - (val / max_I) * plotHeight;
+                ctx.moveTo(p.left, y); ctx.lineTo(p.left - 5, y); ctx.stroke();
+                ctx.fillText(val.toExponential(1), p.left - 10, y + 4);
+            }
+            ctx.save(); ctx.translate(p.left / 3 - 5 , p.top + plotHeight / 2); ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = "center"; ctx.font = TITLE_FONT;
+            ctx.fillText("Intensité Émission (u.a.)", 0, 0); ctx.restore();
+
+            let max_mu_rho_to_consider_for_scale = muRhoProfileData.max_mu_rho;
+            const lambda_threshold_for_mu_clipping = Math.max(4.0, energyToWavelength_A(filterElementParams.L_III_edge * 0.3));
+            let practical_max_mu_rho = 0;
+             muRhoProfileData.points.forEach(pt => { // Find max mu/rho in the "shorter lambda" region
+                if (pt.lambda >= displayRange.min_A && pt.lambda <= Math.min(displayRange.max_A, lambda_threshold_for_mu_clipping) && isFinite(pt.mu_rho)) {
+                    practical_max_mu_rho = Math.max(practical_max_mu_rho, pt.mu_rho);
+                }
+            });
+            if (practical_max_mu_rho === 0) practical_max_mu_rho = muRhoProfileData.max_mu_rho; // Fallback if no points in primary region or all zero
+
+            max_mu_rho_to_consider_for_scale = practical_max_mu_rho > 0 ? practical_max_mu_rho * 1.05 : (muRhoProfileData.max_mu_rho > 0 ? muRhoProfileData.max_mu_rho *1.05 : 1) ;
+            if (max_mu_rho_to_consider_for_scale === 0) max_mu_rho_to_consider_for_scale = 1;
+            
+            ctx.textAlign = "left"; ctx.font = AXIS_FONT;
+            let yAxisTitleMuRho = "μ/ρ Filtre (cm²/g)";
+
+            if (muRhoScaleType === 'log') {
+                yAxisTitleMuRho = "log(μ/ρ Filtre) (cm²/g)";
+                const min_log_val = Math.max(MIN_MU_RHO_LOG_SCALE, muRhoProfileData.min_mu_rho_finite);
+                // Adjust max_log_val to use the more focused max_mu_rho_to_consider_for_scale
+                const max_log_val_candidate = max_mu_rho_to_consider_for_scale;
+                const max_log_val = Math.max(min_log_val * 10, max_log_val_candidate); 
+
+                const log_min_display = Math.log10(min_log_val);
+                const log_max_display = Math.log10(max_log_val);
+            
+                const startPower = Math.floor(log_min_display);
+                const endPower = Math.ceil(log_max_display);
+
+                for (let power = startPower; power <= endPower; power++) {
+                    const val = Math.pow(10, power);
+                    if (val < min_log_val * 0.9 && power < endPower) continue; 
+                    if (val > max_log_val * 1.1 && power > startPower ) continue; 
+
+                    const log_val = Math.log10(val);
+                    if (log_max_display - log_min_display > 1e-6) { 
+                        const y_norm = (log_val - log_min_display) / (log_max_display - log_min_display);
+                        if (y_norm >=0 && y_norm <=1) {
+                           const y = p.top + plotHeight - y_norm * plotHeight;
+                           ctx.moveTo(p.left + plotWidth, y); ctx.lineTo(p.left + plotWidth + 5, y); ctx.stroke();
+                           ctx.fillText(val.toExponential(0), p.left + plotWidth + 10, y + 4); // Exponential for log ticks
+                        }
+                    } else if (Math.abs(log_val - log_min_display) < 1e-6) { 
+                        const y = p.top + plotHeight / 2;
+                        ctx.moveTo(p.left + plotWidth, y); ctx.lineTo(p.left + plotWidth + 5, y); ctx.stroke();
+                        ctx.fillText(val.toExponential(0), p.left + plotWidth + 10, y + 4);
+                    }
+                }
+            } else { // Linear Scale for mu/rho
+                yAxisTitleMuRho = "μ/ρ Filtre (cm²/g)";
+                const num_y_ticks_mu = 5;
+                for (let i = 0; i <= num_y_ticks_mu; i++) {
+                    const val = (i / num_y_ticks_mu) * max_mu_rho_to_consider_for_scale;
+                    const y = p.top + plotHeight - (val / max_mu_rho_to_consider_for_scale) * plotHeight;
+                    ctx.moveTo(p.left + plotWidth, y); ctx.lineTo(p.left + plotWidth + 5, y); ctx.stroke();
+                    // MODIFICATION: Use toExponential for linear scale ticks
+                    ctx.fillText(val.toExponential(1), p.left + plotWidth + 10, y + 4);
+                }
+            }
+            ctx.save(); ctx.translate(p.left + plotWidth + p.right / 1.5 + 10, p.top + plotHeight / 2);ctx.rotate(Math.PI / 2);
+            ctx.textAlign = "center"; ctx.font = TITLE_FONT;
+            ctx.fillText(yAxisTitleMuRho, 0, 0); ctx.restore();
+
+            ctx.beginPath();
+            let firstEmissionPoint = true;
+            emissionSpectrumData.points.forEach(pt => {
+                if (pt.lambda >= displayRange.min_A && pt.lambda <= displayRange.max_A) {
+                    const x = p.left + ((pt.lambda - displayRange.min_A) / x_range_lambda) * plotWidth;
+                    const y_val = pt.intensity / max_I;
+                    const y = p.top + plotHeight - Math.max(0, Math.min(1, y_val)) * plotHeight; 
+                    if (firstEmissionPoint) { ctx.moveTo(x, y); firstEmissionPoint = false; } 
+                    else { ctx.lineTo(x, y); }
+                }
+            });
+            ctx.strokeStyle = elementData[anodeElementSelect.value].color; ctx.lineWidth = 2; 
+            ctx.stroke();
+
+            ctx.beginPath();
+            let firstMuRhoPoint = true;
+            muRhoProfileData.points.forEach(pt => {
+                 if (pt.lambda >= displayRange.min_A && pt.lambda <= displayRange.max_A && isFinite(pt.mu_rho) && pt.mu_rho >= 0) { 
+                    const x = p.left + ((pt.lambda - displayRange.min_A) / x_range_lambda) * plotWidth;
+                    let y_mu_rho_plot_val;
+
+                    if (muRhoScaleType === 'log') {
+                        const min_val_for_log = Math.max(MIN_MU_RHO_LOG_SCALE, muRhoProfileData.min_mu_rho_finite);
+                        const max_val_for_log_scale = Math.max(min_val_for_log * 10, max_mu_rho_to_consider_for_scale);
+                        const log_min_disp = Math.log10(min_val_for_log);
+                        const log_max_disp = Math.log10(max_val_for_log_scale);
+
+                        let current_mu_rho = Math.max(pt.mu_rho, min_val_for_log * 0.1); 
+                         if (current_mu_rho <=0) current_mu_rho = min_val_for_log * 0.1; 
+
+                        let log_mu_val = Math.log10(current_mu_rho);
+                        let y_scaled_log_pos = 0;
+                        if (log_max_disp - log_min_disp > 1e-6) {
+                             y_scaled_log_pos = (log_mu_val - log_min_disp) / (log_max_disp - log_min_disp);
+                        } else if (Math.abs(log_mu_val - log_min_disp) < 1e-6) {
+                            y_scaled_log_pos = 0.5; 
+                        }
+                        y_mu_rho_plot_val = p.top + plotHeight - Math.max(0, Math.min(1, y_scaled_log_pos)) * plotHeight;
+
+                    } else { // Linear scale
+                        const y_val_linear = pt.mu_rho / max_mu_rho_to_consider_for_scale;
+                        y_mu_rho_plot_val = p.top + plotHeight - Math.max(0, Math.min(1, y_val_linear)) * plotHeight;
+                    }
+                    
+                    if (firstMuRhoPoint) { ctx.moveTo(x, y_mu_rho_plot_val); firstMuRhoPoint = false; } 
+                    else { ctx.lineTo(x, y_mu_rho_plot_val); }
+                } else if (!firstMuRhoPoint && (pt.lambda > displayRange.max_A || !isFinite(pt.mu_rho) || pt.mu_rho < 0) ){ 
+                    firstMuRhoPoint = true; 
+                }
+            });
+            ctx.strokeStyle = MU_RHO_PLOT_COLOR; ctx.lineWidth = 1.5; ctx.setLineDash([3,3]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            legendDiv.innerHTML = '';
+            const anodeColor = elementData[anodeElementSelect.value].color;
+            legendDiv.innerHTML += `<div class="legend-item"><div class="legend-color" style="background-color:${anodeColor};"></div>Émission Anode: ${anodeElementSelect.value}</div>`;
+            legendDiv.innerHTML += `<div class="legend-item"><div class="legend-color" style="background-color:${MU_RHO_PLOT_COLOR}; border-style:dashed; border-width:1px;"></div>μ/ρ Filtre: ${filterElementSelect.value} (échelle ${muRhoScaleType === 'log' ? 'log.' : 'lin.'})</div>`;
+        }
+        
+        function drawSimpleSpectrum(canvas, ctx, legendDiv, spectrumData, displayRange, color, label) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const p = { left: 70, right: 80, top: 50, bottom: 50 }; 
+            const plotWidth = canvas.width - p.left - p.right;
+            const plotHeight = canvas.height - p.top - p.bottom;
+
+            ctx.beginPath(); ctx.rect(p.left, p.top, plotWidth, plotHeight);
+            ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.stroke();
+            
+            ctx.fillStyle = "#333"; ctx.textAlign = "center"; ctx.font = TITLE_FONT;
+            ctx.fillText("Longueur d'onde (Å)", p.left + plotWidth / 2, p.top + plotHeight + p.bottom/1.5 + 5);
+            ctx.save(); ctx.translate(p.left / 3 - 5 , p.top + plotHeight / 2); ctx.rotate(-Math.PI / 2);
+            ctx.fillText("Intensité Filtrée (u.a.)", 0, 0); ctx.restore();
+            
+            const x_range_lambda = displayRange.max_A - displayRange.min_A;
+            ctx.font = AXIS_FONT;
+            const num_x_ticks = Math.min(8, Math.floor(x_range_lambda / Math.max(0.1, x_range_lambda / 10)));
+            for (let i = 0; i <= num_x_ticks; i++) {
+                const lambda_val = displayRange.min_A + (i / num_x_ticks) * x_range_lambda;
+                const x = p.left + ((lambda_val - displayRange.min_A) / x_range_lambda) * plotWidth;
+                 if (x >= p.left -1 && x <= p.left + plotWidth + 1) {
+                    ctx.moveTo(x, p.top + plotHeight); ctx.lineTo(x, p.top + plotHeight + 5); ctx.stroke();
+                    let prec = (x_range_lambda < 0.2) ? 3 : (x_range_lambda < 2) ? 2 : (x_range_lambda < 10) ? 1 : 0;
+                    ctx.fillText(lambda_val.toFixed(prec), x, p.top + plotHeight + 18);
+                }
+            }
+            const relevantEnergiesKeV = [1,2,3,4,5,7,10,15,20,25,30,35,40,50];
+             relevantEnergiesKeV.forEach(keV => {
+                if (keV <= wavelengthToEnergy_keV(displayRange.min_A) && keV >= wavelengthToEnergy_keV(displayRange.max_A)) {
+                    const lambda_for_keV = energyToWavelength_A(keV);
+                    const x = p.left + ((lambda_for_keV - displayRange.min_A) / x_range_lambda) * plotWidth;
+                     if (x >= p.left && x <= p.left + plotWidth) {
+                        ctx.moveTo(x, p.top); ctx.lineTo(x, p.top - 5); ctx.stroke();
+                        ctx.fillText(keV.toFixed(0), x, p.top - 10);
+                    }
+                }
+            });
+             if (relevantEnergiesKeV.some(keV => keV <= wavelengthToEnergy_keV(displayRange.min_A) && keV >= wavelengthToEnergy_keV(displayRange.max_A))) {
+                 ctx.font = TITLE_FONT;
+                 ctx.fillText("Énergie (keV)", p.left + plotWidth / 2, p.top / 2);
+            }
+
+            const overall_max_intensity = spectrumData.max_intensity === 0 ? 1 : spectrumData.max_intensity;
+            ctx.textAlign = "right";
+            for (let i = 0; i <= 5; i++) {
+                const intensity_val = (i / 5) * overall_max_intensity;
+                const y = p.top + plotHeight - (intensity_val / overall_max_intensity) * plotHeight;
+                ctx.moveTo(p.left, y); ctx.lineTo(p.left - 5, y); ctx.stroke();
+                ctx.fillText(intensity_val.toExponential(1), p.left - 10, y + 4);
+            }
+
+            ctx.beginPath();
+            let firstPoint = true;
+            spectrumData.points.forEach(pt => {
+                if (pt.lambda >= displayRange.min_A && pt.lambda <= displayRange.max_A) {
+                    const x = p.left + ((pt.lambda - displayRange.min_A) / x_range_lambda) * plotWidth;
+                    const y_val = pt.intensity / overall_max_intensity;
+                    const y = p.top + plotHeight - Math.max(0, Math.min(1, y_val)) * plotHeight; 
+                    if (firstPoint) { ctx.moveTo(x, y); firstPoint = false; } 
+                    else { ctx.lineTo(x, y); }
+                }
+            });
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+            
+            legendDiv.innerHTML = '';
+            legendDiv.innerHTML = `<div class="legend-item"><div class="legend-color" style="background-color:${color};"></div>${label}</div>`;
+        }
+
+        function updateSimulation() {
+            const anodeKey = anodeElementSelect.value;
+            const filterKey = filterElementSelect.value;
+            const voltage = parseFloat(voltageSlider.value);
+            const current = parseFloat(currentSlider.value);
+            const thickness = parseFloat(thicknessSlider.value);
+            const muRhoScale = muRhoScaleSelect.value; 
+
+            voltageValueSpan.textContent = voltage.toFixed(1);
+            currentValueSpan.textContent = current;
+            thicknessValueSpan.textContent = thickness;
+
+            const anodeParams = elementData[anodeKey];
+            const filterParams = elementData[filterKey];
+            
+            const displayRange = getDisplayLambdaRange(anodeParams, voltage);
+            const emissionSpectrum = calculateEmissionSpectrumData(anodeParams, voltage, current, displayRange.max_A * 1.1); 
+
+            const muRhoProfile = calculateMuRhoProfileData(filterParams, displayRange);
+            drawPanel1Spectra(canvasEmission, ctxEmission, legendEmissionDiv, emissionSpectrum, muRhoProfile, filterParams, displayRange, muRhoScale);
+
+            const filteredSpectrum = calculateFilteredSpectrumData(emissionSpectrum, filterParams, thickness);
+            drawSimpleSpectrum(canvasFiltered, ctxFiltered, legendFilteredDiv, filteredSpectrum, displayRange, anodeParams.color, `Spectre Filtré (${filterKey}, ${thickness}µm)`);
+        }
+
+        anodeElementSelect.addEventListener('change', updateSimulation);
+        voltageSlider.addEventListener('input', updateSimulation);
+        currentSlider.addEventListener('input', updateSimulation);
+        filterElementSelect.addEventListener('change', updateSimulation);
+        thicknessSlider.addEventListener('input', updateSimulation);
+        muRhoScaleSelect.addEventListener('change', updateSimulation); 
+        lambdaMinUserInput.addEventListener('input', updateSimulation);
+        lambdaMaxUserInput.addEventListener('input', updateSimulation);
+
+        updateSimulation();
+    </script>
+</body>
+</html>

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visualiseur de Diffraction des Rayons X (Maille Orthorhombique)</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; overflow: hidden; display: flex; height: 100vh; }
+        #appContainer { display: flex; width: 100%; height: 100%; }
+        #controlsPanel {
+            width: 400px; 
+            padding: 10px;
+            background-color: #f4f4f4;
+            border-right: 1px solid #ccc;
+            font-size: 0.9em;
+            overflow-y: auto; 
+            height: 100%;
+            box-sizing: border-box;
+            display: flex; 
+            flex-direction: column; 
+        }
+        #controlsContent { 
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        label, input, button, select { margin: 3px 0; vertical-align: middle; display: inline-block; }
+        input[type=number] { width: 60px; padding: 4px; box-sizing: border-box; }
+        input[type=range] { vertical-align: middle; width: 120px; } 
+        select {padding: 4px;}
+
+        #visualizationContainer {
+            flex-grow: 1; 
+            height: 100%;
+            position: relative;
+        }
+        #visualizationCanvas { display: block; }
+        .label { 
+            color: #000; font-family: sans-serif; padding: 2px;
+            background: rgba(255, 255, 255, 0.7); border-radius: 3px; font-size:0.8em;
+        }
+        .info-section { margin-top: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #ddd;}
+        .info-section:last-child { border-bottom: none; padding-bottom: 0;}
+        .hkl-input-group label, .rotation-input-group label, .disorder-group label { display: inline-block; width: auto; margin-bottom: 5px; margin-right:5px;}
+        .hkl-input-group input, .rotation-input-group input { margin-right: 10px; }
+        .block-label {display: block; margin-bottom: 5px; font-weight: bold;}
+        .footer-attribution { 
+            margin-top: auto; 
+            padding-top: 10px; 
+            font-size: 0.8em; 
+            text-align: center; 
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div id="appContainer">
+        <div id="controlsPanel">
+            <div id="controlsContent"> 
+                <strong>Paramètres Maille Orthorhombique :</strong><br>
+                <label for="a">a (Å):</label><input type="number" id="a" value="4.0" step="0.1" min="0.1">
+                <label for="b" style="margin-left:5px;">b (Å):</label><input type="number" id="b" value="5.0" step="0.1" min="0.1">
+                <label for="c" style="margin-left:5px;">c (Å):</label><input type="number" id="c" value="6.0" step="0.1" min="0.1">
+                
+                <div class="info-section">
+                    <span class="block-label">Longueur d'Onde λ (Å) :</span>
+                    <input type="number" id="lambda" value="1.54" step="0.01" min="0.1">
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">Type de Réseau de Bravais (Orthorhombique) :</span>
+                    <select id="bravaisLattice">
+                        <option value="P" selected>Primitif (P)</option>
+                        <option value="C">Base centrée (C)</option>
+                        <option value="I">Centré (I)</option>
+                        <option value="F">Faces centrées (F)</option>
+                    </select>
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">Domaine du Réseau Réciproque (hkl) :</span>
+                    <div class="hkl-input-group">
+                        <label for="h_min">h min:</label><input type="number" id="h_min" value="-2" step="1">
+                        <label for="h_max" style="margin-left:5px;">h max:</label><input type="number" id="h_max" value="2" step="1"><br>
+                        <label for="k_min">k min:</label><input type="number" id="k_min" value="-2" step="1">
+                        <label for="k_max" style="margin-left:5px;">k max:</label><input type="number" id="k_max" value="2" step="1"><br>
+                        <label for="l_min">l min:</label><input type="number" id="l_min" value="-2" step="1">
+                        <label for="l_max" style="margin-left:5px;">l max:</label><input type="number" id="l_max" value="2" step="1">
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">Rotation Cristal/Réseau Réciproque :</span>
+                    <div class="rotation-input-group">
+                        <label for="rotX">Rot X (°):</label><input type="number" id="rotX" value="0" step="1"><br>
+                        <label for="rotY">Rot Y (°):</label><input type="number" id="rotY" value="0" step="1"><br>
+                        <label for="rotZ">Rot Z (°):</label><input type="number" id="rotZ" value="0" step="1">
+                    </div>
+                </div>
+
+                <div class="info-section disorder-group">
+                    <span class="block-label">Niveau de Désordre :</span>
+                    <input type="range" id="disorderSlider" min="0" max="1" step="0.01" value="0">
+                    <span id="disorderValue">0.00</span>
+                </div>
+                
+                <div class="info-section" id="hklInfo" style="font-weight:bold; margin-top:10px; height:auto; min-height:20px;">Point (hkl) cliqué : Aucun</div>
+                
+                <p style="font-size:0.9em; margin-top:10px;">
+                    <b>Légende :</b><br>
+                    Bleu : Points RR permis. Rouge : Points en diffraction.<br>
+                    Vert : Sphère d'Ewald. Flèche Magenta : Vecteur k<sub>i</sub> incident.<br>
+                    Axes RR : a* (X), b* (Y), c* (Z).
+                </p>
+            </div> 
+            <div class="footer-attribution">
+                NitaD, Univ Paris-Saclay, version 04 juin 2025
+            </div>
+        </div>
+        <div id="visualizationContainer"></div>
+    </div>
+
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+
+    <script>
+        // --- Variables Globales ---
+        let scene, camera, renderer, labelRenderer, controls;
+        let ewaldSphereMesh, kIncidentVectorArrow;
+        const reciprocalLatticePointsGroup = new THREE.Group();
+        const reciprocalAxesGroup = new THREE.Group();
+        const axisLabelsGroup = new THREE.Group(); 
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let hklInfoDiv, disorderValueSpan;
+
+        // --- Paramètres de Visualisation Initiaux ---
+        const RR_POINT_BASE_RADIUS = 0.008; // Rayon de base unique pour les points RR
+
+        // Couleurs
+        const defaultPointColor = 0x0077ff; 
+        const intersectingPointColor = 0xff0000; 
+        const ewaldSphereColor = 0x00cc00; 
+        const kVectorColor = 0xff00ff; 
+        // Axes
+        const axisLineRadius = 0.005; 
+        const axisVisLength = 0.75; 
+        // Désordre
+        const disorderRadiusFactor = 1.25; // Contrôle l'augmentation de la taille du point (et donc de la tolérance)
+        const disorderMaxBFactor = 50;   // Contrôle l'atténuation de l'intensité
+        const disorderIntensityThreshold = 0.05;
+
+
+        // --- Initialisation ---
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xdddddd); 
+            hklInfoDiv = document.getElementById('hklInfo');
+            disorderValueSpan = document.getElementById('disorderValue');
+
+
+            const container = document.getElementById('visualizationContainer');
+            camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(1.0, 1.2, 2.5); 
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            labelRenderer = new THREE.CSS2DRenderer();
+            labelRenderer.setSize(container.clientWidth, container.clientHeight);
+            labelRenderer.domElement.style.position = 'absolute';
+            labelRenderer.domElement.style.top = '0px';
+            labelRenderer.domElement.style.pointerEvents = 'none'; 
+            container.appendChild(labelRenderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0x808080); 
+            scene.add(ambientLight);
+            const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight1.position.set(5, 10, 7.5);
+            scene.add(directionalLight1);
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+            directionalLight2.position.set(-5, -5, -2);
+            scene.add(directionalLight2);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+
+            scene.add(reciprocalLatticePointsGroup);
+            scene.add(reciprocalAxesGroup);
+            scene.add(axisLabelsGroup);
+
+            const inputsToWatch = ['a', 'b', 'c', 'lambda', 
+                                 'h_min', 'h_max', 'k_min', 'k_max', 'l_min', 'l_max',
+                                 'rotX', 'rotY', 'rotZ', 'disorderSlider', 'bravaisLattice'];
+            inputsToWatch.forEach(id => {
+                const element = document.getElementById(id);
+                const eventType = (element.type === 'select-one' || element.type === 'range') ? 'change' : 'input';
+                element.addEventListener(eventType, () => {
+                    if (id === 'disorderSlider') {
+                        disorderValueSpan.textContent = parseFloat(element.value).toFixed(2);
+                    }
+                    updateVisualization();
+                });
+            });
+            
+            renderer.domElement.addEventListener('click', onCanvasClick, false);
+            window.addEventListener('resize', onWindowResize, false);
+            
+            disorderValueSpan.textContent = parseFloat(document.getElementById('disorderSlider').value).toFixed(2);
+            updateVisualization();
+            animate();
+        }
+
+        function onCanvasClick(event) {
+            event.preventDefault();
+            const canvasBounds = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1;
+            mouse.y = -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(reciprocalLatticePointsGroup.children, false); 
+
+            if (intersects.length > 0) {
+                const clickedObject = intersects[0].object;
+                if (clickedObject.userData && clickedObject.userData.isReciprocalPoint) {
+                    const h = clickedObject.userData.h;
+                    const k = clickedObject.userData.k;
+                    const l = clickedObject.userData.l;
+
+                    let displayText = `Point (hkl) cliqué : (${h}, ${k}, ${l})`;
+
+                    const currentA = parseFloat(document.getElementById('a').value.replace(',', '.'));
+                    const currentB = parseFloat(document.getElementById('b').value.replace(',', '.'));
+                    const currentC = parseFloat(document.getElementById('c').value.replace(',', '.'));
+                    const currentLambda = parseFloat(document.getElementById('lambda').value.replace(',', '.'));
+                    const currentDisorderLevel = parseFloat(document.getElementById('disorderSlider').value);
+
+                    if (isNaN(currentA) || isNaN(currentB) || isNaN(currentC) || isNaN(currentLambda) ||
+                        currentA <= 0 || currentB <= 0 || currentC <= 0 || currentLambda <= 0) {
+                        hklInfoDiv.textContent = displayText + ", Paramètres réseau/λ invalides pour calcul 2θ.";
+                        return;
+                    }
+                    const currentA_star = 1 / currentA; const currentB_star = 1 / currentB; const currentC_star = 1 / currentC;
+                    
+                    if (!ewaldSphereMesh || !ewaldSphereMesh.geometry) {
+                         hklInfoDiv.textContent = displayText + ", Sphère d'Ewald non définie."; return;
+                    }
+                    const currentEwaldRadius = ewaldSphereMesh.geometry.parameters.radius;
+                    
+                    const currentEffectivePointScaleOnClick = (1 + currentDisorderLevel * disorderRadiusFactor);
+                    const actualPointRadiusOnClick = RR_POINT_BASE_RADIUS * currentEffectivePointScaleOnClick;
+                    const intersectionToleranceOnClick = actualPointRadiusOnClick; 
+
+                    const worldPointPos = new THREE.Vector3();
+                    clickedObject.getWorldPosition(worldPointPos);
+                    const distanceToSphereCenter = worldPointPos.distanceTo(ewaldSphereMesh.position);
+                    const distanceToSurface = Math.abs(distanceToSphereCenter - currentEwaldRadius);
+                    const isIntersecting = distanceToSurface < intersectionToleranceOnClick;
+
+                    if (h === 0 && k === 0 && l === 0) {
+                        displayText += `, Origine (faisceau transmis)`;
+                    } else if (isIntersecting) {
+                        const G_hkl_val = Math.sqrt(
+                            Math.pow(h * currentA_star, 2) + Math.pow(k * currentB_star, 2) + Math.pow(l * c_star, 2)
+                        );
+                        if (currentLambda > 0 && G_hkl_val > 1e-9) {
+                            let sin_theta_val = (currentLambda * G_hkl_val) / 2.0;
+                            if (sin_theta_val > 1.0) sin_theta_val = 1.0; 
+                            else if (sin_theta_val < 0) sin_theta_val = 0; 
+
+                            const two_theta_rad = 2 * Math.asin(sin_theta_val);
+                            const two_theta_deg = two_theta_rad * (180.0 / Math.PI);
+                            displayText += `, 2θ = ${two_theta_deg.toFixed(2).replace('.', ',')}°`;
+                        } else {
+                            displayText += `, En diffraction (calcul 2θ non applicable)`;
+                        }
+                    } else {
+                        displayText += `, Hors condition de diffraction`;
+                    }
+                    hklInfoDiv.textContent = displayText;
+                }
+            }
+        }
+        
+        function updateVisualization() {
+            const a = parseFloat(document.getElementById('a').value.replace(',', '.'));
+            const b = parseFloat(document.getElementById('b').value.replace(',', '.'));
+            const c = parseFloat(document.getElementById('c').value.replace(',', '.'));
+            const lambda = parseFloat(document.getElementById('lambda').value.replace(',', '.'));
+            const latticeType = document.getElementById('bravaisLattice').value;
+            const disorderLevel = parseFloat(document.getElementById('disorderSlider').value);
+
+            const h_min = parseInt(document.getElementById('h_min').value);
+            const h_max = parseInt(document.getElementById('h_max').value);
+            const k_min = parseInt(document.getElementById('k_min').value);
+            const k_max = parseInt(document.getElementById('k_max').value);
+            const l_min = parseInt(document.getElementById('l_min').value);
+            const l_max = parseInt(document.getElementById('l_max').value);
+
+            const rotX = parseFloat(document.getElementById('rotX').value.replace(',', '.')) || 0;
+            const rotY = parseFloat(document.getElementById('rotY').value.replace(',', '.')) || 0;
+            const rotZ = parseFloat(document.getElementById('rotZ').value.replace(',', '.')) || 0;
+
+            if (isNaN(a) || isNaN(b) || isNaN(c) || isNaN(lambda) || a <= 0 || b <= 0 || c <= 0 || lambda <= 0 ||
+                isNaN(h_min) || isNaN(h_max) || isNaN(k_min) || isNaN(k_max) || isNaN(l_min) || isNaN(l_max) ||
+                h_min > h_max || k_min > k_max || l_min > l_max ||
+                isNaN(rotX) || isNaN(rotY) || isNaN(rotZ) || isNaN(disorderLevel) ) {
+                console.warn("Paramètres invalides ou manquants pour la mise à jour.");
+                return; 
+            }
+
+            clearSceneObjects();
+
+            const rotX_rad = THREE.MathUtils.degToRad(rotX);
+            const rotY_rad = THREE.MathUtils.degToRad(rotY);
+            const rotZ_rad = THREE.MathUtils.degToRad(rotZ);
+            const eulerRotation = new THREE.Euler(rotX_rad, rotY_rad, rotZ_rad, 'XYZ');
+            
+            reciprocalLatticePointsGroup.setRotationFromEuler(eulerRotation);
+            reciprocalAxesGroup.setRotationFromEuler(eulerRotation);
+            axisLabelsGroup.setRotationFromEuler(eulerRotation);
+
+            const a_star = 1 / a; const b_star = 1 / b; const c_star = 1 / c;
+            drawReciprocalAxes(a_star, b_star, c_star); 
+
+            const ewaldRadius = 1 / lambda;
+            if (ewaldRadius < 0.001) { 
+                 if(ewaldSphereMesh) scene.remove(ewaldSphereMesh);
+                 if(kIncidentVectorArrow) scene.remove(kIncidentVectorArrow);
+                 console.warn("Rayon d'Ewald trop petit, visualisation annulée.");
+                 return;
+            }
+            
+            const ewaldSphereGeometry = new THREE.SphereGeometry(ewaldRadius, 64, 64);
+            const ewaldSphereMaterial = new THREE.MeshPhongMaterial({ color: ewaldSphereColor, opacity: 0.25, transparent: true, side: THREE.DoubleSide });
+            ewaldSphereMesh = new THREE.Mesh(ewaldSphereGeometry, ewaldSphereMaterial);
+            ewaldSphereMesh.position.set(0, 0, -ewaldRadius); 
+            scene.add(ewaldSphereMesh);
+            
+            const kVecOrigin = new THREE.Vector3(0, 0, -ewaldRadius); 
+            const kVecDirection = new THREE.Vector3(0, 0, 1); 
+            const kVecHeadLength = Math.min(ewaldRadius * 0.20, 0.15); 
+            const kVecHeadWidth = Math.min(ewaldRadius * 0.10, 0.08);  
+            kIncidentVectorArrow = new THREE.ArrowHelper(kVecDirection, kVecOrigin, ewaldRadius, kVectorColor, kVecHeadLength, kVecHeadWidth);
+            scene.add(kIncidentVectorArrow);
+
+            const effectivePointScale = (1 + disorderLevel * disorderRadiusFactor);
+            const actualPointRadius = RR_POINT_BASE_RADIUS * effectivePointScale;
+            const intersectionTolerance = actualPointRadius; 
+            
+            const tempWorldPosition = new THREE.Vector3(); 
+
+            for (let h = h_min; h <= h_max; h++) {
+                for (let k = k_min; k <= k_max; k++) {
+                    for (let l = l_min; l <= l_max; l++) {
+                        let allowPoint = false; 
+                        if (latticeType === "P") { allowPoint = true; } 
+                        else if (latticeType === "C") { if ((h + k) % 2 === 0) allowPoint = true; } 
+                        else if (latticeType === "I") { if ((h + k + l) % 2 === 0) allowPoint = true; } 
+                        else if (latticeType === "F") {
+                            const h_abs_parity = Math.abs(h) % 2; const k_abs_parity = Math.abs(k) % 2; const l_abs_parity = Math.abs(l) % 2;
+                            if ((h_abs_parity === k_abs_parity) && (k_abs_parity === l_abs_parity)) allowPoint = true;
+                        }
+
+                        if (!allowPoint && !(h===0 && k===0 && l===0) ) continue;
+
+                        const G_hkl_val = Math.sqrt( Math.pow(h * a_star, 2) + Math.pow(k * b_star, 2) + Math.pow(l * c_star, 2) );
+                        
+                        let intensityFactor = 1.0;
+                        if (!(h===0 && k===0 && l===0)) {
+                            const B_eff = disorderLevel * disorderMaxBFactor;
+                            intensityFactor = Math.exp(-B_eff / 2.0 * Math.pow(G_hkl_val, 2));
+                            if (intensityFactor < disorderIntensityThreshold) {
+                                continue; 
+                            }
+                        }
+
+                        const local_x_hkl = h * a_star; const local_y_hkl = k * b_star; const local_z_hkl = l * c_star;
+                        
+                        const displayRadius = (h===0 && k===0 && l===0) ? RR_POINT_BASE_RADIUS * 0.8 : actualPointRadius;
+                        let pointColorValue = (h===0 && k===0 && l===0) ? 0x111111 : defaultPointColor;
+                        
+                        const pointGeometry = new THREE.SphereGeometry(displayRadius, 10, 10);
+                        const finalOpacity = (h===0 && k===0 && l===0) ? 1.0 : Math.max(0.1, intensityFactor); 
+
+                        const pointMaterial = new THREE.MeshPhongMaterial({ 
+                            color: pointColorValue,
+                            opacity: finalOpacity,
+                            transparent: (finalOpacity < 1.0) 
+                        });
+                        const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+                        pointMesh.position.set(local_x_hkl, local_y_hkl, local_z_hkl);
+                        pointMesh.userData = { h: h, k: k, l: l, isReciprocalPoint: true };
+                        reciprocalLatticePointsGroup.add(pointMesh);
+
+                        pointMesh.updateMatrixWorld(); 
+                        pointMesh.getWorldPosition(tempWorldPosition);
+                        
+                        const distanceToSphereCenter = tempWorldPosition.distanceTo(ewaldSphereMesh.position);
+                        const distanceToSurface = Math.abs(distanceToSphereCenter - ewaldRadius);
+                        
+                        if (h===0 && k===0 && l===0) { /* L'origine reste telle quelle */ } 
+                        else if (distanceToSurface < intersectionTolerance) {
+                            pointMesh.material.color.setHex(intersectingPointColor); 
+                        }
+                    }
+                }
+            }
+        }
+
+        function createAxisLabel(text, position, color = '#000000') { 
+            const div = document.createElement('div');
+            div.className = 'label'; div.textContent = text; div.style.color = color;
+            const label = new THREE.CSS2DObject(div);
+            label.position.copy(position); return label;
+        }
+
+        function drawReciprocalAxes(a_star, b_star, c_star) { 
+            const origin = new THREE.Vector3(0,0,0);
+            const matX = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+            const geomAx = new THREE.CylinderGeometry(axisLineRadius, axisLineRadius, axisVisLength, 8);
+
+            const axMeshX = new THREE.Mesh(geomAx, matX);
+            axMeshX.position.set(axisVisLength / 2, 0, 0);
+            axMeshX.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(1,0,0)); 
+            reciprocalAxesGroup.add(axMeshX);
+            const labelX = createAxisLabel('a*', new THREE.Vector3(axisVisLength + 0.1, 0, 0), 'red');
+            axisLabelsGroup.add(labelX);
+
+            const matY = new THREE.MeshPhongMaterial({ color: 0x009900 });
+            const axMeshY = new THREE.Mesh(geomAx.clone(), matY);
+            axMeshY.position.set(0, axisVisLength / 2, 0);
+            reciprocalAxesGroup.add(axMeshY);
+            const labelY = createAxisLabel('b*', new THREE.Vector3(0, axisVisLength + 0.1, 0), '#009900');
+            axisLabelsGroup.add(labelY);
+            
+            const matZ = new THREE.MeshPhongMaterial({ color: 0x0000ff });
+            const axMeshZ = new THREE.Mesh(geomAx.clone(), matZ);
+            axMeshZ.position.set(0, 0, axisVisLength / 2);
+            axMeshZ.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0,0,1)); 
+            reciprocalAxesGroup.add(axMeshZ);
+            const labelZ = createAxisLabel('c*', new THREE.Vector3(0, 0, axisVisLength + 0.1), 'blue');
+            axisLabelsGroup.add(labelZ);
+        }
+
+        function clearSceneObjects() {
+            if (ewaldSphereMesh) { scene.remove(ewaldSphereMesh); ewaldSphereMesh.geometry.dispose(); ewaldSphereMesh.material.dispose(); ewaldSphereMesh = null; }
+            if (kIncidentVectorArrow) { scene.remove(kIncidentVectorArrow); kIncidentVectorArrow = null; } 
+            disposeGroupChildren(reciprocalLatticePointsGroup);
+            disposeGroupChildren(reciprocalAxesGroup);
+            disposeGroupChildren(axisLabelsGroup, true); 
+        }
+
+        function disposeGroupChildren(group, isCSS2D = false) {
+            while (group.children.length > 0) {
+                const object = group.children[0];
+                if (!isCSS2D && object.type !== 'ArrowHelper') { 
+                    if (object.geometry) object.geometry.dispose();
+                    if (object.material) {
+                        if (Array.isArray(object.material)) { object.material.forEach(mat => mat.dispose()); } 
+                        else { object.material.dispose(); }
+                    }
+                }
+                group.remove(object);
+            }
+        }
+        
+        function onWindowResize() {
+            const container = document.getElementById('visualizationContainer');
+            if (!container || container.clientWidth === 0 || container.clientHeight === 0) return; 
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            labelRenderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); 
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera); 
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>

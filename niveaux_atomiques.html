@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Énergies des niveaux atomiques</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f0f0f0; color: #333; display: flex; flex-direction: column; align-items: center; }
+        .container { background-color: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: max-content; }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 25px; }
+        .controls { display: flex; justify-content: center; gap: 20px; margin-bottom: 25px; align-items: center; }
+        .control-group { display: flex; flex-direction: column; }
+        label { margin-bottom: 8px; font-weight: 600; color: #495057; font-size: 0.95em; }
+        select {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ced4da;
+            font-size: 1em;
+            min-width: 150px;
+        }
+        canvas { border: 1px solid #ccc; border-radius: 5px; background-color: #fdfdfd; }
+        .info-text { margin-top: 10px; text-align: center; font-size: 0.9em; color: blue; min-height: 30px; }
+        .rules { margin-top: 15px; padding: 15px; background-color: #e9ecef; border-radius: 5px; font-size: 0.9em; width: 450px; }
+        .rules h3 { margin-top: 0; color: #2c3e50;}
+        .rules ul { padding-left: 20px; margin-bottom: 0;}
+        /* MODIFICATION: Ajout du style pour le footer */
+        footer { text-align: center; font-size: 0.8em; color: #555; margin-top: 25px; padding: 10px 0; width: 100%; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Énergies des niveaux atomiques</h1>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="elementSelect">Choisir l'élément :</label>
+                <select id="elementSelect"></select>
+            </div>
+            <div class="control-group">
+                <label for="transitionSelect">Choisir la transition :</label>
+                <select id="transitionSelect">
+                    <option value="none">Aucune</option>
+                    <option value="Ka1">Kα1 (L3 → K)</option>
+                    <option value="Ka2">Kα2 (L2 → K)</option>
+                    <option value="Kb1">Kβ1 (M3 → K)</option>
+                    <option value="La1">Lα1 (M5 → L3)</option>
+                    <option value="Lb1">Lβ1 (M4 → L2)</option>
+                </select>
+            </div>
+        </div>
+
+        <canvas id="energyDiagramCanvas" width="500" height="600"></canvas>
+        <div id="transitionInfo" class="info-text"></div>
+
+        <div class="rules">
+            <h3>Règles de Sélection pour les Transitions Dipolaires Électriques (RX) :</h3>
+            <ul>
+                <li>Δn ≠ 0 (le nombre quantique principal doit changer)</li>
+                <li>Δl = ±1 (le nombre quantique azimutal/orbital doit changer de 1)</li>
+                <li>Δj = 0, ±1 (le nombre quantique de moment cinétique total interne doit changer de 0 ou 1)</li>
+                <li>j=0 ↔ j=0 est interdite</li>
+            </ul>
+            <p><i>Note: Les énergies et les niveaux affichés sont schématiques et basés sur des données typiques. Pour H et He, le schéma est très simplifié.</i></p>
+        </div>
+    </div>
+    <footer>
+        <p>NitaD, Univ Paris-Saclay, version 04 juin 2025</p>
+    </footer>
+
+    <script>
+        const elementEnergyLevels = { // En eV
+            "H":  { K: 13.6, L1: 3.4, L2: 3.4, L3: 3.4 }, 
+            "He": { K: 24.6, L1: 4.0, L2: 4.0, L3: 4.0 }, 
+            "Mn": { K: 6539, L1: 769.1, L2: 650.8, L3: 638.7, M1: 84.3, M2: 47.2, M3: 47.2, M4:3.0, M5:3.0 }, 
+            "Fe": { K: 7112, L1: 846.1, L2: 721.1, L3: 708.1, M1: 91.4, M2: 52.7, M3: 52.7, M4:4.0, M5:4.0 }, 
+            "Co": { K: 7709, L1: 927.8, L2: 793.4, L3: 778.1, M1: 101.0, M2: 60.0, M3: 60.0, M4:4.0, M5:4.0 },
+            "Ni": { K: 8333, L1: 1008.6,L2: 871.9, L3: 854.7, M1: 110.8, M2: 68.0, M3: 66.2, M4:5.0, M5:5.0 },
+            "Cu": { K: 8979, L1: 1096.7,L2: 952.3, L3: 932.7, M1: 122.5, M2: 77.3, M3: 75.1, M4:5.0, M5:5.0 },
+            "Zn": { K: 9659, L1: 1196.2,L2: 1044.9,L3: 1021.8,M1: 139.8, M2: 91.3, M3: 88.6, M4:10.1,M5:10.1},
+            "Mo": { K: 20000,L1: 2866,  L2: 2625, L3: 2520, M1: 505, M2: 410, M3: 392, M4: 230, M5: 227 },
+            "Au": { K: 80725,L1: 14353, L2: 13734,L3: 11919,M1: 3425, M2: 3148, M3: 2743, M4: 2291, M5: 2206 }
+        };
+
+        const transitionsData = {
+            "Ka1": { from: "L3", to: "K", label: "Kα1" },
+            "Ka2": { from: "L2", to: "K", label: "Kα2" },
+            "Kb1": { from: "M3", to: "K", label: "Kβ1" }, 
+            "La1": { from: "M5", to: "L3", label: "Lα1" }, 
+            "Lb1": { from: "M4", to: "L2", label: "Lβ1" }  
+        };
+        
+        const HC_EV_A = 12398.4198; 
+
+        const canvas = document.getElementById('energyDiagramCanvas');
+        const ctx = canvas.getContext('2d');
+        const elementSelect = document.getElementById('elementSelect');
+        const transitionSelect = document.getElementById('transitionSelect');
+        const transitionInfoDiv = document.getElementById('transitionInfo'); 
+
+        const levelYPosition = { 
+            K: 550,
+            L1: 450, L2: 430, L3: 410,
+            M1: 350, M2: 330, M3: 310, M4: 290, M5: 270,
+            N1: 200, N2: 180, N3: 160, N4: 140, N5: 120, 
+            O: 70, 
+            Valence: 30, 
+            E0: 10 
+        };
+        const levelXPosition = 100; 
+        const levelWidth = canvas.width - 2 * levelXPosition;
+
+        function populateElementSelect() {
+            Object.keys(elementEnergyLevels).forEach(el => {
+                const option = document.createElement('option');
+                option.value = el;
+                option.textContent = el;
+                elementSelect.appendChild(option);
+            });
+            elementSelect.value = "Cu"; 
+        }
+
+        function drawDiagram() {
+            const selectedElementKey = elementSelect.value;
+            const selectedTransitionKey = transitionSelect.value;
+            const levels = elementEnergyLevels[selectedElementKey];
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "14px Segoe UI";
+            ctx.textAlign = "left";
+            transitionInfoDiv.innerHTML = ""; 
+
+            const existingLevelsInElement = Object.keys(levels);
+
+            for (const levelKey in levelYPosition) {
+                if (levelKey === "E0" || existingLevelsInElement.includes(levelKey) || 
+                    (levelKey.startsWith("M") && existingLevelsInElement.some(elKey => elKey.startsWith("M"))) || 
+                    (levelKey.startsWith("N") && existingLevelsInElement.some(elKey => elKey.startsWith("N"))) || 
+                    (levelKey.startsWith("O") && existingLevelsInElement.some(elKey => elKey.startsWith("O"))) ) { 
+                    
+                    const y = levelYPosition[levelKey];
+                    ctx.beginPath();
+                    ctx.moveTo(levelXPosition, y);
+                    ctx.lineTo(levelXPosition + levelWidth, y);
+                    ctx.strokeStyle = "#555";
+                    ctx.lineWidth = (levelKey === "E0" || levelKey === "Valence") ? 1 : 2;
+                    ctx.stroke();
+                    
+                    ctx.fillStyle = "#333";
+                    let labelText = levelKey;
+                    if (levels[levelKey] !== undefined) {
+                        let energyDisplay = levels[levelKey] > 1000 ? (levels[levelKey]/1000).toFixed(3) + " keV" : levels[levelKey].toFixed(1) + " eV";
+                        labelText += ` (${energyDisplay})`;
+                    } else if (levelKey === "E0") {
+                         labelText = "E=0 (Continuum)";
+                    } else if (levelKey === "Valence") {
+                         labelText = "Bande de Valence/Conduction";
+                    }
+                    ctx.fillText(labelText, levelXPosition + levelWidth + 10, y + 4);
+                }
+            }
+            
+            if (selectedTransitionKey !== "none" && transitionsData[selectedTransitionKey]) {
+                const transition = transitionsData[selectedTransitionKey];
+                const fromLevelKey = transition.from;
+                const toLevelKey = transition.to;
+
+                if (levels[fromLevelKey] !== undefined && levels[toLevelKey] !== undefined && 
+                    levelYPosition[fromLevelKey] && levelYPosition[toLevelKey]) {
+                    
+                    const yFrom = levelYPosition[fromLevelKey];
+                    const yTo = levelYPosition[toLevelKey]; 
+                    const arrowX = levelXPosition + levelWidth / 2 + (Object.keys(transitionsData).indexOf(selectedTransitionKey) -2) * 20 ;
+
+                    ctx.beginPath();
+                    ctx.moveTo(arrowX, yFrom);
+                    ctx.lineTo(arrowX, yTo);
+                    ctx.strokeStyle = "red";
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+
+                    const headlen = 10; 
+                    const angle = Math.PI / 2; 
+                    ctx.beginPath();
+                    ctx.moveTo(arrowX, yTo);
+                    ctx.lineTo(arrowX - headlen * Math.cos(angle - Math.PI / 6), yTo - headlen * Math.sin(angle - Math.PI / 6));
+                    ctx.lineTo(arrowX - headlen * Math.cos(angle + Math.PI / 6), yTo - headlen * Math.sin(angle + Math.PI / 6));
+                    ctx.closePath();
+                    ctx.fillStyle = "red";
+                    ctx.fill();
+                    
+                    ctx.fillStyle = "red";
+                    ctx.textAlign = "center";
+                    ctx.fillText(transition.label, arrowX, yFrom - 10 );
+
+                    const energyFrom_eV = levels[fromLevelKey];
+                    const energyTo_eV = levels[toLevelKey];
+                    const transitionEnergy_eV = Math.abs(energyTo_eV - energyFrom_eV); 
+
+                    if (transitionEnergy_eV > 0) {
+                        const wavelength_A = HC_EV_A / transitionEnergy_eV;
+                        let energyDisplayUnit = "eV";
+                        let energyValueDisplay = transitionEnergy_eV;
+                        if (transitionEnergy_eV > 1000) {
+                            energyValueDisplay = transitionEnergy_eV / 1000;
+                            energyDisplayUnit = "keV";
+                        }
+                        
+                        transitionInfoDiv.innerHTML = `Transition ${transition.label}: 
+                            Énergie = ${energyValueDisplay.toFixed(3)} ${energyDisplayUnit}, 
+                            Longueur d'onde (λ) = ${wavelength_A.toFixed(4)} Å`;
+                    }
+
+                } else {
+                     transitionInfoDiv.innerHTML = `Données de niveaux insuffisantes pour la transition ${transition.label} pour ${selectedElementKey}.`;
+                }
+            }
+        }
+
+        elementSelect.addEventListener('change', drawDiagram);
+        transitionSelect.addEventListener('change', drawDiagram);
+
+        populateElementSelect();
+        drawDiagram(); 
+    </script>
+</body>
+</html>
