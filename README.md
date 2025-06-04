@@ -20,7 +20,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 ## Description des Simulateurs
 
 ### 1. Visualiseur de Sphère d'Ewald et Diffraction RX
-[**ewald.html**](https://nitad54448.github.io/Enseignement/ewald.html)
+[**Ewald.html**](https://nitad54448.github.io/Enseignement/ewald.html)
 
 Ce simulateur permet de visualiser la construction de la sphère d'Ewald dans l'espace réciproque pour une maille orthorhombique.
 * **Fonctionnalités :**
@@ -50,7 +50,7 @@ Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur 
 * **Technologies :** HTML, JavaScript, API Canvas 2D.
 
 ### 3. Diagramme des Niveaux d'Énergie Atomique
-[**Niveaux_atomiques.html**](https://VOTRE_NOM_UTILISATEUR.github.io/VOTRE_NOM_DEPOT/niveaux_atomiques.html)
+[**Niveaux_atomiques.html**](https://nitad5448.github.io/Enseignement/niveaux_atomiques.html)
 
 Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, M) pour différents éléments et permet de visualiser les transitions électroniques courantes (Kα, Kβ, Lα, etc.).
 * **Fonctionnalités :**
