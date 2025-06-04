@@ -20,7 +20,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 ## Description des Simulateurs
 
 ### 1. Visualiseur de Sphère d'Ewald et Diffraction RX
-Lien direct : [**Lancer `ewald.html`**](https://nitad54448.github.io/ewald.html)
+Lien direct : [**ewald.html**](https://nitad54448.github.io/Enseignement/ewald.html)
 
 Ce simulateur permet de visualiser la construction de la sphère d'Ewald dans l'espace réciproque pour une maille orthorhombique.
 * **Fonctionnalités :**
