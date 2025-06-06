@@ -91,7 +91,7 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
 * **Technologies :** HTML, JavaScript, API Canvas 2D, SVG (pour le diagramme de transition).
 
 ### 6. Réseaux réciproques
- [**Rspace**](https://nitad54448.github.io/Enseignement/Rspace.html)
+ [**RSpace**](https://nitad54448.github.io/Enseignement/RSpace.html)
 
 
 ---
