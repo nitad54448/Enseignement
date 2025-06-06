@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reciprocal Space Explorer</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            background-color: #f0f0f0; color: #333; 
+        }
+        #container { width: 100%; height: 100vh; display: block; }
+        #controls { 
+            position: absolute; top: 10px; left: 10px; padding: 10px; background: rgba(255,255,255,0.92); 
+            border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.2); width: 95vw; max-width: 320px;
+        }
+        .input-group { margin-bottom: 8px; display: flex; align-items: center; gap: 5px; }
+        .input-group label { width: 80px; font-size: 0.9em; flex-shrink: 0; }
+        .input-group input, .input-group select { 
+            width: 100%; padding: 4px; border-radius: 3px; border: 1px solid #ccc; min-width: 0;
+        }
+        .param-group, .hkl-group { display: flex; gap: 5px; }
+        .param-group .input-group, .hkl-group .input-group { flex: 1; }
+        .param-group label, .hkl-group label { width: auto; }
+        h3 { 
+            margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; font-size: 1em; 
+        }
+        #info { 
+            position: absolute; bottom: 10px; left: 10px; padding: 10px; background: rgba(0,0,0,0.75); 
+            color: white; border-radius: 5px; font-family: 'Courier New', Courier, monospace; min-width: 280px; 
+        }
+        #footer {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11px;
+            color: #888;
+        }
+        #measure-options { margin-top: 15px; }
+        .recip-params span { margin-right: 10px; }
+        .recip-params .value { font-weight: bold; color: #0056b3; }
+        input[type="range"] { padding: 0; }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="controls">
+        <div class="input-group">
+            <label for="crystalSystem">System:</label>
+            <select id="crystalSystem">
+                <option value="cubic" selected>Cubic</option>
+                <option value="tetragonal">Tetragonal</option>
+                <option value="orthorhombic">Orthorhombic</option>
+                <option value="hexagonal">Hexagonal</option>
+                <option value="trigonal">Trigonal</option>
+                <option value="monoclinic">Monoclinic</option>
+                <option value="triclinic">Triclinic</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <label for="centering">Centering:</label>
+            <select id="centering"></select>
+        </div>
+
+        <h3>Direct Parameters</h3>
+        <div class="param-group">
+            <div class="input-group" id="group-a"><label for="a">a:</label><input type="number" id="a" value="4.2" step="0.1"></div>
+            <div class="input-group" id="group-b"><label for="b">b:</label><input type="number" id="b" value="4.2" step="0.1"></div>
+            <div class="input-group" id="group-c"><label for="c">c:</label><input type="number" id="c" value="4.2" step="0.1"></div>
+        </div>
+        <div class="param-group">
+            <div class="input-group" id="group-alpha"><label for="alpha">&alpha;:</label><input type="number" id="alpha" value="90" step="1"></div>
+            <div class="input-group" id="group-beta"><label for="beta">&beta;:</label><input type="number" id="beta" value="90" step="1"></div>
+            <div class="input-group" id="group-gamma"><label for="gamma">&gamma;:</label><input type="number" id="gamma" value="90" step="1"></div>
+        </div>
+
+        <h3>Reciprocal Parameters</h3>
+        <div class="recip-params">
+            <span id="recip-a_star">a*: <span class="value"></span></span>
+            <span id="recip-b_star">b*: <span class="value"></span></span>
+            <span id="recip-c_star">c*: <span class="value"></span></span>
+            <br>
+            <span id="recip-alpha_star">&alpha;*: <span class="value"></span></span>
+            <span id="recip-beta_star">&beta;*: <span class="value"></span></span>
+            <span id="recip-gamma_star">&gamma;*: <span class="value"></span></span>
+        </div>
+
+        <h3>HKL Limits</h3>
+        <div class="hkl-group">
+            <div class="input-group"><label for="h_min">H:</label><input type="number" id="h_min" value="0" step="1"></div>
+            <div class="input-group"><label for="h_max">to</label><input type="number" id="h_max" value="2" step="1"></div>
+        </div>
+        <div class="hkl-group">
+            <div class="input-group"><label for="k_min">K:</label><input type="number" id="k_min" value="0" step="1"></div>
+            <div class="input-group"><label for="k_max">to</label><input type="number" id="k_max" value="2" step="1"></div>
+        </div>
+        <div class="hkl-group">
+            <div class="input-group"><label for="l_min">L:</label><input type="number" id="l_min" value="0" step="1"></div>
+            <div class="input-group"><label for="l_max">to</label><input type="number" id="l_max" value="2" step="1"></div>
+        </div>
+
+        <h3>Display Options</h3>
+         <div class="input-group">
+            <label for="nodeSize">Node Size:</label>
+            <input type="range" id="nodeSize" min="0.005" max="0.05" step="0.001" value="0.015">
+        </div>
+        <div id="measure-options">
+            <input type="checkbox" id="measureMode">
+            <label for="measureMode">Measure Distance</label>
+        </div>
+    </div>
+    <div id="info">Right-click a node to see its info.</div>
+    <div id="footer">NitaD, Univ Paris-Saclay, 2025</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        const centeringOptions = {
+            triclinic: ["P"], monoclinic: ["P", "C"], orthorhombic: ["P", "C", "I", "F"],
+            tetragonal: ["P", "I"], trigonal: ["P", "R"], hexagonal: ["P"], cubic: ["P", "I", "F"]
+        };
+        let scene, camera, renderer, controls;
+        let latticePoints = new THREE.Group();
+        let reciprocalAxes = new THREE.Group();
+        let selectedNodes = [];
+        let selectionIndicator;
+
+        const dom = {
+            info: document.getElementById('info'), measureMode: document.getElementById('measureMode'),
+            system: document.getElementById('crystalSystem'), centering: document.getElementById('centering'),
+            nodeSize: document.getElementById('nodeSize'),
+            inputs: { a: document.getElementById('a'), b: document.getElementById('b'), c: document.getElementById('c'), alpha: document.getElementById('alpha'), beta: document.getElementById('beta'), gamma: document.getElementById('gamma') },
+            groups: { a: document.getElementById('group-a'), b: document.getElementById('group-b'), c: document.getElementById('group-c'), alpha: document.getElementById('group-alpha'), beta: document.getElementById('group-beta'), gamma: document.getElementById('group-gamma') },
+            hkl: { h_min: document.getElementById('h_min'), h_max: document.getElementById('h_max'), k_min: document.getElementById('k_min'), k_max: document.getElementById('k_max'), l_min: document.getElementById('l_min'), l_max: document.getElementById('l_max'),},
+            recip: { a: document.getElementById('recip-a_star'), b: document.getElementById('recip-b_star'), c: document.getElementById('recip-c_star'), alpha: document.getElementById('recip-alpha_star'), beta: document.getElementById('recip-beta_star'), gamma: document.getElementById('recip-gamma_star'),}
+        };
+        
+        init();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111111);
+            scene.add(latticePoints);
+            scene.add(reciprocalAxes);
+            
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.z = 8;
+
+            const container = document.getElementById('container');
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            const axesHelper = new THREE.AxesHelper(1);
+            scene.add(axesHelper);
+            
+            const ringGeo = new THREE.RingGeometry(0.05, 0.06, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+            selectionIndicator = new THREE.Mesh(ringGeo, ringMat);
+            selectionIndicator.visible = false;
+            scene.add(selectionIndicator);
+
+            dom.system.addEventListener('change', () => { updateParameterFields(); updateCenteringOptions(); });
+            dom.centering.addEventListener('change', generateLattice);
+            Object.values(dom.inputs).forEach(input => input.addEventListener('input', () => { syncLinkedParameters(); generateLattice(); }));
+            Object.values(dom.hkl).forEach(input => input.addEventListener('change', generateLattice));
+            dom.nodeSize.addEventListener('input', () => { updateSelectionIndicatorSize(); generateLattice(); });
+            dom.measureMode.addEventListener('change', resetSelection);
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('contextmenu', onNodeClick);
+
+            updateParameterFields();
+            updateCenteringOptions();
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            if (selectionIndicator.visible) {
+                selectionIndicator.quaternion.copy(camera.quaternion);
+            }
+            renderer.render(scene, camera);
+        }
+        
+        function onNodeClick(event) {
+            event.preventDefault();
+            scene.updateMatrixWorld(true);
+
+            const canvasBounds = renderer.domElement.getBoundingClientRect();
+            const mouse = new THREE.Vector2();
+            mouse.x = ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1;
+            mouse.y = -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(latticePoints, true);
+
+            if (intersects.length > 0) {
+                const clickedNode = intersects[0].object;
+                
+                if (dom.measureMode.checked) {
+                    if (selectedNodes.includes(clickedNode)) return; 
+                    if (selectedNodes.length === 2) {
+                        selectedNodes[0].material.color.setHex(0x007bff);
+                        selectedNodes.shift();
+                    }
+                    selectedNodes.push(clickedNode);
+                    clickedNode.material.color.setHex(0xffa500);
+                } else {
+                    resetSelection();
+                    selectedNodes.push(clickedNode);
+                    clickedNode.material.color.setHex(0xffa500);
+                }
+                updateInfo();
+            } else {
+                resetSelection();
+            }
+        }
+
+        function generateLattice() {
+            resetSelection();
+            while(latticePoints.children.length > 0){ 
+                const obj = latticePoints.children[0];
+                latticePoints.remove(obj);
+                obj.geometry.dispose();
+                obj.material.dispose();
+            }
+            reciprocalAxes.clear(); 
+            
+            const p = {};
+            Object.keys(dom.inputs).forEach(key => p[key] = parseFloat(dom.inputs[key].value));
+            updateReciprocalDisplay(p);
+            const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
+            if (!b1) return;
+
+            const origin = new THREE.Vector3(0,0,0);
+            reciprocalAxes.add(new THREE.ArrowHelper(b1.clone().normalize(), origin, b1.length(), 0xffff00));
+            reciprocalAxes.add(new THREE.ArrowHelper(b2.clone().normalize(), origin, b2.length(), 0xff00ff));
+            reciprocalAxes.add(new THREE.ArrowHelper(b3.clone().normalize(), origin, b3.length(), 0x00ffff));
+
+            const hkl = {};
+            const parseOrDefault = (val, def) => { const parsed = parseInt(val); return isNaN(parsed) ? def : parsed; };
+            hkl.h_min = parseOrDefault(dom.hkl.h_min.value, 0); hkl.h_max = parseOrDefault(dom.hkl.h_max.value, 2);
+            hkl.k_min = parseOrDefault(dom.hkl.k_min.value, 0); hkl.k_max = parseOrDefault(dom.hkl.k_max.value, 2);
+            hkl.l_min = parseOrDefault(dom.hkl.l_min.value, 0); hkl.l_max = parseOrDefault(dom.hkl.l_max.value, 2);
+            const nodeRadius = parseFloat(dom.nodeSize.value);
+            for (let h = hkl.h_min; h <= hkl.h_max; h++) {
+                for (let k = hkl.k_min; k <= hkl.k_max; k++) {
+                    for (let l = hkl.l_min; l <= hkl.l_max; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        if (!isAllowed(h, k, l, dom.centering.value)) continue;
+                        const pos = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
+                        const geometry = new THREE.SphereGeometry(nodeRadius, 12, 12);
+                        const material = new THREE.MeshStandardMaterial({ color: 0x007bff, metalness: 0.2, roughness: 0.6 });
+                        const sphere = new THREE.Mesh(geometry, material);
+                        sphere.userData = { h, k, l, params: p };
+                        sphere.position.copy(pos);
+                        latticePoints.add(sphere);
+                    }
+                }
+            }
+        }
+        
+        function updateSelectionIndicatorSize() {
+             const nodeRadius = parseFloat(dom.nodeSize.value);
+             selectionIndicator.geometry.dispose();
+             selectionIndicator.geometry = new THREE.RingGeometry(nodeRadius + 0.015, nodeRadius + 0.025, 32);
+        }
+
+        function resetSelection() {
+            selectedNodes.forEach(node => { if (node.material) node.material.color.setHex(0x007bff); });
+            selectedNodes = [];
+            if(selectionIndicator) selectionIndicator.visible = false;
+            updateInfo();
+        }
+
+        function updateInfo() {
+            if(selectionIndicator) selectionIndicator.visible = false;
+            if (selectedNodes.length === 0) {
+                dom.info.innerHTML = "<b>" + (dom.measureMode.checked ? "Measurement Mode: " : "") + "</b>Right-click a node to see its info.";
+            } else if (selectedNodes.length === 1) {
+                const { h, k, l, params } = selectedNodes[0].userData;
+                const d = calculateDSpacing(h, k, l, params);
+                dom.info.innerHTML = `<b>Selected Node</b><br>hkl: (${h}, ${k}, ${l})<br>d-spacing: ${d.toFixed(4)} Å`;
+                selectionIndicator.position.copy(selectedNodes[0].position);
+                selectionIndicator.visible = true;
+            } else if (selectedNodes.length === 2) {
+                const [node1, node2] = selectedNodes;
+                const ud1 = node1.userData, ud2 = node2.userData;
+                const reciprocalDist = node1.position.distanceTo(node2.position);
+                const delta_h = ud2.h - ud1.h, delta_k = ud2.k - ud1.k, delta_l = ud2.l - ud1.l;
+                const directDist = calculateDSpacing(delta_h, delta_k, delta_l, ud1.params);
+                dom.info.innerHTML = `<b>Measurement Active</b><br>Node 1: (${ud1.h},${ud1.k},${ud1.l}), Node 2: (${ud2.h},${ud2.k},${ud2.l})<br>&Delta;hkl: (${delta_h}, ${delta_k}, ${delta_l})<hr>Reciprocal Dist: ${reciprocalDist.toFixed(4)} Å⁻¹<br>Direct d-spacing: ${directDist.toFixed(4)} Å`;
+            }
+        }
+        
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        function updateParameterFields() { const system = dom.system.value; Object.values(dom.groups).forEach(g => { g.style.display = 'flex'; }); Object.values(dom.inputs).forEach(i => { i.disabled = false; }); const hide = (params) => params.forEach(p => { dom.groups[p].style.display = 'none'; }); switch (system) { case 'cubic': hide(['b', 'c', 'alpha', 'beta', 'gamma']); break; case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break; case 'hexagonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break; case 'monoclinic': hide(['alpha', 'gamma']); break; } syncLinkedParameters(); }
+        function syncLinkedParameters() { const system = dom.system.value; const setVal = (p, val) => { dom.inputs[p].value = val; dom.inputs[p].disabled = true; }; switch(system) { case 'cubic': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'tetragonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'orthorhombic': setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'hexagonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 120); break; case 'trigonal': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('beta', dom.inputs.alpha.value); setVal('gamma', dom.inputs.alpha.value); break; case 'monoclinic': setVal('alpha', 90); setVal('gamma', 90); break; case 'triclinic': break; } }
+        function updateCenteringOptions() { const system = dom.system.value; const options = centeringOptions[system]; const currentCentering = dom.centering.value; dom.centering.innerHTML = ''; options.forEach(opt => { const option = document.createElement('option'); option.value = opt; option.textContent = opt; dom.centering.appendChild(option); }); if (options.includes(currentCentering)) { dom.centering.value = currentCentering; } generateLattice(); }
+        function updateReciprocalDisplay(p) { const toRad = Math.PI / 180; const cos_a = Math.cos(p.alpha * toRad), cos_b = Math.cos(p.beta * toRad), cos_g = Math.cos(p.gamma * toRad); const sin_a = Math.sin(p.alpha * toRad), sin_b = Math.sin(p.beta * toRad), sin_g = Math.sin(p.gamma * toRad); const V = p.a * p.b * p.c * Math.sqrt(1 - cos_a*cos_a - cos_b*cos_b - cos_g*cos_g + 2 * cos_a * cos_b * cos_g); if (isNaN(V) || V < 1e-9) { Object.values(dom.recip).forEach(span => span.querySelector('.value').textContent = 'Error'); return; } const values = { a: (p.b * p.c * sin_a) / V, b: (p.a * p.c * sin_b) / V, c: (p.a * p.b * sin_g) / V, alpha: (Math.acos((cos_b * cos_g - cos_a) / (sin_b * sin_g)) / toRad), beta: (Math.acos((cos_g * cos_a - cos_b) / (sin_g * sin_a)) / toRad), gamma: (Math.acos((cos_a * cos_b - cos_g) / (sin_a * sin_b)) / toRad) }; dom.recip.a.querySelector('.value').textContent = `${values.a.toFixed(3)} Å⁻¹`; dom.recip.b.querySelector('.value').textContent = `${values.b.toFixed(3)} Å⁻¹`; dom.recip.c.querySelector('.value').textContent = `${values.c.toFixed(3)} Å⁻¹`; dom.recip.alpha.querySelector('.value').textContent = `${values.alpha.toFixed(2)}°`; dom.recip.beta.querySelector('.value').textContent = `${values.beta.toFixed(2)}°`; dom.recip.gamma.querySelector('.value').textContent = `${values.gamma.toFixed(2)}°`; Object.values(dom.recip).forEach(s => s.style.display = 'none'); const system = dom.system.value; switch(system) { case 'cubic': dom.recip.a.style.display = 'inline'; break; case 'tetragonal': case 'hexagonal': dom.recip.a.style.display = 'inline'; dom.recip.c.style.display = 'inline'; if (system === 'hexagonal') dom.recip.gamma.style.display = 'inline'; break; case 'orthorhombic': dom.recip.a.style.display = 'inline'; dom.recip.b.style.display = 'inline'; dom.recip.c.style.display = 'inline'; break; case 'trigonal': dom.recip.a.style.display = 'inline'; dom.recip.alpha.style.display = 'inline'; break; case 'monoclinic': dom.recip.a.style.display = 'inline'; dom.recip.b.style.display = 'inline'; dom.recip.c.style.display = 'inline'; dom.recip.beta.style.display = 'inline'; break; case 'triclinic': Object.values(dom.recip).forEach(s => s.style.display = 'inline'); break; } }
+        function getReciprocalVectors(a, b, c, alpha, beta, gamma) { const toRad = Math.PI / 180; const cos_a = Math.cos(alpha * toRad), cos_b = Math.cos(beta * toRad), cos_g = Math.cos(gamma * toRad); const V = a * b * c * Math.sqrt(1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g); if (isNaN(V) || V < 1e-9) return {}; const a_star = (b * c * Math.sin(alpha * toRad)) / V; const b_star = (a * c * Math.sin(beta * toRad)) / V; const c_star = (a * b * Math.sin(gamma * toRad)) / V; const cos_alpha_star = (cos_b * cos_g - cos_a) / (Math.sin(beta * toRad) * Math.sin(gamma * toRad)); const cos_beta_star = (cos_g * cos_a - cos_b) / (Math.sin(gamma * toRad) * Math.sin(alpha * toRad)); const cos_gamma_star = (cos_a * cos_b - cos_g) / (Math.sin(alpha * toRad) * Math.sin(beta * toRad)); if(Math.abs(cos_gamma_star)>1.000001) return{}; const sin_gamma_star = Math.sqrt(1 - cos_gamma_star**2); if(isNaN(sin_gamma_star) || sin_gamma_star < 1e-9) return{}; const b1 = new THREE.Vector3(a_star, 0, 0); const b2 = new THREE.Vector3(b_star * cos_gamma_star, b_star * sin_gamma_star, 0); const b3_x = c_star * cos_beta_star; const b3_y = c_star * (cos_alpha_star - cos_beta_star * cos_gamma_star) / sin_gamma_star; const b3_z = Math.sqrt(Math.max(0, c_star**2 - b3_x**2 - b3_y**2)); return { b1, b2, b3: new THREE.Vector3(b3_x, b3_y, b3_z) }; }
+        function isAllowed(h, k, l, centering) { switch (centering) { case 'P': return true; case 'I': return (h + k + l) % 2 === 0; case 'F': return (h % 2 === k % 2) && (k % 2 === l % 2); case 'C': return (h + k) % 2 === 0; case 'A': return (k + l) % 2 === 0; case 'B': return (h + l) % 2 === 0; case 'R': return (-h + k + l) % 3 === 0; default: return true; } }
+        function calculateDSpacing(h, k, l, p) { const toRad = Math.PI/180; const ca=Math.cos(p.alpha*toRad), cb=Math.cos(p.beta*toRad), cg=Math.cos(p.gamma*toRad); const d_inv_sq=(h**2/p.a**2)*Math.sin(p.alpha*toRad)**2 + (k**2/p.b**2)*Math.sin(p.beta*toRad)**2 + (l**2/p.c**2)*Math.sin(p.gamma*toRad)**2 + (2*k*l/(p.b*p.c))*(cb*cg-ca) + (2*l*h/(p.c*p.a))*(ca*cg-cb) + (2*h*k/(p.a*p.b))*(ca*cb-cg); if (d_inv_sq <= 1e-9) return Infinity; return 1 / Math.sqrt(d_inv_sq); }
+    </script>
+</body>
+</html>
