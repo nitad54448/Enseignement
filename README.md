@@ -93,7 +93,12 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
 ### 6. Réseaux réciproques
  [**RSpace**](https://nitad54448.github.io/Enseignement/RSpace.html)
 
-
+ Ce logiciel permet la visualisation d'un réseau réciproque pour tous les systèmes cristallins.
+* **Fonctionnalités :**
+    * Choix du système et du centrage.
+    * Extinction systèmatiques.
+    * Possibilité d'explorer les hkl et les distances entre les noeuds.
+* **Technologies :** HTML, JavaScript, Three.js
 ---
 
 N'hésitez pas à contribuer ou à signaler des problèmes !
