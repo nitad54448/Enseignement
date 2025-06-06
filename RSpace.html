@@ -89,15 +89,15 @@
 
         <h3>HKL Limits</h3>
         <div class="hkl-group">
-            <div class="input-group"><label for="h_min">H:</label><input type="number" id="h_min" value="0" step="1"></div>
+            <div class="input-group"><label for="h_min">H:</label><input type="number" id="h_min" value="-2" step="1"></div>
             <div class="input-group"><label for="h_max">to</label><input type="number" id="h_max" value="2" step="1"></div>
         </div>
         <div class="hkl-group">
-            <div class="input-group"><label for="k_min">K:</label><input type="number" id="k_min" value="0" step="1"></div>
+            <div class="input-group"><label for="k_min">K:</label><input type="number" id="k_min" value="-2" step="1"></div>
             <div class="input-group"><label for="k_max">to</label><input type="number" id="k_max" value="2" step="1"></div>
         </div>
         <div class="hkl-group">
-            <div class="input-group"><label for="l_min">L:</label><input type="number" id="l_min" value="0" step="1"></div>
+            <div class="input-group"><label for="l_min">L:</label><input type="number" id="l_min" value="-2" step="1"></div>
             <div class="input-group"><label for="l_max">to</label><input type="number" id="l_max" value="2" step="1"></div>
         </div>
 
@@ -146,7 +146,7 @@
             scene.add(reciprocalAxes);
             
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.z = 8;
+            camera.position.z = 5;
 
             const container = document.getElementById('container');
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -160,9 +160,6 @@
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(1, 1, 1);
             scene.add(directionalLight);
-
-            const axesHelper = new THREE.AxesHelper(1);
-            scene.add(axesHelper);
             
             const ringGeo = new THREE.RingGeometry(0.05, 0.06, 32);
             const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
@@ -212,8 +209,11 @@
                 if (dom.measureMode.checked) {
                     if (selectedNodes.includes(clickedNode)) return; 
                     if (selectedNodes.length === 2) {
-                        selectedNodes[0].material.color.setHex(0x007bff);
-                        selectedNodes.shift();
+                        const oldNode = selectedNodes.shift();
+                        if (oldNode.material) {
+                            const defaultColor = oldNode.userData.isOrigin ? 0xff0000 : 0x007bff;
+                            oldNode.material.color.setHex(defaultColor);
+                        }
                     }
                     selectedNodes.push(clickedNode);
                     clickedNode.material.color.setHex(0xffa500);
@@ -233,8 +233,8 @@
             while(latticePoints.children.length > 0){ 
                 const obj = latticePoints.children[0];
                 latticePoints.remove(obj);
-                obj.geometry.dispose();
-                obj.material.dispose();
+                if(obj.geometry) obj.geometry.dispose();
+                if(obj.material) obj.material.dispose();
             }
             reciprocalAxes.clear(); 
             
@@ -244,10 +244,10 @@
             const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
             if (!b1) return;
 
-            const origin = new THREE.Vector3(0,0,0);
-            reciprocalAxes.add(new THREE.ArrowHelper(b1.clone().normalize(), origin, b1.length(), 0xffff00));
-            reciprocalAxes.add(new THREE.ArrowHelper(b2.clone().normalize(), origin, b2.length(), 0xff00ff));
-            reciprocalAxes.add(new THREE.ArrowHelper(b3.clone().normalize(), origin, b3.length(), 0x00ffff));
+            const originVec = new THREE.Vector3(0,0,0);
+            reciprocalAxes.add(new THREE.ArrowHelper(b1.clone().normalize(), originVec, b1.length(), 0xffff00));
+            reciprocalAxes.add(new THREE.ArrowHelper(b2.clone().normalize(), originVec, b2.length(), 0xff00ff));
+            reciprocalAxes.add(new THREE.ArrowHelper(b3.clone().normalize(), originVec, b3.length(), 0x00ffff));
 
             const hkl = {};
             const parseOrDefault = (val, def) => { const parsed = parseInt(val); return isNaN(parsed) ? def : parsed; };
@@ -255,16 +255,25 @@
             hkl.k_min = parseOrDefault(dom.hkl.k_min.value, 0); hkl.k_max = parseOrDefault(dom.hkl.k_max.value, 2);
             hkl.l_min = parseOrDefault(dom.hkl.l_min.value, 0); hkl.l_max = parseOrDefault(dom.hkl.l_max.value, 2);
             const nodeRadius = parseFloat(dom.nodeSize.value);
+
+            // Add origin node
+            const originGeo = new THREE.SphereGeometry(nodeRadius, 12, 12);
+            const originMat = new THREE.MeshStandardMaterial({ color: 0xff0000, metalness: 0.2, roughness: 0.6 });
+            const originNode = new THREE.Mesh(originGeo, originMat);
+            originNode.userData = { h: 0, k: 0, l: 0, params: p, isOrigin: true };
+            latticePoints.add(originNode);
+
             for (let h = hkl.h_min; h <= hkl.h_max; h++) {
                 for (let k = hkl.k_min; k <= hkl.k_max; k++) {
                     for (let l = hkl.l_min; l <= hkl.l_max; l++) {
-                        if (h === 0 && k === 0 && l === 0) continue;
+                        if (h === 0 && k === 0 && l === 0) continue; // Skip origin, it's already added
                         if (!isAllowed(h, k, l, dom.centering.value)) continue;
+                        
                         const pos = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
                         const geometry = new THREE.SphereGeometry(nodeRadius, 12, 12);
                         const material = new THREE.MeshStandardMaterial({ color: 0x007bff, metalness: 0.2, roughness: 0.6 });
                         const sphere = new THREE.Mesh(geometry, material);
-                        sphere.userData = { h, k, l, params: p };
+                        sphere.userData = { h, k, l, params: p, isOrigin: false };
                         sphere.position.copy(pos);
                         latticePoints.add(sphere);
                     }
@@ -279,7 +288,12 @@
         }
 
         function resetSelection() {
-            selectedNodes.forEach(node => { if (node.material) node.material.color.setHex(0x007bff); });
+            selectedNodes.forEach(node => {
+                if (node.material) {
+                    const defaultColor = node.userData.isOrigin ? 0xff0000 : 0x007bff;
+                    node.material.color.setHex(defaultColor);
+                }
+            });
             selectedNodes = [];
             if(selectionIndicator) selectionIndicator.visible = false;
             updateInfo();
@@ -292,7 +306,8 @@
             } else if (selectedNodes.length === 1) {
                 const { h, k, l, params } = selectedNodes[0].userData;
                 const d = calculateDSpacing(h, k, l, params);
-                dom.info.innerHTML = `<b>Selected Node</b><br>hkl: (${h}, ${k}, ${l})<br>d-spacing: ${d.toFixed(4)} Å`;
+                const d_text = isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`;
+                dom.info.innerHTML = `<b>Selected Node</b><br>hkl: (${h}, ${k}, ${l})<br>d-spacing: ${d_text}`;
                 selectionIndicator.position.copy(selectedNodes[0].position);
                 selectionIndicator.visible = true;
             } else if (selectedNodes.length === 2) {
@@ -309,10 +324,10 @@
         function updateParameterFields() { const system = dom.system.value; Object.values(dom.groups).forEach(g => { g.style.display = 'flex'; }); Object.values(dom.inputs).forEach(i => { i.disabled = false; }); const hide = (params) => params.forEach(p => { dom.groups[p].style.display = 'none'; }); switch (system) { case 'cubic': hide(['b', 'c', 'alpha', 'beta', 'gamma']); break; case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break; case 'hexagonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break; case 'monoclinic': hide(['alpha', 'gamma']); break; } syncLinkedParameters(); }
         function syncLinkedParameters() { const system = dom.system.value; const setVal = (p, val) => { dom.inputs[p].value = val; dom.inputs[p].disabled = true; }; switch(system) { case 'cubic': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'tetragonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'orthorhombic': setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'hexagonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 120); break; case 'trigonal': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('beta', dom.inputs.alpha.value); setVal('gamma', dom.inputs.alpha.value); break; case 'monoclinic': setVal('alpha', 90); setVal('gamma', 90); break; case 'triclinic': break; } }
         function updateCenteringOptions() { const system = dom.system.value; const options = centeringOptions[system]; const currentCentering = dom.centering.value; dom.centering.innerHTML = ''; options.forEach(opt => { const option = document.createElement('option'); option.value = opt; option.textContent = opt; dom.centering.appendChild(option); }); if (options.includes(currentCentering)) { dom.centering.value = currentCentering; } generateLattice(); }
-        function updateReciprocalDisplay(p) { const toRad = Math.PI / 180; const cos_a = Math.cos(p.alpha * toRad), cos_b = Math.cos(p.beta * toRad), cos_g = Math.cos(p.gamma * toRad); const sin_a = Math.sin(p.alpha * toRad), sin_b = Math.sin(p.beta * toRad), sin_g = Math.sin(p.gamma * toRad); const V = p.a * p.b * p.c * Math.sqrt(1 - cos_a*cos_a - cos_b*cos_b - cos_g*cos_g + 2 * cos_a * cos_b * cos_g); if (isNaN(V) || V < 1e-9) { Object.values(dom.recip).forEach(span => span.querySelector('.value').textContent = 'Error'); return; } const values = { a: (p.b * p.c * sin_a) / V, b: (p.a * p.c * sin_b) / V, c: (p.a * p.b * sin_g) / V, alpha: (Math.acos((cos_b * cos_g - cos_a) / (sin_b * sin_g)) / toRad), beta: (Math.acos((cos_g * cos_a - cos_b) / (sin_g * sin_a)) / toRad), gamma: (Math.acos((cos_a * cos_b - cos_g) / (sin_a * sin_b)) / toRad) }; dom.recip.a.querySelector('.value').textContent = `${values.a.toFixed(3)} Å⁻¹`; dom.recip.b.querySelector('.value').textContent = `${values.b.toFixed(3)} Å⁻¹`; dom.recip.c.querySelector('.value').textContent = `${values.c.toFixed(3)} Å⁻¹`; dom.recip.alpha.querySelector('.value').textContent = `${values.alpha.toFixed(2)}°`; dom.recip.beta.querySelector('.value').textContent = `${values.beta.toFixed(2)}°`; dom.recip.gamma.querySelector('.value').textContent = `${values.gamma.toFixed(2)}°`; Object.values(dom.recip).forEach(s => s.style.display = 'none'); const system = dom.system.value; switch(system) { case 'cubic': dom.recip.a.style.display = 'inline'; break; case 'tetragonal': case 'hexagonal': dom.recip.a.style.display = 'inline'; dom.recip.c.style.display = 'inline'; if (system === 'hexagonal') dom.recip.gamma.style.display = 'inline'; break; case 'orthorhombic': dom.recip.a.style.display = 'inline'; dom.recip.b.style.display = 'inline'; dom.recip.c.style.display = 'inline'; break; case 'trigonal': dom.recip.a.style.display = 'inline'; dom.recip.alpha.style.display = 'inline'; break; case 'monoclinic': dom.recip.a.style.display = 'inline'; dom.recip.b.style.display = 'inline'; dom.recip.c.style.display = 'inline'; dom.recip.beta.style.display = 'inline'; break; case 'triclinic': Object.values(dom.recip).forEach(s => s.style.display = 'inline'); break; } }
-        function getReciprocalVectors(a, b, c, alpha, beta, gamma) { const toRad = Math.PI / 180; const cos_a = Math.cos(alpha * toRad), cos_b = Math.cos(beta * toRad), cos_g = Math.cos(gamma * toRad); const V = a * b * c * Math.sqrt(1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g); if (isNaN(V) || V < 1e-9) return {}; const a_star = (b * c * Math.sin(alpha * toRad)) / V; const b_star = (a * c * Math.sin(beta * toRad)) / V; const c_star = (a * b * Math.sin(gamma * toRad)) / V; const cos_alpha_star = (cos_b * cos_g - cos_a) / (Math.sin(beta * toRad) * Math.sin(gamma * toRad)); const cos_beta_star = (cos_g * cos_a - cos_b) / (Math.sin(gamma * toRad) * Math.sin(alpha * toRad)); const cos_gamma_star = (cos_a * cos_b - cos_g) / (Math.sin(alpha * toRad) * Math.sin(beta * toRad)); if(Math.abs(cos_gamma_star)>1.000001) return{}; const sin_gamma_star = Math.sqrt(1 - cos_gamma_star**2); if(isNaN(sin_gamma_star) || sin_gamma_star < 1e-9) return{}; const b1 = new THREE.Vector3(a_star, 0, 0); const b2 = new THREE.Vector3(b_star * cos_gamma_star, b_star * sin_gamma_star, 0); const b3_x = c_star * cos_beta_star; const b3_y = c_star * (cos_alpha_star - cos_beta_star * cos_gamma_star) / sin_gamma_star; const b3_z = Math.sqrt(Math.max(0, c_star**2 - b3_x**2 - b3_y**2)); return { b1, b2, b3: new THREE.Vector3(b3_x, b3_y, b3_z) }; }
+        function updateReciprocalDisplay(p) { const toRad = Math.PI / 180; const cos_a = Math.cos(p.alpha * toRad), cos_b = Math.cos(p.beta * toRad), cos_g = Math.cos(p.gamma * toRad); const V_sq = p.a**2 * p.b**2 * p.c**2 * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g); if (isNaN(V_sq) || V_sq < 1e-9) { Object.values(dom.recip).forEach(span => span.querySelector('.value').textContent = 'Error'); return; } const V = Math.sqrt(V_sq); const values = { a: (p.b * p.c * Math.sin(p.alpha * toRad)) / V, b: (p.a * p.c * Math.sin(p.beta * toRad)) / V, c: (p.a * p.b * Math.sin(p.gamma * toRad)) / V, alpha: (Math.acos((cos_b * cos_g - cos_a) / (Math.sin(p.beta*toRad) * Math.sin(p.gamma*toRad))) / toRad), beta: (Math.acos((cos_g * cos_a - cos_b) / (Math.sin(p.gamma*toRad) * Math.sin(p.alpha*toRad))) / toRad), gamma: (Math.acos((cos_a * cos_b - cos_g) / (Math.sin(p.alpha*toRad) * Math.sin(p.beta*toRad))) / toRad) }; dom.recip.a.querySelector('.value').textContent = `${values.a.toFixed(3)} Å⁻¹`; dom.recip.b.querySelector('.value').textContent = `${values.b.toFixed(3)} Å⁻¹`; dom.recip.c.querySelector('.value').textContent = `${values.c.toFixed(3)} Å⁻¹`; dom.recip.alpha.querySelector('.value').textContent = `${values.alpha.toFixed(2)}°`; dom.recip.beta.querySelector('.value').textContent = `${values.beta.toFixed(2)}°`; dom.recip.gamma.querySelector('.value').textContent = `${values.gamma.toFixed(2)}°`; Object.values(dom.recip).forEach(s => s.style.display = 'none'); const system = dom.system.value; switch(system) { case 'cubic': dom.recip.a.style.display = 'inline'; break; case 'tetragonal': case 'hexagonal': dom.recip.a.style.display = 'inline'; dom.recip.c.style.display = 'inline'; if (system === 'hexagonal') dom.recip.gamma.style.display = 'inline'; break; case 'orthorhombic': dom.recip.a.style.display = 'inline'; dom.recip.b.style.display = 'inline'; dom.recip.c.style.display = 'inline'; break; case 'trigonal': dom.recip.a.style.display = 'inline'; dom.recip.alpha.style.display = 'inline'; break; case 'monoclinic': dom.recip.a.style.display = 'inline'; dom.recip.b.style.display = 'inline'; dom.recip.c.style.display = 'inline'; dom.recip.beta.style.display = 'inline'; break; case 'triclinic': Object.values(dom.recip).forEach(s => s.style.display = 'inline'); break; } }
+        function getReciprocalVectors(a, b, c, alpha, beta, gamma) { const toRad = Math.PI / 180; const cos_a = Math.cos(alpha * toRad), cos_b = Math.cos(beta * toRad), cos_g = Math.cos(gamma * toRad); const V_sq = a**2 * b**2 * c**2 * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g); if (isNaN(V_sq) || V_sq < 1e-9) return {}; const V = Math.sqrt(V_sq); const a_star = (b * c * Math.sin(alpha * toRad)) / V; const b_star = (a * c * Math.sin(beta * toRad)) / V; const c_star = (a * b * Math.sin(gamma * toRad)) / V; const cos_alpha_star = (cos_b * cos_g - cos_a) / (Math.sin(beta * toRad) * Math.sin(gamma * toRad)); const cos_beta_star = (cos_g * cos_a - cos_b) / (Math.sin(gamma * toRad) * Math.sin(alpha * toRad)); const cos_gamma_star = (cos_a * cos_b - cos_g) / (Math.sin(alpha * toRad) * Math.sin(beta * toRad)); if(Math.abs(cos_gamma_star)>1.000001) return{}; const sin_gamma_star = Math.sqrt(1 - cos_gamma_star**2); if(isNaN(sin_gamma_star) || sin_gamma_star < 1e-9) return{}; const b1 = new THREE.Vector3(a_star, 0, 0); const b2 = new THREE.Vector3(b_star * cos_gamma_star, b_star * sin_gamma_star, 0); const b3_x = c_star * cos_beta_star; const b3_y = c_star * (cos_alpha_star - cos_beta_star * cos_gamma_star) / sin_gamma_star; const b3_z = Math.sqrt(Math.max(0, c_star**2 - b3_x**2 - b3_y**2)); return { b1, b2, b3: new THREE.Vector3(b3_x, b3_y, b3_z) }; }
         function isAllowed(h, k, l, centering) { switch (centering) { case 'P': return true; case 'I': return (h + k + l) % 2 === 0; case 'F': return (h % 2 === k % 2) && (k % 2 === l % 2); case 'C': return (h + k) % 2 === 0; case 'A': return (k + l) % 2 === 0; case 'B': return (h + l) % 2 === 0; case 'R': return (-h + k + l) % 3 === 0; default: return true; } }
-        function calculateDSpacing(h, k, l, p) { const toRad = Math.PI/180; const ca=Math.cos(p.alpha*toRad), cb=Math.cos(p.beta*toRad), cg=Math.cos(p.gamma*toRad); const d_inv_sq=(h**2/p.a**2)*Math.sin(p.alpha*toRad)**2 + (k**2/p.b**2)*Math.sin(p.beta*toRad)**2 + (l**2/p.c**2)*Math.sin(p.gamma*toRad)**2 + (2*k*l/(p.b*p.c))*(cb*cg-ca) + (2*l*h/(p.c*p.a))*(ca*cg-cb) + (2*h*k/(p.a*p.b))*(ca*cb-cg); if (d_inv_sq <= 1e-9) return Infinity; return 1 / Math.sqrt(d_inv_sq); }
+        function calculateDSpacing(h, k, l, p) { const toRad = Math.PI/180; const V_sq = p.a**2 * p.b**2 * p.c**2 * (1 - Math.cos(p.alpha*toRad)**2 - Math.cos(p.beta*toRad)**2 - Math.cos(p.gamma*toRad)**2 + 2 * Math.cos(p.alpha*toRad) * Math.cos(p.beta*toRad) * Math.cos(p.gamma*toRad)); const G_sq = (1/V_sq) * ( h**2 * p.b**2 * p.c**2 * Math.sin(p.alpha*toRad)**2 + k**2 * p.a**2 * p.c**2 * Math.sin(p.beta*toRad)**2 + l**2 * p.a**2 * p.b**2 * Math.sin(p.gamma*toRad)**2 + 2*h*k*p.a*p.b*p.c**2*(Math.cos(p.alpha*toRad)*Math.cos(p.beta*toRad) - Math.cos(p.gamma*toRad)) + 2*k*l*p.b*p.c*p.a**2*(Math.cos(p.beta*toRad)*Math.cos(p.gamma*toRad) - Math.cos(p.alpha*toRad)) + 2*l*h*p.c*p.a*p.b**2*(Math.cos(p.gamma*toRad)*Math.cos(p.alpha*toRad) - Math.cos(p.beta*toRad)) ); if (G_sq <= 1e-9) return Infinity; return 1 / Math.sqrt(G_sq); }
     </script>
 </body>
 </html>
