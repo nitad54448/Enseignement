@@ -14,6 +14,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 3.  **[Diagramme des Niveaux d'Énergie Atomique (`niveaux_atomiques.html`)](#3-diagramme-des-niveaux-dénergie-atomique)**
 4.  **[WaveXplorer - Explorateur de Phénomènes Ondulatoires (`WaveXplorer.html`)](#4-wavexplorer---explorateur-de-phénomènes-ondulatoires)**
 5.  **[Simulateur de Spectres d'Émission RX (`Emission.html`)](#5-simulateur-de-spectres-démission-rx)**
+6.  **[Réseaux réciproques (`Rspace.html`)](#6-réseaux-réciproques)**
 
 ---
 
@@ -89,6 +90,15 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
     * En cliquant près d'une raie caractéristique sur le spectre principal, une petite fenêtre (tooltip) s'affiche avec un diagramme schématique de la transition électronique correspondante (K, L, M).
 * **Technologies :** HTML, JavaScript, API Canvas 2D, SVG (pour le diagramme de transition).
 
+### 6. Réseaux réciproques
+ [**RSpace**](https://nitad54448.github.io/Enseignement/RSpace.html)
+
+ Ce logiciel permet la visualisation d'un réseau réciproque pour tous les systèmes cristallins.
+* **Fonctionnalités :**
+    * Choix du système et du centrage.
+    * Extinction systèmatiques.
+    * Possibilité d'explorer les hkl et les distances entre les noeuds.
+* **Technologies :** HTML, JavaScript, Three.js
 ---
 
 N'hésitez pas à contribuer ou à signaler des problèmes !
