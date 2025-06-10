@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiessig Fringes Simulator with Roughness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .x-axis path, .y-axis path, .x-axis .tick line, .y-axis .tick line {
+            stroke: #9ca3af; /* gray-400 */
+        }
+        .x-axis .tick text, .y-axis .tick text {
+            fill: #4b5563; /* gray-600 */
+            font-size: 12px;
+        }
+        .plot-line {
+            fill: none;
+            stroke: #ef4444; /* red-500 */
+            stroke-width: 2px;
+        }
+        .axis-label {
+            font-size: 14px;
+            fill: #1f2937; /* gray-800 */
+            font-weight: 500;
+        }
+        /* Custom slider styles */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #d1d5db; /* gray-300 */
+            border-radius: 5px;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity .2s;
+        }
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* blue-500 */
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* blue-500 */
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.2);
+        }
+        #plot-container, #plot-container svg {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Kiessig Fringes Simulator</h1>
+            <p class="mt-2 text-lg text-gray-600">Interactive XRR for a Single Film with Interface Roughness</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Controls Panel -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-2">Film & Roughness Parameters</h2>
+                <div class="space-y-6">
+                    <!-- Film Thickness -->
+                    <div>
+                        <label for="thickness" class="block text-sm font-medium text-gray-700">Film Thickness (d)</label>
+                        <div class="flex items-center space-x-3 mt-2">
+                            <input type="range" id="thickness" min="10" max="500" value="62.8" step="0.1" class="w-full">
+                            <input type="number" id="thickness-value" min="10" max="500" value="62.8" step="0.1" class="w-24 p-2 border border-gray-300 rounded-md text-center">
+                            <span class="text-gray-500">Å</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Film Electron Density -->
+                    <div>
+                        <label for="film-density" class="block text-sm font-medium text-gray-700">Film Electron Density (ρ<sub>film</sub>)</label>
+                         <div class="flex items-center space-x-3 mt-2">
+                            <input type="range" id="film-density" min="0.1" max="5" value="4.678" step="0.001" class="w-full">
+                            <input type="number" id="film-density-value" min="0.1" max="5" value="4.678" step="0.001" class="w-24 p-2 border border-gray-300 rounded-md text-center">
+                            <span class="text-gray-500">e⁻/Å³</span>
+                        </div>
+                    </div>
+
+                     <!-- Top Roughness -->
+                    <div>
+                        <label for="roughness01" class="block text-sm font-medium text-gray-700">Top Surface Roughness (σ₀₁)</label>
+                        <div class="flex items-center space-x-3 mt-2">
+                            <input type="range" id="roughness01" min="0" max="20" value="3" step="0.1" class="w-full">
+                            <input type="number" id="roughness01-value" min="0" max="20" value="3" step="0.1" class="w-24 p-2 border border-gray-300 rounded-md text-center">
+                            <span class="text-gray-500">Å</span>
+                        </div>
+                    </div>
+
+                     <!-- Interface Roughness -->
+                    <div>
+                        <label for="roughness12" class="block text-sm font-medium text-gray-700">Film/Substrate Roughness (σ₁₂)</label>
+                        <div class="flex items-center space-x-3 mt-2">
+                            <input type="range" id="roughness12" min="0" max="20" value="5" step="0.1" class="w-full">
+                            <input type="number" id="roughness12-value" min="0" max="20" value="5" step="0.1" class="w-24 p-2 border border-gray-300 rounded-md text-center">
+                            <span class="text-gray-500">Å</span>
+                        </div>
+                    </div>
+
+                    <!-- Substrate Electron Density -->
+                    <div>
+                        <label for="substrate-density" class="block text-sm font-medium text-gray-700">Substrate Electron Density (ρ<sub>sub</sub>)</label>
+                         <div class="flex items-center space-x-3 mt-2">
+                            <input type="range" id="substrate-density" min="0.1" max="5" value="0.707" step="0.001" class="w-full">
+                            <input type="number" id="substrate-density-value" min="0.1" max="5" value="0.707" step="0.001" class="w-24 p-2 border border-gray-300 rounded-md text-center">
+                            <span class="text-gray-500">e⁻/Å³</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plot Area -->
+            <div class="lg:col-span-2 bg-white p-4 rounded-2xl shadow-lg">
+                <div id="plot-container"></div>
+            </div>
+
+        </div>
+        
+        <footer class="text-center mt-8 text-sm text-gray-500">
+            <p>Based on the Parratt formalism with Névot-Croce roughness. Q = (4π/λ)sin(θ). Absorption is neglected.</p>
+        </footer>
+    </div>
+
+    <script>
+        // --- Complex Number Library ---
+        const Complex = {
+            create: (re = 0, im = 0) => ({ re, im }),
+            add: (a, b) => ({ re: a.re + b.re, im: a.im + b.im }),
+            subtract: (a, b) => ({ re: a.re - b.re, im: a.im - b.im }),
+            multiply: (a, b) => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re }),
+            divide: (a, b) => {
+                const d = b.re * b.re + b.im * b.im;
+                if (d === 0) return { re: Infinity, im: Infinity };
+                return { re: (a.re * b.re + a.im * b.im) / d, im: (a.im * b.re - a.re * b.im) / d };
+            },
+            exp: (c) => { const e = Math.exp(c.re); return { re: e * Math.cos(c.im), im: e * Math.sin(c.im) }; },
+            sqrt: (c) => {
+                const r = Math.sqrt(c.re * c.re + c.im * c.im), p = Math.atan2(c.im, c.re), s = Math.sqrt(r);
+                return { re: s * Math.cos(p / 2), im: s * Math.sin(p / 2) };
+            },
+            magnitudeSq: (c) => c.re * c.re + c.im * c.im
+        };
+
+        // --- Physics Calculation ---
+        const CLASSICAL_ELECTRON_RADIUS = 2.81794e-5; // in Å
+        const PI = Math.PI;
+
+        /**
+         * Calculates the XRR curve for a single layer with roughness.
+         */
+        function calculateReflectivity(thickness, filmDensity, subDensity, sigma01, sigma12) {
+            const data = [];
+            const qMax = 1.0;
+            const qSteps = 800;
+            
+            const qCritSq_film = 16 * PI * filmDensity * CLASSICAL_ELECTRON_RADIUS;
+            const qCritSq_sub = 16 * PI * subDensity * CLASSICAL_ELECTRON_RADIUS;
+
+            for (let i = 1; i <= qSteps; i++) {
+                const Q = (i / qSteps) * qMax;
+                const Qsq = Q * Q;
+
+                // Wavevector component in z-direction
+                const qz_vac = Complex.create(Q, 0);
+                const qz_film = Complex.sqrt(Complex.subtract(Complex.create(Qsq, 0), Complex.create(qCritSq_film, 0)));
+                const qz_sub = Complex.sqrt(Complex.subtract(Complex.create(Qsq, 0), Complex.create(qCritSq_sub, 0)));
+
+                // Ideal Fresnel reflectivity coefficients
+                let r_01_ideal = Complex.divide(Complex.subtract(qz_vac, qz_film), Complex.add(qz_vac, qz_film));
+                let r_12_ideal = Complex.divide(Complex.subtract(qz_film, qz_sub), Complex.add(qz_film, qz_sub));
+                
+                // Apply Névot-Croce roughness factor: exp(-2 * (qz_i * qz_j).re * sigma^2)
+                const rough_factor_01 = Math.exp(-2 * qz_vac.re * qz_film.re * sigma01 * sigma01);
+                const rough_factor_12 = Math.exp(-2 * qz_film.re * qz_sub.re * sigma12 * sigma12);
+
+                const r_01 = Complex.multiply(r_01_ideal, Complex.create(rough_factor_01, 0));
+                const r_12 = Complex.multiply(r_12_ideal, Complex.create(rough_factor_12, 0));
+
+                // Phase factor: exp(i * 2 * q_z_film * thickness)
+                const phaseFactor = Complex.exp(Complex.multiply(Complex.create(0, 2), Complex.multiply(qz_film, Complex.create(thickness, 0))));
+
+                // Total reflectivity amplitude using Parratt formalism for one layer
+                const numerator = Complex.add(r_01, Complex.multiply(r_12, phaseFactor));
+                const denominator = Complex.add(Complex.create(1, 0), Complex.multiply(r_01, Complex.multiply(r_12, phaseFactor)));
+                
+                const r_total = Complex.divide(numerator, denominator);
+                const reflectivity = Complex.magnitudeSq(r_total);
+
+                data.push({ q: Q, r: reflectivity });
+            }
+            return data;
+        }
+
+        // --- D3.js Plotting ---
+        const margin = { top: 20, right: 30, bottom: 60, left: 70 };
+        const container = d3.select("#plot-container");
+        let svg, xScale, yScale, xAxisGroup, yAxisGroup, line, path, xAxisLabel, yAxisLabel;
+        let isPlotInitialized = false;
+        
+        function drawPlot() {
+            const { width } = container.node().getBoundingClientRect();
+            if (width <= 0) return;
+            const height = width * 0.6;
+
+            if (!isPlotInitialized) {
+                isPlotInitialized = true;
+                svg = container.append("svg").attr("preserveAspectRatio", "xMidYMid meet");
+                const plotArea = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+                xScale = d3.scaleLinear();
+                yScale = d3.scaleLog().clamp(true);
+                xAxisGroup = plotArea.append("g").attr("class", "x-axis");
+                yAxisGroup = plotArea.append("g").attr("class", "y-axis");
+                xAxisLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle");
+                yAxisLabel = svg.append("text").attr("class", "axis-label").attr("transform", "rotate(-90)").attr("text-anchor", "middle");
+                line = d3.line().x(d => xScale(d.q)).y(d => yScale(d.r));
+                path = plotArea.append("path").attr("class", "plot-line");
+            }
+            
+            svg.attr("viewBox", `0 0 ${width} ${height}`);
+            const plotWidth = width - margin.left - margin.right;
+            const plotHeight = height - margin.top - margin.bottom;
+
+            xScale.domain([0, 1]).range([0, plotWidth]);
+            yScale.domain([1e-10, 1]).range([plotHeight, 0]);
+
+            xAxisGroup.attr("transform", `translate(0,${plotHeight})`).call(d3.axisBottom(xScale).ticks(5));
+            
+            // CORRECTED Y-Axis Tick Formatting
+            yAxisGroup.call(d3.axisLeft(yScale)
+                .ticks(6) // Number of ticks is a suggestion for d3
+                .tickFormat((d) => {
+                    const logVal = Math.round(Math.log10(d));
+                    if (d > 1) return null; // Don't show ticks above 1
+                    switch (logVal) {
+                        case 0: return '10\u2070';      // 10⁰
+                        case -2: return '10\u207B\u00B2'; // 10⁻²
+                        case -4: return '10\u207B\u2074'; // 10⁻⁴
+                        case -6: return '10\u207B\u2076'; // 10⁻⁶
+                        case -8: return '10\u207B\u2078'; // 10⁻⁸
+                        case -10: return '10\u207B\u00B9\u2070'; // 10⁻¹⁰
+                        default: return null; // Hide other intermediate ticks
+                    }
+                }));
+            
+            xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 15).html("Wavevector transfer Q [Å⁻¹]");
+            yAxisLabel.attr("y", 15).attr("x", 0 - (margin.top + plotHeight / 2)).attr("dy", "1em").text("Reflectivity |R|²");
+            
+            updateLine(false);
+        }
+
+        function updateLine(useTransition = true) {
+            const thickness = +document.getElementById('thickness').value;
+            const filmDensity = +document.getElementById('film-density').value;
+            const subDensity = +document.getElementById('substrate-density').value;
+            const sigma01 = +document.getElementById('roughness01').value;
+            const sigma12 = +document.getElementById('roughness12').value;
+            const data = calculateReflectivity(thickness, filmDensity, subDensity, sigma01, sigma12);
+            
+            const pathUpdate = path.datum(data);
+            if (useTransition) {
+                pathUpdate.transition().duration(50).attr("d", line);
+            } else {
+                pathUpdate.attr("d", line);
+            }
+        }
+
+        // --- Event Handlers & Initializer ---
+        function setupControls() {
+            const controls = [
+                { slider: 'thickness', value: 'thickness-value' },
+                { slider: 'film-density', value: 'film-density-value' },
+                { slider: 'substrate-density', value: 'substrate-density-value' },
+                { slider: 'roughness01', value: 'roughness01-value' },
+                { slider: 'roughness12', value: 'roughness12-value' }
+            ];
+
+            controls.forEach(item => {
+                const slider = document.getElementById(item.slider);
+                const valueInput = document.getElementById(item.value);
+                
+                slider.addEventListener('input', () => {
+                    valueInput.value = slider.value;
+                    updateLine();
+                });
+                valueInput.addEventListener('change', () => {
+                    slider.value = valueInput.value;
+                    updateLine();
+                });
+            });
+        }
+        
+        window.addEventListener('load', () => {
+            setupControls();
+            const resizeObserver = new ResizeObserver(drawPlot);
+            resizeObserver.observe(container.node());
+        });
+    </script>
+</body>
+</html>
