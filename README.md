@@ -15,7 +15,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 4.  **[WaveXplorer - Explorateur de Phénomènes Ondulatoires (`WaveXplorer.html`)](#4-wavexplorer---explorateur-de-phénomènes-ondulatoires)**
 5.  **[Simulateur de Spectres d'Émission RX (`Emission.html`)](#5-simulateur-de-spectres-démission-rx)**
 6.  **[Réseaux réciproques (`Rspace.html`)](#6-réseaux-réciproques)**
-7.  **[Méthodes expérimentales (`DiffractionMethods.html`)](#7-méthodes)**
+7.  **[Méthodes expérimentales (`DiffractionMethods.html`)](#7-méthodes-expérimentales)**
 8.  **[Miller (`Miller.html`)](#8-miller)**
 
 ---
