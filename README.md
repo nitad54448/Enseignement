@@ -102,7 +102,7 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
 * **Technologies :** HTML, JavaScript, Three.js.
 
 ### 7. Réseaux réciproques
- [**MéthodesRSpace**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
+ [**Méthodes**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
 
  Ce logiciel permet la visualisation d'un réseau réciproque pour trois méthodes expérimentales les systèmes cristallins.
 * **Fonctionnalités :**
