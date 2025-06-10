@@ -1,11 +1,11 @@
 # Une collection de simulateurs
 
-Bienvenue dans cette collection de simulateurs interactifs conçus pour explorer divers concepts de physique, notamment en cristallographie, science des matériaux et optique. Ces outils ont été développés en HTML et JavaScript, avec une utilisation de la bibliothèque Three.js pour les visualisations 3D.
+Vous trouverez ici une collection de simulateurs interactifs conçus pour explorer divers concepts de physique, notamment en cristallographie, science des matériaux et optique. Ces outils ont été développés en HTML et JavaScript, avec une utilisation de la bibliothèque Three.js pour les visualisations 3D.
 
 **Auteur:** NitaD, Université Paris-Saclay
-**Version:** 04 Juin 2025
+**Version:** 10 Juin 2025
 
-## Accès aux Simulateurs
+## Liste
 
 Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur les liens ci-dessous pour les lancer :
 
@@ -15,6 +15,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 4.  **[WaveXplorer - Explorateur de Phénomènes Ondulatoires (`WaveXplorer.html`)](#4-wavexplorer---explorateur-de-phénomènes-ondulatoires)**
 5.  **[Simulateur de Spectres d'Émission RX (`Emission.html`)](#5-simulateur-de-spectres-démission-rx)**
 6.  **[Réseaux réciproques (`Rspace.html`)](#6-réseaux-réciproques)**
+7.  **[Méthodes expérimentales (`DiffractionMethods.html`)](#7-méthodes)**
 
 ---
 
@@ -96,6 +97,16 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
  Ce logiciel permet la visualisation d'un réseau réciproque pour tous les systèmes cristallins.
 * **Fonctionnalités :**
     * Choix du système et du centrage.
+    * Extinction systèmatiques.
+    * Possibilité d'explorer les hkl et les distances entre les noeuds.
+* **Technologies :** HTML, JavaScript, Three.js.
+
+### 7. Réseaux réciproques
+ [**MéthodesRSpace**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
+
+ Ce logiciel permet la visualisation d'un réseau réciproque pour trois méthodes expérimentales les systèmes cristallins.
+* **Fonctionnalités :**
+    * Choix entre la difraction par un monocristal ou une poudre.
     * Extinction systèmatiques.
     * Possibilité d'explorer les hkl et les distances entre les noeuds.
 * **Technologies :** HTML, JavaScript, Three.js.
