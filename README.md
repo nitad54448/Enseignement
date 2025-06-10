@@ -80,7 +80,7 @@ This viewer schematically displays atomic energy levels (K, L, M) for different 
 ---
 
 ### 5. Reciprocal Space Viewer
-[**Launch Reciprocal Space Simulator**](https://nitad54448.github.io/Enseignement/Rspace.html)
+[**Launch Reciprocal Space Simulator**](https://nitad54448.github.io/Enseignement/RSpace.html)
 
 This tool allows for the visualization of a reciprocal lattice for all crystal systems.
 
