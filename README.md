@@ -1,128 +1,138 @@
-# Une collection de simulateurs
+# A Collection of Simulators
 
-Vous trouverez ici une collection de simulateurs interactifs conçus pour explorer divers concepts de physique, notamment en cristallographie, science des matériaux et optique. Ces outils ont été développés en HTML et JavaScript, avec une utilisation de la bibliothèque Three.js pour les visualisations 3D.
+Welcome to a collection of interactive simulators designed to explore various concepts in physics, with a focus on **crystallography**, **materials science**, and **optics**. These tools were developed using HTML and JavaScript, with the Three.js library for 3D visualizations.
 
-**Auteur:** NitaD, Université Paris-Saclay
-**Version:** 10 Juin 2025
-
-## Liste
-
-Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur les liens ci-dessous pour les lancer :
-
-1.  **[Visualiseur de Sphère d'Ewald et Diffraction RX (`ewald.html`)](#1-visualiseur-de-sphère-dewald-et-diffraction-rx)**
-2.  **[Simulateur d'Absorption et Filtres RX (`filtres.html`)](#2-simulateur-dabsorption-et-filtres-rx)**
-3.  **[Diagramme des Niveaux d'Énergie Atomique (`niveaux_atomiques.html`)](#3-diagramme-des-niveaux-dénergie-atomique)**
-4.  **[WaveXplorer - Explorateur de Phénomènes Ondulatoires (`WaveXplorer.html`)](#4-wavexplorer---explorateur-de-phénomènes-ondulatoires)**
-5.  **[Simulateur de Spectres d'Émission RX (`Emission.html`)](#5-simulateur-de-spectres-démission-rx)**
-6.  **[Réseaux réciproques (`Rspace.html`)](#6-réseaux-réciproques)**
-7.  **[Méthodes expérimentales (`DiffractionMethods.html`)](#7-méthodes-expérimentales)**
-8.  **[Miller (`Miller.html`)](#8-miller)**
+**Author:** NitaD, Université Paris-Saclay
+**Version:** June 10, 2025
 
 ---
 
-## Description des Simulateurs
+## Simulator Descriptions
 
-### 1. Visualiseur de Sphère d'Ewald et Diffraction RX
-[**Ewald**](https://nitad54448.github.io/Enseignement/ewald.html)
+All simulators are directly accessible via GitHub Pages. Click the links below to launch them.
 
-Ce simulateur permet de visualiser la construction de la sphère d'Ewald dans l'espace réciproque pour une maille orthorhombique.
-* **Fonctionnalités :**
-    * Définition des paramètres de maille (a, b, c) orthorhombiques.
-    * Choix de la longueur d'onde (λ) du rayonnement X.
-    * Sélection du type de réseau de Bravais orthorhombique (Primitif, Centré, Faces Centrées, Base Centrée).
-    * Définition du domaine (h, k, l) à afficher pour le réseau réciproque.
-    * Rotation du cristal (et donc du réseau réciproque) autour des axes X, Y, Z.
-    * Ajustement d'un niveau de désordre pour simuler l'élargissement et l'atténuation des taches de diffraction.
-    * Visualisation des points du réseau réciproque, de la sphère d'Ewald, et du vecteur d'onde incident.
-    * Identification des points en condition de diffraction (intersection avec la sphère).
-    * Calcul de l'angle 2θ pour les points en diffraction en cliquant dessus.
-* **Technologies :** HTML, JavaScript, Three.js.
+### 1. Ewald Sphere and XRD Viewer
+[**Launch Ewald Sphere Simulator**](https://nitad54448.github.io/Enseignement/ewald.html)
 
-### 2. Simulateur d'Absorption et Filtres RX
-[**Filtres**](https://nitad54448.github.io/Enseignement/filtres.html)
+This simulator visualizes the construction of the Ewald sphere in reciprocal space for an orthorhombic lattice.
 
-Cet outil simule l'émission de rayons X par une anode, l'effet d'un filtre sur ce spectre, et affiche le coefficient d'absorption massique du filtre.
-* **Fonctionnalités :**
-    * Choix de l'élément de l'anode (Sc, Ti, V, Cr, Mn, Fe, Co, Ni, Cu, Zn).
-    * Réglage de la tension d'accélération et du courant du tube.
-    * Choix de l'élément du filtre et de son épaisseur.
-    * Affichage du spectre d'émission initial (Bremsstrahlung et raies caractéristiques K et L).
-    * Affichage du coefficient d'absorption massique (μ/ρ) du filtre en fonction de la longueur d'onde/énergie (échelle linéaire ou logarithmique).
-    * Affichage du spectre après filtrage.
-    * Ajustement manuel des limites de l'axe des abscisses (longueur d'onde).
-* **Technologies :** HTML, JavaScript, API Canvas 2D.
-
-### 3. Diagramme des Niveaux d'Énergie Atomique
-[**Niveaux_atomiques**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html)
-
-Ce visualiseur affiche schématiquement les niveaux d'énergie atomiques (K, L, M) pour différents éléments et permet de visualiser les transitions électroniques courantes (Kα, Kβ, Lα, etc.).
-* **Fonctionnalités :**
-    * Sélection de l'élément (H, He, Mn, Fe, Co, Ni, Cu, Zn, Mo, Au).
-    * Choix d'une transition énergétique (Kα1, Kα2, Kβ1, Lα1, Lβ1).
-    * Affichage des niveaux d'énergie (en eV ou keV) et de la transition sélectionnée.
-    * Calcul et affichage de l'énergie et de la longueur d'onde du photon émis lors de la transition.
-    * Rappel des règles de sélection pour les transitions dipolaires électriques.
-* **Technologies :** HTML, JavaScript, API Canvas 2D.
-
-### 4. WaveXplorer - Explorateur de Phénomènes Ondulatoires
-[**WaveXplorer**](https://nitad54448.github.io/Enseignement/WaveXplorer.html)
-
-WaveXplorer est un outil polyvalent pour visualiser et comprendre divers concepts fondamentaux des ondes.
-* **Fonctionnalités (Concepts) :**
-    * **Longueur d'onde & Amplitude :** Visualisation d'une onde sinusoïdale avec paramètres ajustables.
-    * **Phase (Déphasage) :** Comparaison de deux ondes avec un déphasage réglable.
-    * **Polarisation :** Illustration de la polarisation linéaire (verticale, horizontale), circulaire (droite, gauche), elliptique et non polarisée, avec modes de visualisation temporel (vecteur tournant à x=0) et spatial (instantané le long de l'axe x).
-    * **Vecteur de Poynting :** Représentation schématique d'une onde électromagnétique et de la direction du vecteur de Poynting.
-    * **Vitesses de Phase/Groupe :** Simulation d'une onde simple (vitesse de phase) ou d'un paquet d'ondes (vitesses de phase et de groupe) avec un facteur de dispersion ajustable.
-    * **Type d'Onde (Comparaison) :** Animation de particules pour illustrer les ondes transversales et longitudinales.
-    * **Front d'Onde :** Visualisation de fronts d'onde plans et sphériques.
-* **Technologies :** HTML, JavaScript, Three.js.
-
-### 5. Simulateur de Spectres d'Émission RX
- [**Emission**](https://nitad54448.github.io/Enseignement/Emission.html)
-
-Ce simulateur permet de générer et de visualiser des spectres d'émission de rayons X, incluant le rayonnement de Bremsstrahlung et les raies caractéristiques.
-* **Fonctionnalités :**
-    * Choix de l'élément de l'anode (Sc à Zn).
-    * Réglage du potentiel d'accélération et du courant du tube.
-    * Affichage du spectre d'émission résultant (intensité en fonction de la longueur d'onde/énergie).
-    * Possibilité de superposer plusieurs spectres pour comparaison.
-    * Effacement des spectres superposés.
-    * Ajustement manuel des limites de l'axe des abscisses (longueur d'onde).
-    * En cliquant près d'une raie caractéristique sur le spectre principal, une petite fenêtre (tooltip) s'affiche avec un diagramme schématique de la transition électronique correspondante (K, L, M).
-* **Technologies :** HTML, JavaScript, API Canvas 2D, SVG (pour le diagramme de transition).
-
-### 6. Réseaux réciproques
- [**RSpace**](https://nitad54448.github.io/Enseignement/RSpace.html)
-
- Ce logiciel permet la visualisation d'un réseau réciproque pour tous les systèmes cristallins.
-* **Fonctionnalités :**
-    * Choix du système et du centrage.
-    * Extinction systèmatiques.
-    * Possibilité d'explorer les hkl et les distances entre les noeuds.
-* **Technologies :** HTML, JavaScript, Three.js.
-
-### 7. Méthodes expérimentales
- [**Méthodes**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
-
- Ce logiciel permet la visualisation d'un réseau réciproque pour trois méthodes expérimentales les systèmes cristallins.
-* **Fonctionnalités :**
-    * Choix entre la difraction par un monocristal ou une poudre.
-    * Extinction systèmatiques.
-    * Possibilité d'explorer les hkl et les distances entre les noeuds.
-* **Technologies :** HTML, JavaScript, Three.js.
-
-### 8. Miller
- [**Miller**](https://nitad54448.github.io/Enseignement/Miller.html)
-
-Visualisation des plans hkl.
-* **Fonctionnalités :**
-    * Indication des trois plans succéssifs.
-    * Noeds avec extinction systèmatiques.
-    * Calcul des distances interplanaires.
-* **Technologies :** HTML, JavaScript, Three.js.
-
+* **Features**:
+    * Define orthorhombic lattice parameters (a, b, c).
+    * Select the X-ray wavelength (λ).
+    * Choose the Bravais lattice type (Primitive, Body-Centered, Face-Centered, Base-Centered).
+    * Set the (h, k, l) range to display for the reciprocal lattice.
+    * Rotate the crystal (and thus the reciprocal lattice) around the X, Y, and Z axes.
+    * Adjust a disorder level to simulate the broadening and attenuation of diffraction spots.
+    * View reciprocal lattice points, the Ewald sphere, and the incident wave vector.
+    * Identify points in diffraction condition (intersection with the sphere).
+    * Click on a point in diffraction to calculate its 2θ angle.
+* **Technologies**: HTML, JavaScript, Three.js.
 
 ---
 
-N'hésitez pas à contribuer ou à signaler des problèmes !
+### 2. XRD Emission Spectra Simulator
+[**Launch Emission Simulator**](https://nitad54448.github.io/Enseignement/Emission.html)
+
+This simulator generates and displays X-ray emission spectra, including Bremsstrahlung radiation and characteristic lines.
+
+* **Features**:
+    * Choose the anode element (Sc to Zn).
+    * Adjust the accelerating voltage and tube current.
+    * Display the resulting emission spectrum (intensity vs. wavelength/energy).
+    * Overlay multiple spectra for comparison.
+    * Clear overlaid spectra.
+    * Manually adjust the x-axis limits (wavelength).
+    * Click near a characteristic line on the main spectrum to display a tooltip with a schematic diagram of the corresponding electron transition (K, L, M).
+* **Technologies**: HTML, JavaScript, 2D Canvas API, SVG.
+
+---
+
+### 3. XRD Absorption and Filters Simulator
+[**Launch Filters Simulator**](https://nitad54448.github.io/Enseignement/filtres.html)
+
+This tool simulates the X-ray emission from an anode, the effect of a filter on the spectrum, and displays the filter's mass absorption coefficient.
+
+* **Features**:
+    * Choose the anode element (Sc to Zn).
+    * Set the acceleration voltage and tube current.
+    * Select the filter element and its thickness.
+    * Display the initial emission spectrum (Bremsstrahlung and characteristic K and L lines).
+    * Display the mass absorption coefficient (μ/ρ) of the filter versus wavelength/energy (linear or logarithmic scale).
+    * Display the spectrum after filtering.
+    * Manually adjust the x-axis limits (wavelength).
+* **Technologies**: HTML, JavaScript, 2D Canvas API.
+
+---
+
+### 4. Atomic Energy Level Diagram
+[**Launch Atomic Levels Simulator**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html)
+
+This viewer schematically displays atomic energy levels (K, L, M) for different elements and allows visualization of common electronic transitions (Kα, Kβ, Lα, etc.).
+
+* **Features**:
+    * Select an element (H, He, Mn, Fe, Co, Ni, Cu, Zn, Mo, Au).
+    * Choose an energy transition (Kα1, Kα2, Kβ1, Lα1, Lβ1).
+    * Display energy levels (in eV or keV) and the selected transition.
+    * Calculate and display the energy and wavelength of the photon emitted during the transition.
+    * Shows the selection rules for electric dipole transitions.
+* **Technologies**: HTML, JavaScript, 2D Canvas API.
+
+---
+
+### 5. Reciprocal Space Viewer
+[**Launch Reciprocal Space Simulator**](https://nitad54448.github.io/Enseignement/Rspace.html)
+
+This tool allows for the visualization of a reciprocal lattice for all crystal systems.
+
+* **Features**:
+    * Choose the crystal system and centering.
+    * Shows systematic extinctions.
+    * Explore hkl indices and distances between nodes.
+* **Technologies**: HTML, JavaScript, Three.js.
+
+---
+
+### 6. Miller Planes Viewer
+[**Launch Miller Planes Simulator**](https://nitad54448.github.io/Enseignement/Miller.html)
+
+Visualize (hkl) crystallographic planes.
+
+* **Features**:
+    * Displays three successive planes.
+    * Shows nodes with systematic extinctions.
+    * Calculates interplanar distances.
+* **Technologies**: HTML, JavaScript, Three.js.
+
+---
+
+### 7. Experimental Diffraction Methods
+[**Launch Diffraction Methods Simulator**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
+
+This software visualizes the reciprocal lattice for three different experimental diffraction methods.
+
+* **Features**:
+    * Choose between single-crystal and powder diffraction methods.
+    * Shows systematic extinctions.
+    * Explore hkl indices and distances between nodes.
+* **Technologies**: HTML, JavaScript, Three.js.
+
+---
+
+### 8. WaveXplorer - Wave Phenomena Explorer
+[**Launch WaveXplorer**](https://nitad54448.github.io/Enseignement/WaveXplorer.html)
+
+WaveXplorer is a versatile tool for visualizing and understanding various fundamental concepts of waves.
+
+* **Concepts Covered**:
+    * **Wavelength & Amplitude**: Visualize a sinusoidal wave with adjustable parameters.
+    * **Phase (Phase Shift)**: Compare two waves with an adjustable phase difference.
+    * **Polarization**: Illustrates linear (vertical, horizontal), circular (right, left), elliptical, and unpolarized light, with temporal and spatial viewing modes.
+    * **Poynting Vector**: Schematic representation of an electromagnetic wave and the direction of the Poynting vector.
+    * **Phase/Group Velocity**: Simulate a single wave (phase velocity) or a wave packet (phase and group velocities) with an adjustable dispersion factor.
+    * **Wave Type (Comparison)**: Animate particles to illustrate transverse and longitudinal waves.
+    * **Wavefront**: Visualize plane and spherical wavefronts.
+* **Technologies**: HTML, JavaScript, Three.js.
+
+***
+
+Feel free to contribute or report issues!
