@@ -102,7 +102,7 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
     * Possibilité d'explorer les hkl et les distances entre les noeuds.
 * **Technologies :** HTML, JavaScript, Three.js.
 
-### 7. Réseaux réciproques
+### 7. Méthodes expérimentales
  [**Méthodes**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
 
  Ce logiciel permet la visualisation d'un réseau réciproque pour trois méthodes expérimentales les systèmes cristallins.
