@@ -16,6 +16,7 @@ Tous les simulateurs sont accessibles directement via GitHub Pages. Cliquez sur 
 5.  **[Simulateur de Spectres d'Émission RX (`Emission.html`)](#5-simulateur-de-spectres-démission-rx)**
 6.  **[Réseaux réciproques (`Rspace.html`)](#6-réseaux-réciproques)**
 7.  **[Méthodes expérimentales (`DiffractionMethods.html`)](#7-méthodes)**
+8.  **[Miller (`Miller.html`)](#8-miller)**
 
 ---
 
@@ -109,6 +110,16 @@ Ce simulateur permet de générer et de visualiser des spectres d'émission de r
     * Choix entre la difraction par un monocristal ou une poudre.
     * Extinction systèmatiques.
     * Possibilité d'explorer les hkl et les distances entre les noeuds.
+* **Technologies :** HTML, JavaScript, Three.js.
+
+### 8. Miller
+ [**Miller**](https://nitad54448.github.io/Enseignement/Miller.html)
+
+Visualisation des plans hkl.
+* **Fonctionnalités :**
+    * Indication des trois plans succéssifs.
+    * Noeds avec extinction systèmatiques.
+    * Calcul des distances interplanaires.
 * **Technologies :** HTML, JavaScript, Three.js.
 
 
