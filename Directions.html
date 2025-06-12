@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crystallographic Direction Visualizer [uvw]</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .label {
+            width: 100px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="container" class="w-full h-screen absolute top-0 left-0"></div>
+
+    <div id="controls" class="absolute top-4 left-4 bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+        <h1 class="text-xl font-bold mb-4 text-gray-800">Direction Visualizer</h1>
+        
+        <!-- Crystal System Selection -->
+        <div class="mb-4">
+            <label for="crystalSystem" class="block text-sm font-medium text-gray-700 mb-1">Crystal System</label>
+            <select id="crystalSystem" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                <option value="cubic" selected>Cubic</option>
+                <option value="tetragonal">Tetragonal</option>
+                <option value="orthorhombic">Orthorhombic</option>
+                <option value="hexagonal">Hexagonal</option>
+                <option value="trigonal">Trigonal (Rhombohedral)</option>
+                <option value="monoclinic">Monoclinic</option>
+                <option value="triclinic">Triclinic</option>
+            </select>
+        </div>
+
+        <!-- Centering Type Selection -->
+        <div class="mb-4">
+            <label for="centering" class="block text-sm font-medium text-gray-700 mb-1">Centering</label>
+            <select id="centering" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+
+        <!-- UVW Indices Input -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Direction Indices [u v w]</label>
+            <div class="flex space-x-2">
+                <div class="flex-1">
+                    <label for="u" class="sr-only">u</label>
+                    <input type="number" id="u" value="1" step="1" class="w-full p-2 text-center border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="flex-1">
+                    <label for="v" class="sr-only">v</label>
+                    <input type="number" id="v" value="1" step="1" class="w-full p-2 text-center border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="flex-1">
+                     <label for="w" class="sr-only">w</label>
+                    <input type="number" id="w" value="1" step="1" class="w-full p-2 text-center border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+            </div>
+        </div>
+         <div id="info" class="mt-4 p-3 bg-gray-50 rounded-md border border-gray-200 text-gray-700">
+            Direction: [1 1 1]
+        </div>
+    </div>
+
+    <div id="footer" class="absolute bottom-4 right-4 text-xs text-gray-500 font-sans">
+        NitaD, Univ Paris-Saclay, 2025.
+    </div>
+
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script type="module">
+        // --- Global Variables ---
+        let scene, camera, renderer, controls;
+        let unitCellGroup = new THREE.Group();
+        let latticeNodesGroup = new THREE.Group();
+        let directionVectorGroup = new THREE.Group();
+        const FONT_URL = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_regular.typeface.json';
+        let font;
+
+        // --- Data ---
+        const centeringOptions = {
+            triclinic: ["P"],
+            monoclinic: ["P", "C"],
+            orthorhombic: ["P", "C", "I", "F"],
+            tetragonal: ["P", "I"],
+            trigonal: ["P", "R"],
+            hexagonal: ["P"],
+            cubic: ["P", "I", "F"]
+        };
+
+        // --- DOM Elements ---
+        const dom = {
+            container: document.getElementById('container'),
+            system: document.getElementById('crystalSystem'),
+            centering: document.getElementById('centering'),
+            info: document.getElementById('info'),
+            uvw: {
+                u: document.getElementById('u'),
+                v: document.getElementById('v'),
+                w: document.getElementById('w'),
+            }
+        };
+
+        // --- Initialization ---
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f2f5);
+            scene.add(unitCellGroup, latticeNodesGroup, directionVectorGroup);
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(8, 7, 9);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            dom.container.appendChild(renderer.domElement);
+            
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+
+            // Font Loader
+            const fontLoader = new THREE.FontLoader();
+            fontLoader.load(FONT_URL, (loadedFont) => {
+                font = loadedFont;
+                updateCenteringOptions(); // Initial call
+            });
+            
+            // Event Listeners
+            dom.system.addEventListener('change', updateCenteringOptions);
+            dom.centering.addEventListener('change', updateScene);
+            Object.values(dom.uvw).forEach(input => input.addEventListener('input', updateScene));
+            window.addEventListener('resize', onWindowResize);
+
+            // Start Animation Loop
+            animate();
+        }
+
+        // --- Core Functions ---
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            // Make labels face the camera
+            unitCellGroup.children.forEach(child => {
+                if (child.isMesh && child.geometry.type === 'TextGeometry') {
+                    child.quaternion.copy(camera.quaternion);
+                }
+            });
+            renderer.render(scene, camera);
+        }
+
+        function clearScene() {
+            [unitCellGroup, latticeNodesGroup, directionVectorGroup].forEach(group => {
+                while(group.children.length > 0){ 
+                    const obj = group.children[0];
+                    group.remove(obj);
+                    if(obj.geometry) obj.geometry.dispose();
+                    if(obj.material) obj.material.dispose();
+                }
+            });
+        }
+        
+        function updateScene() {
+            clearScene();
+            
+            const system = dom.system.value;
+            const centering = dom.centering.value;
+            const params = getLatticeParameters(system);
+            const { v_a, v_b, v_c } = getDirectVectors(params.a, params.b, params.c, params.alpha, params.beta, params.gamma);
+            if (!v_a) return; 
+
+            drawUnitCell(v_a, v_b, v_c);
+            drawLatticeNodes(v_a, v_b, v_c, centering, system);
+
+            const u = parseInt(dom.uvw.u.value) || 0;
+            const v = parseInt(dom.uvw.v.value) || 0;
+            const w = parseInt(dom.uvw.w.value) || 0;
+            drawDirectionVector(v_a, v_b, v_c, u, v, w);
+            
+            dom.info.textContent = `Direction: [${u} ${v} ${w}]`;
+        }
+
+        function updateCenteringOptions() {
+            const system = dom.system.value;
+            const options = centeringOptions[system];
+            const currentCentering = dom.centering.value;
+            dom.centering.innerHTML = '';
+            options.forEach(opt => {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt;
+                optionEl.textContent = {P: "Primitive", I: "Body-centered (I)", F: "Face-centered (F)", C: "Base-centered (C)", R: "Rhombohedral (R)"}[opt];
+                dom.centering.appendChild(optionEl);
+            });
+            if (options.includes(currentCentering)) {
+                dom.centering.value = currentCentering;
+            }
+            updateScene();
+        }
+
+
+        function getLatticeParameters(system) {
+            // Using representative, non-editable values for simplicity
+            switch (system) {
+                case "tetragonal":   return { a: 3, b: 3, c: 5, alpha: 90, beta: 90, gamma: 90 };
+                case "orthorhombic": return { a: 3, b: 4, c: 5, alpha: 90, beta: 90, gamma: 90 };
+                case "hexagonal":    return { a: 3, b: 3, c: 5, alpha: 90, beta: 90, gamma: 120 };
+                case "trigonal":     return { a: 4, b: 4, c: 4, alpha: 80, beta: 80, gamma: 80 };
+                case "monoclinic":   return { a: 3, b: 4, c: 5, alpha: 90, beta: 110, gamma: 90 };
+                case "triclinic":    return { a: 3, b: 5, c: 4, alpha: 70, beta: 80, gamma: 110 };
+                case "cubic":
+                default:             return { a: 4, b: 4, c: 4, alpha: 90, beta: 90, gamma: 90 };
+            }
+        }
+        
+        function getDirectVectors(a, b, c, alpha, beta, gamma) {
+            const toRad = Math.PI / 180;
+            const alphaR = alpha * toRad, betaR = beta * toRad, gammaR = gamma * toRad;
+            const cos_a = Math.cos(alphaR), cos_b = Math.cos(betaR), cos_g = Math.cos(gammaR);
+            const sin_g = Math.sin(gammaR);
+
+            // a is on the X axis
+            const v_a = new THREE.Vector3(a, 0, 0);
+            
+            // b is in the XZ plane (horizontal plane)
+            const v_b = new THREE.Vector3(b * cos_g, 0, b * sin_g);
+            
+            // Volume of the unit cell
+            const V_squared = a*a * b*b * c*c * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g);
+            if (V_squared < 0) return {}; // Invalid parameters (e.g., impossible angles)
+            const V = Math.sqrt(V_squared);
+            
+            // This is a degenerate case where a and b are collinear
+            if (Math.abs(a * b * sin_g) < 1e-9) return {}; 
+
+            // Components of the c vector
+            const cx = c * cos_b;
+            const cy = V / (a * b * sin_g); // The y-component comes from the volume formula
+            const cz = c * (cos_a - cos_b * cos_g) / sin_g;
+            
+            const v_c = new THREE.Vector3(cx, cy, cz);
+
+            if (isNaN(v_c.x) || isNaN(v_c.y) || isNaN(v_c.z)) return {};
+            return { v_a, v_b, v_c };
+        }
+        
+        function drawUnitCell(v_a, v_b, v_c) {
+            const material = new THREE.LineBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.6 });
+            const o = new THREE.Vector3(0,0,0);
+            const p1 = v_a.clone();
+            const p2 = v_b.clone();
+            const p3 = v_c.clone();
+            const p4 = v_a.clone().add(v_b);
+            const p5 = v_a.clone().add(v_c);
+            const p6 = v_b.clone().add(v_c);
+            const p7 = v_a.clone().add(v_b).add(v_c);
+            const vertices = [o, p1, p2, p3, p4, p5, p6, p7];
+            const edges = [0,1, 0,2, 0,3, 1,4, 1,5, 2,4, 2,6, 3,5, 3,6, 4,7, 5,7, 6,7];
+            const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+            geometry.setIndex(edges);
+            unitCellGroup.add(new THREE.LineSegments(geometry, material));
+
+            if (font) {
+                const mat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+                const createLabel = (text, pos) => {
+                    const geo = new THREE.TextGeometry(text, { font, size: 0.35, height: 0.02 });
+                    geo.center();
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.copy(pos).multiplyScalar(1.2);
+                    unitCellGroup.add(mesh);
+                };
+                createLabel('a', v_a); createLabel('b', v_b); createLabel('c', v_c);
+            }
+        }
+
+        function drawLatticeNodes(v_a, v_b, v_c, centering, system) {
+            const nodeRadius = 0.15;
+            const material = new THREE.MeshStandardMaterial({ color: 0x4f46e5, roughness: 0.5 });
+            
+            // Start with primitive nodes (corners)
+            let fractionalCoords = [
+                new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0),
+                new THREE.Vector3(0,0,1), new THREE.Vector3(1,1,0), new THREE.Vector3(1,0,1),
+                new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)
+            ];
+
+            // Add centering nodes based on type
+            switch (centering) {
+                case 'I': // Body-centered
+                    fractionalCoords.push(new THREE.Vector3(0.5, 0.5, 0.5));
+                    break;
+                case 'F': // Face-centered
+                    fractionalCoords.push(new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, 0, 0.5), new THREE.Vector3(0, 0.5, 0.5));
+                    // Also need to add nodes on faces not touching the origin
+                    fractionalCoords.push(new THREE.Vector3(1, 0.5, 0.5), new THREE.Vector3(0.5, 1, 0.5), new THREE.Vector3(0.5, 0.5, 1));
+                    break;
+                case 'C': // Base-centered (C-face, on a,b plane)
+                    fractionalCoords.push(new THREE.Vector3(0.5, 0.5, 0), new THREE.Vector3(0.5, 0.5, 1));
+                    break;
+                case 'R': // Rhombohedral (special case for trigonal)
+                    if (system === 'trigonal') {
+                       fractionalCoords.push(new THREE.Vector3(2/3, 1/3, 1/3), new THREE.Vector3(1/3, 2/3, 2/3));
+                    }
+                    break;
+            }
+
+            // Create spheres at each coordinate
+            const uniquePositions = new Map();
+            fractionalCoords.forEach(frac => {
+                 const pos = new THREE.Vector3()
+                    .addScaledVector(v_a, frac.x) // u-direction
+                    .addScaledVector(v_b, frac.y) // v-direction
+                    .addScaledVector(v_c, frac.z); // w-direction
+                 
+                 // Avoid duplicate nodes from face-centering definitions
+                 const posKey = pos.toArray().map(c => c.toFixed(4)).join(',');
+                 if(!uniquePositions.has(posKey)){
+                    const sphere = new THREE.Mesh(new THREE.SphereGeometry(nodeRadius, 20, 20), material);
+                    sphere.position.copy(pos);
+                    latticeNodesGroup.add(sphere);
+                    uniquePositions.set(posKey, true);
+                 }
+            });
+        }
+
+        function drawDirectionVector(v_a, v_b, v_c, u, v, w) {
+            const origin = new THREE.Vector3(0, 0, 0);
+            
+            const direction = new THREE.Vector3()
+                .addScaledVector(v_a, u)
+                .addScaledVector(v_b, v)
+                .addScaledVector(v_c, w);
+            
+            const length = direction.length();
+            if (length < 1e-9) return; 
+
+            const color = 0xd90429;
+            const arrow = new THREE.ArrowHelper( direction.clone().normalize(), origin, length, color, length * 0.1, length * 0.06 );
+            directionVectorGroup.add(arrow);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- Start the application ---
+        init();
+
+    </script>
+</body>
+</html>
