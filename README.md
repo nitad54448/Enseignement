@@ -11,13 +11,14 @@ Welcome to a collection of interactive simulators designed to explore various co
 
 1.  [WaveXplorer - Wave Phenomena Explorer](#1-wavexplorer---wave-phenomena-explorer)
 2.  [Miller Planes Viewer](#2-miller-planes-viewer)
-3.  [Reciprocal Space Viewer](#3-reciprocal-space-viewer)
-4.  [Atomic Energy Level Diagram](#4-atomic-energy-level-diagram)
-5.  [XRD Emission Spectra Simulator](#5-xrd-emission-spectra-simulator)
-6.  [XRD Absorption and Filters Simulator](#6-xrd-absorption-and-filters-simulator)
-7.  [Ewald Sphere and XRD Viewer](#7-ewald-sphere-and-xrd-viewer)
-8.  [Experimental Diffraction Methods](#8-experimental-diffraction-methods)
-9.  [Kiessig Fringes Simulator](#9-kiessig-fringes-simulator)
+3.  [Crystallographic Direction Visualizer](#3-crystallographic-direction-visualizer)
+4.  [Reciprocal Space Viewer](#4-reciprocal-space-viewer)
+5.  [Atomic Energy Level Diagram](#5-atomic-energy-level-diagram)
+6.  [XRD Emission Spectra Simulator](#6-xrd-emission-spectra-simulator)
+7.  [XRD Absorption and Filters Simulator](#7-xrd-absorption-and-filters-simulator)
+8.  [Ewald Sphere and XRD Viewer](#8-ewald-sphere-and-xrd-viewer)
+9.  [Experimental Diffraction Methods](#9-experimental-diffraction-methods)
+10. [Kiessig Fringes Simulator](#10-kiessig-fringes-simulator)
 
 ---
 
@@ -55,7 +56,21 @@ Visualize (hkl) crystallographic planes.
 
 ---
 
-### 3. Reciprocal Space Viewer
+### 3. Crystallographic Direction Visualizer
+[**Launch Direction Visualizer**](https://nitad54448.github.io/Enseignement/Directions.html)
+
+Visualize [uvw] crystallographic directions within a unit cell for all crystal systems.
+
+* **Features**:
+    * Choose from the 7 crystal systems (Cubic to Triclinic).
+    * Select the appropriate lattice centering (P, I, F, C, R).
+    * Interactively set the [uvw] direction indices.
+    * Displays the unit cell, lattice nodes, and the direction vector.
+* **Technologies**: HTML, JavaScript, Three.js.
+
+---
+
+### 4. Reciprocal Space Viewer
 [**Launch Reciprocal Space Simulator**](https://nitad54448.github.io/Enseignement/RSpace.html)
 
 This tool allows for the visualization of a reciprocal lattice for all crystal systems.
@@ -68,7 +83,7 @@ This tool allows for the visualization of a reciprocal lattice for all crystal s
 
 ---
 
-### 4. Atomic Energy Level Diagram
+### 5. Atomic Energy Level Diagram
 [**Launch Atomic Levels Simulator**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html)
 
 This viewer schematically displays atomic energy levels (K, L, M) for different elements and allows visualization of common electronic transitions (Kα, Kβ, Lα, etc.).
@@ -83,7 +98,7 @@ This viewer schematically displays atomic energy levels (K, L, M) for different 
 
 ---
 
-### 5. XRD Emission Spectra Simulator
+### 6. XRD Emission Spectra Simulator
 [**Launch Emission Simulator**](https://nitad54448.github.io/Enseignement/Emission.html)
 
 This simulator generates and displays X-ray emission spectra, including Bremsstrahlung radiation and characteristic lines.
@@ -100,7 +115,7 @@ This simulator generates and displays X-ray emission spectra, including Bremsstr
 
 ---
 
-### 6. XRD Absorption and Filters Simulator
+### 7. XRD Absorption and Filters Simulator
 [**Launch Filters Simulator**](https://nitad54448.github.io/Enseignement/filtres.html)
 
 This tool simulates the X-ray emission from an anode, the effect of a filter on the spectrum, and displays the filter's mass absorption coefficient.
@@ -117,7 +132,7 @@ This tool simulates the X-ray emission from an anode, the effect of a filter on 
 
 ---
 
-### 7. Ewald Sphere and XRD Viewer
+### 8. Ewald Sphere and XRD Viewer
 [**Launch Ewald Sphere Simulator**](https://nitad54448.github.io/Enseignement/ewald.html)
 
 This simulator visualizes the construction of the Ewald sphere in reciprocal space for an orthorhombic lattice.
@@ -136,7 +151,7 @@ This simulator visualizes the construction of the Ewald sphere in reciprocal spa
 
 ---
 
-### 8. Experimental Diffraction Methods
+### 9. Experimental Diffraction Methods
 [**Launch Diffraction Methods Simulator**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
 
 This software visualizes the reciprocal lattice for three different experimental diffraction methods.
@@ -149,7 +164,7 @@ This software visualizes the reciprocal lattice for three different experimental
 
 ---
 
-### 9. Kiessig Fringes Simulator
+### 10. Kiessig Fringes Simulator
 [**Launch Kiessig Fringes Simulator**](https://nitad54448.github.io/Enseignement/kiessig.html)
 
 This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film with interface roughness. The footer of the program notes it uses the Parratt formalism with Névot-Croce roughness.
