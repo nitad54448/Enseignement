@@ -6,29 +6,29 @@
     <title>Reciprocal Space Explorer</title>
     <style>
         * { box-sizing: border-box; }
-        body { 
-            margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            background-color: #f0f0f0; color: #333; 
+        body {
+            margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f0f0; color: #333;
         }
         #container { width: 100%; height: 100vh; display: block; }
-        #controls { 
-            position: absolute; top: 10px; left: 10px; padding: 10px; background: rgba(255,255,255,0.92); 
+        #controls {
+            position: absolute; top: 10px; left: 10px; padding: 10px; background: rgba(255,255,255,0.92);
             border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.2); width: 95vw; max-width: 320px;
         }
         .input-group { margin-bottom: 8px; display: flex; align-items: center; gap: 5px; }
         .input-group label { width: 80px; font-size: 0.9em; flex-shrink: 0; }
-        .input-group input, .input-group select { 
+        .input-group input, .input-group select {
             width: 100%; padding: 4px; border-radius: 3px; border: 1px solid #ccc; min-width: 0;
         }
         .param-group, .hkl-group { display: flex; gap: 5px; }
         .param-group .input-group, .hkl-group .input-group { flex: 1; }
         .param-group label, .hkl-group label { width: auto; }
-        h3 { 
-            margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; font-size: 1em; 
+        h3 {
+            margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; font-size: 1em;
         }
-        #info { 
-            position: absolute; bottom: 10px; left: 10px; padding: 10px; background: rgba(0,0,0,0.75); 
-            color: white; border-radius: 5px; font-family: 'Courier New', Courier, monospace; min-width: 280px; 
+        #info {
+            position: absolute; bottom: 10px; left: 10px; padding: 10px; background: rgba(0,0,0,0.75);
+            color: white; border-radius: 5px; font-family: 'Courier New', Courier, monospace; min-width: 280px;
         }
         #footer {
             position: absolute;
@@ -38,7 +38,7 @@
             font-size: 11px;
             color: #888;
         }
-        #measure-options { margin-top: 15px; }
+        #click-mode-options label { font-size: 0.9em; user-select: none; }
         .recip-params span { margin-right: 10px; }
         .recip-params .value { font-weight: bold; color: #0056b3; }
         input[type="range"] { padding: 0; }
@@ -106,9 +106,12 @@
             <label for="nodeSize">Node Size:</label>
             <input type="range" id="nodeSize" min="0.005" max="0.05" step="0.001" value="0.015">
         </div>
-        <div id="measure-options">
-            <input type="checkbox" id="measureMode">
-            <label for="measureMode">Measure Distance</label>
+        
+        <h3>Click Action</h3>
+        <div id="click-mode-options">
+            <input type="radio" id="modeInfo" name="clickMode" value="info" checked style="margin-left: 5px;"> <label for="modeInfo" style="margin-right: 15px;">Info</label>
+            <input type="radio" id="modeMeasure" name="clickMode" value="measure"> <label for="modeMeasure" style="margin-right: 15px;">Measure</label>
+            <input type="radio" id="modeMultiplicity" name="clickMode" value="multiplicity"> <label for="modeMultiplicity">Multiplicity</label>
         </div>
     </div>
     <div id="info">Right-click a node to see its info.</div>
@@ -128,7 +131,7 @@
         let selectionIndicator;
 
         const dom = {
-            info: document.getElementById('info'), measureMode: document.getElementById('measureMode'),
+            info: document.getElementById('info'),
             system: document.getElementById('crystalSystem'), centering: document.getElementById('centering'),
             nodeSize: document.getElementById('nodeSize'),
             inputs: { a: document.getElementById('a'), b: document.getElementById('b'), c: document.getElementById('c'), alpha: document.getElementById('alpha'), beta: document.getElementById('beta'), gamma: document.getElementById('gamma') },
@@ -172,7 +175,7 @@
             Object.values(dom.inputs).forEach(input => input.addEventListener('input', () => { syncLinkedParameters(); generateLattice(); }));
             Object.values(dom.hkl).forEach(input => input.addEventListener('change', generateLattice));
             dom.nodeSize.addEventListener('input', () => { updateSelectionIndicatorSize(); generateLattice(); });
-            dom.measureMode.addEventListener('change', resetSelection);
+            document.querySelectorAll('input[name="clickMode"]').forEach(radio => radio.addEventListener('change', resetSelection));
             window.addEventListener('resize', onWindowResize);
             renderer.domElement.addEventListener('contextmenu', onNodeClick);
 
@@ -188,6 +191,10 @@
                 selectionIndicator.quaternion.copy(camera.quaternion);
             }
             renderer.render(scene, camera);
+        }
+
+        function getClickMode() {
+            return document.querySelector('input[name="clickMode"]:checked').value;
         }
         
         function onNodeClick(event) {
@@ -205,8 +212,9 @@
 
             if (intersects.length > 0) {
                 const clickedNode = intersects[0].object;
-                
-                if (dom.measureMode.checked) {
+                const clickMode = getClickMode();
+
+                if (clickMode === 'measure') {
                     if (selectedNodes.includes(clickedNode)) return; 
                     if (selectedNodes.length === 2) {
                         const oldNode = selectedNodes.shift();
@@ -217,12 +225,31 @@
                     }
                     selectedNodes.push(clickedNode);
                     clickedNode.material.color.setHex(0xffa500);
-                } else {
+                    updateInfo();
+                } else if (clickMode === 'multiplicity') {
+                    resetSelection();
+                    const distOrigin = clickedNode.position.length();
+                    let multiplicityCount = 0;
+                    
+                    latticePoints.children.forEach(node => {
+                        if (Math.abs(node.position.length() - distOrigin) < 1e-5) {
+                            multiplicityCount++;
+                            node.material.color.setHex(0x00ff00); // Highlight in Green
+                            selectedNodes.push(node); // Add to array for easy reset
+                        }
+                    });
+
+                    const { h, k, l, params } = clickedNode.userData;
+                    const d = calculateDSpacing(h, k, l, params);
+                    const hkl_family = `{${h}, ${k}, ${l}}`;
+                    dom.info.innerHTML = `<b>Multiplicity</b><br>Family: ${hkl_family}<br>d-spacing: ${d.toFixed(4)} Å<br>Multiplicity: ${multiplicityCount}`;
+
+                } else { // 'info' mode
                     resetSelection();
                     selectedNodes.push(clickedNode);
                     clickedNode.material.color.setHex(0xffa500);
+                    updateInfo();
                 }
-                updateInfo();
             } else {
                 resetSelection();
             }
@@ -256,7 +283,6 @@
             hkl.l_min = parseOrDefault(dom.hkl.l_min.value, 0); hkl.l_max = parseOrDefault(dom.hkl.l_max.value, 2);
             const nodeRadius = parseFloat(dom.nodeSize.value);
 
-            // Add origin node
             const originGeo = new THREE.SphereGeometry(nodeRadius, 12, 12);
             const originMat = new THREE.MeshStandardMaterial({ color: 0xff0000, metalness: 0.2, roughness: 0.6 });
             const originNode = new THREE.Mesh(originGeo, originMat);
@@ -266,7 +292,7 @@
             for (let h = hkl.h_min; h <= hkl.h_max; h++) {
                 for (let k = hkl.k_min; k <= hkl.k_max; k++) {
                     for (let l = hkl.l_min; l <= hkl.l_max; l++) {
-                        if (h === 0 && k === 0 && l === 0) continue; // Skip origin, it's already added
+                        if (h === 0 && k === 0 && l === 0) continue;
                         if (!isAllowed(h, k, l, dom.centering.value)) continue;
                         
                         const pos = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
@@ -301,8 +327,13 @@
 
         function updateInfo() {
             if(selectionIndicator) selectionIndicator.visible = false;
+            const clickMode = getClickMode();
+
             if (selectedNodes.length === 0) {
-                dom.info.innerHTML = "<b>" + (dom.measureMode.checked ? "Measurement Mode: " : "") + "</b>Right-click a node to see its info.";
+                let modeText = "Right-click a node to see its info.";
+                if (clickMode === 'measure') modeText = "Right-click two nodes to measure distance.";
+                if (clickMode === 'multiplicity') modeText = "Right-click a node to find its multiplicity.";
+                dom.info.innerHTML = `<b>${clickMode.charAt(0).toUpperCase() + clickMode.slice(1)} Mode</b><br>${modeText}`;
             } else if (selectedNodes.length === 1) {
                 const { h, k, l, params } = selectedNodes[0].userData;
                 const d = calculateDSpacing(h, k, l, params);
