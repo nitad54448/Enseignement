@@ -19,6 +19,8 @@ Welcome to a collection of interactive simulators designed to explore various co
 8.  [Ewald Sphere and XRD Viewer](#8-ewald-sphere-and-xrd-viewer)
 9.  [Experimental Diffraction Methods](#9-experimental-diffraction-methods)
 10. [Kiessig Fringes Simulator](#10-kiessig-fringes-simulator)
+11. [2D Fourier Transform Explorer](#11-2d-fourier-transform-explorer)
+12. [2D Radon Transform Explorer](#12-2d-radon-transform-explorer)
 
 ---
 
@@ -176,6 +178,32 @@ This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single 
     * Calculates and displays the reflectivity curve.
     * Interactively visualize how parameters modify the XRR profile.
 * **Technologies**: HTML, JavaScript, D3.js.
+
+---
+
+### 11. 2D Fourier Transform Explorer
+[**Launch FT Explorer**](https://nitad54448.github.io/Enseignement/FT.html)
+
+This explorer visualizes the 2D Fourier Transform of various sources.
+
+* **Features**:
+    * Input can be from an uploaded image, a live webcam feed, or a user-defined function.
+    * Includes presets for functions such as sine waves, crosshatch patterns, and apertures (circle, square).
+    * The transform is calculated using a Radix-2 Fast Fourier Transform (FFT) algorithm.
+    * The resulting magnitude is displayed using a logarithmic scale.
+* **Technologies**: HTML, JavaScript.
+
+---
+
+### 12. 2D Radon Transform Explorer
+[**Launch Radon Explorer**](https://nitad54448.github.io/Enseignement/Radon.html)
+
+This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
+
+* **Features**:
+    * Input can be from an uploaded image, a live webcam feed, or a preset phantom image.
+    * Includes a variety of presets such as the Shepp-Logan phantom, circles, squares, and points.
+* **Technologies**: HTML, JavaScript.
 
 ***
 

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Radon Transform Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .canvas-wrapper {
+            background-color: #e5e7eb; /* gray-200 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 512px;
+        }
+        #source-wrapper, #radon-wrapper {
+             aspect-ratio: 1 / 1;
+        }
+        canvas, video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        .active-btn {
+            --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+            --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+            box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-gray-100 overflow-hidden">
+
+    <header class="bg-white p-3 shadow-md w-full z-10">
+        <div class="container mx-auto flex items-center justify-between flex-wrap gap-4">
+            <h1 class="text-xl font-bold text-gray-800 hidden sm:block">2D Radon Explorer</h1>
+            <div class="flex items-center gap-4 flex-wrap">
+                <button id="use-upload-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none ring-blue-500 ring-offset-2 transition-all duration-200">
+                    Upload Image
+                </button>
+                <button id="use-webcam-btn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 focus:outline-none ring-green-500 ring-offset-2 transition-all duration-200">
+                    Use Webcam
+                </button>
+                <div class="flex items-center gap-2">
+                    <label for="function-presets" class="text-sm font-medium text-gray-700">or select a Preset:</label>
+                    <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
+                        <option value="shepp-logan">Shepp-Logan Phantom</option>
+                        <option value="single-point">Off-Center Point</option>
+                        <option value="center-point">Center Point</option>
+                        <option value="embedded-squares">Embedded Squares</option>
+                        <option value="concentric-circles">Concentric Circles</option>
+                        <option value="circle">Circle</option>
+                        <option value="square">Square</option>
+                    </select>
+                </div>
+                 <input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
+            </div>
+            <div id="status" class="w-full sm:w-auto text-sm text-center text-gray-600 mt-2 sm:mt-0">Select a source to begin.</div>
+        </div>
+    </header>
+
+    <main class="flex-grow p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-center justify-items-center overflow-auto">
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source</h3>
+            <div id="source-wrapper" class="canvas-wrapper">
+                <video id="webcam-video" class="hidden" autoplay playsinline></video>
+                <canvas id="sourceCanvas"></canvas>
+            </div>
+        </div>
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Radon Transform (Sinogram)</h3>
+            <div id="radon-wrapper" class="canvas-wrapper">
+                <canvas id="radonCanvas"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <footer class="w-full p-2 bg-gray-100">
+        <p class="text-right text-xs text-gray-500">
+            NitaD, Univ. Paris-Saclay, 2025
+        </p>
+    </footer>
+
+    <script>
+        // --- DOM Elements ---
+        const useUploadBtn = document.getElementById('use-upload-btn');
+        const useWebcamBtn = document.getElementById('use-webcam-btn');
+        const imageUpload = document.getElementById('image-upload');
+        const statusEl = document.getElementById('status');
+        const webcamVideo = document.getElementById('webcam-video');
+        const sourceCanvas = document.getElementById('sourceCanvas');
+        const radonCanvas = document.getElementById('radonCanvas');
+        const sourceCtx = sourceCanvas.getContext('2d');
+        const radonCtx = radonCanvas.getContext('2d');
+        const functionPresets = document.getElementById('function-presets');
+
+        // --- Constants ---
+        const IMG_SIZE = 256;
+        sourceCanvas.width = sourceCanvas.height = IMG_SIZE;
+        
+        // --- State ---
+        let currentMode = null; // 'upload', 'webcam', or 'function'
+        let webcamStream = null;
+        let sourceImage = new Image();
+        let isTransforming = false;
+        let animationFrameId = null;
+
+        // --- UI Event Listeners ---
+        useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
+        useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
+        imageUpload.addEventListener('change', handleImageUpload);
+        functionPresets.addEventListener('change', () => {
+            setupMode('function');
+            generateFromFunction();
+        });
+
+        // --- Initial Setup ---
+        setupMode('function');
+        generateFromFunction();
+
+        // --- Mode Setup ---
+        function setupMode(mode) {
+            // Stop any previous continuous operations before switching
+            stopTransformLoop();
+            stopWebcam();
+
+            currentMode = mode;
+            [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
+            
+            if (mode === 'upload') {
+                webcamVideo.classList.add('hidden');
+                sourceCanvas.classList.remove('hidden');
+                useUploadBtn.classList.add('active-btn');
+                statusEl.textContent = 'Select an image file to begin.';
+            } else if (mode === 'webcam') {
+                useWebcamBtn.classList.add('active-btn');
+                startWebcam();
+            } else if (mode === 'function') {
+                webcamVideo.classList.add('hidden');
+                sourceCanvas.classList.remove('hidden');
+                [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
+                statusEl.textContent = 'Choose a preset to generate a pattern.';
+            }
+        }
+        
+        // --- Webcam Handling ---
+        async function startWebcam() {
+            try {
+                if (webcamStream) return;
+                statusEl.textContent = 'Requesting webcam access...';
+                webcamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                webcamVideo.srcObject = webcamStream;
+                webcamVideo.classList.remove('hidden');
+                sourceCanvas.classList.add('hidden');
+                
+                // Start the transform loop automatically
+                isTransforming = true;
+                transformLoop();
+                statusEl.textContent = 'Live transform running...';
+
+            } catch (err) {
+                console.error("Webcam error:", err);
+                statusEl.textContent = 'Could not access webcam.';
+                setupMode('function'); // Fallback to a safe mode
+            }
+        }
+
+        function stopWebcam() {
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+                webcamStream = null;
+            }
+        }
+        
+        // --- Image/Function Handling ---
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    sourceImage.src = e.target.result;
+                    sourceImage.onload = () => {
+                        sourceCanvas.classList.remove('hidden');
+                        webcamVideo.classList.add('hidden');
+                        statusEl.textContent = 'Processing...';
+                        performTransform();
+                        statusEl.textContent = 'Transform complete.';
+                    };
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        function generateFromFunction() {
+            statusEl.textContent = 'Generating function...';
+            const type = functionPresets.value;
+            
+            if (type === 'shepp-logan') {
+                const phantomData = createSheppLoganData(IMG_SIZE);
+                const imageData = sourceCtx.createImageData(IMG_SIZE, IMG_SIZE);
+                 for(let i=0; i < imageData.data.length; i += 4) {
+                    const val = phantomData[i/4];
+                    imageData.data[i] = val;
+                    imageData.data[i+1] = val;
+                    imageData.data[i+2] = val;
+                    imageData.data[i+3] = 255;
+                }
+                sourceCtx.putImageData(imageData, 0, 0);
+            } else {
+                sourceCtx.fillStyle = 'black';
+                sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+                sourceCtx.save();
+                sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
+                
+                if (type === 'circle') {
+                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.beginPath();
+                    sourceCtx.arc(0, 0, IMG_SIZE * 0.4, 0, 2 * Math.PI);
+                    sourceCtx.fill();
+                } else if (type === 'square') {
+                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.fillRect(-IMG_SIZE * 0.3, -IMG_SIZE * 0.3, IMG_SIZE * 0.6, IMG_SIZE * 0.6);
+                } else if (type === 'embedded-squares') {
+                    sourceCtx.fillStyle = 'gray';
+                    sourceCtx.fillRect(-IMG_SIZE * 0.4, -IMG_SIZE * 0.4, IMG_SIZE * 0.8, IMG_SIZE * 0.8);
+                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.fillRect(-IMG_SIZE * 0.2, -IMG_SIZE * 0.2, IMG_SIZE * 0.4, IMG_SIZE * 0.4);
+                } else if (type === 'concentric-circles') {
+                    sourceCtx.fillStyle = 'gray';
+                    sourceCtx.beginPath();
+                    sourceCtx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI);
+                    sourceCtx.fill();
+                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.beginPath();
+                    sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI);
+                    sourceCtx.fill();
+                } else if (type === 'single-point') {
+                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.fillRect(IMG_SIZE * 0.25, IMG_SIZE * 0.15, 2, 2);
+                } else if (type === 'center-point') {
+                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.fillRect(-1, -1, 2, 2);
+                }
+                sourceCtx.restore();
+            }
+            
+            performTransform();
+            statusEl.textContent = 'Transform complete.';
+        }
+        
+        function drawSourceToCanvas(source) {
+            sourceCtx.fillStyle = 'black';
+            sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+            const sourceW = source.videoWidth || source.width;
+            const sourceH = source.videoHeight || source.height;
+            const hRatio = IMG_SIZE / sourceW;
+            const vRatio = IMG_SIZE / sourceH;
+            const ratio = Math.min(hRatio, vRatio);
+            const centerShift_x = (IMG_SIZE - sourceW * ratio) / 2;
+            const centerShift_y = (IMG_SIZE - sourceH * ratio) / 2;
+            sourceCtx.drawImage(source, 0, 0, sourceW, sourceH, centerShift_x, centerShift_y, sourceW * ratio, sourceH * ratio);
+        }
+
+        // --- Core Transform Logic ---
+        function transformLoop() {
+            if (!isTransforming) return;
+            performTransform();
+            animationFrameId = requestAnimationFrame(transformLoop);
+        }
+        
+        function stopTransformLoop() {
+            isTransforming = false;
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+
+        function performTransform() {
+             if (currentMode === 'webcam') {
+                drawSourceToCanvas(webcamVideo);
+            } else if (currentMode === 'upload' && sourceImage.src) {
+                 drawSourceToCanvas(sourceImage);
+            } else if (currentMode !== 'function'){
+                 return; 
+            }
+            
+            const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+            const sinogramData = radonTransform(imageData);
+            drawSinogram(sinogramData);
+        }
+
+        function radonTransform(imageData) {
+            const width = imageData.width;
+            const height = imageData.height;
+            const data = imageData.data;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            
+            const numAngles = 180;
+            const rhoMax = Math.ceil(Math.sqrt(width * width + height * height) / 2);
+            const numRho = 2 * rhoMax;
+
+            const sinogram = new Array(numAngles).fill(0).map(() => new Array(numRho).fill(0));
+            const angles = new Array(numAngles).fill(0).map((_, i) => i * Math.PI / numAngles);
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                    
+                    if (intensity > 5) {
+                        for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                            const theta = angles[i_theta];
+                            const rho = Math.round((x - centerX) * Math.cos(theta) + (y - centerY) * Math.sin(theta));
+                            const i_rho = rho + rhoMax;
+                            if (i_rho >= 0 && i_rho < numRho) {
+                                sinogram[i_theta][i_rho] += intensity;
+                            }
+                        }
+                    }
+                }
+            }
+            return sinogram;
+        }
+        
+        function drawSinogram(sinogram) {
+            const numAngles = sinogram.length;
+            if (numAngles === 0) return;
+            const numRho = sinogram[0].length;
+
+            radonCanvas.width = numAngles;
+            radonCanvas.height = numRho;
+            const ctx = radonCanvas.getContext('2d');
+            const outputImageData = ctx.createImageData(numAngles, numRho);
+            
+            let maxVal = 0;
+            for (let i = 0; i < numAngles; i++) {
+                for (let j = 0; j < numRho; j++) {
+                    if (sinogram[i][j] > maxVal) {
+                        maxVal = sinogram[i][j];
+                    }
+                }
+            }
+            if (maxVal === 0) maxVal = 1;
+
+            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                for (let i_rho = 0; i_rho < numRho; i_rho++) {
+                    const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
+                    const idx = (i_rho * numAngles + i_theta) * 4;
+                    outputImageData.data[idx] = val;
+                    outputImageData.data[idx + 1] = val;
+                    outputImageData.data[idx + 2] = val;
+                    outputImageData.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(outputImageData, 0, 0);
+        }
+
+        // --- Drawing utilities ---
+       function createSheppLoganData(size) {
+            const data = new Array(size * size).fill(0);
+            const ellipses = [
+                // [x_center, y_center, major_axis, minor_axis, angle_deg, gray_level]
+                [0,    0,      .69,   .92,   90,  1],
+                [0,   -0.0184, .6624, .874,  90, -0.8],
+                [.22,  0,      .11,   .31,   72, -0.2],
+                [-.22, 0,      .16,   .41,   108, -0.2],
+                [0,    .35,    .21,   .25,   90,  0.1],
+                [0,    .1,     .046,  .046,  0,   0.1],
+                [0,   -0.1,    .046,  .046,  0,   0.1],
+                [-.08, -.605,  .023,  .046,  0,   0.1],
+                [0,    -.605,  .023,  .023,  0,   0.1],
+                [.06,  -.605,  .023,  .046,  90,  0.1]
+            ];
+
+            for (let j = 0; j < size; j++) {
+                for (let i = 0; i < size; i++) {
+                    const x = (i - size / 2) / (size / 2);
+                    const y = (j - size / 2) / (size / 2);
+                    let intensitySum = 0;
+                    for (const ell of ellipses) {
+                        const [x0, y0, a, b, angle, gray] = ell;
+                        const angRad = -angle * Math.PI / 180;
+                        const cosA = Math.cos(angRad);
+                        const sinA = Math.sin(angRad);
+                        const term1 = (((x - x0) * cosA + (y - y0) * sinA) / a) ** 2;
+                        const term2 = (((x - x0) * sinA - (y - y0) * cosA) / b) ** 2;
+                        if (term1 + term2 <= 1) {
+                            intensitySum += gray;
+                        }
+                    }
+                    data[j * size + i] = Math.max(0, Math.min(255, intensitySum * 128 + 10));
+                }
+            }
+            return data;
+        }
+    </script>
+</body>
+</html>
