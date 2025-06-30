@@ -3,7 +3,7 @@
 > A collection of interactive simulators designed to explore various concepts in physics, with a focus on **crystallography**, **materials science**, and **optics**. These tools were developed using HTML and JavaScript, with the Three.js library for 3D visualizations.
 
 * **Author:** NitaD, Université Paris-Saclay
-* **Versions:** 2007 to 2024
+* **Versions:** 2007-2024
 * **Last Updated:** June 30, 2025
 
 ---
