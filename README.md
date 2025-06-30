@@ -16,7 +16,7 @@ Welcome to a collection of interactive simulators designed to explore various co
 5.  [Atomic Energy Level Diagram](#5-atomic-energy-level-diagram)
 6.  [XRD Emission Spectra Simulator](#6-xrd-emission-spectra-simulator)
 7.  [XRD Absorption and Filters Simulator](#7-xrd-absorption-and-filters-simulator)
-8.  [Ewald Sphere and XRD Viewer](#8-ewald-sphere-and-xrd-viewer)
+8.  [Ewald Sphere](#8-ewald-sphere-and-xrd-viewer)
 9.  [Experimental Diffraction Methods](#9-experimental-diffraction-methods)
 10. [Kiessig Fringes Simulator](#10-kiessig-fringes-simulator)
 11. [2D Fourier Transform Explorer](#11-2d-fourier-transform-explorer)
