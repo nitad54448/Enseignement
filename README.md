@@ -4,7 +4,7 @@
 
 * **Author:** NitaD, Université Paris-Saclay
 * **Versions:** 2007-2024
-* **Last Updated:** June 30, 2025
+* **Last Updated:** July 8, 2025
 
 ---
 
@@ -22,6 +22,7 @@
 | 📊 [**XRD Absorption & Filters**](https://nitad54448.github.io/Enseignement/filtres.html) | This tool simulates the X-ray emission from an anode and the effect of a filter. |
 | 🌍 [**Ewald Sphere Viewer**](https://nitad54448.github.io/Enseignement/ewald.html) | This simulator visualizes the construction of the Ewald sphere in reciprocal space. |
 | 🔬 [**Diffraction Methods**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html) | This software visualizes the reciprocal lattice for three different experimental diffraction methods. |
+| 🖥️ [**Single Crystal Diffraction**](4-circles.html) | An advanced simulator for visualizing single-crystal X-ray diffraction patterns. |
 | 🎞️ [**Kiessig Fringes**](https://nitad54448.github.io/Enseignement/kiessig.html) | This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film. |
 | ✨ [**2D Fourier Transform**](https://nitad54448.github.io/Enseignement/FT.html) | This explorer visualizes the 2D Fourier Transform of various sources. |
 | 🔄 [**2D Radon Transform**](https://nitad54448.github.io/Enseignement/Radon.html) | This tool computes and displays the 2D Radon Transform (Sinogram) of an image. |
@@ -161,7 +162,22 @@ This software visualizes the reciprocal lattice for three different experimental
     * Explore hkl indices and distances between nodes.
 * **Technologies**: HTML, JavaScript, Three.js.
 
-### 🎞️ 11. Kiessig Fringes Simulator
+### 🖥️ 11. Single Crystal Diffraction Simulator
+[**Launch Single Crystal Simulator**](4-circles.html)
+
+An advanced simulator for visualizing single-crystal X-ray diffraction. It combines a 3D view of the reciprocal lattice and Ewald sphere with a 2D detector view of the resulting diffraction pattern.
+
+* **Features**:
+    * Supports all 7 crystal systems and their corresponding Bravais lattices.
+    * Interactive controls for lattice parameters, crystal orientation, and X-ray wavelength.
+    * 3D visualization of the reciprocal lattice, Ewald sphere, and diffraction vectors.
+    * 2D detector panel showing the projected diffraction pattern.
+    * Interactive detector with zoom (mouse wheel/pinch) and pan (left-click drag/two-finger drag) controls.
+    * Click on spots in the detector view to identify (h,k,l) indices and highlight the corresponding point in the 3D view.
+    * Option to show all reciprocal lattice points or only those in a diffraction condition.
+* **Technologies**: HTML, JavaScript, Three.js.
+
+### 🎞️ 12. Kiessig Fringes Simulator
 [**Launch Kiessig Fringes Simulator**](https://nitad54448.github.io/Enseignement/kiessig.html)
 
 This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film with interface roughness. The footer of the program notes it uses the Parratt formalism with Névot-Croce roughness.
@@ -173,7 +189,7 @@ This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single 
     * Calculates and displays the reflectivity curve.
 * **Technologies**: HTML, JavaScript, D3.js.
 
-### ✨ 12. 2D Fourier Transform Explorer
+### ✨ 13. 2D Fourier Transform Explorer
 [**Launch FT Explorer**](https://nitad54448.github.io/Enseignement/FT.html)
 
 This explorer visualizes the 2D Fourier Transform of various sources.
@@ -184,7 +200,7 @@ This explorer visualizes the 2D Fourier Transform of various sources.
     * The resulting magnitude is displayed using a logarithmic scale.
 * **Technologies**: HTML, JavaScript.
 
-### 🔄 13. 2D Radon Transform Explorer
+### 🔄 14. 2D Radon Transform Explorer
 [**Launch Radon Explorer**](https://nitad54448.github.io/Enseignement/Radon.html)
 
 This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
