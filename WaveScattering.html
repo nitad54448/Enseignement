@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dipole Radiation Simulation</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; background-color: #f0f0f0; color: #333; display: flex; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; width: 95%; max-width: 1400px; height: 90vh; margin: auto; }
+        #controls-panel { width: 320px; flex-shrink: 0; padding: 25px; background-color: #f9f9f9; border-right: 1px solid #e0e0e0; overflow-y: auto; }
+        #controls-panel h1 { font-size: 1.5em; margin-top: 0; margin-bottom: 20px; color: #0056b3; }
+        .control-group { margin-bottom: 22px; }
+        .control-group label { display: block; margin-bottom: 8px; font-weight: 600; }
+        .control-group select { width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #ccc; }
+        .radio-group label { font-weight: normal; margin-right: 15px; }
+        .slider-group { display: flex; align-items: center; gap: 10px; }
+        .slider-group input[type="range"] { flex-grow: 1; }
+        #mass-display { font-weight: bold; min-width: 50px; text-align: right; }
+        #visualization-area { flex-grow: 1; position: relative; background-color: #282c34; }
+        canvas { display: block; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 28px; }
+        .switch .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #2196F3; }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        /* --- Footer Style --- */
+        footer {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            font-size: 0.8em;
+            color: #888;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Wave Scattering</h1>
+            <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">
+                A new wavefront is emitted when the particle's <b>acceleration is maximum</b>—at the highest and lowest points of its oscillation.
+            </p>
+
+             <div class="control-group">
+                <label for="mass-slider">Particle Mass (Log Scale)</label>
+                <div class="slider-group">
+                    <span>e⁻</span>
+                    <input type="range" id="mass-slider" min="0" max="3.265" step="0.01" value="0">
+                    <span>p⁺</span>
+                    <span id="mass-display">1.0</span>
+                </div>
+            </div>
+
+             <div class="control-group">
+                <label>Particle Charge:</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="charge" value="1" checked> Positive</label>
+                    <label><input type="radio" name="charge" value="-1"> Negative</label>
+                    <label><input type="radio" name="charge" value="0"> Neutral</label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="polarization-selector">Incoming Wave Polarization:</label>
+                <select id="polarization-selector">
+                    <option value="linear_vertical">Linear Vertical</option>
+                    <option value="linear_horizontal">Linear Horizontal</option>
+                    <option value="circular_right">Circular Right</option>
+                    <option value="circular_left">Circular Left</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>Show Radiated Wave:</label>
+                 <label class="switch" style="vertical-align: middle;">
+                    <input type="checkbox" id="radiated-wave-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+             <div class="control-group" style="font-size:0.85em; color:#555;">
+                <p><b>Peak E-Field:</b> <span style="color: #D4AC0D; font-weight:bold;">Yellow Vector</span><br><b>Trough E-Field:</b> <span style="color: #E74C3C; font-weight:bold;">Red Vector</span></p>
+            </div>
+        </div>
+        <div id="visualization-area">
+            <canvas id="main-canvas"></canvas>
+        </div>
+    </div>
+
+    <footer>NitaD, Univ Paris-Saclay, version 08 july 2025</footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        let scene, camera, renderer, controls;
+        let particle;
+        const incomingWave = { planes: [], peakVectors: [], troughVectors: [] };
+        const radiatedWave = { shells: [] };
+        let time = 0;
+        let lastEmittedCycle = -1;
+        let nextShellIndex = 0;
+
+        const config = {
+            numPlanes: 5,
+            waveSpeed: 2.5,
+            oscillationFrequency: 2.0,
+            baseAmplitude: 1.0,
+            sceneExtent: 12,
+            particleMass: 1,
+            particleCharge: 1, 
+            polarizationType: 'linear_vertical',
+            showRadiatedWave: true,
+            numRadiatedShells: 10,
+            shellMaxAge: 2.0,
+        };
+        config.wavelength = config.waveSpeed / config.oscillationFrequency * (2 * Math.PI);
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x282c34);
+            const canvasContainer = document.getElementById('visualization-area');
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('main-canvas'), antialias: true });
+
+            camera = new THREE.PerspectiveCamera(50, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+            camera.position.set(8, 6, 15);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.target.set(0, 0, 0);
+            
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            scene.add(new THREE.DirectionalLight(0xffffff, 0.8));
+            scene.add(new THREE.AxesHelper(config.sceneExtent / 2));
+
+            createParticle();
+            createIncomingWave();
+            createRadiatedWave();
+
+            const massSlider = document.getElementById('mass-slider');
+            const massDisplay = document.getElementById('mass-display');
+
+            massSlider.addEventListener('input', (e) => {
+                const logValue = parseFloat(e.target.value);
+                const linearMass = Math.pow(10, logValue);
+                config.particleMass = linearMass;
+                massDisplay.textContent = linearMass.toFixed(1);
+            });
+
+            document.querySelectorAll('input[name="charge"]').forEach(r => r.addEventListener('change', (e) => config.particleCharge = parseInt(e.target.value)));
+            document.getElementById('polarization-selector').addEventListener('change', (e) => config.polarizationType = e.target.value);
+            document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => config.showRadiatedWave = e.target.checked);
+            
+            window.addEventListener('resize', onWindowResize, false);
+            onWindowResize();
+            animate();
+        }
+
+        function createParticle() {
+            const geometry = new THREE.SphereGeometry(0.25, 32, 16);
+            const material = new THREE.MeshPhongMaterial({ color: 0x0055ff, emissive: 0x3377ff });
+            particle = new THREE.Mesh(geometry, material);
+            scene.add(particle);
+        }
+
+        function createIncomingWave() {
+            const planeGeom = new THREE.PlaneGeometry(config.sceneExtent * 1.5, config.sceneExtent * 1.5);
+            const planeMat = new THREE.MeshBasicMaterial({ color: 0x3498DB, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+            
+            for (let i = 0; i < config.numPlanes; i++) {
+                const plane = new THREE.Mesh(planeGeom, planeMat.clone());
+                plane.rotation.y = Math.PI / 2;
+                scene.add(plane);
+                incomingWave.planes.push(plane);
+                const peakVec = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0,0,0), 1, 0xFFFF00, 0.5, 0.25);
+                scene.add(peakVec);
+                incomingWave.peakVectors.push(peakVec);
+                const troughVec = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0,0,0), 1, 0xE74C3C, 0.5, 0.25);
+                scene.add(troughVec);
+                incomingWave.troughVectors.push(troughVec);
+            }
+        }
+        
+        function createRadiatedWave() {
+            const radiatedMat = new THREE.MeshPhongMaterial({ color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7 });
+            const sphereGeom = new THREE.SphereGeometry(1, 32, 24);
+            const torusGeom = new THREE.TorusGeometry(1, 0.15, 16, 48);
+
+            for (let i = 0; i < config.numRadiatedShells; i++) {
+                const shell = {
+                    sphere: new THREE.Mesh(sphereGeom, radiatedMat.clone()),
+                    torus: new THREE.Mesh(torusGeom, radiatedMat.clone()),
+                    isActive: false,
+                    birthTime: 0,
+                };
+                shell.sphere.visible = false;
+                shell.torus.visible = false;
+                scene.add(shell.sphere);
+                scene.add(shell.torus);
+                radiatedWave.shells.push(shell);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const lastTime = time;
+            time += 0.015;
+            const omega_t = config.oscillationFrequency * time;
+            
+            const firstPeakOffset = (config.waveSpeed * time) % config.wavelength;
+            for (let i = 0; i < config.numPlanes; i++) {
+                const peakX = config.sceneExtent + firstPeakOffset - i * config.wavelength;
+                incomingWave.planes[i].position.x = peakX;
+                incomingWave.peakVectors[i].position.x = peakX;
+                const troughX = peakX - config.wavelength / 2;
+                incomingWave.troughVectors[i].position.x = troughX;
+                updateVectorsForConstantPhase(incomingWave.peakVectors[i], incomingWave.troughVectors[i]);
+            }
+
+            const effectiveAmplitude = config.baseAmplitude / config.particleMass;
+            const phaseAtOrigin = omega_t;
+            let displacement = new THREE.Vector3();
+            switch (config.polarizationType) {
+                case 'linear_vertical':   displacement.y = -Math.sin(phaseAtOrigin); break;
+                case 'linear_horizontal': displacement.z = -Math.sin(phaseAtOrigin); break;
+                case 'circular_right':    displacement.set(0, -Math.cos(phaseAtOrigin), -Math.sin(phaseAtOrigin)); break;
+                case 'circular_left':     displacement.set(0, -Math.cos(phaseAtOrigin), Math.sin(phaseAtOrigin)); break;
+            }
+            particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * config.particleCharge);
+
+            emitRadiatedPulse(phaseAtOrigin, lastTime * config.oscillationFrequency);
+            updateRadiatedWave(effectiveAmplitude);
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function emitRadiatedPulse(currentPhase, lastPhase) {
+            const currentCycle = Math.floor((currentPhase / Math.PI) - 0.5);
+            if (currentCycle > lastEmittedCycle) {
+                lastEmittedCycle = currentCycle;
+
+                const shell = radiatedWave.shells[nextShellIndex];
+                shell.isActive = true;
+                shell.birthTime = time;
+                nextShellIndex = (nextShellIndex + 1) % config.numRadiatedShells;
+            }
+        }
+
+        function updateRadiatedWave(currentAmplitude) {
+            const isLinear = config.polarizationType.startsWith('linear');
+            const show = config.showRadiatedWave && config.particleCharge !== 0;
+            const amplitudeScale = Math.min(1, currentAmplitude / config.baseAmplitude);
+
+            radiatedWave.shells.forEach(shell => {
+                if (!shell.isActive || !show) {
+                    shell.sphere.visible = false;
+                    shell.torus.visible = false;
+                    return;
+                }
+                
+                shell.sphere.visible = !isLinear;
+                shell.torus.visible = isLinear;
+                
+                const age = time - shell.birthTime;
+                if (age > config.shellMaxAge) {
+                    shell.isActive = false;
+                    return;
+                }
+
+                const scale = age * config.waveSpeed;
+                const opacity = 0.8 * (1 - age / config.shellMaxAge) * amplitudeScale;
+
+                if (isLinear) {
+                    if (config.polarizationType === 'linear_vertical') shell.torus.rotation.set(Math.PI / 2, 0, 0);
+                    else shell.torus.rotation.set(0, 0, Math.PI / 2);
+                    shell.torus.scale.setScalar(scale);
+                    shell.torus.material.opacity = opacity;
+                } else {
+                    shell.sphere.scale.setScalar(scale);
+                    shell.sphere.material.opacity = opacity;
+                }
+            });
+        }
+        
+        function updateVectorsForConstantPhase(peakVec, troughVec) {
+             const length = 1.5;
+             switch (config.polarizationType) {
+                case 'linear_vertical':
+                    peakVec.setDirection(new THREE.Vector3(0, 1, 0));
+                    troughVec.setDirection(new THREE.Vector3(0, -1, 0));
+                    break;
+                case 'linear_horizontal':
+                    peakVec.setDirection(new THREE.Vector3(0, 0, 1));
+                    troughVec.setDirection(new THREE.Vector3(0, 0, -1));
+                    break;
+                default:
+                    peakVec.setDirection(new THREE.Vector3(0, 1, 0)); 
+                    troughVec.setDirection(new THREE.Vector3(0, -1, 0));
+                    break;
+            }
+            peakVec.setLength(length, 0.5, 0.25);
+            troughVec.setLength(length, 0.5, 0.25);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('visualization-area');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
