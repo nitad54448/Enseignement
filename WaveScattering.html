@@ -68,8 +68,7 @@
                 <select id="polarization-selector">
                     <option value="linear_vertical">Linear Vertical</option>
                     <option value="linear_horizontal">Linear Horizontal</option>
-                    <option value="circular_right">Circular Right</option>
-                    <option value="circular_left">Circular Left</option>
+                    <option value="non_polarized">Non-Polarized</option>
                 </select>
             </div>
 
@@ -80,16 +79,13 @@
                     <span class="slider"></span>
                 </label>
             </div>
-             <div class="control-group" style="font-size:0.85em; color:#555;">
-                <p><b>Peak E-Field:</b> <span style="color: #D4AC0D; font-weight:bold;">Yellow Vector</span><br><b>Trough E-Field:</b> <span style="color: #E74C3C; font-weight:bold;">Red Vector</span></p>
-            </div>
         </div>
         <div id="visualization-area">
             <canvas id="main-canvas"></canvas>
         </div>
     </div>
 
-    <footer>NitaD, Univ Paris-Saclay, version 08 july 2025</footer>
+    <footer>NitaD, Univ Paris-Saclay, version 08 july 2025 (with Gemini)</footer>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -101,6 +97,11 @@
         let time = 0;
         let lastEmittedCycle = -1;
         let nextShellIndex = 0;
+
+        // --- Variables for Non-Polarized simulation ---
+        let nonPolarizedAngle = 0;
+        let lastAngleChangeTime = 0;
+        const angleChangeInterval = 0.5; // Change angle every 0.5s of simulation time
 
         const config = {
             numPlanes: 5,
@@ -221,10 +222,19 @@
             const phaseAtOrigin = omega_t;
             let displacement = new THREE.Vector3();
             switch (config.polarizationType) {
-                case 'linear_vertical':   displacement.y = -Math.sin(phaseAtOrigin); break;
-                case 'linear_horizontal': displacement.z = -Math.sin(phaseAtOrigin); break;
-                case 'circular_right':    displacement.set(0, -Math.cos(phaseAtOrigin), -Math.sin(phaseAtOrigin)); break;
-                case 'circular_left':     displacement.set(0, -Math.cos(phaseAtOrigin), Math.sin(phaseAtOrigin)); break;
+                case 'linear_vertical':
+                    displacement.y = -Math.sin(phaseAtOrigin);
+                    break;
+                case 'linear_horizontal':
+                    displacement.z = -Math.sin(phaseAtOrigin);
+                    break;
+                case 'non_polarized':
+                    if (time - lastAngleChangeTime > angleChangeInterval) {
+                        nonPolarizedAngle = Math.random() * 2 * Math.PI;
+                        lastAngleChangeTime = time;
+                    }
+                    displacement.set(0, -Math.sin(phaseAtOrigin) * Math.cos(nonPolarizedAngle), -Math.sin(phaseAtOrigin) * Math.sin(nonPolarizedAngle));
+                    break;
             }
             particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * config.particleCharge);
 
@@ -285,20 +295,24 @@
         
         function updateVectorsForConstantPhase(peakVec, troughVec) {
              const length = 1.5;
+             let peakDir = new THREE.Vector3();
+
              switch (config.polarizationType) {
                 case 'linear_vertical':
-                    peakVec.setDirection(new THREE.Vector3(0, 1, 0));
-                    troughVec.setDirection(new THREE.Vector3(0, -1, 0));
+                    peakDir.set(0, 1, 0);
                     break;
                 case 'linear_horizontal':
-                    peakVec.setDirection(new THREE.Vector3(0, 0, 1));
-                    troughVec.setDirection(new THREE.Vector3(0, 0, -1));
+                    peakDir.set(0, 0, 1);
+                    break;
+                case 'non_polarized':
+                    peakDir.set(0, Math.cos(nonPolarizedAngle), Math.sin(nonPolarizedAngle));
                     break;
                 default:
-                    peakVec.setDirection(new THREE.Vector3(0, 1, 0)); 
-                    troughVec.setDirection(new THREE.Vector3(0, -1, 0));
+                    peakDir.set(0, 1, 0); 
                     break;
             }
+            peakVec.setDirection(peakDir);
+            troughVec.setDirection(peakDir.clone().multiplyScalar(-1));
             peakVec.setLength(length, 0.5, 0.25);
             troughVec.setLength(length, 0.5, 0.25);
         }

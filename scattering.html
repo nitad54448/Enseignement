@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atomic Scattering Factor Visualization</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; background-color: #f0f0f0; color: #333; display: flex; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; width: 95%; max-width: 1400px; height: 90vh; margin: auto; }
+        #controls-panel { width: 320px; flex-shrink: 0; padding: 25px; background-color: #f9f9f9; border-right: 1px solid #e0e0e0; overflow-y: auto; }
+        #controls-panel h1 { font-size: 1.5em; margin-top: 0; margin-bottom: 20px; color: #0056b3; }
+        .control-group { margin-bottom: 22px; }
+        .control-group label { display: block; margin-bottom: 8px; font-weight: 600; }
+        .control-group select, .control-group input[type="range"] { width: 100%; padding: 5px; }
+        .slider-group { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
+        #lambda-display { font-weight: bold; min-width: 40px; text-align: right; }
+        #visualization-area { flex-grow: 1; position: relative; background-color: #282c34; display: flex; flex-direction: column; }
+        #main-canvas { flex-grow: 1; display: block; }
+        #plot-canvas { height: 200px; background-color: #fdfdfd; flex-shrink: 0; }
+        footer { position: fixed; bottom: 10px; left: 10px; font-size: 0.8em; color: #888; z-index: 100; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Atomic Scattering Factor</h1>
+            <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">
+                Visualizes how a wave scatters off an atom's electron cloud. The scattering strength depends on the angle due to interference between wavelets scattered from different parts of the cloud.
+            </p>
+
+            <div class="control-group">
+                <label for="atom-selector">Atom Type:</label>
+                <select id="atom-selector">
+                    <option value="H">Hydrogen (Z=1)</option>
+                    <option value="C" selected>Carbon (Z=6)</option>
+                    <option value="Fe">Iron (Z=26)</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="lambda-slider">Wavelength (λ):</label>
+                <div class="slider-group">
+                    <input type="range" id="lambda-slider" min="0.5" max="2.5" step="0.01" value="1.0">
+                    <span id="lambda-display">1.0 Å</span>
+                </div>
+            </div>
+
+             <div class="control-group" style="font-size:0.85em; color:#555;">
+                <p>The <b>3D view</b> shows the electron cloud and the resulting scattering pattern on the detector arc.</p>
+                <p>The <b>2D plot</b> shows the calculated scattering factor <i>f</i> versus the scattering angle <i>2θ</i>.</p>
+            </div>
+        </div>
+        <div id="visualization-area">
+            <canvas id="main-canvas"></canvas>
+            <canvas id="plot-canvas"></canvas>
+        </div>
+    </div>
+
+    <footer>NitaD, Univ Paris-Saclay, version 09 july 2025</footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // --- Simulation Setup ---
+        let scene, camera, renderer, controls;
+        let atomCloud, detectorArc;
+        let plotCtx;
+
+        const config = {
+            atom: 'C',
+            lambda: 1.0 // in Angstroms
+        };
+        
+        // --- Data for Atoms (Z = atomic number, a = radius-related parameter) ---
+        const atomData = {
+            'H': { Z: 1, a: 0.2 },
+            'C': { Z: 6, a: 0.5 },
+            'Fe': { Z: 26, a: 0.8 }
+        };
+
+        function init() {
+            // --- Basic Scene Setup ---
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x282c34);
+            const visArea = document.getElementById('visualization-area');
+            const plotCanvas = document.getElementById('plot-canvas');
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('main-canvas'), antialias: true });
+            
+            camera = new THREE.PerspectiveCamera(50, visArea.clientWidth / (visArea.clientHeight - plotCanvas.offsetHeight), 0.1, 1000);
+            camera.position.set(0, 5, 25);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.target.set(0, 0, 0);
+            
+            scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+            scene.add(new THREE.PointLight(0xffffff, 0.8, 100));
+            scene.add(new THREE.AxesHelper(5));
+
+            // --- 2D Plot Setup ---
+            plotCtx = plotCanvas.getContext('2d');
+
+            // --- Create Simulation Objects ---
+            createAtomCloud();
+            createDetectorArc();
+
+            // --- UI Event Listeners ---
+            document.getElementById('atom-selector').addEventListener('change', (e) => {
+                config.atom = e.target.value;
+                updateSimulation();
+            });
+            const lambdaSlider = document.getElementById('lambda-slider');
+            const lambdaDisplay = document.getElementById('lambda-display');
+            lambdaSlider.addEventListener('input', (e) => {
+                config.lambda = parseFloat(e.target.value);
+                lambdaDisplay.textContent = `${config.lambda.toFixed(2)} Å`;
+                updateSimulation();
+            });
+
+            // --- Initial Run and Animation ---
+            updateSimulation();
+            window.addEventListener('resize', onWindowResize);
+            onWindowResize();
+            animate();
+        }
+
+        // --- Core Simulation Object Creation ---
+        function createAtomCloud() {
+            const geometry = new THREE.BufferGeometry();
+            const material = new THREE.PointsMaterial({ color: 0x00aaff, size: 0.08, transparent: true, opacity: 0.7 });
+            atomCloud = new THREE.Points(geometry, material);
+            scene.add(atomCloud);
+        }
+
+        function createDetectorArc() {
+            const geometry = new THREE.TorusGeometry(12, 0.15, 16, 100, Math.PI);
+            const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+            detectorArc = new THREE.Mesh(geometry, material);
+            detectorArc.rotation.z = -Math.PI / 2;
+            detectorArc.position.y = 0;
+            scene.add(detectorArc);
+        }
+
+        // --- Update Functions ---
+        function updateSimulation() {
+            updateAtomCloudVisuals();
+            updateDetectorArcVisuals();
+            drawScatteringPlot();
+        }
+
+        function updateAtomCloudVisuals() {
+            const Z = atomData[config.atom].Z;
+            const radius = 1 + Math.log1p(Z);
+            const numPoints = Z * 200;
+            const positions = new Float32Array(numPoints * 3);
+            for (let i = 0; i < numPoints; i++) {
+                const u = Math.random();
+                const v = Math.random();
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                const r = radius * Math.cbrt(Math.random());
+                positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = r * Math.cos(phi);
+            }
+            atomCloud.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            atomCloud.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function updateDetectorArcVisuals() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 512;
+            canvas.height = 32;
+
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const numSteps = 20;
+            for (let i = 0; i <= numSteps; i++) {
+                const ratio = i / numSteps;
+                const theta = (ratio * Math.PI) / 2;
+                const f = calculateScatteringFactor(theta);
+                const intensity = Math.pow(f / atomData[config.atom].Z, 2);
+                gradient.addColorStop(ratio, `rgba(255, 223, 0, ${intensity})`);
+            }
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (detectorArc.material.map) detectorArc.material.map.dispose();
+            detectorArc.material.map = new THREE.CanvasTexture(canvas);
+            detectorArc.material.needsUpdate = true;
+        }
+        
+        // --- Physics Calculation ---
+        function calculateScatteringFactor(theta) {
+            const data = atomData[config.atom];
+            const q = (4 * Math.PI / config.lambda) * Math.sin(theta);
+            const f = data.Z * Math.exp(-data.a * q * q);
+            return f;
+        }
+
+        // --- 2D Plotting ---
+        function drawScatteringPlot() {
+            const canvas = plotCtx.canvas;
+            plotCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const padding = 35;
+            const Z = atomData[config.atom].Z;
+
+            plotCtx.strokeStyle = '#555';
+            plotCtx.lineWidth = 1;
+            plotCtx.beginPath();
+            plotCtx.moveTo(padding, padding);
+            plotCtx.lineTo(padding, canvas.height - padding);
+            plotCtx.lineTo(canvas.width - padding, canvas.height - padding);
+            plotCtx.stroke();
+            
+            plotCtx.fillStyle = '#333';
+            plotCtx.font = '12px sans-serif';
+            plotCtx.textAlign = 'center';
+            plotCtx.fillText('Scattering Angle 2θ (°)', canvas.width / 2, canvas.height - 5);
+            plotCtx.save();
+            plotCtx.rotate(-Math.PI / 2);
+            plotCtx.fillText('f (electrons)', -canvas.height / 2, 15);
+            plotCtx.restore();
+
+            plotCtx.textAlign = 'right';
+            for (let i = 0; i <= Z; i += Math.ceil(Z/5)) {
+                const y = canvas.height - padding - (i/Z) * (canvas.height - 2*padding);
+                plotCtx.fillText(i, padding - 10, y + 4);
+                plotCtx.beginPath();
+                plotCtx.moveTo(padding-4, y);
+                plotCtx.lineTo(padding, y);
+                plotCtx.stroke();
+            }
+
+            plotCtx.textAlign = 'center';
+            for (let angle2theta = 0; angle2theta <= 180; angle2theta += 30) {
+                 const x = padding + (angle2theta / 180) * (canvas.width - 2*padding);
+                 plotCtx.fillText(angle2theta, x, canvas.height - padding + 15);
+                 plotCtx.beginPath();
+                 plotCtx.moveTo(x, canvas.height - padding);
+                 plotCtx.lineTo(x, canvas.height - padding + 4);
+                 plotCtx.stroke();
+            }
+
+            plotCtx.strokeStyle = '#d9534f';
+            plotCtx.lineWidth = 2;
+            plotCtx.beginPath();
+            const steps = 200;
+            for (let i = 0; i <= steps; i++) {
+                const angle2theta = (i / steps) * 180;
+                const theta = (angle2theta / 2) * (Math.PI / 180);
+                const f = calculateScatteringFactor(theta);
+                const x = padding + (angle2theta / 180) * (canvas.width - 2*padding);
+                const y = canvas.height - padding - (f / Z) * (canvas.height - 2*padding);
+                if (i === 0) plotCtx.moveTo(x, y);
+                else plotCtx.lineTo(x, y);
+            }
+            plotCtx.stroke();
+        }
+        
+        // --- Animation Loop & Resizing (FIXED) ---
+        function animate() {
+            requestAnimationFrame(animate);
+            atomCloud.rotation.y += 0.001;
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            const visArea = document.getElementById('visualization-area');
+            const plotCanvas = document.getElementById('plot-canvas');
+            
+            // Get the actual rendered dimensions from the layout
+            const plotCanvasHeight = plotCanvas.offsetHeight;
+            const visAreaWidth = visArea.clientWidth;
+            const mainCanvasHeight = visArea.clientHeight - plotCanvasHeight;
+
+            // Set the internal drawing buffer of the plot canvas to match its display size
+            plotCanvas.width = visAreaWidth;
+            plotCanvas.height = plotCanvasHeight;
+
+            // Update the 3D camera and renderer with correct dimensions
+            camera.aspect = visAreaWidth / mainCanvasHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(visAreaWidth, mainCanvasHeight);
+
+            // Now that the plot canvas has the correct dimensions, redraw its content
+            drawScatteringPlot();
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
