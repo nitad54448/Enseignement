@@ -26,6 +26,7 @@
 | 🎞️ [**Kiessig Fringes**](https://nitad54448.github.io/Enseignement/kiessig.html) | This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film. |
 | ✨ [**2D Fourier Transform**](https://nitad54448.github.io/Enseignement/FT.html) | This explorer visualizes the 2D Fourier Transform of various sources. |
 | 🔄 [**2D Radon Transform**](https://nitad54448.github.io/Enseignement/Radon.html) | This tool computes and displays the 2D Radon Transform (Sinogram) of an image. |
+| 🎨 [**Color Radon Transform**](https://nitad54448.github.io/Enseignement/ColorRadon.html) | An explorer for the 2D Radon Transform on color images, demonstrating filtered back-projection. |
 
 ---
 
@@ -46,6 +47,8 @@ WaveXplorer is a versatile tool for visualizing and understanding various fundam
     * **Wavefront**: Visualize plane and spherical wavefronts.
 * **Technologies**: HTML, JavaScript, Three.js.
 
+---
+
 ### 🎯 2. Wave Scattering Simulator
 [**Launch Wave Scattering Simulator**](https://nitad54448.github.io/Enseignement/WaveScattering.html)
 
@@ -62,6 +65,8 @@ An interactive simulation of a wave scattering off a charged particle, demonstra
     * Particle mass, selectable on a logarithmic scale from an electron to a proton.
 * **Technologies**: HTML, JavaScript, Three.js.
 
+---
+
 ### 💎 3. Miller Planes Viewer
 [**Launch Miller Planes Simulator**](https://nitad54448.github.io/Enseignement/Miller.html)
 
@@ -72,6 +77,8 @@ Visualize (hkl) crystallographic planes.
     * Shows nodes with systematic extinctions.
     * Calculates interplanar distances.
 * **Technologies**: HTML, JavaScript, Three.js.
+
+---
 
 ### ↔️ 4. Crystallographic Direction Visualizer
 [**Launch Direction Visualizer**](https://nitad54448.github.io/Enseignement/Directions.html)
@@ -85,6 +92,8 @@ Visualize [uvw] crystallographic directions within a unit cell for all crystal s
     * Displays the unit cell, lattice nodes, and the direction vector.
 * **Technologies**: HTML, JavaScript, Three.js.
 
+---
+
 ### 🌐 5. Reciprocal Space Viewer
 [**Launch Reciprocal Space Simulator**](https://nitad54448.github.io/Enseignement/RSpace.html)
 
@@ -95,6 +104,8 @@ This tool allows for the visualization of a reciprocal lattice for all crystal s
     * Shows systematic extinctions.
     * Explore hkl indices and distances between nodes.
 * **Technologies**: HTML, JavaScript, Three.js.
+
+---
 
 ### ⚛️ 6. Atomic Energy Level Diagram
 [**Launch Atomic Levels Simulator**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html)
@@ -109,6 +120,8 @@ This viewer schematically displays atomic energy levels (K, L, M) for different 
     * Shows the selection rules for electric dipole transitions.
 * **Technologies**: HTML, JavaScript, 2D Canvas API.
 
+---
+
 ### 📈 7. XRD Emission Spectra Simulator
 [**Launch Emission Simulator**](https://nitad54448.github.io/Enseignement/Emission.html)
 
@@ -121,6 +134,8 @@ This simulator generates and displays X-ray emission spectra, including Bremsstr
     * Overlay multiple spectra for comparison.
     * Click near a characteristic line on the main spectrum to display a tooltip with a schematic diagram of the corresponding electron transition (K, L, M).
 * **Technologies**: HTML, JavaScript, 2D Canvas API, SVG.
+
+---
 
 ### 📊 8. XRD Absorption and Filters Simulator
 [**Launch Filters Simulator**](https://nitad54448.github.io/Enseignement/filtres.html)
@@ -135,6 +150,8 @@ This tool simulates the X-ray emission from an anode, the effect of a filter on 
     * Display the mass absorption coefficient (μ/ρ) of the filter versus wavelength/energy (linear or logarithmic scale).
     * Display the spectrum after filtering.
 * **Technologies**: HTML, JavaScript, 2D Canvas API.
+
+---
 
 ### 🌍 9. Ewald Sphere and XRD Viewer
 [**Launch Ewald Sphere Simulator**](https://nitad54448.github.io/Enseignement/ewald.html)
@@ -151,6 +168,8 @@ This simulator visualizes the construction of the Ewald sphere in reciprocal spa
     * Click on a point in diffraction to calculate its 2θ angle.
 * **Technologies**: HTML, JavaScript, Three.js.
 
+---
+
 ### 🔬 10. Experimental Diffraction Methods
 [**Launch Diffraction Methods Simulator**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
 
@@ -161,6 +180,8 @@ This software visualizes the reciprocal lattice for three different experimental
     * Shows systematic extinctions.
     * Explore hkl indices and distances between nodes.
 * **Technologies**: HTML, JavaScript, Three.js.
+
+---
 
 ### 🖥️ 11. Single Crystal Diffraction Simulator
 [**Launch Single Crystal Simulator**](4-circles.html)
@@ -177,6 +198,8 @@ An advanced simulator for visualizing single-crystal X-ray diffraction. It combi
     * Option to show all reciprocal lattice points or only those in a diffraction condition.
 * **Technologies**: HTML, JavaScript, Three.js.
 
+---
+
 ### 🎞️ 12. Kiessig Fringes Simulator
 [**Launch Kiessig Fringes Simulator**](https://nitad54448.github.io/Enseignement/kiessig.html)
 
@@ -189,6 +212,8 @@ This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single 
     * Calculates and displays the reflectivity curve.
 * **Technologies**: HTML, JavaScript, D3.js.
 
+---
+
 ### ✨ 13. 2D Fourier Transform Explorer
 [**Launch FT Explorer**](https://nitad54448.github.io/Enseignement/FT.html)
 
@@ -200,6 +225,8 @@ This explorer visualizes the 2D Fourier Transform of various sources.
     * The resulting magnitude is displayed using a logarithmic scale.
 * **Technologies**: HTML, JavaScript.
 
+---
+
 ### 🔄 14. 2D Radon Transform Explorer
 [**Launch Radon Explorer**](https://nitad54448.github.io/Enseignement/Radon.html)
 
@@ -208,6 +235,22 @@ This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
 * **Features**:
     * Input can be from an uploaded image, a live webcam feed, or a preset phantom image.
     * Includes a variety of presets such as the Shepp-Logan phantom, circles, squares, and points.
+* **Technologies**: HTML, JavaScript.
+
+---
+
+### 🎨 15. Color Radon Transform Explorer
+[**Launch Color Radon Explorer**](https://nitad54448.github.io/Enseignement/ColorRadon.html)
+
+An interactive explorer for the 2D Radon Transform on color images, demonstrating filtered back-projection for tomographic reconstruction.
+
+* **Features**:
+    * Input from uploaded images, webcam, or presets with transparent backgrounds.
+    * Performs truly independent transforms on the R, G, and B color channels.
+    * Calculates and displays the sinogram for each channel.
+    * Implements the inverse Radon Transform to reconstruct the image.
+    * Includes an interactive "Filtered Back-Projection" option to demonstrate its importance in creating a clear reconstruction.
+    * Features a color Venn diagram preset to test channel independence and color mixing.
 * **Technologies**: HTML, JavaScript.
 
 ---
