@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Radon Transform Explorer</title>
+    <title>2D Radon Transform & Reconstruction</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -20,9 +20,7 @@
             box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
             width: 100%;
             max-width: 512px;
-        }
-        #source-wrapper, #radon-wrapper {
-             aspect-ratio: 1 / 1;
+            aspect-ratio: 1 / 1;
         }
         canvas, video {
             width: 100%;
@@ -64,13 +62,17 @@
                         <option value="square">Square</option>
                     </select>
                 </div>
+                 <div class="flex items-center gap-2">
+                    <input type="checkbox" id="filter-checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" checked>
+                    <label for="filter-checkbox" class="text-sm font-medium text-gray-700">Use Filtered Back-Projection</label>
+                </div>
                  <input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
             </div>
             <div id="status" class="w-full sm:w-auto text-sm text-center text-gray-600 mt-2 sm:mt-0">Select a source to begin.</div>
         </div>
     </header>
 
-    <main class="flex-grow p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-center justify-items-center overflow-auto">
+    <main class="flex-grow p-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-center justify-items-center overflow-auto">
         <div class="w-full flex flex-col items-center">
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source</h3>
             <div id="source-wrapper" class="canvas-wrapper">
@@ -84,6 +86,12 @@
                 <canvas id="radonCanvas"></canvas>
             </div>
         </div>
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Reconstruction</h3>
+            <div id="recon-wrapper" class="canvas-wrapper">
+                <canvas id="reconstructionCanvas"></canvas>
+            </div>
+        </div>
     </main>
 
     <footer class="w-full p-2 bg-gray-100">
@@ -94,50 +102,39 @@
 
     <script>
         // --- DOM Elements ---
-        const useUploadBtn = document.getElementById('use-upload-btn');
-        const useWebcamBtn = document.getElementById('use-webcam-btn');
-        const imageUpload = document.getElementById('image-upload');
-        const statusEl = document.getElementById('status');
-        const webcamVideo = document.getElementById('webcam-video');
-        const sourceCanvas = document.getElementById('sourceCanvas');
-        const radonCanvas = document.getElementById('radonCanvas');
-        const sourceCtx = sourceCanvas.getContext('2d');
-        const radonCtx = radonCanvas.getContext('2d');
-        const functionPresets = document.getElementById('function-presets');
+        const useUploadBtn = document.getElementById('use-upload-btn'),
+            useWebcamBtn = document.getElementById('use-webcam-btn'),
+            imageUpload = document.getElementById('image-upload'),
+            statusEl = document.getElementById('status'),
+            webcamVideo = document.getElementById('webcam-video'),
+            sourceCanvas = document.getElementById('sourceCanvas'),
+            sourceCtx = sourceCanvas.getContext('2d'),
+            radonCanvas = document.getElementById('radonCanvas'),
+            radonCtx = radonCanvas.getContext('2d'),
+            reconstructionCanvas = document.getElementById('reconstructionCanvas'),
+            reconstructionCtx = reconstructionCanvas.getContext('2d'),
+            functionPresets = document.getElementById('function-presets'),
+            filterCheckbox = document.getElementById('filter-checkbox');
 
-        // --- Constants ---
+        // --- Constants & State ---
         const IMG_SIZE = 256;
-        sourceCanvas.width = sourceCanvas.height = IMG_SIZE;
-        
-        // --- State ---
-        let currentMode = null; // 'upload', 'webcam', or 'function'
-        let webcamStream = null;
-        let sourceImage = new Image();
-        let isTransforming = false;
-        let animationFrameId = null;
+        let currentMode = null, webcamStream = null, sourceImage = new Image(), animationFrameId = null;
 
-        // --- UI Event Listeners ---
+        // --- Initial Setup ---
+        [sourceCanvas, radonCanvas, reconstructionCanvas].forEach(c => c.width = c.height = IMG_SIZE);
         useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
         useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
         imageUpload.addEventListener('change', handleImageUpload);
-        functionPresets.addEventListener('change', () => {
-            setupMode('function');
-            generateFromFunction();
-        });
-
-        // --- Initial Setup ---
+        functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
+        filterCheckbox.addEventListener('change', () => performTransform());
         setupMode('function');
-        generateFromFunction();
+        performTransform();
 
         // --- Mode Setup ---
         function setupMode(mode) {
-            // Stop any previous continuous operations before switching
-            stopTransformLoop();
             stopWebcam();
-
             currentMode = mode;
             [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
-            
             if (mode === 'upload') {
                 webcamVideo.classList.add('hidden');
                 sourceCanvas.classList.remove('hidden');
@@ -149,30 +146,24 @@
             } else if (mode === 'function') {
                 webcamVideo.classList.add('hidden');
                 sourceCanvas.classList.remove('hidden');
-                [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
                 statusEl.textContent = 'Choose a preset to generate a pattern.';
             }
         }
         
-        // --- Webcam Handling ---
         async function startWebcam() {
             try {
                 if (webcamStream) return;
                 statusEl.textContent = 'Requesting webcam access...';
-                webcamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                webcamStream = await navigator.mediaDevices.getUserMedia({ video: { width: IMG_SIZE, height: IMG_SIZE }, audio: false });
                 webcamVideo.srcObject = webcamStream;
                 webcamVideo.classList.remove('hidden');
                 sourceCanvas.classList.add('hidden');
-                
-                // Start the transform loop automatically
-                isTransforming = true;
-                transformLoop();
+                webcamLoop();
                 statusEl.textContent = 'Live transform running...';
-
             } catch (err) {
                 console.error("Webcam error:", err);
                 statusEl.textContent = 'Could not access webcam.';
-                setupMode('function'); // Fallback to a safe mode
+                setupMode('function');
             }
         }
 
@@ -181,30 +172,198 @@
                 webcamStream.getTracks().forEach(track => track.stop());
                 webcamStream = null;
             }
+            if(animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
         }
-        
-        // --- Image/Function Handling ---
+
         function handleImageUpload(event) {
             const file = event.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    sourceImage.src = e.target.result;
-                    sourceImage.onload = () => {
-                        sourceCanvas.classList.remove('hidden');
-                        webcamVideo.classList.add('hidden');
-                        statusEl.textContent = 'Processing...';
-                        performTransform();
-                        statusEl.textContent = 'Transform complete.';
-                    };
+                sourceImage.src = URL.createObjectURL(file);
+                sourceImage.onload = () => {
+                    setupMode('upload');
+                    performTransform();
                 };
-                reader.readAsDataURL(file);
             }
         }
-        
+
+        function webcamLoop() {
+            if (!webcamStream) return;
+            performTransform();
+            animationFrameId = requestAnimationFrame(webcamLoop);
+        }
+
+        // --- Main Execution ---
+        function performTransform() {
+            if (currentMode === 'webcam' && !webcamStream) return;
+            const startTime = performance.now();
+            statusEl.textContent = 'Processing...';
+
+            generateSource();
+            
+            const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+            const sinogramData = radonTransform(imageData);
+            drawSinogram(sinogramData);
+
+            const useFilter = filterCheckbox.checked;
+            const finalSinogram = useFilter ? filterSinogram(sinogramData) : sinogramData;
+            const reconstructedData = inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE);
+            drawReconstruction(reconstructedData);
+
+            const endTime = performance.now();
+            statusEl.textContent = `Transform complete (${Math.round(endTime-startTime)}ms).`;
+        }
+
+        // --- Data Generation & Separation ---
+        function generateSource() {
+            if (currentMode === 'function') {
+                generateFromFunction();
+            } else if (currentMode === 'webcam' && webcamStream) {
+                drawSourceToCanvas(webcamVideo);
+            } else if (currentMode === 'upload' && sourceImage.src) {
+                drawSourceToCanvas(sourceImage);
+            }
+        }
+
+        // --- Core Logic: Radon, Filter, Inverse Radon ---
+        function radonTransform(imageData) {
+            const width = imageData.width, height = imageData.height, data = imageData.data;
+            const centerX = width / 2, centerY = height / 2;
+            const numAngles = 360;
+            const rhoMax = Math.ceil(Math.hypot(width, height) / 2);
+            const numRho = 2 * rhoMax;
+            const sinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho));
+            const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    if (data[idx+3] > 0) { // Check if not transparent
+                        const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                        if (intensity > 5) {
+                            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                                const rho = Math.round((x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]));
+                                const i_rho = rho + rhoMax;
+                                if (i_rho >= 0 && i_rho < numRho) {
+                                    sinogram[i_theta][i_rho] += intensity;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return sinogram;
+        }
+
+        function filterSinogram(sinogram) {
+            const numAngles = sinogram.length;
+            if (numAngles === 0) return sinogram;
+            const numRho = sinogram[0].length;
+            const filteredSinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho));
+            const filter = new Float32Array(numRho * 2 - 1);
+            const center = numRho -1;
+            filter[center] = 1;
+            for(let i=1; i < numRho; i++) {
+                const val = (i % 2 === 0) ? 0 : (-4 / (Math.PI**2)) / (i**2);
+                filter[center + i] = val;
+                filter[center - i] = val;
+            }
+            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                for (let i_rho = 0; i_rho < numRho; i_rho++) {
+                    let sum = 0;
+                    for(let k=0; k < filter.length; k++) {
+                        const rho_k = i_rho - (k-center);
+                        if(rho_k >= 0 && rho_k < numRho) {
+                            sum += sinogram[i_theta][rho_k] * filter[k];
+                        }
+                    }
+                    filteredSinogram[i_theta][i_rho] = sum;
+                }
+            }
+            return filteredSinogram;
+        }
+
+        function inverseRadonTransform(sinogram, width, height) {
+            const numAngles = sinogram.length;
+            if (numAngles === 0) return new Float32Array(width * height);
+            const numRho = sinogram[0].length;
+            const rhoMax = numRho / 2;
+            const reconstructedData = new Float32Array(width * height);
+            const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+            const centerX = width / 2, centerY = height / 2;
+            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                const angle = angles[i_theta];
+                const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const rho = Math.round((x - centerX) * cosA + (y - centerY) * sinA);
+                        const i_rho = rho + rhoMax;
+                        if (i_rho >= 0 && i_rho < numRho) {
+                           reconstructedData[y * width + x] += sinogram[i_theta][i_rho];
+                        }
+                    }
+                }
+            }
+             return reconstructedData;
+        }
+
+        // --- Visualization Functions ---
+        function drawSinogram(sinogram) {
+            const numAngles = sinogram.length;
+            if (numAngles === 0) return;
+            const numRho = sinogram[0].length;
+            radonCanvas.width = numAngles;
+            radonCanvas.height = numRho;
+            radonCtx.clearRect(0,0, numAngles, numRho);
+            const outputImageData = radonCtx.createImageData(numAngles, numRho);
+            let maxVal = 0;
+            for (let i = 0; i < numAngles; i++) {
+                for (let j = 0; j < numRho; j++) {
+                    if (sinogram[i][j] > maxVal) maxVal = sinogram[i][j];
+                }
+            }
+            if (maxVal === 0) return;
+            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                for (let i_rho = 0; i_rho < numRho; i_rho++) {
+                    const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
+                    const idx = (i_rho * numAngles + i_theta) * 4;
+                    outputImageData.data[idx] = val;
+                    outputImageData.data[idx + 1] = val;
+                    outputImageData.data[idx + 2] = val;
+                    outputImageData.data[idx + 3] = 255;
+                }
+            }
+            radonCtx.putImageData(outputImageData, 0, 0);
+        }
+
+        function drawReconstruction(data) {
+            reconstructionCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
+            const outputImageData = reconstructionCtx.createImageData(IMG_SIZE, IMG_SIZE);
+            let maxVal = -Infinity, minVal = Infinity;
+            for(const val of data) {
+                if (val > maxVal) maxVal = val;
+                if (val < minVal) minVal = val;
+            }
+            const range = maxVal - minVal;
+            if (range < 1e-9) return;
+            
+            for (let i = 0; i < data.length; i++) {
+                const val = ((data[i] - minVal) / range) * 255;
+                const idx = i * 4;
+                outputImageData.data[idx] = val;
+                outputImageData.data[idx + 1] = val;
+                outputImageData.data[idx + 2] = val;
+                outputImageData.data[idx + 3] = 255; // Always opaque
+            }
+            reconstructionCtx.putImageData(outputImageData, 0, 0);
+        }
+
+        // --- Preset Generation & Drawing ---
         function generateFromFunction() {
-            statusEl.textContent = 'Generating function...';
             const type = functionPresets.value;
+            // Set a black background for all presets
+            sourceCtx.fillStyle = 'black';
+            sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
             
             if (type === 'shepp-logan') {
                 const phantomData = createSheppLoganData(IMG_SIZE);
@@ -218,45 +377,28 @@
                 }
                 sourceCtx.putImageData(imageData, 0, 0);
             } else {
-                sourceCtx.fillStyle = 'black';
-                sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+                sourceCtx.fillStyle = 'white'; // Shapes are drawn in white
                 sourceCtx.save();
                 sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
-                
                 if (type === 'circle') {
-                    sourceCtx.fillStyle = 'white';
-                    sourceCtx.beginPath();
-                    sourceCtx.arc(0, 0, IMG_SIZE * 0.4, 0, 2 * Math.PI);
-                    sourceCtx.fill();
+                    sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.4, 0, 2 * Math.PI); sourceCtx.fill();
                 } else if (type === 'square') {
-                    sourceCtx.fillStyle = 'white';
                     sourceCtx.fillRect(-IMG_SIZE * 0.3, -IMG_SIZE * 0.3, IMG_SIZE * 0.6, IMG_SIZE * 0.6);
                 } else if (type === 'embedded-squares') {
-                    sourceCtx.fillStyle = 'gray';
                     sourceCtx.fillRect(-IMG_SIZE * 0.4, -IMG_SIZE * 0.4, IMG_SIZE * 0.8, IMG_SIZE * 0.8);
-                    sourceCtx.fillStyle = 'white';
+                    sourceCtx.fillStyle = 'black'; // Cut out the middle part
                     sourceCtx.fillRect(-IMG_SIZE * 0.2, -IMG_SIZE * 0.2, IMG_SIZE * 0.4, IMG_SIZE * 0.4);
                 } else if (type === 'concentric-circles') {
-                    sourceCtx.fillStyle = 'gray';
-                    sourceCtx.beginPath();
-                    sourceCtx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI);
-                    sourceCtx.fill();
-                    sourceCtx.fillStyle = 'white';
-                    sourceCtx.beginPath();
-                    sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI);
-                    sourceCtx.fill();
+                    sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI); sourceCtx.fill();
+                    sourceCtx.fillStyle = 'black'; // Cut out the middle part
+                    sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); sourceCtx.fill();
                 } else if (type === 'single-point') {
-                    sourceCtx.fillStyle = 'white';
-                    sourceCtx.fillRect(IMG_SIZE * 0.25, IMG_SIZE * 0.15, 2, 2);
+                    sourceCtx.fillRect(IMG_SIZE * 0.25, IMG_SIZE * 0.15, 4, 4);
                 } else if (type === 'center-point') {
-                    sourceCtx.fillStyle = 'white';
-                    sourceCtx.fillRect(-1, -1, 2, 2);
+                    sourceCtx.fillRect(-2, -2, 4, 4);
                 }
                 sourceCtx.restore();
             }
-            
-            performTransform();
-            statusEl.textContent = 'Transform complete.';
         }
         
         function drawSourceToCanvas(source) {
@@ -264,113 +406,15 @@
             sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
             const sourceW = source.videoWidth || source.width;
             const sourceH = source.videoHeight || source.height;
-            const hRatio = IMG_SIZE / sourceW;
-            const vRatio = IMG_SIZE / sourceH;
-            const ratio = Math.min(hRatio, vRatio);
+            const ratio = Math.min(IMG_SIZE / sourceW, IMG_SIZE / sourceH);
             const centerShift_x = (IMG_SIZE - sourceW * ratio) / 2;
             const centerShift_y = (IMG_SIZE - sourceH * ratio) / 2;
             sourceCtx.drawImage(source, 0, 0, sourceW, sourceH, centerShift_x, centerShift_y, sourceW * ratio, sourceH * ratio);
         }
 
-        // --- Core Transform Logic ---
-        function transformLoop() {
-            if (!isTransforming) return;
-            performTransform();
-            animationFrameId = requestAnimationFrame(transformLoop);
-        }
-        
-        function stopTransformLoop() {
-            isTransforming = false;
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
-            animationFrameId = null;
-        }
-
-        function performTransform() {
-             if (currentMode === 'webcam') {
-                drawSourceToCanvas(webcamVideo);
-            } else if (currentMode === 'upload' && sourceImage.src) {
-                 drawSourceToCanvas(sourceImage);
-            } else if (currentMode !== 'function'){
-                 return; 
-            }
-            
-            const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
-            const sinogramData = radonTransform(imageData);
-            drawSinogram(sinogramData);
-        }
-
-        function radonTransform(imageData) {
-            const width = imageData.width;
-            const height = imageData.height;
-            const data = imageData.data;
-            const centerX = width / 2;
-            const centerY = height / 2;
-            
-            const numAngles = 180;
-            const rhoMax = Math.ceil(Math.sqrt(width * width + height * height) / 2);
-            const numRho = 2 * rhoMax;
-
-            const sinogram = new Array(numAngles).fill(0).map(() => new Array(numRho).fill(0));
-            const angles = new Array(numAngles).fill(0).map((_, i) => i * Math.PI / numAngles);
-            
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const idx = (y * width + x) * 4;
-                    const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-                    
-                    if (intensity > 5) {
-                        for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                            const theta = angles[i_theta];
-                            const rho = Math.round((x - centerX) * Math.cos(theta) + (y - centerY) * Math.sin(theta));
-                            const i_rho = rho + rhoMax;
-                            if (i_rho >= 0 && i_rho < numRho) {
-                                sinogram[i_theta][i_rho] += intensity;
-                            }
-                        }
-                    }
-                }
-            }
-            return sinogram;
-        }
-        
-        function drawSinogram(sinogram) {
-            const numAngles = sinogram.length;
-            if (numAngles === 0) return;
-            const numRho = sinogram[0].length;
-
-            radonCanvas.width = numAngles;
-            radonCanvas.height = numRho;
-            const ctx = radonCanvas.getContext('2d');
-            const outputImageData = ctx.createImageData(numAngles, numRho);
-            
-            let maxVal = 0;
-            for (let i = 0; i < numAngles; i++) {
-                for (let j = 0; j < numRho; j++) {
-                    if (sinogram[i][j] > maxVal) {
-                        maxVal = sinogram[i][j];
-                    }
-                }
-            }
-            if (maxVal === 0) maxVal = 1;
-
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
-                    const idx = (i_rho * numAngles + i_theta) * 4;
-                    outputImageData.data[idx] = val;
-                    outputImageData.data[idx + 1] = val;
-                    outputImageData.data[idx + 2] = val;
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            ctx.putImageData(outputImageData, 0, 0);
-        }
-
-        // --- Drawing utilities ---
        function createSheppLoganData(size) {
             const data = new Array(size * size).fill(0);
             const ellipses = [
-                // [x_center, y_center, major_axis, minor_axis, angle_deg, gray_level]
                 [0,    0,      .69,   .92,   90,  1],
                 [0,   -0.0184, .6624, .874,  90, -0.8],
                 [.22,  0,      .11,   .31,   72, -0.2],
@@ -382,7 +426,6 @@
                 [0,    -.605,  .023,  .023,  0,   0.1],
                 [.06,  -.605,  .023,  .046,  90,  0.1]
             ];
-
             for (let j = 0; j < size; j++) {
                 for (let i = 0; i < size; i++) {
                     const x = (i - size / 2) / (size / 2);
@@ -391,15 +434,14 @@
                     for (const ell of ellipses) {
                         const [x0, y0, a, b, angle, gray] = ell;
                         const angRad = -angle * Math.PI / 180;
-                        const cosA = Math.cos(angRad);
-                        const sinA = Math.sin(angRad);
+                        const cosA = Math.cos(angRad), sinA = Math.sin(angRad);
                         const term1 = (((x - x0) * cosA + (y - y0) * sinA) / a) ** 2;
                         const term2 = (((x - x0) * sinA - (y - y0) * cosA) / b) ** 2;
                         if (term1 + term2 <= 1) {
                             intensitySum += gray;
                         }
                     }
-                    data[j * size + i] = Math.max(0, Math.min(255, intensitySum * 128 + 10));
+                    data[j * size + i] = Math.max(0, Math.min(255, intensitySum * 255));
                 }
             }
             return data;
