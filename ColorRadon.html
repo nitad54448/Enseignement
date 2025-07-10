@@ -16,6 +16,10 @@
             box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
             width: 100%; aspect-ratio: 1 / 1;
         }
+        .sinogram-canvas-wrapper {
+             background-image: none;
+             background-color: #e5e7eb;
+        }
         .small-canvas-wrapper { max-width: 250px; }
         .full-width-wrapper { max-width: 512px; }
         canvas, video { width: 100%; height: 100%; object-fit: contain; }
@@ -78,19 +82,19 @@
         <div class="w-full grid grid-cols-2 gap-4 justify-items-center">
              <div class="w-full flex flex-col items-center">
                 <h3 class="text-lg font-semibold text-center mb-2 text-gray-700">Red Sinogram</h3>
-                <div class="canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasR"></canvas></div>
+                <div class="canvas-wrapper sinogram-canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasR"></canvas></div>
             </div>
              <div class="w-full flex flex-col items-center">
                 <h3 class="text-lg font-semibold text-center mb-2 text-gray-700">Green Sinogram</h3>
-                <div class="canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasG"></canvas></div>
+                <div class="canvas-wrapper sinogram-canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasG"></canvas></div>
             </div>
              <div class="w-full flex flex-col items-center">
                 <h3 class="text-lg font-semibold text-center mb-2 text-gray-700">Blue Sinogram</h3>
-                <div class="canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasB"></canvas></div>
+                <div class="canvas-wrapper sinogram-canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasB"></canvas></div>
             </div>
              <div class="w-full flex flex-col items-center">
                 <h3 class="text-lg font-semibold text-center mb-2 text-gray-700">Grayscale Sinogram</h3>
-                <div class="canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasGray"></canvas></div>
+                <div class="canvas-wrapper sinogram-canvas-wrapper small-canvas-wrapper"><canvas id="radonCanvasGray"></canvas></div>
             </div>
              <div class="w-full flex flex-col items-center">
                 <h3 class="text-lg font-semibold text-center mb-2 text-gray-700">R Recon</h3>
@@ -224,8 +228,8 @@
             const startTime = performance.now();
             statusEl.textContent = 'Processing...';
 
-            const { rChannel, gChannel, bChannel } = getIndependentChannels();
-            drawSourceToCanvas(rChannel, gChannel, bChannel);
+            const { rChannel, gChannel, bChannel, isTransparent } = getIndependentChannels();
+            drawSourceToCanvas(rChannel, gChannel, bChannel, isTransparent);
             
             const sinogramR = radonTransform(rChannel, IMG_SIZE, IMG_SIZE);
             const sinogramG = radonTransform(gChannel, IMG_SIZE, IMG_SIZE);
@@ -245,10 +249,10 @@
             drawSingleChannelSinogram(radonCtxB, sinogramB, 2);
             drawGrayscaleSinogram(sinogramR, sinogramG, sinogramB);
             
-            drawReconstructedChannel(reconstructedCtxR, reconR, 0);
-            drawReconstructedChannel(reconstructedCtxG, reconG, 1);
-            drawReconstructedChannel(reconstructedCtxB, reconB, 2);
-            drawFinalReconstructed(reconstructedCtxFinal, reconR, reconG, reconB);
+            drawReconstructedChannel(reconstructedCtxR, reconR, 0, isTransparent);
+            drawReconstructedChannel(reconstructedCtxG, reconG, 1, isTransparent);
+            drawReconstructedChannel(reconstructedCtxB, reconB, 2, isTransparent);
+            drawFinalReconstructed(reconstructedCtxFinal, reconR, reconG, reconB, isTransparent);
 
             const endTime = performance.now();
             statusEl.textContent = `Transform complete (${Math.round(endTime - startTime)} ms).`;
@@ -259,9 +263,14 @@
             let rChannel = new Uint8ClampedArray(IMG_SIZE * IMG_SIZE);
             let gChannel = new Uint8ClampedArray(IMG_SIZE * IMG_SIZE);
             let bChannel = new Uint8ClampedArray(IMG_SIZE * IMG_SIZE);
+            let isTransparent = false;
 
             if (currentMode === 'function') {
                 const type = functionPresets.value;
+                const presetsWithTransparentBg = ['venn-diagram', 'two-circles'];
+                if (presetsWithTransparentBg.includes(type)) {
+                    isTransparent = true;
+                }
                 generatePresetChannels(type, rChannel, gChannel, bChannel);
             } else {
                 let currentSource = null;
@@ -286,7 +295,7 @@
                     }
                 }
             }
-            return { rChannel, gChannel, bChannel };
+            return { rChannel, gChannel, bChannel, isTransparent };
         }
 
         // --- Core Logic: Radon, Filter, Inverse Radon ---
@@ -368,7 +377,7 @@
         }
 
         // --- Visualization Functions ---
-        function drawSourceToCanvas(rChannel, gChannel, bChannel) {
+        function drawSourceToCanvas(rChannel, gChannel, bChannel, isTransparent) {
             sourceCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
             const imageData = sourceCtx.createImageData(IMG_SIZE, IMG_SIZE);
             for (let i = 0; i < rChannel.length; i++) {
@@ -376,14 +385,19 @@
                 imageData.data[i * 4] = r;
                 imageData.data[i * 4 + 1] = g;
                 imageData.data[i * 4 + 2] = b;
-                imageData.data[i * 4 + 3] = (r > 0 || g > 0 || b > 0) ? 255 : 0;
+                if (isTransparent) {
+                    imageData.data[i * 4 + 3] = (r > 0 || g > 0 || b > 0) ? 255 : 0;
+                } else {
+                    imageData.data[i * 4 + 3] = 255;
+                }
             }
             sourceCtx.putImageData(imageData, 0, 0);
         }
 
-        function drawReconstructedChannel(ctx, data, channelIndex) {
+        function drawReconstructedChannel(ctx, data, channelIndex, isTransparent) {
             const width = ctx.canvas.width, height = ctx.canvas.height;
             if (data.length !== width * height) return;
+            ctx.clearRect(0, 0, width, height);
             const outputImageData = ctx.createImageData(width, height);
             let maxVal = -Infinity, minVal = Infinity;
             for(const val of data) {
@@ -391,25 +405,29 @@
                 if (val < minVal) minVal = val;
             }
             const range = maxVal - minVal;
-            if (range < 1e-9) {
-                 ctx.clearRect(0, 0, width, height);
-                 return;
-            }
+            if (range < 1e-9) return;
+            
+            const backgroundThreshold = minVal + (range * 0.05);
+
             for (let i = 0; i < data.length; i++) {
                 const normVal = ((data[i] - minVal) / range) * 255;
                 const idx = i * 4;
-                outputImageData.data[idx] = 0;
-                outputImageData.data[idx + 1] = 0;
-                outputImageData.data[idx + 2] = 0;
                 outputImageData.data[idx + channelIndex] = normVal;
-                outputImageData.data[idx + 3] = 255;
+                
+                if (isTransparent) {
+                    if (data[i] > backgroundThreshold) outputImageData.data[idx + 3] = 255;
+                } else {
+                    outputImageData.data[idx + 3] = 255;
+                }
             }
             ctx.putImageData(outputImageData, 0, 0);
         }
 
-        function drawFinalReconstructed(ctx, rData, gData, bData) {
+        function drawFinalReconstructed(ctx, rData, gData, bData, isTransparent) {
             const width = ctx.canvas.width, height = ctx.canvas.height;
+            ctx.clearRect(0, 0, width, height);
             const outputImageData = ctx.createImageData(width, height);
+
             let maxVal = -Infinity, minVal = Infinity;
             for (let i = 0; i < rData.length; i++) {
                 if (rData[i] > maxVal) maxVal = rData[i];
@@ -419,11 +437,12 @@
                 if (gData[i] < minVal) minVal = gData[i];
                 if (bData[i] < minVal) minVal = bData[i];
             }
+
             const range = maxVal - minVal;
-            if (range < 1e-9) {
-                ctx.clearRect(0, 0, width, height);
-                return;
-            }
+            if (range < 1e-9) return;
+
+            const backgroundThreshold = minVal + (range * 0.05);
+
             for (let i = 0; i < rData.length; i++) {
                 const idx = i * 4;
                 const r = ((rData[i] - minVal) / range) * 255;
@@ -432,7 +451,16 @@
                 outputImageData.data[idx]     = r;
                 outputImageData.data[idx + 1] = g;
                 outputImageData.data[idx + 2] = b;
-                outputImageData.data[idx + 3] = (r > 1 || g > 1 || b > 1) ? 255 : 0;
+                
+                if (isTransparent) {
+                    if (rData[i] < backgroundThreshold && gData[i] < backgroundThreshold && bData[i] < backgroundThreshold) {
+                        outputImageData.data[idx + 3] = 0;
+                    } else {
+                        outputImageData.data[idx + 3] = 255;
+                    }
+                } else {
+                    outputImageData.data[idx + 3] = 255;
+                }
             }
             ctx.putImageData(outputImageData, 0, 0);
         }
@@ -443,8 +471,7 @@
             const numRho = sinogramData[0].length;
             ctx.canvas.width = numAngles;
             ctx.canvas.height = numRho;
-            ctx.clearRect(0,0, numAngles, numRho);
-            const outputImageData = ctx.createImageData(numAngles, numRho);
+            
             let maxVal = -Infinity, minVal = Infinity;
             for (let i = 0; i < numAngles; i++) {
                 for (let j = 0; j < numRho; j++) {
@@ -454,13 +481,20 @@
                 }
             }
             const range = maxVal - minVal;
-            if (range < 1e-9) return;
+
+            if (range < 1e-9) {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, numAngles, numRho);
+                return;
+            }
+
+            const outputImageData = ctx.createImageData(numAngles, numRho);
             for (let i_theta = 0; i_theta < numAngles; i_theta++) {
                 for (let i_rho = 0; i_rho < numRho; i_rho++) {
                     const val = ((sinogramData[i_theta][i_rho] - minVal) / range) * 255;
                     const idx = (i_rho * numAngles + i_theta) * 4;
                     outputImageData.data[idx + channelIndex] = val;
-                    outputImageData.data[idx + 3] = val > 0 ? 255 : 0;
+                    outputImageData.data[idx + 3] = 255; // Always Opaque
                 }
             }
             ctx.putImageData(outputImageData, 0, 0);
@@ -473,8 +507,7 @@
             radonCanvasGray.width = numAngles;
             radonCanvasGray.height = numRho;
             const ctx = radonCtxGray;
-            ctx.clearRect(0,0, numAngles, numRho);
-            const outputImageData = ctx.createImageData(numAngles, numRho);
+            
             const sinogramGray = Array.from({ length: numAngles }, () => new Float32Array(numRho));
             let maxGray = -Infinity, minGray = Infinity;
             for (let i = 0; i < numAngles; i++) {
@@ -486,7 +519,13 @@
                 }
             }
             const range = maxGray - minGray;
-             if (range < 1e-9) return;
+             if (range < 1e-9) {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, numAngles, numRho);
+                return;
+             }
+
+            const outputImageData = ctx.createImageData(numAngles, numRho);
             for (let i_theta = 0; i_theta < numAngles; i_theta++) {
                 for (let i_rho = 0; i_rho < numRho; i_rho++) {
                     const val = ((sinogramGray[i_theta][i_rho] - minGray) / range) * 255;
@@ -494,7 +533,7 @@
                     outputImageData.data[idx] = val;
                     outputImageData.data[idx + 1] = val;
                     outputImageData.data[idx + 2] = val;
-                    outputImageData.data[idx + 3] = val > 0 ? 255 : 0;
+                    outputImageData.data[idx + 3] = 255; // Always Opaque
                 }
             }
             ctx.putImageData(outputImageData, 0, 0);
@@ -511,7 +550,6 @@
                 drawFn(tempCtx);
                 const imageData = tempCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE).data;
                 for (let i = 0; i < channel.length; i++) {
-                    // Use the red channel of the temp canvas as the intensity map
                     channel[i] = Math.max(channel[i], imageData[i * 4]);
                 }
             };
@@ -521,15 +559,15 @@
                 const offset = IMG_SIZE * 0.15;
                 drawShapeAndApply(rChannel, (ctx) => {
                     ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE/2, IMG_SIZE/2 - offset, radius, 0, 2*Math.PI); ctx.fill();
+                    ctx.arc(IMG_SIZE/2, IMG_SIZE/2 - offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
                 });
                 drawShapeAndApply(gChannel, (ctx) => {
                     ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE/2 - offset*1.2, IMG_SIZE/2 + offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
+                    ctx.arc(IMG_SIZE/2 - offset, IMG_SIZE/2 + offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
                 });
                 drawShapeAndApply(bChannel, (ctx) => {
                     ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE/2 + offset*1.2, IMG_SIZE/2 + offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
+                    ctx.arc(IMG_SIZE/2 + offset, IMG_SIZE/2 + offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
                 });
             } else if (type === 'two-circles') {
                 const radius = IMG_SIZE * 0.25;
@@ -551,7 +589,6 @@
                     ctx.fillRect(IMG_SIZE*0.3, IMG_SIZE*0.3, IMG_SIZE*0.4, IMG_SIZE*0.4);
                 });
             } else {
-                // Grayscale presets apply to all channels equally
                 drawShapeAndApply(rChannel, (ctx) => drawGrayscalePreset(type, ctx));
                 rChannel.forEach((val, i) => {
                     gChannel[i] = val;
@@ -562,10 +599,12 @@
 
         function drawGrayscalePreset(type, ctx) {
             ctx.fillStyle = 'white';
-            ctx.save();
-            ctx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
+            if (type !== 'shepp-logan') {
+                ctx.save();
+                ctx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
+            }
+            
             if (type === 'shepp-logan') {
-                ctx.restore(); // Use top-left for Shepp-Logan
                 const phantomData = createSheppLoganData(IMG_SIZE);
                 const imageData = ctx.createImageData(IMG_SIZE, IMG_SIZE);
                  for(let i=0; i < imageData.data.length; i += 4) {
@@ -582,14 +621,17 @@
                 ctx.fillRect(-IMG_SIZE * 0.3, -IMG_SIZE * 0.3, IMG_SIZE * 0.6, IMG_SIZE * 0.6);
             } else if (type === 'concentric-circles') {
                 ctx.beginPath(); ctx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI); ctx.fill();
-                ctx.fillStyle = 'black';
+                ctx.globalCompositeOperation = 'destination-out';
                 ctx.beginPath(); ctx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); ctx.fill();
             } else if (type === 'single-point') {
                 ctx.fillRect(IMG_SIZE * 0.25, IMG_SIZE * 0.15, 4, 4);
             } else if (type === 'center-point') {
                 ctx.fillRect(-2, -2, 4, 4);
             }
-            if (type !== 'shepp-logan') ctx.restore();
+            
+            if (type !== 'shepp-logan') {
+                ctx.restore();
+            }
         }
 
        function createSheppLoganData(size) {
