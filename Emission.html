@@ -5,21 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulateur de spectre RX</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        * {
+            box-sizing: border-box;
+        }
+        html, body {
+            height: 100%;
             margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
             background-color: #eef1f5;
             color: #333;
             display: flex;
             flex-direction: column;
-            height: 100vh;
-            overflow: hidden;
         }
         .main-wrapper {
             padding: 20px;
             display: flex;
             flex-direction: column;
-            flex-grow: 1;
+            flex: 1;
             min-height: 0;
         }
         .panel {
@@ -27,8 +32,6 @@
              padding: 20px;
              border-radius: 10px;
              box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-             height: 100%;
-             box-sizing: border-box;
         }
         h1 {
             text-align: center;
@@ -41,7 +44,7 @@
             display: flex;
             flex-direction: row;
             align-items: stretch;
-            flex-grow: 1;
+            flex: 1;
             min-height: 0;
             background-color: #101828;
         }
@@ -52,13 +55,10 @@
             display: flex;
             flex-direction: column;
             border-radius: 10px;
-            box-sizing: border-box;
         }
         .right-panel {
             flex: 1;
             display: flex;
-            flex-direction: row;
-            gap: 20px;
             min-width: 0;
             background-color: #eef1f5;
         }
@@ -85,14 +85,21 @@
             gap: 15px;
             padding: 20px;
             flex-grow: 1;
+            overflow-y: auto;
         }
         .control-group { display: flex; flex-direction: column; }
         label { margin-bottom: 8px; font-weight: 600; font-size: 0.9em;}
         select, input[type="range"], input[type="number"], button {
-            font-size: 0.9em; box-sizing: border-box; width: 100%;
+            font-size: 0.9em; width: 100%;
         }
         input[type="range"] { padding: 0; margin-top: 5px; margin-bottom: 8px;}
-        .canvas-container { margin-bottom: 10px; flex-grow: 1; position: relative;}
+        .canvas-container {
+            width: 100%;
+            height: 100%;
+            flex-grow: 1;
+            position: relative;
+            min-height: 300px;
+        }
         canvas {
             position: absolute;
             top: 0;
@@ -110,6 +117,7 @@
             flex-wrap: wrap;
             justify-content: center;
             gap: 20px;
+            flex-shrink: 0;
         }
         .legend-item { display: flex; align-items: center; }
         .legend-color { width: 18px; height: 10px; margin-right: 8px; border: 1px solid #ccc; flex-shrink: 0;}
@@ -239,8 +247,6 @@
         const hc_keV_A = (h * c / e_charge) * 1e7;
         const CHAR_LINE_INTENSITY_SCALAR = 45;
         const L_LINE_INTENSITY_FACTOR = 0.04;
-        const AXIS_TITLE_FONT_SIZE = "13px";
-        const AXIS_TICK_FONT_SIZE = "11px";
         const AXIS_FONT_FAMILY = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
         const elementData = {
             "Mn": { Z: 25, Ka1_energy: 5.8987, Ka2_energy: 5.8876, Kb_energy: 6.4904, K_edge: 6.539, La1_energy: 0.637, L_III_edge: 0.639, color: "#1f77b4" },
@@ -249,8 +255,10 @@
             "Cu": { Z: 29, Ka1_energy: 8.0478, Ka2_energy: 8.0278, Kb_energy: 8.9053, K_edge: 8.979, La1_energy: 0.930, L_III_edge: 0.933, color: "#d62728" },
             "Mo": { Z: 42, Ka1_energy: 17.479, Ka2_energy: 17.374, Kb_energy: 19.608, K_edge: 20.000, La1_energy: 2.293, L_III_edge: 2.520, color: "#9467bd" }
         };
+
         const canvas = document.getElementById('spectrumCanvas');
         const ctx = canvas.getContext('2d');
+        
         const elementSelect = document.getElementById('elementSelect');
         const voltageSlider = document.getElementById('voltageSlider');
         const voltageValueSpan = document.getElementById('voltageValue');
@@ -349,13 +357,14 @@
         }
 
         function drawSpectra() {
-            const rect = canvas.getBoundingClientRect();
-            if (rect.width <= 0 || rect.height <= 0) return;
+            if (canvas.width <= 1 || canvas.height <= 1) return;
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             const userDisplayRange = getDisplayLambdaRange();
             let display_min_A = userDisplayRange.userMin;
             let display_max_A = userDisplayRange.userMax;
             if (display_max_A <= display_min_A) display_max_A = display_min_A + 0.1;
+
             const spectraToPlot = [];
             const max_lambda_needed = display_max_A;
             superposedSpectra.forEach(sp => {
@@ -363,6 +372,7 @@
             });
             const currentActiveCalculated = calculateSpectrumData(currentSpectrumParams, max_lambda_needed);
             spectraToPlot.push({ ...currentSpectrumParams, calculated: currentActiveCalculated, isTrulySuperposed: false });
+            
             let overall_max_intensity = 0;
             spectraToPlot.forEach(spec => {
                 let max_intensity_in_display_range = 0;
@@ -378,67 +388,107 @@
                 }
             });
             if (overall_max_intensity === 0) overall_max_intensity = 1;
-            const p = { left: 70, right: 30, top: 40, bottom: 60 };
+            
+            // --- Final Fix: Use original scaling formula and apply a reduction factor ---
+            // This preserves the noticeable dynamic scaling while keeping the font size reasonable.
+            const baseTitleSize = Math.max(12, Math.round(canvas.height / 28));
+            const baseTickSize = Math.max(10, Math.round(baseTitleSize * 0.8));
+
+            const titleSize = Math.max(12, baseTitleSize * 0.7); 
+            const tickSize = Math.max(10, baseTickSize * 0.7);
+
+            ctx.font = `${tickSize}px ${AXIS_FONT_FAMILY}`;
+            const yTickMetrics = ctx.measureText(overall_max_intensity.toExponential(1));
+            
+            const yTickSpace = yTickMetrics.width + 10;
+            const yTitleSpace = titleSize + 10; 
+            
+            const p = {
+                top: titleSize + tickSize + 15,
+                bottom: titleSize + tickSize + 25,
+                left: yTickSpace + yTitleSpace,
+                right: 30
+            };
+            
             const plotWidth = canvas.width - p.left - p.right;
             const plotHeight = canvas.height - p.top - p.bottom;
+            
+            if (plotHeight <=0 || plotWidth <= 0) return;
+
+            ctx.strokeStyle = "#555";
+            ctx.fillStyle = "#333";
+            ctx.lineWidth = 1;
+
             ctx.beginPath();
             ctx.moveTo(p.left, p.top);
             ctx.lineTo(p.left, canvas.height - p.bottom);
             ctx.lineTo(canvas.width - p.right, canvas.height - p.bottom);
-            ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.stroke();
-            ctx.fillStyle = "#333"; ctx.textAlign = "center";
-            ctx.font = `${AXIS_TITLE_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
-            ctx.fillText("Longueur d'onde (Ångström)", p.left + plotWidth / 2, canvas.height - p.bottom / 3);
-            ctx.save(); ctx.translate(p.left / 3, p.top + plotHeight / 2); ctx.rotate(-Math.PI / 2);
-            ctx.font = `${AXIS_TITLE_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            ctx.stroke();
+
+            ctx.save();
+            ctx.translate(yTitleSpace / 2, p.top + plotHeight / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = "center";
+            ctx.font = `${titleSize}px ${AXIS_FONT_FAMILY}`;
             ctx.fillText("Intensité (unités relatives)", 0, 0);
             ctx.restore();
-            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+
+            ctx.textAlign = "center";
+            ctx.font = `${titleSize}px ${AXIS_FONT_FAMILY}`;
+            ctx.fillText("Longueur d'onde (Ångström)", p.left + plotWidth / 2, canvas.height - p.bottom + tickSize + titleSize + 10);
+            ctx.fillText("Énergie (keV)", p.left + plotWidth / 2, p.top - tickSize - 5);
+            
+            ctx.font = `${tickSize}px ${AXIS_FONT_FAMILY}`;
+
             const x_range = display_max_A - display_min_A;
-            if (x_range > 1e-9 && plotWidth > 0) {
-                const num_x_ticks = Math.max(2, Math.min(10, Math.floor(plotWidth / 60)));
+            if (x_range > 1e-9) {
+                const num_x_ticks = Math.max(2, Math.min(10, Math.floor(plotWidth / (tickSize * 5))));
                 for (let i = 0; i <= num_x_ticks; i++) {
                     const lambda_val = display_min_A + (i / num_x_ticks) * x_range;
                     const x = p.left + ((lambda_val - display_min_A) / x_range) * plotWidth;
-                     if (x >= p.left - 1 && x <= canvas.width - p.right + 1 ) {
-                        ctx.moveTo(x, canvas.height - p.bottom); ctx.lineTo(x, canvas.height - p.bottom + 5); ctx.stroke();
-                        let tickLabel;
-                        if (x_range < 0.2) tickLabel = lambda_val.toFixed(2);
-                        else if (x_range < 2) tickLabel = lambda_val.toFixed(2);
-                        else tickLabel = lambda_val.toFixed(1);
-                        ctx.fillText(tickLabel, x, canvas.height - p.bottom + 20);
+                    if (x >= p.left - 1 && x <= canvas.width - p.right + 1) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, canvas.height - p.bottom);
+                        ctx.lineTo(x, canvas.height - p.bottom + 5);
+                        ctx.stroke();
+                        const tickLabel = lambda_val.toFixed(Math.max(1, Math.ceil(-Math.log10(x_range/num_x_ticks))));
+                        ctx.fillText(tickLabel, x, canvas.height - p.bottom + tickSize + 5);
                     }
                 }
             }
-            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
+            
             const relevantEnergiesKeV = [0.5, 1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40, 50];
             if (x_range > 1e-9) {
                 relevantEnergiesKeV.forEach(keV => {
-                    const voltageForTick = parseFloat(voltageSlider.max);
-                    if (keV <= voltageForTick && keV > 0.1) {
+                    if (keV <= parseFloat(voltageSlider.max) && keV > 0.1) {
                         const lambda_for_keV = energyToWavelength_A(keV);
                         if (lambda_for_keV >= display_min_A && lambda_for_keV <= display_max_A) {
                             const x = p.left + ((lambda_for_keV - display_min_A) / x_range) * plotWidth;
                             if (x >= p.left && x <= canvas.width - p.right) {
-                                ctx.moveTo(x, p.top); ctx.lineTo(x, p.top - 5); ctx.stroke();
-                                ctx.fillText(keV.toFixed(keV < 2 ? 1:0), x, p.top - 10);
+                                ctx.beginPath();
+                                ctx.moveTo(x, p.top);
+                                ctx.lineTo(x, p.top - 5);
+                                ctx.stroke();
+                                ctx.fillText(keV.toFixed(keV < 2 ? 1:0), x, p.top - 5);
                             }
                         }
                     }
                 });
             }
-            ctx.font = `${AXIS_TITLE_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
-            ctx.fillText("Énergie (keV)", p.left + plotWidth / 2, p.top / 2.5);
-            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
-            const num_y_ticks = 5; ctx.textAlign = "right";
+            
+            ctx.textAlign = "right";
+            const num_y_ticks = 5;
             for (let i = 0; i <= num_y_ticks; i++) {
                 const intensity_val = (i / num_y_ticks) * overall_max_intensity;
                 const y = canvas.height - p.bottom - (i / num_y_ticks) * plotHeight;
-                ctx.moveTo(p.left, y); ctx.lineTo(p.left - 5, y); ctx.stroke();
-                ctx.fillText( (i === 0 && overall_max_intensity > 0.0001) ? "0" : intensity_val.toExponential(1), p.left - 10, y + 3);
+                ctx.beginPath();
+                ctx.moveTo(p.left, y);
+                ctx.lineTo(p.left - 5, y);
+                ctx.stroke();
+                ctx.fillText((i === 0 && overall_max_intensity > 1e-4) ? "0" : intensity_val.toExponential(1), p.left - 8, y + (tickSize / 3));
             }
+            
             legendDiv.innerHTML = '';
-            ctx.font = `${AXIS_TICK_FONT_SIZE} ${AXIS_FONT_FAMILY}`;
             if (x_range > 1e-9) {
                 spectraToPlot.forEach((spec_info) => {
                     const { element, voltage, current, color, calculated, isTrulySuperposed, superposedColor } = spec_info;
@@ -477,11 +527,39 @@
             requestAnimationFrame(drawSpectra);
         }
 
+        function setCanvasSize() {
+            const parent = canvas.parentElement;
+            if (!parent) return false;
+
+            const dpr = window.devicePixelRatio || 1;
+            const rect = parent.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return false;
+
+            const newWidth = Math.round(rect.width * dpr);
+            const newHeight = Math.round(rect.height * dpr);
+
+            if (canvas.width === newWidth && canvas.height === newHeight) {
+                return false;
+            }
+            
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            
+            return true;
+        }
+
+        function initializeApp() {
+            updateCurrentSpectrumParams();
+            setCanvasSize();
+            drawSpectra();
+        }
+
         elementSelect.addEventListener('change', handleUpdate);
         voltageSlider.addEventListener('input', () => { voltageValueSpan.textContent = parseFloat(voltageSlider.value).toFixed(1); handleUpdate(); });
         currentSlider.addEventListener('input', () => { currentValueSpan.textContent = currentSlider.value; handleUpdate(); });
         lambdaMinSlider.addEventListener('input', () => { lambdaMinValueSpan.textContent = parseFloat(lambdaMinSlider.value).toFixed(1); handleUpdate(); });
         lambdaMaxSlider.addEventListener('input', () => { lambdaMaxValueSpan.textContent = parseFloat(lambdaMaxSlider.value).toFixed(1); handleUpdate(); });
+        
         addSpectrumButton.addEventListener('click', () => {
             const newSuperposed = JSON.parse(JSON.stringify(currentSpectrumParams));
             newSuperposed.isSuperposed = true;
@@ -489,6 +567,7 @@
             superposedSpectra.push(newSuperposed);
             requestAnimationFrame(drawSpectra);
         });
+
         clearSuperposedButton.addEventListener('click', () => {
             superposedSpectra = [];
             handleUpdate();
@@ -498,21 +577,8 @@
         const leftPanel = document.getElementById('left-panel');
         const ghost = document.getElementById('resize-ghost');
 
-        function setCanvasSize(canvasToResize) {
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvasToResize.parentElement.getBoundingClientRect();
-            if (canvasToResize.width !== Math.round(rect.width * dpr) || canvasToResize.height !== Math.round(rect.height * dpr)) {
-                canvasToResize.width = Math.round(rect.width * dpr);
-                canvasToResize.height = Math.round(rect.height * dpr);
-                const ctx = canvasToResize.getContext('2d');
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                return true;
-            }
-            return false;
-        }
-
         const resizeObserver = new ResizeObserver(() => {
-            if (setCanvasSize(canvas)) {
+            if (setCanvasSize()) {
                 requestAnimationFrame(drawSpectra);
             }
         });
@@ -551,11 +617,7 @@
             window.removeEventListener('mouseup', stopResize);
         }
 
-        updateCurrentSpectrumParams();
-        requestAnimationFrame(() => {
-            setCanvasSize(canvas);
-            drawSpectra();
-        });
+        window.addEventListener('load', initializeApp);
     </script>
 </body>
 </html>
