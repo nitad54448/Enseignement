@@ -90,9 +90,9 @@
                 <div class="info-section">
                     <span class="block-label">Paramètres de Maille</span>
                     <div id="latticeParamsContainer" class="grid-container">
-                        <div id="row_a" class="grid-span-2" style="display: contents;"> <label for="a">a (Å)</label> <input type="number" id="a" value="4.0" step="0.1" min="0.1"> </div>
-                        <div id="row_b" class="grid-span-2" style="display: contents;"> <label for="b">b (Å)</label> <input type="number" id="b" value="5.0" step="0.1" min="0.1"> </div>
-                        <div id="row_c" class="grid-span-2" style="display: contents;"> <label for="c">c (Å)</label> <input type="number" id="c" value="6.0" step="0.1" min="0.1"> </div>
+                        <div id="row_a" class="grid-span-2" style="display: contents;"> <label for="a">a (Å)</label> <input type="number" id="a" value="4.0" step="0.1" min="1"> </div>
+                        <div id="row_b" class="grid-span-2" style="display: contents;"> <label for="b">b (Å)</label> <input type="number" id="b" value="5.0" step="0.1" min="1"> </div>
+                        <div id="row_c" class="grid-span-2" style="display: contents;"> <label for="c">c (Å)</label> <input type="number" id="c" value="6.0" step="0.1" min="1"> </div>
                         <div id="row_alpha" class="grid-span-2" style="display: contents;"> <label for="alpha">α (°)</label> <input type="number" id="alpha" value="90.0" step="0.1"> </div>
                         <div id="row_beta" class="grid-span-2" style="display: contents;"> <label for="beta">β (°)</label> <input type="number" id="beta" value="90.0" step="0.1"> </div>
                         <div id="row_gamma" class="grid-span-2" style="display: contents;"> <label for="gamma">γ (°)</label> <input type="number" id="gamma" value="90.0" step="0.1"> </div>
@@ -246,6 +246,7 @@
         }
 
         function setupEventListeners() {
+            // General listener for all controls to update visualization
             document.querySelectorAll('#controlsContent input, #controlsContent select').forEach(el => {
                 const eventType = (el.type === 'range' || el.type === 'number') ? 'input' : 'change';
                 el.addEventListener(eventType, () => {
@@ -259,6 +260,27 @@
                     }
                 });
             });
+
+            // Specific validation listeners for number inputs
+            const inputsToValidate = {
+                'a': 1, 'b': 1, 'c': 1,
+                'lambda': 0.1, 'lambda_min': 0.1, 'lambda_max': 0.1
+            };
+
+            for (const id in inputsToValidate) {
+                const input = document.getElementById(id);
+                if (input) {
+                    const minVal = inputsToValidate[id];
+                    input.addEventListener('input', () => {
+                        if (input.value !== '' && parseFloat(input.value) < minVal) {
+                            input.value = minVal;
+                            // After correcting the value, force the visualization to update
+                            updateVisualization();
+                        }
+                    });
+                }
+            }
+
             renderer.domElement.addEventListener('click', onCanvasClick, false);
             window.addEventListener('resize', onWindowResize, false);
         }
@@ -562,9 +584,22 @@
             const colors = {a:0xff0000, b:0x00ff00, c:0x0000ff};
             
             for (const key in axes) {
-                const vec = axes[key].clone().normalize();
-                axesGroup.add(new THREE.ArrowHelper(vec, new THREE.Vector3(0,0,0), 0.75, colors[key], 0.05, 0.03));
-                labelsGroup.add(createAxisLabel(`${key}*`, vec.multiplyScalar(0.75+0.1), `#${colors[key].toString(16).padStart(6,'0')}`));
+                const basisVector = axes[key];
+                const magnitude = basisVector.length();
+
+                if (magnitude < 1e-9) continue;
+
+                const direction = basisVector.clone().normalize();
+                
+                // Use the actual magnitude for the arrow's length.
+                // The head size is scaled proportionally for better visuals.
+                const headLength = magnitude * 0.15;
+                const headWidth = headLength * 0.75;
+                axesGroup.add(new THREE.ArrowHelper(direction, new THREE.Vector3(0, 0, 0), magnitude, colors[key], headLength, headWidth));
+
+                // Position the label just beyond the tip of the new arrow.
+                const labelPosition = basisVector.clone().multiplyScalar(1.15);
+                labelsGroup.add(createAxisLabel(`${key}*`, labelPosition, `#${colors[key].toString(16).padStart(6, '0')}`));
             }
             mainGroup.add(axesGroup, labelsGroup);
         }

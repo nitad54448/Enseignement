@@ -55,7 +55,7 @@
         .footer-attribution { margin-top: auto; padding-top: 10px; font-size: 0.8em; text-align: center; color: #aaa; }
         .label {
             color: #ffffff; font-family: sans-serif; padding: 2px 4px; font-size:0.9em; background: rgba(0,0,0,0.6); border-radius: 3px;
-            text-shadow: none;
+            text-shadow: 1px 1px 2px black; /* Ensure readability */
         }
     </style>
 </head>
@@ -82,12 +82,12 @@
                 <div class="info-section">
                     <span class="block-label">Paramètres de Maille</span>
                     <div id="latticeParamsContainer" class="grid-container">
-                        <div id="row_a" class="grid-span-2" style="display: contents;"> <label for="a">a (Å)</label> <input type="number" id="a" value="4.0" step="0.1" min="0.1"> </div>
-                        <div id="row_b" class="grid-span-2" style="display: contents;"> <label for="b">b (Å)</label> <input type="number" id="b" value="5.0" step="0.1" min="0.1"> </div>
-                        <div id="row_c" class="grid-span-2" style="display: contents;"> <label for="c">c (Å)</label> <input type="number" id="c" value="6.0" step="0.1" min="0.1"> </div>
-                        <div id="row_alpha" class="grid-span-2" style="display: contents;"> <label for="alpha">α (°)</label> <input type="number" id="alpha" value="90.0" step="0.1"> </div>
-                        <div id="row_beta" class="grid-span-2" style="display: contents;"> <label for="beta">β (°)</label> <input type="number" id="beta" value="90.0" step="0.1"> </div>
-                        <div id="row_gamma" class="grid-span-2" style="display: contents;"> <label for="gamma">γ (°)</label> <input type="number" id="gamma" value="90.0" step="0.1"> </div>
+                        <div id="row_a" class="grid-span-2" style="display: contents;"> <label for="a">a (Å)</label> <input type="number" id="a" value="4.0" step="0.1" min="1"> </div>
+                        <div id="row_b" class="grid-span-2" style="display: contents;"> <label for="b">b (Å)</label> <input type="number" id="b" value="5.0" step="0.1" min="1"> </div>
+                        <div id="row_c" class="grid-span-2" style="display: contents;"> <label for="c">c (Å)</label> <input type="number" id="c" value="6.0" step="0.1" min="1"> </div>
+                        <div id="row_alpha" class="grid-span-2" style="display: contents;"> <label for="alpha">α (°)</label> <input type="number" id="alpha" value="90.0" step="0.1" min="1" max="179"> </div>
+                        <div id="row_beta" class="grid-span-2" style="display: contents;"> <label for="beta">β (°)</label> <input type="number" id="beta" value="90.0" step="0.1" min="1" max="179"> </div>
+                        <div id="row_gamma" class="grid-span-2" style="display: contents;"> <label for="gamma">γ (°)</label> <input type="number" id="gamma" value="90.0" step="0.1" min="1" max="179"> </div>
                     </div>
                 </div>
                 
@@ -154,13 +154,8 @@
 
         // --- Vis Params ---
         const bravaisOptions = { 
-            'triclinic':['P'], 
-            'monoclinic':['P', 'A', 'B', 'C'], 
-            'orthorhombic':['P', 'A', 'B', 'C', 'I', 'F'], 
-            'tetragonal':['P','I'], 
-            'trigonal':['R'], 
-            'hexagonal':['P'], 
-            'cubic':['P','I','F'] 
+            'triclinic':['P'], 'monoclinic':['P', 'A', 'B', 'C'], 'orthorhombic':['P', 'A', 'B', 'C', 'I', 'F'], 
+            'tetragonal':['P','I'], 'trigonal':['R'], 'hexagonal':['P'], 'cubic':['P','I','F'] 
         };
 
         // --- Initialization ---
@@ -202,8 +197,8 @@
             scene.add(diffractionVectorsGroup, mainGroup);
             
             setupEventListeners();
-            initResizer(); // Initialize the panel resizer
-            handleCrystalSystemChange(); // Initial setup call
+            initResizer(); 
+            handleCrystalSystemChange(); 
             animate();
         }
 
@@ -223,9 +218,9 @@
             function handleMouseMove(e) {
                 const dx = e.clientX - startX;
                 const newWidth = startWidth + dx;
-                if (newWidth > 250 && newWidth < 800) { // Set min and max width
+                if (newWidth > 250 && newWidth < 800) {
                     panel.style.width = newWidth + 'px';
-                    onWindowResize(); // Update the 3D visualization canvas
+                    onWindowResize();
                 }
             }
 
@@ -249,6 +244,28 @@
                     }
                 });
             });
+
+            const validationRules = {
+                'a': { min: 1 }, 'b': { min: 1 }, 'c': { min: 1 }, 'lambda': { min: 0.1 },
+                'alpha': { min: 1, max: 179 }, 'beta': { min: 1, max: 179 }, 'gamma': { min: 1, max: 179 }
+            };
+
+            for (const id in validationRules) {
+                const input = document.getElementById(id);
+                if (input) {
+                    const rules = validationRules[id];
+                    input.addEventListener('input', () => {
+                        if (input.value !== '') {
+                            let value = parseFloat(input.value);
+                            let corrected = false;
+                            if (rules.min !== undefined && value < rules.min) { input.value = rules.min; corrected = true; }
+                            if (rules.max !== undefined && value > rules.max) { input.value = rules.max; corrected = true; }
+                            if (corrected) { updateVisualization(); }
+                        }
+                    });
+                }
+            }
+
             renderer.domElement.addEventListener('click', onCanvasClick, false);
             window.addEventListener('resize', onWindowResize, false);
         }
@@ -266,32 +283,18 @@
             const currentBravais = bravaisSelect.value;
             bravaisSelect.innerHTML = '';
             
-            const nameMap = {
-                P:"Primitif (P)", 
-                A:"Base A Centrée (A)", 
-                B:"Base B Centrée (B)", 
-                C:"Base C Centrée (C)", 
-                I:"Corps Centré (I)", 
-                F:"Faces Centrées (F)", 
-                R:"Rhomboédrique (R)"
-            };
-
+            const nameMap = { P:"Primitif (P)", A:"Base A Centrée (A)", B:"Base B Centrée (B)", C:"Base C Centrée (C)", I:"Corps Centré (I)", F:"Faces Centrées (F)", R:"Rhomboédrique (R)" };
             bravaisOptions[system].forEach(opt => {
                 const option = document.createElement('option');
-                option.value = opt;
-                option.textContent = nameMap[opt] || opt;
+                option.value = opt; option.textContent = nameMap[opt] || opt;
                 bravaisSelect.appendChild(option);
             });
-            if (bravaisOptions[system].includes(currentBravais)) { 
-                bravaisSelect.value = currentBravais; 
-            }
-
+            if (bravaisOptions[system].includes(currentBravais)) { bravaisSelect.value = currentBravais; }
             updateVisualization();
         }
         
         function updateVisualization() {
             clearSceneObjects();
-
             document.getElementById('lambdaControls').style.display = 'grid';
             document.getElementById('singleCrystalControls').style.display = 'block';
 
@@ -318,7 +321,6 @@
                     }
                 }
             }
-            
             runSingleCrystal(allPoints);
         }
 
@@ -340,12 +342,8 @@
         function updateReciprocalMatrix(p) {
             const degToRad = THREE.MathUtils.degToRad;
             const alphaR=degToRad(p.alpha), betaR=degToRad(p.beta), gammaR=degToRad(p.gamma);
-            const cosA=Math.cos(alphaR), sinA=Math.sin(alphaR),
-                  cosB=Math.cos(betaR), sinB=Math.sin(betaR),
-                  cosG=Math.cos(gammaR), sinG=Math.sin(gammaR);
-            
+            const cosA=Math.cos(alphaR), sinA=Math.sin(alphaR), cosB=Math.cos(betaR), sinB=Math.sin(betaR), cosG=Math.cos(gammaR), sinG=Math.sin(gammaR);
             if (Math.abs(sinA) < 1e-9 || Math.abs(sinB) < 1e-9 || Math.abs(sinG) < 1e-9) return false;
-
             const vol_term = 1 - cosA**2 - cosB**2 - cosG**2 + 2*cosA*cosB*cosG;
             if (vol_term <= 1e-9) return false;
             const vol = p.a * p.b * p.c * Math.sqrt(vol_term);
@@ -358,27 +356,16 @@
             const b_star_vec = new THREE.Vector3().crossVectors(c_vec, a_vec).divideScalar(vol);
             const c_star_vec = new THREE.Vector3().crossVectors(a_vec, b_vec).divideScalar(vol);
 
-            reciprocalMatrix.set(
-                a_star_vec.x, b_star_vec.x, c_star_vec.x,
-                a_star_vec.y, b_star_vec.y, c_star_vec.y,
-                a_star_vec.z, b_star_vec.z, c_star_vec.z
-            );
-            
-            if (reciprocalMatrix.elements.some(v => !isFinite(v))) {
-                return false;
-            }
-            return true;
+            reciprocalMatrix.set(a_star_vec.x, b_star_vec.x, c_star_vec.x, a_star_vec.y, b_star_vec.y, c_star_vec.y, a_star_vec.z, b_star_vec.z, c_star_vec.z);
+            return !reciprocalMatrix.elements.some(v => !isFinite(v));
         }
 
         function isReflectionAllowed(h, k, l, bravaisType) {
             switch(bravaisType) {
-                case 'P': return true;
-                case 'I': return (h + k + l) % 2 === 0;
+                case 'P': return true; case 'I': return (h + k + l) % 2 === 0;
                 case 'F': return (h % 2 === k % 2) && (k % 2 === l % 2);
-                case 'A': return (k + l) % 2 === 0;
-                case 'B': return (h + l) % 2 === 0;
-                case 'C': return (h + k) % 2 === 0;
-                case 'R': return (-h + k + l) % 3 === 0;
+                case 'A': return (k + l) % 2 === 0; case 'B': return (h + l) % 2 === 0;
+                case 'C': return (h + k) % 2 === 0; case 'R': return (-h + k + l) % 3 === 0;
                 default: return true;
             }
         }
@@ -386,7 +373,6 @@
         function onCanvasClick(event) {
             const pointsToTest = mainGroup.children.filter(obj => obj.isMesh);
             if (pointsToTest.length === 0) return;
-
             const canvasBounds = renderer.domElement.getBoundingClientRect();
             mouse.x = ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1;
             mouse.y = -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1;
@@ -394,19 +380,14 @@
             const intersects = raycaster.intersectObjects(pointsToTest, true);
             if (intersects.length > 0) {
                 const userData = intersects[0].object.userData;
-                if(userData.h !== undefined) {
-                    hklInfoDiv.textContent = `Point (hkl) cliqué : (${userData.h}, ${userData.k}, ${userData.l})`;
-                }
+                if(userData.h !== undefined) { hklInfoDiv.textContent = `Point (hkl) cliqué : (${userData.h}, ${userData.k}, ${userData.l})`; }
             }
         }
         
         function runSingleCrystal(points) {
             hklInfoDiv.textContent = 'Cliquez sur un point du réseau réciproque.';
             const showOnlyDiffracting = document.getElementById('showOnlyDiffracting').checked;
-            const eulerRotation = new THREE.Euler(
-                ...['X','Y','Z'].map(ax => THREE.MathUtils.degToRad(parseFloat(document.getElementById('rot'+ax).value)||0))
-            );
-            
+            const eulerRotation = new THREE.Euler( ...['X','Y','Z'].map(ax => THREE.MathUtils.degToRad(parseFloat(document.getElementById('rot'+ax).value)||0)) );
             mainGroup.setRotationFromEuler(eulerRotation);
             
             let ewaldSphere = null;
@@ -423,8 +404,7 @@
             drawReciprocalAxes();
             
             points.forEach(p => {
-                let isDiffracting = false;
-                let diffractionData = {};
+                let isDiffracting = false; let diffractionData = {};
                 tempWorldPosition.copy(p.pos).applyEuler(eulerRotation);
 
                 if (ewaldSphere) {
@@ -442,8 +422,7 @@
                         if (isDiffracting) {
                             const dir = new THREE.Vector3().subVectors(tempWorldPosition, diffractionData.center).normalize();
                             const arrow = new THREE.ArrowHelper(dir, diffractionData.center, diffractionData.radius, 0x00AABB, 0.1, 0.05);
-                            arrow.line.material.depthTest = false;
-                            arrow.cone.material.depthTest = false;
+                            arrow.line.material.depthTest = false; arrow.cone.material.depthTest = false;
                             diffractionVectorsGroup.add(arrow);
                         }
                     }
@@ -456,12 +435,9 @@
             const intensityFactor = Math.exp(-B_eff / 2.0 * p.pos.lengthSq());
             if (intensityFactor < 0.05) return null;
             const radius = 0.008 * (1 + parseFloat(document.getElementById('disorderSlider').value) * 1.25);
-            
-            const geom = new THREE.SphereGeometry(radius, 8, 8);
-            const mat = new THREE.MeshBasicMaterial({color: color});
+            const geom = new THREE.SphereGeometry(radius, 8, 8); const mat = new THREE.MeshBasicMaterial({color: color});
             const mesh = new THREE.Mesh(geom, mat);
-            mesh.userData = {h:p.h,k:p.k,l:p.l};
-            mesh.position.copy(p.pos);
+            mesh.userData = {h:p.h,k:p.k,l:p.l}; mesh.position.copy(p.pos);
             return mesh;
         }
         
@@ -477,9 +453,22 @@
             const colors = {a:0xff0000, b:0x00ff00, c:0x0000ff};
             
             for (const key in axes) {
-                const vec = axes[key].clone().normalize();
-                axesGroup.add(new THREE.ArrowHelper(vec, new THREE.Vector3(0,0,0), 0.75, colors[key], 0.05, 0.03));
-                labelsGroup.add(createAxisLabel(`${key}*`, vec.multiplyScalar(0.75+0.1), `#${colors[key].toString(16).padStart(6,'0')}`));
+                const basisVector = axes[key];
+                const magnitude = basisVector.length();
+
+                if (magnitude < 1e-9) continue;
+
+                const direction = basisVector.clone().normalize();
+                
+                // Use the actual magnitude for the arrow's length.
+                // The head size is scaled proportionally for better visuals.
+                const headLength = magnitude * 0.15;
+                const headWidth = headLength * 0.75;
+                axesGroup.add(new THREE.ArrowHelper(direction, new THREE.Vector3(0, 0, 0), magnitude, colors[key], headLength, headWidth));
+
+                // Position the label just beyond the tip of the new arrow.
+                const labelPosition = basisVector.clone().multiplyScalar(1.15);
+                labelsGroup.add(createAxisLabel(`${key}*`, labelPosition, `#${colors[key].toString(16).padStart(6, '0')}`));
             }
             mainGroup.add(axesGroup, labelsGroup);
         }
@@ -498,38 +487,17 @@
         }
         
         function clearSceneObjects() {
-            // A robust cleanup function
-            const groups = [mainGroup, diffractionVectorsGroup];
-            groups.forEach(group => { 
+            [mainGroup, diffractionVectorsGroup].forEach(group => { 
                 while(group.children.length > 0) {
                     const object = group.children[0];
-                    // If the child is a group (like a crystallite or axes group), dispose its children
-                    if (object.isGroup) {
-                         while(object.children.length > 0) {
-                             const child = object.children[0];
-                             if(child.geometry) child.geometry.dispose();
-                             if(child.material) child.material.dispose();
-                             object.remove(child);
-                         }
-                    }
-                    if (object.geometry) object.geometry.dispose();
-                    if (object.material) object.material.dispose();
+                    if (object.isGroup) { while(object.children.length > 0) { const child = object.children[0]; if(child.geometry) child.geometry.dispose(); if(child.material) child.material.dispose(); object.remove(child); } }
+                    if (object.geometry) object.geometry.dispose(); if (object.material) object.material.dispose();
                     group.remove(object);
                 }
             });
-
             const sceneObjectsToRemove = [];
-            scene.children.forEach(child => {
-                 if ((child.isMesh && child.geometry instanceof THREE.SphereGeometry) || child.type === 'ArrowHelper') {
-                    sceneObjectsToRemove.push(child);
-                 }
-            });
-
-            sceneObjectsToRemove.forEach(obj => {
-                if (obj.geometry) obj.geometry.dispose();
-                if (obj.material) obj.material.dispose();
-                scene.remove(obj);
-            });
+            scene.children.forEach(child => { if ((child.isMesh && child.geometry instanceof THREE.SphereGeometry) || child.type === 'ArrowHelper') { sceneObjectsToRemove.push(child); } });
+            sceneObjectsToRemove.forEach(obj => { if (obj.geometry) obj.geometry.dispose(); if (obj.material) obj.material.dispose(); scene.remove(obj); });
         }
 
         function onWindowResize() {
@@ -544,14 +512,12 @@
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
+
             renderer.render(scene, camera);
             labelRenderer.render(scene, camera);
         }
         
-        window.addEventListener('load', () => {
-            init();
-        });
-
+        window.addEventListener('load', () => { init(); });
     </script>
 </body>
 </html>

@@ -34,8 +34,9 @@
             text-align: center;
             color: #2c3e50;
             margin-top: 0;
-            margin-bottom: 20px;
+            margin-bottom: 2px;
             flex-shrink: 0;
+            font-size: 0.2rem;
         }
         h3 {
             margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #4B5563;
@@ -112,14 +113,22 @@
             font-family: 'Courier New', Courier, monospace;
             line-height: 1.5;
         }
+
+
         footer {
-            text-align: center;
-            font-size: 0.8em;
-            color: #555;
-            padding: 5px 20px;
-            flex-shrink: 0;
-            background-color: #eef1f5;
-        }
+    text-align: center;
+    font-size: 0.8em;
+    color: #555;
+    padding: 2px 20px; /* Reduced top/bottom padding from 5px to 2px */
+    flex-shrink: 0;
+    background-color: #eef1f5;
+}
+
+/* Add this new rule to remove the paragraph's default margin */
+footer p {
+    margin: 0;
+}
+
         .left-panel .panel {
              background: none; box-shadow: none; padding: 0;
         }
@@ -164,7 +173,7 @@
 </head>
 <body>
     <div class="main-wrapper">
-        <h1>Direct Space Lattice & HKL Plane Visualizer</h1>
+        <h1></h1>
         <div class="page-container">
             <div class="left-panel" id="left-panel">
                 <div class="controls-container">
@@ -187,14 +196,14 @@
 
                     <h3>Direct Parameters (Å)</h3>
                     <div class="param-group">
-                        <div class="input-group" id="group-a"><label for="a">a:</label><input type="number" id="a" value="4" step="0.1"></div>
-                        <div class="input-group" id="group-b"><label for="b">b:</label><input type="number" id="b" value="4" step="0.1"></div>
-                        <div class="input-group" id="group-c"><label for="c">c:</label><input type="number" id="c" value="4" step="0.1"></div>
+                        <div class="input-group" id="group-a"><label for="a">a:</label><input type="number" id="a" value="4" step="0.1" min="1"></div>
+                        <div class="input-group" id="group-b"><label for="b">b:</label><input type="number" id="b" value="4" step="0.1" min="1"></div>
+                        <div class="input-group" id="group-c"><label for="c">c:</label><input type="number" id="c" value="4" step="0.1" min="1"></div>
                     </div>
                     <div class="param-group">
-                        <div class="input-group" id="group-alpha"><label for="alpha">&alpha;:</label><input type="number" id="alpha" value="90" step="1"></div>
-                        <div class="input-group" id="group-beta"><label for="beta">&beta;:</label><input type="number" id="beta" value="90" step="1"></div>
-                        <div class="input-group" id="group-gamma"><label for="gamma">&gamma;:</label><input type="number" id="gamma" value="90" step="1"></div>
+                        <div class="input-group" id="group-alpha"><label for="alpha">&alpha;:</label><input type="number" id="alpha" value="90" step="1" min="1" max="179"></div>
+                        <div class="input-group" id="group-beta"><label for="beta">&beta;:</label><input type="number" id="beta" value="90" step="1" min="1" max="179"></div>
+                        <div class="input-group" id="group-gamma"><label for="gamma">&gamma;:</label><input type="number" id="gamma" value="90" step="1" min="1" max="179"></div>
                     </div>
 
                     <h3>HKL Plane</h3>
@@ -269,16 +278,13 @@
             const container = document.getElementById('threejs-container');
             const aspect = container.clientWidth / container.clientHeight;
 
-            // Create Perspective Camera
             perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 1000);
             perspectiveCamera.position.set(8, 6, 10);
             
-            // Create Orthographic Camera
             const frustumSize = 15;
             orthographicCamera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
             orthographicCamera.position.set(8, 6, 10);
 
-            // Set the initial active camera
             camera = orthographicCamera;
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -295,8 +301,35 @@
             
             dom.system.addEventListener('change', () => { updateParameterFields(); updateCenteringOptions(); });
             dom.centering.addEventListener('change', updateScene);
-            Object.values(dom.inputs).forEach(input => input.addEventListener('input', () => { syncLinkedParameters(); updateScene(); }));
             
+            // --- MODIFIED: Added real-time validation to parameter inputs ---
+            const validationRules = {
+                'a': { min: 1 },
+                'b': { min: 1 },
+                'c': { min: 1 },
+                'alpha': { min: 1, max: 179 },
+                'beta': { min: 1, max: 179 },
+                'gamma': { min: 1, max: 179 }
+            };
+
+            Object.entries(dom.inputs).forEach(([id, input]) => {
+                input.addEventListener('input', () => {
+                    const rules = validationRules[id];
+                    if (rules && input.value !== '') {
+                        let value = parseFloat(input.value);
+                        if (rules.min !== undefined && value < rules.min) {
+                            input.value = rules.min;
+                        }
+                        if (rules.max !== undefined && value > rules.max) {
+                            input.value = rules.max;
+                        }
+                    }
+                    syncLinkedParameters();
+                    updateScene();
+                });
+            });
+            // --- END MODIFICATION ---
+
             Object.values(dom.hkl).forEach(input => {
                 input.addEventListener('change', (e) => {
                     const intValue = parseInt(e.target.value, 10);
@@ -378,27 +411,18 @@
             updateInfo();
         }
 
-        // CORRECTED FUNCTION FOR C-AXIS VERTICAL
         function getDirectVectors(a, b, c, alpha, beta, gamma) {
             const toRad = Math.PI / 180;
             const alphaR = alpha * toRad, betaR = beta * toRad, gammaR = gamma * toRad;
             const cos_a = Math.cos(alphaR), cos_b = Math.cos(betaR), cos_g = Math.cos(gammaR);
             const sin_b = Math.sin(betaR);
 
-            // --- Convention: c-axis is vertical (along Y), a-axis is in the XY plane ---
-            
-            if (Math.abs(sin_b) < 1e-9) return {}; // a and c are collinear, invalid cell
+            if (Math.abs(sin_b) < 1e-9) return {}; 
 
-            // Cell volume V for a right-handed system
             const V = a * b * c * Math.sqrt(1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g);
 
-            // Vector c along the Cartesian Y-axis
             const v_c = new THREE.Vector3(0, c, 0);
-
-            // Vector a in the XY plane, with angle beta between a and c
             const v_a = new THREE.Vector3(a * sin_b, a * cos_b, 0);
-
-            // Components of vector b, ensuring a right-handed system
             const bx = b * (cos_g - cos_a * cos_b) / sin_b;
             const by = b * cos_a;
             const bz = -V / (a * c * sin_b);
@@ -616,3 +640,4 @@
     </script>
 </body>
 </html>
+}
