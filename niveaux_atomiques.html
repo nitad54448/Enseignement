@@ -19,7 +19,6 @@
             padding: 20px;
             display: flex;
             flex-direction: column;
-            flex-grow: 1;
             min-height: 0;
         }
         .panel {
@@ -58,14 +57,19 @@
         .right-panel {
             flex: 1;
             display: flex;
-            flex-direction: row;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
             gap: 20px;
             min-width: 0;
             background-color: #eef1f5;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .right-panel .panel {
-            flex: 1;
-            min-width: 0;
+            width: 100%;
+            max-width: 900px;
+            flex: 0 1 auto;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -93,14 +97,21 @@
         select, input[type="range"], input[type="number"], button {
             font-size: 0.9em; box-sizing: border-box; width: 100%;
         }
-        .canvas-container { margin-bottom: 10px; flex-grow: 1; position: relative; width: 500px; height: 600px; flex-shrink: 0;}
+        .canvas-container {
+            margin-bottom: 10px;
+            position: relative;
+            width: 700px;
+            height: 600px;
+            flex-shrink: 0;
+        }
         canvas {
-            border: 1px solid #ccc; border-radius: 5px; background-color: #fdfdfd;
+            background-color: #fff;
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            cursor: default;
         }
         .separator { width: 100%; height:1px; margin: 15px 0; }
         footer {
@@ -132,9 +143,13 @@
             background-color: rgba(59, 130, 246, 0.5); display: none;
             z-index: 9999; cursor: col-resize;
         }
-        .info-text { margin-top: 10px; text-align: center; font-size: 0.9em; color: blue; min-height: 30px; }
+        .info-text-left {
+            color: #D1D5DB;
+            font-size: 0.9em;
+            line-height: 1.5;
+            min-height: 60px;
+        }
         
-        /* Rules styling for the left panel */
         .left-panel .rules {
             background-color: transparent;
             padding: 0;
@@ -151,6 +166,18 @@
             padding-left: 20px;
             margin-bottom: 0;
         }
+        .canvas-tooltip {
+            position: absolute;
+            display: none;
+            background-color: rgba(20, 20, 20, 0.85);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 0.9em;
+            pointer-events: none;
+            z-index: 1000;
+            font-family: 'Consolas', 'Menlo', monospace;
+        }
     </style>
 </head>
 <body>
@@ -160,11 +187,11 @@
             <div class="left-panel" id="left-panel">
                 <div class="controls-container">
                     <div class="control-group">
-                        <label for="elementSelect">Choisir l'élément :</label>
+                        <label for="elementSelect">Source :</label>
                         <select id="elementSelect"></select>
                     </div>
                     <div class="control-group">
-                        <label for="transitionSelect">Choisir la transition :</label>
+                        <label for="transitionSelect">Transition :</label>
                         <select id="transitionSelect">
                             <option value="none">Aucune</option>
                             <option value="Ka1">Kα1 (L3 → K)</option>
@@ -184,6 +211,8 @@
                             <li>j=0 ↔ j=0 est interdite</li>
                         </ul>
                     </div>
+                    <div class="separator"></div>
+                    <div id="transitionInfo" class="info-text-left"></div>
                 </div>
             </div>
             <div class="resizer" id="draghandle"></div>
@@ -192,14 +221,14 @@
                     <div class="canvas-container">
                         <canvas id="energyDiagramCanvas"></canvas>
                     </div>
-                    <div id="transitionInfo" class="info-text"></div>
                 </div>
             </div>
         </div>
     </div>
     <div id="resize-ghost"></div>
+    <div id="tooltip" class="canvas-tooltip"></div>
     <footer>
-        <p>NitaD, Univ Paris-Saclay, version 04 juin 2025 (mise à jour 09 juillet 2025)</p>
+        <p>NitaD, Univ Paris-Saclay, version 11 juillet 2025</p>
     </footer>
 
     <script>
@@ -215,13 +244,28 @@
         };
 
         const transitionsData = {
-            "Ka1": { from: "L3", to: "K", label: "Kα1" },
-            "Ka2": { from: "L2", to: "K", label: "Kα2" },
-            "Kb1": { from: "M3", to: "K", label: "Kβ1" }, 
-            "La1": { from: "M5", to: "L3", label: "Lα1" }, 
+            "Ka1": { from: "L3", to: "K", label: "Kα1" }, "Ka2": { from: "L2", to: "K", label: "Kα2" },
+            "Kb1": { from: "M3", to: "K", label: "Kβ1" }, "La1": { from: "M5", to: "L3", label: "Lα1" }, 
             "Lb1": { from: "M4", to: "L2", label: "Lβ1" }  
         };
         
+        const levelQuantumNumbers = {
+            K:  { n: 1, l: 0, j: "1/2" }, L1: { n: 2, l: 0, j: "1/2" }, L2: { n: 2, l: 1, j: "1/2" },
+            L3: { n: 2, l: 1, j: "3/2" }, M1: { n: 3, l: 0, j: "1/2" }, M2: { n: 3, l: 1, j: "1/2" },
+            M3: { n: 3, l: 1, j: "3/2" }, M4: { n: 3, l: 2, j: "3/2" }, M5: { n: 3, l: 2, j: "5/2" },
+            N1: { n: 4, l: 0, j: "1/2" }, N2: { n: 4, l: 1, j: "1/2" }, N3: { n: 4, l: 1, j: "3/2" },
+            N4: { n: 4, l: 2, j: "3/2" }, N5: { n: 4, l: 2, j: "5/2" },
+        };
+
+        const levelConfigurations = {
+            'K':  '1s<sup>2</sup>',
+            'L1': '2s<sup>2</sup>', 'L2': '2p<sup>6</sup>', 'L3': '2p<sup>6</sup>',
+            'M1': '3s<sup>2</sup>', 'M2': '3p<sup>6</sup>', 'M3': '3p<sup>6</sup>',
+            'M4': '3d<sup>10</sup>', 'M5': '3d<sup>10</sup>',
+            'N1': '4s<sup>2</sup>', 'N2': '4p<sup>6</sup>', 'N3': '4p<sup>6</sup>',
+            'N4': '4d<sup>10</sup>', 'N5': '4d<sup>10</sup>',
+        };
+
         const HC_EV_A = 12398.4198; 
 
         const canvas = document.getElementById('energyDiagramCanvas');
@@ -229,17 +273,14 @@
         const elementSelect = document.getElementById('elementSelect');
         const transitionSelect = document.getElementById('transitionSelect');
         const transitionInfoDiv = document.getElementById('transitionInfo'); 
+        const tooltip = document.getElementById('tooltip');
+        let hittableLevels = [];
 
         const levelYPosition = { 
-            K: 550,
-            L1: 450, L2: 430, L3: 410,
-            M1: 350, M2: 330, M3: 310, M4: 290, M5: 270,
-            N1: 200, N2: 180, N3: 160, N4: 140, N5: 120, 
-            O: 70, 
-            Valence: 30, 
-            E0: 10 
+            K: 550, L1: 450, L2: 430, L3: 410, M1: 350, M2: 330, M3: 310, M4: 290, M5: 270,
+            N1: 200, N2: 180, N3: 160, N4: 140, N5: 120, O: 70, Valence: 30, E0: 10 
         };
-        const levelXPosition = 100; 
+        const levelXPosition = 120;
 
         function setCanvasSize() {
             const container = canvas.parentElement;
@@ -253,9 +294,7 @@
         function populateElementSelect() {
             Object.keys(elementEnergyLevels).forEach(el => {
                 const option = document.createElement('option');
-                option.value = el;
-                option.textContent = el;
-                elementSelect.appendChild(option);
+                option.value = el; option.textContent = el; elementSelect.appendChild(option);
             });
             elementSelect.value = "Cu"; 
         }
@@ -266,13 +305,13 @@
             const levels = elementEnergyLevels[selectedElementKey];
 
             const canvasWidth = canvas.parentElement.clientWidth;
-            const canvasHeight = canvas.parentElement.clientHeight;
-            const levelWidth = canvasWidth - 2 * levelXPosition;
+            const levelWidth = 400;
 
-            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            ctx.clearRect(0, 0, canvasWidth, canvas.parentElement.clientHeight);
             ctx.font = "14px Segoe UI";
             ctx.textAlign = "left";
             transitionInfoDiv.innerHTML = ""; 
+            hittableLevels = [];
 
             const existingLevelsInElement = Object.keys(levels);
 
@@ -290,6 +329,22 @@
                     ctx.lineWidth = (levelKey === "E0" || levelKey === "Valence") ? 1 : 2;
                     ctx.stroke();
                     
+                    const config = levelConfigurations[levelKey];
+                    if (config) {
+                        hittableLevels.push({
+                            yMin: y - 5, yMax: y + 5, xMin: levelXPosition,
+                            xMax: levelXPosition + levelWidth, html: config
+                        });
+                    }
+
+                    const qn = levelQuantumNumbers[levelKey];
+                    if (qn) {
+                        ctx.fillStyle = "#666";
+                        ctx.textAlign = "right";
+                        ctx.fillText(`n=${qn.n}, l=${qn.l}, j=${qn.j}`, levelXPosition - 15, y + 4);
+                    }
+                    
+                    ctx.textAlign = "left";
                     ctx.fillStyle = "#333";
                     let labelText = levelKey;
                     if (levels[levelKey] !== undefined) {
@@ -316,53 +371,70 @@
                     const yTo = levelYPosition[toLevelKey]; 
                     const arrowX = levelXPosition + levelWidth / 2 + (Object.keys(transitionsData).indexOf(selectedTransitionKey) -2) * 20 ;
 
-                    ctx.beginPath();
-                    ctx.moveTo(arrowX, yFrom);
-                    ctx.lineTo(arrowX, yTo);
-                    ctx.strokeStyle = "red";
-                    ctx.lineWidth = 2.5;
-                    ctx.stroke();
-
-                    const headlen = 10; 
-                    const angle = Math.PI / 2; 
-                    ctx.beginPath();
-                    ctx.moveTo(arrowX, yTo);
+                    ctx.beginPath(); ctx.moveTo(arrowX, yFrom); ctx.lineTo(arrowX, yTo);
+                    ctx.strokeStyle = "red"; ctx.lineWidth = 2.5; ctx.stroke();
+                    const headlen = 10; const angle = Math.PI / 2; 
+                    ctx.beginPath(); ctx.moveTo(arrowX, yTo);
                     ctx.lineTo(arrowX - headlen * Math.cos(angle - Math.PI / 6), yTo - headlen * Math.sin(angle - Math.PI / 6));
                     ctx.lineTo(arrowX - headlen * Math.cos(angle + Math.PI / 6), yTo - headlen * Math.sin(angle + Math.PI / 6));
-                    ctx.closePath();
-                    ctx.fillStyle = "red";
-                    ctx.fill();
-                    
-                    ctx.fillStyle = "red";
-                    ctx.textAlign = "center";
+                    ctx.closePath(); ctx.fillStyle = "red"; ctx.fill();
+                    ctx.fillStyle = "red"; ctx.textAlign = "center";
                     ctx.fillText(transition.label, arrowX, yFrom - 10 );
 
-                    const energyFrom_eV = levels[fromLevelKey];
-                    const energyTo_eV = levels[toLevelKey];
+                    const energyFrom_eV = levels[fromLevelKey]; const energyTo_eV = levels[toLevelKey];
                     const transitionEnergy_eV = Math.abs(energyTo_eV - energyFrom_eV); 
 
                     if (transitionEnergy_eV > 0) {
                         const wavelength_A = HC_EV_A / transitionEnergy_eV;
-                        let energyDisplayUnit = "eV";
-                        let energyValueDisplay = transitionEnergy_eV;
+                        let energyDisplayUnit = "eV"; let energyValueDisplay = transitionEnergy_eV;
                         if (transitionEnergy_eV > 1000) {
-                            energyValueDisplay = transitionEnergy_eV / 1000;
-                            energyDisplayUnit = "keV";
+                            energyValueDisplay = transitionEnergy_eV / 1000; energyDisplayUnit = "keV";
                         }
                         
-                        transitionInfoDiv.innerHTML = `Transition ${transition.label}: 
-                            Énergie = ${energyValueDisplay.toFixed(3)} ${energyDisplayUnit}, 
-                            Longueur d'onde (λ) = ${wavelength_A.toFixed(4)} Å`;
+                        transitionInfoDiv.innerHTML = `<strong>Transition ${transition.label}</strong><br>
+                            Énergie: ${energyValueDisplay.toFixed(3)} ${energyDisplayUnit}<br>
+                            Longueur d'onde (λ): ${wavelength_A.toFixed(4)} Å`;
                     }
-
                 } else {
                      transitionInfoDiv.innerHTML = `Données de niveaux insuffisantes pour la transition ${transition.label} pour ${selectedElementKey}.`;
                 }
             }
         }
 
+        function handleCanvasMouseMove(e) {
+            const mouseX = e.offsetX;
+            const mouseY = e.offsetY;
+            let levelFound = false;
+
+            for (const level of hittableLevels) {
+                if (mouseY >= level.yMin && mouseY <= level.yMax &&
+                    mouseX >= level.xMin && mouseX <= level.xMax) {
+                    
+                    tooltip.innerHTML = level.html;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = `${e.pageX + 15}px`;
+                    tooltip.style.top = `${e.pageY + 15}px`;
+                    canvas.style.cursor = 'pointer';
+                    levelFound = true;
+                    break;
+                }
+            }
+
+            if (!levelFound) {
+                tooltip.style.display = 'none';
+                canvas.style.cursor = 'default';
+            }
+        }
+
+        function handleCanvasMouseOut() {
+            tooltip.style.display = 'none';
+            canvas.style.cursor = 'default';
+        }
+
         elementSelect.addEventListener('change', drawDiagram);
         transitionSelect.addEventListener('change', drawDiagram);
+        canvas.addEventListener('mousemove', handleCanvasMouseMove);
+        canvas.addEventListener('mouseout', handleCanvasMouseOut);
 
         const resizer = document.getElementById('draghandle');
         const leftPanel = document.getElementById('left-panel');
@@ -372,12 +444,9 @@
         let finalWidth = 0;
         const pageContainer = document.querySelector('.page-container');
         resizer.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            isResizing = true;
-            ghost.style.left = `${e.clientX}px`;
-            ghost.style.display = 'block';
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
+            e.preventDefault(); isResizing = true;
+            ghost.style.left = `${e.clientX}px`; ghost.style.display = 'block';
+            document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
             window.addEventListener('mousemove', handleMouseMove);
             window.addEventListener('mouseup', stopResize);
         });
@@ -385,26 +454,25 @@
         function handleMouseMove(e) {
             if (!isResizing) return;
             const newLeftWidth = e.clientX - pageContainer.getBoundingClientRect().left;
-            finalWidth = newLeftWidth;
-            ghost.style.left = `${e.clientX}px`;
+            finalWidth = newLeftWidth; ghost.style.left = `${e.clientX}px`;
         }
 
         function stopResize(e) {
-            isResizing = false;
-            ghost.style.display = 'none';
-            document.body.style.cursor = 'default';
-            document.body.style.userSelect = 'auto';
+            isResizing = false; ghost.style.display = 'none';
+            document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto';
             if(finalWidth > 0) {
                  leftPanel.style.flexBasis = `${finalWidth}px`;
             }
+            setCanvasSize();
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', stopResize);
         }
 
+        window.addEventListener('resize', setCanvasSize);
+
         populateElementSelect();
         requestAnimationFrame(() => {
             setCanvasSize();
-            drawDiagram();
         });
     </script>
 </body>
