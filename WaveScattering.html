@@ -3,48 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dipole Radiation Simulation</title>
+    <title>Wave Scattering</title>
     <style>
+        :root {
+            --accent-color: #31477c; /* Unified color */
+            --border-color: #dee2e6; /* Consistent border/inactive color */
+        }
+
         body { font-family: system-ui, sans-serif; margin: 0; background-color: #f0f0f0; color: #333; display: flex; height: 100vh; overflow: hidden; }
-        #app-container { display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; width: 98%; max-width: 1400px; height: 90vh; margin: auto; }
+        #app-container { display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; width: 98%; max-width: 1800px; height: 90vh; margin: auto; }
         #controls-panel {
             width: 280px;
-            min-width: 200px; /* Constraint for resizing */
-            max-width: 600px; /* Constraint for resizing */
+            min-width: 200px;
+            max-width: 600px;
             flex-shrink: 0;
             padding: 15px;
-            background-color: #f9f9f9;
-            border-right: 1px solid #e0e0e0;
+            background-color: #ffffff;
+            border-right: 1px solid var(--border-color);
             overflow-y: auto;
         }
         #drag-handle {
             width: 5px;
             cursor: col-resize;
-            background-color: #e0e0e0;
+            background-color: var(--border-color);
             flex-shrink: 0;
             transition: background-color 0.2s;
         }
         #drag-handle:hover {
-            background-color: #0056b3;
+            background-color: var(--accent-color);
         }
-        #controls-panel h1 { font-size: 1.5em; margin-top: 0; margin-bottom: 20px; color: #0056b3; }
+        #controls-panel h1 { font-size: 1.5em; margin-top: 0; margin-bottom: 20px; color: var(--accent-color); }
         .control-group { margin-bottom: 22px; }
         .control-group label { display: block; margin-bottom: 8px; font-weight: 600; }
-        .control-group select { width: 100%; padding: 10px; border-radius: 5px; border: 1px solid #ccc; }
+        .control-group select { width: 100%; padding: 10px; border-radius: 5px; border: 1px solid var(--border-color); }
         .radio-group label { font-weight: normal; margin-right: 15px; }
-        .slider-group { display: flex; align-items: center; gap: 10px; }
-        .slider-group input[type="range"] { flex-grow: 1; }
         #mass-display { font-weight: bold; min-width: 50px; text-align: right; }
         #visualization-area { flex-grow: 1; position: relative; background-color: #111827; min-width: 0; }
         canvas { display: block; }
+
+        /* --- Accent color for Radio Buttons --- */
+        input[type="radio"] {
+            accent-color: var(--accent-color);
+        }
+
+        /* --- Accent color for Toggle Switch --- */
         .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
         .switch input { opacity: 0; width: 0; height: 0; }
-        .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 28px; }
+        .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border-color); transition: .4s; border-radius: 28px; }
         .switch .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
-        input:checked + .slider { background-color: #2196F3; }
+        input:checked + .slider { background-color: var(--accent-color); }
         input:checked + .slider:before { transform: translateX(22px); }
 
-        /* --- Footer Style --- */
+        /* --- Accent color for Range Slider --- */
+        .slider-group input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: var(--accent-color);
+            border-radius: 5px;
+            outline: none;
+        }
+        .slider-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #ffffff;
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            cursor: pointer;
+            margin-top: -6px; /* Center thumb */
+        }
+        .slider-group input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #ffffff;
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .slider-group input[type="range"]::-moz-range-track {
+            background: var(--accent-color);
+            height: 8px;
+            border-radius: 5px;
+        }
+
         footer {
             position: fixed;
             bottom: 10px;
@@ -64,11 +108,9 @@
             </p>
 
              <div class="control-group">
-                <label for="mass-slider">Particle Mass (Log Scale)</label>
+                <label for="mass-slider">Particle Mass, in e-</label>
                 <div class="slider-group">
-                    <span>e⁻</span>
                     <input type="range" id="mass-slider" min="0" max="3.265" step="0.01" value="0">
-                    <span>p⁺</span>
                     <span id="mass-display">1</span>
                 </div>
             </div>
@@ -110,6 +152,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script>
+        // --- JAVASCRIPT IS UNCHANGED ---
         let scene, camera, renderer, controls;
         let particle;
         const incomingWave = { planes: [], peakVectors: [], troughVectors: [] };
@@ -118,23 +161,13 @@
         let lastEmittedCycle = -1;
         let nextShellIndex = 0;
 
-        // --- Variables for Non-Polarized simulation ---
         let nonPolarizedAngle = 0;
         let lastAngleChangeTime = 0;
-        const angleChangeInterval = 0.5; // Change angle every 0.5s of simulation time
+        const angleChangeInterval = 0.5;
 
         const config = {
-            numPlanes: 5,
-            waveSpeed: 2.5,
-            oscillationFrequency: 2.0,
-            baseAmplitude: 1.0,
-            sceneExtent: 12,
-            particleMass: 1,
-            particleCharge: 1,
-            polarizationType: 'linear_vertical',
-            showRadiatedWave: true,
-            numRadiatedShells: 10,
-            shellMaxAge: 2.0,
+            numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
+            polarizationType: 'linear_vertical', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 2.0,
         };
         config.wavelength = config.waveSpeed / config.oscillationFrequency * (2 * Math.PI);
 
@@ -173,7 +206,7 @@
             document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => config.showRadiatedWave = e.target.checked);
 
             window.addEventListener('resize', onWindowResize, false);
-            setupResizer(); // <-- Add this call
+            setupResizer();
             onWindowResize();
             animate();
         }
@@ -210,10 +243,8 @@
 
             for (let i = 0; i < config.numRadiatedShells; i++) {
                 const shell = {
-                    sphere: new THREE.Mesh(sphereGeom, radiatedMat.clone()),
-                    torus: new THREE.Mesh(torusGeom, radiatedMat.clone()),
-                    isActive: false,
-                    birthTime: 0,
+                    sphere: new THREE.Mesh(sphereGeom, radiatedMat.clone()), torus: new THREE.Mesh(torusGeom, radiatedMat.clone()),
+                    isActive: false, birthTime: 0,
                 };
                 shell.sphere.visible = false;
                 shell.torus.visible = false;
@@ -228,7 +259,6 @@
             const lastTime = time;
             time += 0.015;
             const omega_t = config.oscillationFrequency * time;
-
             const firstPeakOffset = (config.waveSpeed * time) % config.wavelength;
             for (let i = 0; i < config.numPlanes; i++) {
                 const peakX = config.sceneExtent + firstPeakOffset - i * config.wavelength;
@@ -238,17 +268,12 @@
                 incomingWave.troughVectors[i].position.x = troughX;
                 updateVectorsForConstantPhase(incomingWave.peakVectors[i], incomingWave.troughVectors[i]);
             }
-
             const effectiveAmplitude = config.baseAmplitude / config.particleMass;
             const phaseAtOrigin = omega_t;
             let displacement = new THREE.Vector3();
             switch (config.polarizationType) {
-                case 'linear_vertical':
-                    displacement.y = -Math.sin(phaseAtOrigin);
-                    break;
-                case 'linear_horizontal':
-                    displacement.z = -Math.sin(phaseAtOrigin);
-                    break;
+                case 'linear_vertical': displacement.y = -Math.sin(phaseAtOrigin); break;
+                case 'linear_horizontal': displacement.z = -Math.sin(phaseAtOrigin); break;
                 case 'non_polarized':
                     if (time - lastAngleChangeTime > angleChangeInterval) {
                         nonPolarizedAngle = Math.random() * 2 * Math.PI;
@@ -258,10 +283,8 @@
                     break;
             }
             particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * config.particleCharge);
-
             emitRadiatedPulse(phaseAtOrigin, lastTime * config.oscillationFrequency);
             updateRadiatedWave(effectiveAmplitude);
-
             controls.update();
             renderer.render(scene, camera);
         }
@@ -270,7 +293,6 @@
             const currentCycle = Math.floor((currentPhase / Math.PI) - 0.5);
             if (currentCycle > lastEmittedCycle) {
                 lastEmittedCycle = currentCycle;
-
                 const shell = radiatedWave.shells[nextShellIndex];
                 shell.isActive = true;
                 shell.birthTime = time;
@@ -282,26 +304,14 @@
             const isLinear = config.polarizationType.startsWith('linear');
             const show = config.showRadiatedWave && config.particleCharge !== 0;
             const amplitudeScale = Math.min(1, currentAmplitude / config.baseAmplitude);
-
             radiatedWave.shells.forEach(shell => {
-                if (!shell.isActive || !show) {
-                    shell.sphere.visible = false;
-                    shell.torus.visible = false;
-                    return;
-                }
-
+                if (!shell.isActive || !show) { shell.sphere.visible = false; shell.torus.visible = false; return; }
                 shell.sphere.visible = !isLinear;
                 shell.torus.visible = isLinear;
-
                 const age = time - shell.birthTime;
-                if (age > config.shellMaxAge) {
-                    shell.isActive = false;
-                    return;
-                }
-
+                if (age > config.shellMaxAge) { shell.isActive = false; return; }
                 const scale = age * config.waveSpeed;
                 const opacity = 0.8 * (1 - age / config.shellMaxAge) * amplitudeScale;
-
                 if (isLinear) {
                     if (config.polarizationType === 'linear_vertical') shell.torus.rotation.set(Math.PI / 2, 0, 0);
                     else shell.torus.rotation.set(0, 0, Math.PI / 2);
@@ -317,20 +327,11 @@
         function updateVectorsForConstantPhase(peakVec, troughVec) {
              const length = 1.5;
              let peakDir = new THREE.Vector3();
-
              switch (config.polarizationType) {
-                case 'linear_vertical':
-                    peakDir.set(0, 1, 0);
-                    break;
-                case 'linear_horizontal':
-                    peakDir.set(0, 0, 1);
-                    break;
-                case 'non_polarized':
-                    peakDir.set(0, Math.cos(nonPolarizedAngle), Math.sin(nonPolarizedAngle));
-                    break;
-                default:
-                    peakDir.set(0, 1, 0);
-                    break;
+                case 'linear_vertical': peakDir.set(0, 1, 0); break;
+                case 'linear_horizontal': peakDir.set(0, 0, 1); break;
+                case 'non_polarized': peakDir.set(0, Math.cos(nonPolarizedAngle), Math.sin(nonPolarizedAngle)); break;
+                default: peakDir.set(0, 1, 0); break;
             }
             peakVec.setDirection(peakDir);
             troughVec.setDirection(peakDir.clone().multiplyScalar(-1));
@@ -347,43 +348,31 @@
             renderer.setSize(width, height);
         }
 
-        // --- Add this function for resizing ---
         function setupResizer() {
             const resizer = document.getElementById('drag-handle');
             const leftPanel = document.getElementById('controls-panel');
             let isResizing = false;
-
             resizer.addEventListener('mousedown', function(e) {
-                e.preventDefault();
-                isResizing = true;
-                document.body.style.cursor = 'col-resize';
-                document.body.style.userSelect = 'none';
-
+                e.preventDefault(); isResizing = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
                 window.addEventListener('mousemove', handleMouseMove);
                 window.addEventListener('mouseup', stopResize);
             });
-
             function handleMouseMove(e) {
                 if (!isResizing) return;
                 const container = resizer.parentElement;
                 const newLeftWidth = e.clientX - container.getBoundingClientRect().left;
-
                 const minWidth = parseFloat(getComputedStyle(leftPanel).minWidth);
                 const maxWidth = parseFloat(getComputedStyle(leftPanel).maxWidth);
-
                 if (newLeftWidth > minWidth && newLeftWidth < maxWidth) {
                     leftPanel.style.width = `${newLeftWidth}px`;
-                    onWindowResize(); // Update canvas size during drag
+                    onWindowResize();
                 }
             }
-
             function stopResize() {
-                isResizing = false;
-                document.body.style.cursor = 'default';
-                document.body.style.userSelect = 'auto';
+                isResizing = false; document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto';
                 window.removeEventListener('mousemove', handleMouseMove);
                 window.removeEventListener('mouseup', stopResize);
-                onWindowResize(); // Final update
+                onWindowResize();
             }
         }
 
