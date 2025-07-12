@@ -263,7 +263,7 @@
         const HC_KEV_A = (H_PLANCK * C_LIGHT / E_CHARGE) * 1e7; 
 
         const CHAR_LINE_INTENSITY_SCALAR = 45; 
-        const L_LINE_INTENSITY_FACTOR = 0.05;  
+        const L_LINE_INTENSITY_FACTOR = 0.04;  // Synchronized with Emission.html
         const AXIS_FONT = "13px 'Segoe UI', Tahoma, sans-serif";
         const TITLE_FONT = "15px 'Segoe UI', Tahoma, sans-serif";
         const MU_RHO_PLOT_COLOR = "#008080"; 
@@ -296,11 +296,9 @@
         const lambdaMaxValue = document.getElementById('lambdaMaxValue');
 
         const canvasEmission = document.getElementById('spectrumCanvasEmission');
-        const ctxEmission = canvasEmission.getContext('2d');
         const legendEmissionDiv = document.getElementById('legendEmission');
 
         const canvasFiltered = document.getElementById('spectrumCanvasFiltered');
-        const ctxFiltered = canvasFiltered.getContext('2d');
         const legendFilteredDiv = document.getElementById('legendFiltered');
         
         Object.keys(elementData).forEach(key => {
@@ -327,6 +325,8 @@
             return intensity_factor * Math.exp(exponent);
         }
 
+        // --- MODIFIED FUNCTION ---
+        // This function's logic is now identical to the one in Emission.html
         function calculateEmissionSpectrumData(anodeParams, voltage_kV, current_mA, dataRange) {
             const Z = anodeParams.Z;
             const lambda_min_A = energyToWavelength_A(voltage_kV);
@@ -340,9 +340,10 @@
                      spectrumPoints.push({ lambda: lambda_A, intensity: 0}); continue;
                 }
 
+                // Logic copied from Emission.html and adapted for variable names
                 let intensity_brems = 0;
-                if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity) {
-                    intensity_brems = current_mA * Z * ((1 / lambda_min_A) - (1 / lambda_A)) / (lambda_A * lambda_A * lambda_min_A);
+                if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity && lambda_A !== 0) {
+                    intensity_brems = current_mA * Z * ( (1 / lambda_min_A) - (1 / lambda_A) ) / (lambda_A * lambda_A);
                     intensity_brems = Math.max(0, intensity_brems);
                 }
 
@@ -350,16 +351,17 @@
                 const line_current_factor = current_mA / 10.0;
 
                 if (voltage_kV > anodeParams.K_edge) {
-                    const overvoltage_K = Math.pow(Math.max(0, voltage_kV - anodeParams.K_edge), 1.65);
-                    const base_K_intensity = line_current_factor * overvoltage_K * CHAR_LINE_INTENSITY_SCALAR;
-                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Ka1_energy), base_K_intensity * 2.0, 0.0005);
-                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Ka2_energy), base_K_intensity * 1.0, 0.0005);
-                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Kb_energy), base_K_intensity * 0.5, 0.0007);
+                    const overvoltage_K_factor = Math.pow(Math.max(0, voltage_kV - anodeParams.K_edge), 1.65);
+                    const base_K_char_peak_intensity = line_current_factor * overvoltage_K_factor * CHAR_LINE_INTENSITY_SCALAR;
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Ka1_energy), base_K_char_peak_intensity * 2.0, 0.0005);
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Ka2_energy), base_K_char_peak_intensity * 1.0, 0.0005);
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.Kb_energy), base_K_char_peak_intensity * 0.5, 0.0007);
                 }
-                if (anodeParams.La1_energy && voltage_kV > anodeParams.L_III_edge) {
-                    const overvoltage_L = Math.pow(Math.max(0, voltage_kV - anodeParams.L_III_edge), 1.65);
-                    const base_L_intensity = line_current_factor * overvoltage_L * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
-                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.La1_energy), base_L_intensity, 0.010);
+                if (anodeParams.La1_energy && anodeParams.L_III_edge && voltage_kV > anodeParams.L_III_edge) {
+                    const overvoltage_L_factor = Math.pow(Math.max(0, voltage_kV - anodeParams.L_III_edge), 1.65);
+                    const base_L_char_peak_intensity = line_current_factor * overvoltage_L_factor * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
+                    // Synchronized sigma value for L-line peak width
+                    intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(anodeParams.La1_energy), base_L_char_peak_intensity, 0.015);
                 }
                 
                 const total_intensity = intensity_brems + intensity_lines;
@@ -564,6 +566,10 @@
         }
 
         function updateSimulation() {
+            // BUG FIX: Get fresh context on each update to prevent using a stale reference
+            const ctxEmission = canvasEmission.getContext('2d');
+            const ctxFiltered = canvasFiltered.getContext('2d');
+
             const anodeKey = anodeElementSelect.value;
             const filterKey = filterElementSelect.value;
             const voltage = parseFloat(voltageSlider.value);
@@ -698,6 +704,9 @@
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', stopResize);
         }
+
+        // Initialize with a plot
+        updateSimulation();
         
     </script>
 </body>
