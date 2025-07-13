@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Radon Transform</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            background-color: #f0f0f0;
+            color: #333;
+            overflow: hidden;
+        }
+        
+        #app-container {
+            display: flex;
+            background-color: #ffffff;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-radius: 18px;
+            overflow: hidden;
+            width: 98%;
+            max-width: 1800px;
+            height: 90vh;
+            margin: auto;
+        }
+        
+        #controls-panel {
+            width: 300px;
+            min-width: 220px;
+            max-width: 600px;
+            flex-shrink: 0;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-right: 1px solid #e0e0e0;
+            overflow-y: auto;
+        }
+        
+        #drag-handle { 
+            width: 6px; 
+            cursor: col-resize; 
+            background-color: #e0e0e0; 
+            flex-shrink: 0; 
+            transition: background-color 0.2s; 
+        }
+        
+        #drag-handle:hover { 
+            background-color: #0084ff; 
+        }
+        
+        #controls-panel h1 {
+            font-size: 1.5em;
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #004494;
+        }
+        
+        .control-group { 
+            margin-bottom: 22px; 
+        }
+        
+        .control-group label { 
+            display: block; 
+            margin-bottom: 8px; 
+            font-weight: 600; 
+        }
+        
+        /* Modern Selector Styles */
+        .select-container {
+            position: relative;
+            width: 100%;
+        }
+        
+        .select-container::after {
+            content: "▼";
+            font-size: 0.8rem;
+            position: absolute;
+            top: 50%;
+            right: 15px;
+            transform: translateY(-50%);
+            color: #555;
+            pointer-events: none;
+        }
+        
+        #presets {
+            width: 100%;
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            background: white;
+            font-size: 1rem;
+            color: #333;
+            appearance: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        #presets:hover {
+            border-color: #0084ff;
+            box-shadow: 0 0 0 2px rgba(0, 132, 255, 0.1);
+        }
+        
+        #presets:focus {
+            outline: none;
+            border-color: #0084ff;
+            box-shadow: 0 0 0 3px rgba(0, 132, 255, 0.2);
+        }
+        
+        .control-row { 
+            display: flex; 
+            align-items: center; 
+            gap: 15px; 
+        }
+        
+        .control-row input[type="range"] { 
+            flex-grow: 1; 
+        }
+        
+        .control-row input[type="number"] { 
+            width: 80px; 
+            flex-shrink: 0; 
+            padding: 10px; 
+            border-radius: 1px; 
+            border: 1px solid #ccc; 
+            box-sizing: border-box; 
+            text-align: right; 
+            color: #111827; 
+        }
+        
+        #visualization-area { 
+            flex-grow: 1; 
+            position: relative; 
+            background-color: #111827; 
+            min-width: 0; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 1rem; 
+        }
+        
+        .panel-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 1rem;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .view-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            min-height: 0;
+            position: relative;
+        }
+        
+        .view-container h3 {
+            margin: 0;
+            font-weight: 600;
+            color: #e0e0ff;
+            font-size: 1.1em;
+            text-align: center;
+            padding: 0.5rem 1rem;
+            background: rgba(30, 30, 50, 0.7);
+            border-radius: 20px;
+            width: 80%;
+            border: 1px solid #555;
+        }
+        
+        .panel {
+            background-color: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            position: relative;
+            min-height: 0;
+            aspect-ratio: 1 / 1;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            border: 1px solid #444;
+            /* MODIFICATION: Use flexbox to center the content (the canvas) */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        canvas {
+            display: block;
+            /* MODIFICATION: Ensure canvas fits within its container without distortion */
+            max-width: 100%;
+            max-height: 100%;
+            background-color: black;
+        }
+        
+        #progress-bar-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background-color: #222244;
+            display: none;
+            border-radius: 0 0 12px 12px;
+            overflow: hidden;
+        }
+        
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #00f2fe, #4facfe);
+            transition: width 0.1s linear;
+        }
+        
+        footer { 
+            position: fixed; 
+            bottom: 10px; 
+            left: 20px; 
+            font-size: 0.8em; 
+            color: #888; 
+            z-index: 100; 
+        }
+        
+        button { 
+            background-color: #23304d; 
+            color: white; 
+            border: none; 
+            padding: 12px 15px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-weight: 600; 
+            width: 100%; 
+            margin-top: 10px; 
+        }
+        
+        button:hover { 
+            background-color: #004494; 
+        }
+        
+        /* Light Theme Slider Styles */
+        input[type="range"]{
+            -webkit-appearance:none;
+            appearance:none;
+            width:100%;
+            height:8px;
+            background:#ccc;
+            border-radius:5px;
+            outline:none;
+            opacity:0.8;
+            transition:opacity .2s;
+        }
+        
+        input[type="range"]:hover{
+            opacity:1;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb{
+            -webkit-appearance:none;
+            appearance:none;
+            width:20px;
+            height:20px;
+            background:#3b82f6;
+            cursor:pointer;
+            border-radius:50%;
+        }
+        
+        input[type="range"]::-moz-range-thumb{
+            width:20px;
+            height:20px;
+            background:#3b82f6;
+            cursor:pointer;
+            border-radius:50%;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>3D Radon Transform</h1>
+            <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">Visualize computed tomography reconstruction algorithms in 3D</p>
+            
+            <div class="control-group">
+                <label for="presets">Preset:</label>
+                <div class="select-container">
+                    <select id="presets">
+                        <option value="none" selected>None</option>
+                        <option value="sphere">Sphere</option>
+                        <option value="cube">Cube</option>
+                        <option value="torus">Torus</option>
+                        <option value="icosahedron">Icosahedron</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label for="slice-count">Slices:</label>
+                <div class="control-row">
+                    <input type="range" id="slice-count" min="16" max="256" value="64" step="16">
+                    <input type="number" id="slice-count-value" min="16" max="256" value="64" step="16">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label for="current-slice">Current Slice:</label>
+                <div class="control-row">
+                    <input type="range" id="current-slice" min="0" value="0" disabled>
+                    <input type="number" id="current-slice-value" min="0" value="0" disabled>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <div class="control-row">
+                    <input type="checkbox" id="show-slice">
+                    <label for="show-slice" style="display: inline; margin-bottom: 0;">Show Slice Plane</label>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <button id="run-transform" disabled>Run Transform</button>
+                <div id="status" style="margin-top: 10px; font-style: italic; min-height: 20px;">Select a preset to begin.</div>
+            </div>
+            
+            <div id="progress-bar-container"><div id="progress-bar"></div></div>
+        </div>
+        <div id="drag-handle"></div>
+        <div id="visualization-area">
+            <div class="panel-container">
+                <div class="view-container">
+                    <!-- MODIFICATION: Removed wrapper div -->
+                    <div class="panel" id="source-container"></div>
+                </div>
+                <div class="view-container">
+                    <!-- MODIFICATION: Removed wrapper div -->
+                    <div class="panel" id="recon-container"></div>
+                </div>
+                <div class="view-container">
+                    <div class="panel">
+                        <canvas id="slice-canvas"></canvas>
+                    </div>
+                </div>
+                <div class="view-container">
+                    <div class="panel">
+                        <canvas id="sinogram-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <footer>3D Radon Transform Explorer. Computed Tomography Visualization Tool.</footer>
+    
+    <script>
+        // --- DOM Elements ---
+        const presetSelector = document.getElementById('presets');
+        const sliceCountSlider = document.getElementById('slice-count');
+        const sliceCountValue = document.getElementById('slice-count-value');
+        const currentSliceSlider = document.getElementById('current-slice');
+        const currentSliceValue = document.getElementById('current-slice-value');
+        const runButton = document.getElementById('run-transform');
+        const statusEl = document.getElementById('status');
+        const progressBarContainer = document.getElementById('progress-bar-container');
+        const progressBar = document.getElementById('progress-bar');
+        
+        // MODIFICATION: These elements are now the panels themselves
+        const sourceContainer = document.getElementById('source-container');
+        const reconContainer = document.getElementById('recon-container');
+        const sliceCanvas = document.getElementById('slice-canvas');
+        const sliceCtx = sliceCanvas.getContext('2d');
+        const sinogramCanvas = document.getElementById('sinogram-canvas');
+        const sinogramCtx = sinogramCanvas.getContext('2d');
+
+        // --- Constants & Global State ---
+        const IMG_SIZE = 128;
+        let sourceScene, reconScene;
+        let sinograms = [], reconstructedSlices = [], sourceSlices = [];
+        let sourceObjectGroup = new THREE.Group();
+        let reconObjectGroup = new THREE.Group();
+        
+        // Icosahedron planes cache
+        let icosahedronPlanes = null;
+
+        // --- Initialization ---
+        function init() {
+            sourceScene = init3DScene(sourceContainer);
+            reconScene = init3DScene(reconContainer);
+            sourceScene.scene.add(sourceObjectGroup);
+            reconScene.scene.add(reconObjectGroup);
+            syncCameras();
+            animate();
+            runButton.addEventListener('click', runFullTransform);
+            presetSelector.addEventListener('change', handlePresetChange);
+            
+            // Set up sliders
+            setupSliders();
+            
+            // Set up drag handle
+            setupDragHandle();
+            
+            handlePresetChange(); 
+        }
+
+        function setupSliders() {
+            // Slice count slider
+            sliceCountSlider.addEventListener('input', () => {
+                sliceCountValue.value = sliceCountSlider.value;
+            });
+            
+            sliceCountValue.addEventListener('change', () => {
+                const val = parseInt(sliceCountValue.value);
+                if (val >= 16 && val <= 256) {
+                    sliceCountSlider.value = val;
+                }
+            });
+            
+            // Current slice slider
+            currentSliceSlider.addEventListener('input', () => {
+                currentSliceValue.value = currentSliceSlider.value;
+                updateViews();
+            });
+            
+            currentSliceValue.addEventListener('change', () => {
+                const max = currentSliceSlider.max;
+                let val = parseInt(currentSliceValue.value);
+                if (val < 0) val = 0;
+                if (val > max) val = max;
+                currentSliceSlider.value = val;
+                currentSliceValue.value = val;
+                updateViews();
+            });
+            
+            // Show slice checkbox
+            document.getElementById('show-slice').addEventListener('change', updateSlicePlanes);
+        }
+
+        function setupDragHandle() {
+            const resizer = document.getElementById('drag-handle');
+            const leftPanel = document.getElementById('controls-panel');
+            let isResizing = false;
+            
+            resizer.addEventListener('mousedown', e => {
+                e.preventDefault();
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', stopResize);
+            });
+            
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+                const p = resizer.parentElement;
+                const w = e.clientX - p.getBoundingClientRect().left;
+                if (w > 250 && w < p.clientWidth - 400) {
+                    leftPanel.style.width = `${w}px`;
+                }
+            }
+            
+            function stopResize() {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', stopResize);
+            }
+        }
+
+        function syncCameras() {
+            const sync = (sourceControls, targetControls, targetCamera) => {
+                targetCamera.position.copy(sourceControls.object.position);
+                targetCamera.quaternion.copy(sourceControls.object.quaternion);
+                targetControls.target.copy(sourceControls.target);
+            };
+            sourceScene.controls.addEventListener('change', () => sync(sourceScene.controls, reconScene.controls, reconScene.camera));
+            reconScene.controls.addEventListener('change', () => sync(reconScene.controls, sourceScene.controls, sourceScene.camera));
+        }
+
+        function init3DScene(container) {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000); 
+            const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+            camera.position.set(0, 0, 3.5);
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            // The renderer's canvas is appended directly to the container (the panel)
+            container.appendChild(renderer.domElement);
+            
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+            const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dirLight.position.set(5, 10, 7.5);
+            scene.add(dirLight);
+            const axesHelper = new THREE.AxesHelper(1.5);
+            scene.add(axesHelper);
+
+            // This observer watches the panel and resizes the canvas to be a square that fits
+            const resizeObserver = new ResizeObserver(entries => {
+                 for (let entry of entries) {
+                    const { width, height } = entry.contentRect;
+                    if (width > 0 && height > 0) {
+                        const size = Math.min(width, height);
+                        camera.aspect = 1;
+                        camera.updateProjectionMatrix();
+                        renderer.setSize(size, size);
+                    }
+                }
+            });
+            resizeObserver.observe(container);
+            return { scene, camera, renderer, controls };
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            sourceScene.controls.update();
+            reconScene.controls.update();
+            sourceScene.renderer.render(sourceScene.scene, sourceScene.camera);
+            reconScene.renderer.render(reconScene.scene, reconScene.camera);
+        }
+
+        function handlePresetChange() {
+            const presetType = presetSelector.value;
+            sourceObjectGroup.clear();
+            reconObjectGroup.clear();
+            sliceCtx.clearRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+            sinogramCtx.clearRect(0, 0, sinogramCanvas.width, sinogramCanvas.height);
+            sinograms = [];
+            reconstructedSlices = [];
+            sourceSlices = [];
+            currentSliceSlider.disabled = true;
+            currentSliceSlider.value = 0;
+            currentSliceValue.value = '0';
+            sliceCountSlider.disabled = true;
+            progressBar.style.width = '0%';
+            progressBarContainer.style.display = 'none';
+            if (presetType === 'none') {
+                statusEl.textContent = 'Select a preset to begin.';
+                runButton.disabled = true;
+            } else {
+                const object3D = generate3DObject(presetType);
+                sourceObjectGroup.add(object3D);
+                statusEl.textContent = 'Object loaded. Click "Run Transform" to process.';
+                runButton.disabled = false;
+                sliceCountSlider.disabled = false;
+            }
+        }
+        
+        function createIcosahedronPlanes() {
+            const t = (1 + Math.sqrt(5)) / 2;
+            const vertices = [
+                new THREE.Vector3(-1, t, 0).normalize(),
+                new THREE.Vector3(1, t, 0).normalize(),
+                new THREE.Vector3(-1, -t, 0).normalize(),
+                new THREE.Vector3(1, -t, 0).normalize(),
+                new THREE.Vector3(0, -1, t).normalize(),
+                new THREE.Vector3(0, 1, t).normalize(),
+                new THREE.Vector3(0, -1, -t).normalize(),
+                new THREE.Vector3(0, 1, -t).normalize(),
+                new THREE.Vector3(t, 0, -1).normalize(),
+                new THREE.Vector3(t, 0, 1).normalize(),
+                new THREE.Vector3(-t, 0, -1).normalize(),
+                new THREE.Vector3(-t, 0, 1).normalize()
+            ];
+            const faces = [
+                [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+                [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+                [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+                [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+            ];
+            const planes = [];
+            for (const face of faces) {
+                const v0 = vertices[face[0]];
+                const v1 = vertices[face[1]];
+                const v2 = vertices[face[2]];
+                const normal = new THREE.Vector3().crossVectors(
+                    new THREE.Vector3().subVectors(v1, v0),
+                    new THREE.Vector3().subVectors(v2, v0)
+                ).normalize();
+                const center = new THREE.Vector3().add(v0).add(v1).add(v2).divideScalar(3);
+                if (normal.dot(center) < 0) normal.negate();
+                const d0 = -normal.dot(v0);
+                planes.push({ normal, d0 });
+            }
+            return planes;
+        }
+
+        function getIcosahedronPlanes() {
+            if (!icosahedronPlanes) {
+                icosahedronPlanes = createIcosahedronPlanes();
+            }
+            return icosahedronPlanes;
+        }
+
+        function isInsideObjectAnalytical(point, object) {
+            if (!object) return false;
+
+            const geo = object.geometry;
+            switch (geo.type) {
+                case 'SphereGeometry': {
+                    const r = geo.parameters.radius;
+                    return point.lengthSq() < (r * r);
+                }
+                case 'BoxGeometry': {
+                    const { width, height, depth } = geo.parameters;
+                    return Math.abs(point.x) < width / 2 && 
+                           Math.abs(point.y) < height / 2 && 
+                           Math.abs(point.z) < depth / 2;
+                }
+                case 'TorusGeometry': {
+                    const R = geo.parameters.radius;
+                    const r = geo.parameters.tube;
+                    const p = Math.sqrt(point.x**2 + point.y**2) - R;
+                    return p**2 + point.z**2 < r**2;
+                }
+                case 'IcosahedronGeometry': {
+                    const radius = geo.parameters.radius;
+                    const planes = getIcosahedronPlanes();
+                    for (let i = 0; i < planes.length; i++) {
+                        const plane = planes[i];
+                        if (plane.normal.dot(point) + plane.d0 * radius > 1e-5) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        function getSlicesFrom3DObject(object, sliceCount, imageSize) {
+            const slices = [];
+            object.updateWorldMatrix(true, true);
+            const boundingBox = new THREE.Box3().setFromObject(object);
+            const zMin = boundingBox.min.z; const zMax = boundingBox.max.z;
+            const zStep = (zMax - zMin) / sliceCount;
+            const BACKGROUND_INTENSITY = 0; const OBJECT_INTENSITY = 255;
+            
+            const point = new THREE.Vector3();
+
+            for (let i = 0; i < sliceCount; i++) {
+                const z = zMin + (i + 0.5) * zStep;
+                const imageData = new ImageData(imageSize, imageSize);
+                for (let y = 0; y < imageSize; y++) {
+                    for (let x = 0; x < imageSize; x++) {
+                        const sx = boundingBox.min.x + (x / (imageSize - 1)) * (boundingBox.max.x - boundingBox.min.x);
+                        const sy = boundingBox.min.y + (y / (imageSize - 1)) * (boundingBox.max.y - boundingBox.min.y);
+                        point.set(sx, sy, z);
+
+                        let intensity = isInsideObjectAnalytical(point, object) ? OBJECT_INTENSITY : BACKGROUND_INTENSITY;
+                        imageData.data.set([intensity, intensity, intensity, 255], (y * imageSize + x) * 4);
+                    }
+                }
+                slices.push(imageData);
+            }
+            return slices;
+        }
+
+        const workerCode = `
+            (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.FFT = f()}})(function(){var define,module,exports;return (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+            'use strict';
+            function FFT(size) {
+              this.size = size | 0;
+              if (this.size <= 1 || (this.size & (this.size - 1)) !== 0) throw new Error('FFT size must be a power of two.');
+              this.bitrev = new Uint32Array(this.size);
+              for (var i = 0; i < this.size; i++) {
+                var j = i; var p = 0;
+                for (var k = 0; k < Math.log2(this.size); k++) { p = (p << 1) | (j & 1); j >>= 1; }
+                this.bitrev[i] = p;
+              }
+              this.sincos = new Float64Array(this.size * 2);
+              for (var i = 0; i < this.size; i++) {
+                this.sincos[i * 2] = Math.cos(Math.PI * i / this.size);
+                this.sincos[i * 2 + 1] = Math.sin(Math.PI * i / this.size);
+              }
+            }
+            module.exports = FFT;
+            FFT.prototype.createComplexArray = function() { return new Float64Array(this.size * 2); };
+            FFT.prototype.transform = function(out, data) { this.realTransform(out, data, false); };
+            FFT.prototype.inverseTransform = function(out, data) { this.realTransform(out, data, true); };
+            FFT.prototype.realTransform = function(out, data, inverse) {
+              for (var i = 0; i < this.size; i++) {
+                var j = this.bitrev[i];
+                out[i * 2] = data[j * 2]; out[i * 2 + 1] = data[j * 2 + 1];
+              }
+              var halfSize = 1;
+              while (halfSize < this.size) {
+                var phaseShiftStep = this.size / halfSize / 2;
+                for (var i = 0; i < halfSize; i++) {
+                  var off = i * phaseShiftStep * 2;
+                  var tr = this.sincos[off]; var ti = this.sincos[off + 1];
+                  if (inverse) ti = -ti;
+                  for (var j = i; j < this.size; j += halfSize * 2) {
+                    var off1 = j * 2; var off2 = (j + halfSize) * 2;
+                    var vr = out[off2]; var vi = out[off2 + 1];
+                    var cr = vr * tr - vi * ti; var ci = vr * ti + vi * tr;
+                    out[off2] = out[off1] - cr; out[off2 + 1] = out[off1 + 1] - ci;
+                    out[off1] += cr; out[off1 + 1] += ci;
+                  }
+                }
+                halfSize <<= 1;
+              }
+            };
+            },{}]},{},[1])(1)
+            });
+            function radonTransform(imageData, numAngles, rhoMax, numRho) {
+                const width = imageData.width, height = imageData.height, data = imageData.data;
+                const centerX = width / 2, centerY = height / 2;
+                const sinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho).fill(0));
+                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const intensity = data[(y * width + x) * 4];
+                        if (intensity > 10) {
+                            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                                const rho = Math.round((x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]));
+                                sinogram[i_theta][rho + rhoMax] += intensity;
+                            }
+                        }
+                    }
+                }
+                return sinogram;
+            }
+            function filterSinogram(sinogram, numAngles, numRho) {
+                const fft = new FFT(numRho);
+                const filteredSinogram = [];
+                const filter = new Float32Array(numRho);
+                const center = numRho / 2;
+                for (let i = 0; i < numRho; i++) { filter[i] = Math.abs(i - center); }
+                for (let i = 0; i < numAngles; i++) {
+                    const projection = sinogram[i];
+                    const complexProjection = fft.createComplexArray();
+                    for(let j = 0; j < projection.length; j++) {
+                        complexProjection[2 * j] = projection[j];
+                        complexProjection[2 * j + 1] = 0;
+                    }
+                    const freqDomain = fft.createComplexArray();
+                    fft.transform(freqDomain, complexProjection);
+                    for (let j = 0; j < numRho; j++) {
+                        freqDomain[2 * j] *= filter[j];
+                        freqDomain[2 * j + 1] *= filter[j];
+                    }
+                    const filteredComplex = fft.createComplexArray();
+                    fft.inverseTransform(filteredComplex, freqDomain);
+                    const finalProjection = new Float32Array(numRho);
+                    for (let j = 0; j < numRho; j++) {
+                        finalProjection[j] = filteredComplex[2 * j] / numRho;
+                    }
+                    filteredSinogram.push(finalProjection);
+                }
+                return filteredSinogram;
+            }
+            function inverseRadonTransform(sinogram, width, height, numAngles, rhoMax, numRho) {
+                const reconstructedData = new Float32Array(width * height).fill(0);
+                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+                const centerX = width / 2, centerY = height / 2;
+                for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                    const projection = sinogram[i_theta];
+                    const cosA = Math.cos(angles[i_theta]), sinA = Math.sin(angles[i_theta]);
+                    for (let y = 0; y < height; y++) {
+                        for (let x = 0; x < width; x++) {
+                            const rho = Math.round((x - centerX) * cosA + (y - centerY) * sinA);
+                            const i_rho = rho + rhoMax;
+                            if (i_rho >= 0 && i_rho < numRho) {
+                               reconstructedData[y * width + x] += projection[i_rho];
+                            }
+                        }
+                    }
+                }
+                return reconstructedData;
+            }
+            self.onmessage = function(e) {
+                const { slice, index } = e.data;
+                const { width, height } = slice;
+                const numAngles = 180;
+                let numRho = Math.pow(2, Math.ceil(Math.log2(2 * Math.ceil(Math.hypot(width, height) / 2))));
+                const rhoMax = numRho / 2;
+                const sinogram = radonTransform(slice, numAngles, rhoMax, numRho);
+                const filteredSinogram = filterSinogram(sinogram, numAngles, numRho);
+                const reconstructedSlice = inverseRadonTransform(filteredSinogram, width, height, numAngles, rhoMax, numRho);
+                self.postMessage({
+                    sliceIndex: index,
+                    sinogram: sinogram,
+                    reconstructedSlice: reconstructedSlice
+                });
+            };
+        `;
+        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+
+        async function processSlicesWithWorkers(slices) {
+            return new Promise(resolve => {
+                const numSlices = slices.length;
+                sinograms = new Array(numSlices);
+                reconstructedSlices = new Array(numSlices);
+                const numWorkers = navigator.hardwareConcurrency || 4;
+                let sliceQueue = Array.from({length: numSlices}, (_, i) => i);
+                let slicesProcessed = 0;
+                function runWorker() {
+                    if (sliceQueue.length === 0) return;
+                    const sliceIndexToProcess = sliceQueue.shift();
+                    const worker = new Worker(workerUrl);
+                    worker.onmessage = e => {
+                        const { sliceIndex, sinogram, reconstructedSlice } = e.data;
+                        sinograms[sliceIndex] = sinogram;
+                        reconstructedSlices[sliceIndex] = reconstructedSlice;
+                        slicesProcessed++;
+                        progressBar.style.width = `${10 + (slicesProcessed / numSlices) * 85}%`;
+                        worker.terminate();
+                        if (slicesProcessed === numSlices) {
+                            resolve();
+                        } else {
+                           runWorker();
+                        }
+                    };
+                    worker.onerror = (err) => {
+                        console.error("Error in worker:", err);
+                        slicesProcessed++;
+                        if (slicesProcessed === numSlices) resolve();
+                    }
+                    worker.postMessage({ slice: slices[sliceIndexToProcess], index: sliceIndexToProcess });
+                }
+                for (let i = 0; i < numWorkers; i++) {
+                    runWorker();
+                }
+            });
+        }
+
+        async function runFullTransform() {
+            runButton.disabled = true;
+            presetSelector.disabled = true;
+            sliceCountSlider.disabled = true;
+            statusEl.textContent = 'Processing...';
+            progressBarContainer.style.display = 'block';
+            progressBar.style.width = '5%';
+            const object3D = sourceObjectGroup.children[0];
+            if (!object3D) return;
+            reconObjectGroup.clear(); 
+            
+            await new Promise(r => setTimeout(r, 10));
+            
+            statusEl.textContent = '1/4: Slicing object...';
+            sourceSlices = getSlicesFrom3DObject(object3D, sliceCountSlider.value, IMG_SIZE);
+            progressBar.style.width = '10%';
+            statusEl.textContent = '2/4: Processing Slices (Parallel)...';
+            await processSlicesWithWorkers(sourceSlices);
+            statusEl.textContent = '3/4: Visualizing reconstruction...';
+            displayReconstructedVolume(reconstructedSlices, object3D);
+            progressBar.style.width = '100%';
+            statusEl.textContent = '4/4: Finalizing...';
+            currentSliceSlider.max = sliceCountSlider.value - 1;
+            currentSliceSlider.value = Math.floor((sliceCountSlider.value - 1) / 2);
+            currentSliceValue.value = currentSliceSlider.value;
+            currentSliceSlider.disabled = false;
+            currentSliceValue.disabled = false;
+            updateViews();
+            statusEl.textContent = 'Done.';
+            setTimeout(() => {
+                 progressBarContainer.style.display = 'none';
+                 progressBar.style.width = '0%';
+            }, 1000);
+            runButton.disabled = false;
+            presetSelector.disabled = false;
+            sliceCountSlider.disabled = false;
+        }
+        
+        function generate3DObject(type) {
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x777777, /* was purple color ? */
+                metalness: 0.3,
+                roughness: 0.4,
+                side: THREE.DoubleSide 
+            });
+            let geometry;
+            switch(type) {
+                case 'sphere': 
+                    geometry = new THREE.SphereGeometry(0.8, 64, 64); 
+                    break;
+                case 'cube': 
+                    geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2); 
+                    break;
+                case 'torus': 
+                    geometry = new THREE.TorusGeometry(0.7, 0.3, 64, 100); 
+                    break;
+                case 'icosahedron': 
+                    geometry = new THREE.IcosahedronGeometry(0.8, 0);
+                    break;
+            }
+            return new THREE.Mesh(geometry, material);
+        }
+        
+        function displayReconstructedVolume(reconSlices, sourceObject) {
+            const boundingBox = new THREE.Box3().setFromObject(sourceObject);
+            const zMin = boundingBox.min.z; const zMax = boundingBox.max.z;
+            const zStep = (zMax - zMin) / reconSlices.length;
+            const point = new THREE.Vector3();
+            for(let i=0; i < reconSlices.length; i++) {
+                const sliceData = reconSlices[i];
+                if (!sliceData) continue;
+                const canvas = document.createElement('canvas');
+                canvas.width = canvas.height = IMG_SIZE;
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.createImageData(IMG_SIZE, IMG_SIZE);
+                let maxVal = -Infinity, minVal = Infinity;
+                for(const val of sliceData) { if (val > maxVal) maxVal = val; if (val < minVal) minVal = val; }
+                const range = maxVal - minVal;
+                const z = zMin + (i + 0.5) * zStep;
+                if (range > 1e-9) {
+                    for(let p=0; p < sliceData.length; p++) {
+                        const y_px = Math.floor(p / IMG_SIZE); const x_px = p % IMG_SIZE;
+                        const normalizedVal = (sliceData[p] - minVal) / range;
+                        const colorVal = normalizedVal * 255;
+                        const sx = boundingBox.min.x + (x_px / (IMG_SIZE - 1)) * (boundingBox.max.x - boundingBox.min.x);
+                        const sy = boundingBox.min.y + (y_px / (IMG_SIZE - 1)) * (boundingBox.max.y - boundingBox.min.y);
+                        point.set(sx, sy, z);
+                        let isInsideOriginalObject = isInsideObjectAnalytical(point, sourceObject);
+                        let alpha = 0;
+                        if (isInsideOriginalObject && normalizedVal > 0.2) alpha = 255;
+                        imageData.data.set([colorVal, colorVal, colorVal, alpha], p*4);
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                const texture = new THREE.CanvasTexture(canvas);
+                const material = new THREE.MeshBasicMaterial({ 
+                    map: texture, 
+                    transparent: true,
+                    alphaTest: 0.1,
+                    side: THREE.DoubleSide 
+                });
+                const sizeX = boundingBox.max.x - boundingBox.min.x;
+                const sizeY = boundingBox.max.y - boundingBox.min.y;
+                const geometry = new THREE.PlaneGeometry(sizeX, sizeY);
+                const plane = new THREE.Mesh(geometry, material);
+                plane.position.z = zMin + (i + 0.5) * zStep;
+                reconObjectGroup.add(plane);
+            }
+        }
+        
+        function updateViews() {
+            const sliceIndex = parseInt(currentSliceSlider.value);
+            currentSliceValue.value = sliceIndex;
+            
+            // Update slice view
+            if (sourceSlices && sourceSlices[sliceIndex]) {
+                sliceCanvas.width = IMG_SIZE;
+                sliceCanvas.height = IMG_SIZE;
+                sliceCtx.putImageData(sourceSlices[sliceIndex], 0, 0);
+            }
+            updateSlicePlanes();
+            
+            // Update sinogram view
+            if (sinograms && sinograms[sliceIndex]) {
+                drawSinogram(sinograms[sliceIndex]);
+            }
+        }
+        
+        function drawSinogram(sinogram) {
+            const numAngles = sinogram.length;
+            if (numAngles === 0) return;
+            const numRho = sinogram[0].length;
+            sinogramCanvas.width = numRho;
+            sinogramCanvas.height = numAngles;
+            const outputImageData = sinogramCtx.createImageData(numRho, numAngles);
+            let maxVal = 0;
+            for (let i = 0; i < numAngles; i++) {
+                for (let j = 0; j < numRho; j++) {
+                    if (sinogram[i][j] > maxVal) maxVal = sinogram[i][j];
+                }
+            }
+            if (maxVal === 0) {
+                 sinogramCtx.clearRect(0,0, sinogramCanvas.width, sinogramCanvas.height);
+                 return;
+            }
+            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                for (let i_rho = 0; i_rho < numRho; i_rho++) {
+                    const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
+                    const idx = (i_theta * numRho + i_rho) * 4;
+                    outputImageData.data.set([val, val, val, 255], idx);
+                }
+            }
+            sinogramCtx.putImageData(outputImageData, 0, 0);
+        }
+
+        
+        let showSlice = false;
+        let slicePlaneSource = null;
+        let slicePlaneRecon = null;
+
+        function updateSlicePlanes() {
+            const sliceIndex = parseInt(currentSliceSlider.value);
+            const object3D = sourceObjectGroup.children[0];
+            showSlice = document.getElementById('show-slice').checked;
+            
+            [slicePlaneSource, slicePlaneRecon].forEach(p => {
+                if (p && p.parent) {
+                    p.parent.remove(p);
+                    p.geometry.dispose();
+                    p.material.dispose();
+                }
+            });
+            slicePlaneSource = slicePlaneRecon = null;
+            
+            if (!object3D || !showSlice || !sourceSlices[sliceIndex]) {
+                return;
+            }
+            
+            const boundingBox = new THREE.Box3().setFromObject(object3D);
+            const zMin = boundingBox.min.z;
+            const zMax = boundingBox.max.z;
+            const zStep = (zMax - zMin) / sourceSlices.length;
+            const z = zMin + (sliceIndex + 0.5) * zStep;
+            const sizeX = boundingBox.max.x - boundingBox.min.x;
+            const sizeY = boundingBox.max.y - boundingBox.min.y;
+            const geometry = new THREE.PlaneGeometry(sizeX, sizeY);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide
+            });
+            const createPlane = () => {
+                const plane = new THREE.Mesh(geometry.clone(), material.clone());
+                plane.position.z = z;
+                return plane;
+            };
+            
+            slicePlaneSource = createPlane();
+            slicePlaneRecon = createPlane();
+            sourceObjectGroup.add(slicePlaneSource);
+            reconObjectGroup.add(slicePlaneRecon);
+        }
+
+        // --- Start the application ---
+        init();
+    </script>
+</body>
+</html>
