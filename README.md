@@ -3,8 +3,8 @@
 > A collection of interactive simulators designed to explore various concepts in physics, with a focus on **crystallography**, **materials science**, and **optics**. These tools were developed using HTML and JavaScript, with the Three.js library for 3D visualizations.
 
 * **Author:** NitaD, Université Paris-Saclay
-* **Versions:** 2007-2024
-* **Last Updated:** July 8, 2025
+* **Versions:** 2007-2025
+* **Last Updated:** July 14, 2025
 
 ---
 
@@ -22,11 +22,12 @@
 | 📊 [**XRD Absorption & Filters**](https://nitad54448.github.io/Enseignement/filtres.html) | This tool simulates the X-ray emission from an anode and the effect of a filter. |
 | 🌍 [**Ewald Sphere Viewer**](https://nitad54448.github.io/Enseignement/ewald.html) | This simulator visualizes the construction of the Ewald sphere in reciprocal space. |
 | 🔬 [**Diffraction Methods**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html) | This software visualizes the reciprocal lattice for three different experimental diffraction methods. |
-| 🖥️ [**Single Crystal Diffraction**](https://nitad54448.github.io/Enseignement/4-circles.html) | An advanced simulator for visualizing single-crystal X-ray diffraction patterns. |
+| 🖥️ [**Single Crystal Diffraction**](4-circles.html) | An advanced simulator for visualizing single-crystal X-ray diffraction patterns. |
 | 🎞️ [**Kiessig Fringes**](https://nitad54448.github.io/Enseignement/kiessig.html) | This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film. |
 | ✨ [**2D Fourier Transform**](https://nitad54448.github.io/Enseignement/FT.html) | This explorer visualizes the 2D Fourier Transform of various sources. |
 | 🔄 [**2D Radon Transform**](https://nitad54448.github.io/Enseignement/Radon.html) | This tool computes and displays the 2D Radon Transform (Sinogram) of an image. |
 | 🎨 [**Color Radon Transform**](https://nitad54448.github.io/Enseignement/ColorRadon.html) | An explorer for the 2D Radon Transform on color images, demonstrating filtered back-projection. |
+| 🧊 [**3D Radon Transform**](3D_Radon_-_DS.html) | A 3D explorer for computed tomography, showing the reconstruction of a 3D object from its 2D slices. |
 
 ---
 
@@ -252,6 +253,22 @@ An interactive explorer for the 2D Radon Transform on color images, demonstratin
     * Includes an interactive "Filtered Back-Projection" option to demonstrate its importance in creating a clear reconstruction.
     * Features a color Venn diagram preset to test channel independence and color mixing.
 * **Technologies**: HTML, JavaScript.
+
+---
+
+### 🧊 16. 3D Radon Transform Explorer
+[**Launch 3D Radon Explorer**](3D_Radon_-_DS.html)
+
+An interactive explorer for visualizing the principles of computed tomography (CT) in three dimensions. It demonstrates how a 3D object can be reconstructed from a series of 2D projections (slices).
+
+* **Features**:
+    * **3D Visualization**: Displays the original 3D phantom and the reconstructed 3D object side-by-side for comparison.
+    * **Interactive Slicing**: Users can select the number of 2D slices to generate from the 3D object.
+    * **Slice and Sinogram View**: Shows the currently selected 2D slice and its corresponding Radon transform (sinogram).
+    * **Preset Objects**: Includes several built-in 3D phantoms like a sphere, cube, and torus.
+    * **Parallel Processing**: Utilizes Web Workers to perform the Radon transforms on multiple slices in parallel, improving performance.
+    * **Filtered Back-Projection**: Implements the filtered back-projection algorithm to reconstruct the 3D object from the sinograms.
+* **Technologies**: HTML, JavaScript, Three.js.
 
 ---
 
