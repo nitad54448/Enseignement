@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Radon</title>
+    <title>2D Radon Explorer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -26,6 +26,13 @@
             width: 100%;
             height: 100%;
             object-fit: contain;
+        }
+        /* Make overlay canvases non-interactive to mouse events */
+        .overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
         }
         button:disabled {
             cursor: not-allowed;
@@ -72,24 +79,50 @@
         </div>
     </header>
 
-    <main class="flex-grow p-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-6 items-center justify-items-center overflow-auto">
+    <main class="flex-grow p-4 md:p-6 grid grid-cols-1 md:grid-cols-3 gap-12 items-start justify-items-center overflow-auto">
         <div class="w-full flex flex-col items-center">
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source</h3>
-            <div id="source-wrapper" class="canvas-wrapper">
-                <video id="webcam-video" class="hidden" autoplay playsinline></video>
-                <canvas id="sourceCanvas"></canvas>
+            <div class="relative w-full max-w-[512px] flex flex-col items-center">
+                <p class="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">y</p>
+                <div id="source-wrapper" class="canvas-wrapper relative cursor-crosshair">
+                    <video id="webcam-video" class="hidden" autoplay playsinline></video>
+                    <canvas id="sourceCanvas"></canvas>
+                    <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+                <p class="text-sm text-gray-600 mt-1">x</p>
+                <p class="absolute left-0 top-0 -translate-x-full pr-1 text-xs text-gray-500">128</p>
+                <p class="absolute left-0 bottom-0 -translate-x-full pr-1 text-xs text-gray-500">-128</p>
+                <p class="absolute -bottom-4 left-0 text-xs text-gray-500">-128</p>
+                <p class="absolute -bottom-4 right-0 text-xs text-gray-500">128</p>
             </div>
         </div>
         <div class="w-full flex flex-col items-center">
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Radon Transform (Sinogram)</h3>
-            <div id="radon-wrapper" class="canvas-wrapper">
-                <canvas id="radonCanvas"></canvas>
+             <div class="relative w-full max-w-[512px] flex flex-col items-center">
+                <p class="absolute -left-8 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">Position (ρ)</p>
+                <div id="radon-wrapper" class="canvas-wrapper relative">
+                    <canvas id="radonCanvas"></canvas>
+                    <canvas id="radonOverlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+                <p class="text-sm text-gray-600 mt-1">Angle (θ)</p>
+                <p class="absolute -bottom-4 left-0 text-xs text-gray-500">0°</p>
+                <p class="absolute -bottom-4 right-0 text-xs text-gray-500">180°</p>
+                <p id="rho-max-label" class="absolute left-0 top-0 -translate-x-full pr-1 text-xs text-gray-500"></p>
+                <p id="rho-min-label" class="absolute left-0 bottom-0 -translate-x-full pr-1 text-xs text-gray-500"></p>
             </div>
         </div>
         <div class="w-full flex flex-col items-center">
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Reconstruction</h3>
-            <div id="recon-wrapper" class="canvas-wrapper">
-                <canvas id="reconstructionCanvas"></canvas>
+             <div class="relative w-full max-w-[512px] flex flex-col items-center">
+                <p class="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">y</p>
+                <div id="recon-wrapper" class="canvas-wrapper">
+                    <canvas id="reconstructionCanvas"></canvas>
+                </div>
+                 <p class="text-sm text-gray-600 mt-1">x</p>
+                 <p class="absolute left-0 top-0 -translate-x-full pr-1 text-xs text-gray-500">128</p>
+                <p class="absolute left-0 bottom-0 -translate-x-full pr-1 text-xs text-gray-500">-128</p>
+                <p class="absolute -bottom-4 left-0 text-xs text-gray-500">-128</p>
+                <p class="absolute -bottom-4 right-0 text-xs text-gray-500">128</p>
             </div>
         </div>
     </main>
@@ -114,25 +147,35 @@
             reconstructionCanvas = document.getElementById('reconstructionCanvas'),
             reconstructionCtx = reconstructionCanvas.getContext('2d'),
             functionPresets = document.getElementById('function-presets'),
-            filterCheckbox = document.getElementById('filter-checkbox');
+            filterCheckbox = document.getElementById('filter-checkbox'),
+            rhoMaxLabel = document.getElementById('rho-max-label'),
+            rhoMinLabel = document.getElementById('rho-min-label'),
+            sourceWrapper = document.getElementById('source-wrapper'),
+            sourceOverlayCanvas = document.getElementById('sourceOverlayCanvas'),
+            sourceOverlayCtx = sourceOverlayCanvas.getContext('2d'),
+            radonOverlayCanvas = document.getElementById('radonOverlayCanvas'),
+            radonOverlayCtx = radonOverlayCanvas.getContext('2d');
 
         // --- Constants & State ---
         const IMG_SIZE = 256;
+        const NUM_ANGLES = 180; // All information is captured in 180 degrees
         let currentMode = null, webcamStream = null, sourceImage = new Image(), animationFrameId = null;
 
         // --- Initial Setup ---
-        [sourceCanvas, radonCanvas, reconstructionCanvas].forEach(c => c.width = c.height = IMG_SIZE);
+        [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
         useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
         useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
         imageUpload.addEventListener('change', handleImageUpload);
         functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
         filterCheckbox.addEventListener('change', () => performTransform());
+        setupInteractiveGuides();
         setupMode('function');
         performTransform();
 
         // --- Mode Setup ---
         function setupMode(mode) {
             stopWebcam();
+            if(typeof handleMouseOut === 'function') handleMouseOut(); // Clear guides on mode switch
             currentMode = mode;
             [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
             if (mode === 'upload') {
@@ -202,11 +245,14 @@
             generateSource();
             
             const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
-            const sinogramData = radonTransform(imageData);
-            drawSinogram(sinogramData);
+            const { sinogram, rhoMax } = radonTransform(imageData);
+            drawSinogram(sinogram);
+
+            rhoMaxLabel.textContent = `+${Math.round(rhoMax)}`;
+            rhoMinLabel.textContent = `-${Math.round(rhoMax)}`;
 
             const useFilter = filterCheckbox.checked;
-            const finalSinogram = useFilter ? filterSinogram(sinogramData) : sinogramData;
+            const finalSinogram = useFilter ? filterSinogram(sinogram) : sinogram;
             const reconstructedData = inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE);
             drawReconstruction(reconstructedData);
 
@@ -229,21 +275,20 @@
         function radonTransform(imageData) {
             const width = imageData.width, height = imageData.height, data = imageData.data;
             const centerX = width / 2, centerY = height / 2;
-            const numAngles = 360;
-            const rhoMax = Math.ceil(Math.hypot(width, height) / 2);
-            const numRho = 2 * rhoMax;
-            const sinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho));
-            const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+            const rhoMax = Math.hypot(width, height) / 2;
+            const numRho = 2 * Math.ceil(rhoMax);
+            const sinogram = Array.from({ length: NUM_ANGLES }, () => new Float32Array(numRho));
+            const angles = Array.from({ length: NUM_ANGLES }, (_, i) => i * Math.PI / NUM_ANGLES);
             
             for (let y = 0; y < height; y++) {
                 for (let x = 0; x < width; x++) {
                     const idx = (y * width + x) * 4;
-                    if (data[idx+3] > 0) { // Check if not transparent
+                    if (data[idx+3] > 0) {
                         const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
                         if (intensity > 5) {
-                            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                                const rho = Math.round((x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]));
-                                const i_rho = rho + rhoMax;
+                            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
+                                const rho = (x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]);
+                                const i_rho = Math.round(rho) + Math.ceil(rhoMax);
                                 if (i_rho >= 0 && i_rho < numRho) {
                                     sinogram[i_theta][i_rho] += intensity;
                                 }
@@ -252,7 +297,7 @@
                     }
                 }
             }
-            return sinogram;
+            return { sinogram, rhoMax };
         }
 
         function filterSinogram(sinogram) {
@@ -296,8 +341,8 @@
                 const cosA = Math.cos(angle), sinA = Math.sin(angle);
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
-                        const rho = Math.round((x - centerX) * cosA + (y - centerY) * sinA);
-                        const i_rho = rho + rhoMax;
+                        const rho = (x - centerX) * cosA + (y - centerY) * sinA;
+                        const i_rho = Math.round(rho) + rhoMax;
                         if (i_rho >= 0 && i_rho < numRho) {
                            reconstructedData[y * width + x] += sinogram[i_theta][i_rho];
                         }
@@ -310,11 +355,19 @@
         // --- Visualization Functions ---
         function drawSinogram(sinogram) {
             const numAngles = sinogram.length;
-            if (numAngles === 0) return;
+            if (numAngles === 0) { 
+                radonOverlayCanvas.width = 0;
+                radonOverlayCanvas.height = 0;
+                return;
+            }
             const numRho = sinogram[0].length;
             radonCanvas.width = numAngles;
             radonCanvas.height = numRho;
-            radonCtx.clearRect(0,0, numAngles, numRho);
+            radonOverlayCanvas.width = numAngles;
+            radonOverlayCanvas.height = numRho;
+
+            radonCtx.fillStyle = 'black';
+            radonCtx.fillRect(0, 0, numAngles, numRho);
             const outputImageData = radonCtx.createImageData(numAngles, numRho);
             let maxVal = 0;
             for (let i = 0; i < numAngles; i++) {
@@ -326,7 +379,7 @@
             for (let i_theta = 0; i_theta < numAngles; i_theta++) {
                 for (let i_rho = 0; i_rho < numRho; i_rho++) {
                     const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
-                    const idx = (i_rho * numAngles + i_theta) * 4;
+                    const idx = ((numRho - 1 - i_rho) * numAngles + i_theta) * 4;
                     outputImageData.data[idx] = val;
                     outputImageData.data[idx + 1] = val;
                     outputImageData.data[idx + 2] = val;
@@ -353,7 +406,7 @@
                 outputImageData.data[idx] = val;
                 outputImageData.data[idx + 1] = val;
                 outputImageData.data[idx + 2] = val;
-                outputImageData.data[idx + 3] = 255; // Always opaque
+                outputImageData.data[idx + 3] = 255;
             }
             reconstructionCtx.putImageData(outputImageData, 0, 0);
         }
@@ -361,7 +414,6 @@
         // --- Preset Generation & Drawing ---
         function generateFromFunction() {
             const type = functionPresets.value;
-            // Set a black background for all presets
             sourceCtx.fillStyle = 'black';
             sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
             
@@ -377,7 +429,7 @@
                 }
                 sourceCtx.putImageData(imageData, 0, 0);
             } else {
-                sourceCtx.fillStyle = 'white'; // Shapes are drawn in white
+                sourceCtx.fillStyle = 'white';
                 sourceCtx.save();
                 sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
                 if (type === 'circle') {
@@ -386,11 +438,11 @@
                     sourceCtx.fillRect(-IMG_SIZE * 0.3, -IMG_SIZE * 0.3, IMG_SIZE * 0.6, IMG_SIZE * 0.6);
                 } else if (type === 'embedded-squares') {
                     sourceCtx.fillRect(-IMG_SIZE * 0.4, -IMG_SIZE * 0.4, IMG_SIZE * 0.8, IMG_SIZE * 0.8);
-                    sourceCtx.fillStyle = 'gray'; // Fill the middle part with gray
+                    sourceCtx.fillStyle = 'gray';
                     sourceCtx.fillRect(-IMG_SIZE * 0.2, -IMG_SIZE * 0.2, IMG_SIZE * 0.4, IMG_SIZE * 0.4);
                 } else if (type === 'concentric-circles') {
                     sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI); sourceCtx.fill();
-                    sourceCtx.fillStyle = 'gray'; // Fill the middle part with gray
+                    sourceCtx.fillStyle = 'gray';
                     sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); sourceCtx.fill();
                 } else if (type === 'single-point') {
                     sourceCtx.fillRect(IMG_SIZE * 0.25, IMG_SIZE * 0.15, 4, 4);
@@ -445,6 +497,75 @@
                 }
             }
             return data;
+        }
+
+        // --- Interactive Guides ---
+        function setupInteractiveGuides() {
+            sourceWrapper.addEventListener('mousemove', handleMouseMove);
+            sourceWrapper.addEventListener('mouseout', handleMouseOut);
+        }
+
+        function handleMouseMove(e) {
+            if (currentMode === 'webcam') {
+                handleMouseOut();
+                return;
+            }
+
+            sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+            radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
+            
+            const rect = sourceWrapper.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const centerX = sourceOverlayCanvas.width / 2;
+            const centerY = sourceOverlayCanvas.height / 2;
+
+            // Correct for inverted Y-axis in graphics and calculate the projection angle theta
+            let theta = Math.atan2(-(mouseY - centerY), mouseX - centerX);
+
+            // --- Draw on Source Overlay ---
+            // The visual guide line shows the projection axis theta
+            sourceOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            sourceOverlayCtx.lineWidth = 2;
+            sourceOverlayCtx.setLineDash([5, 10]);
+            
+            const lineLength = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+            const x1 = centerX + lineLength * Math.cos(theta);
+            const y1 = centerY - lineLength * Math.sin(theta); // Subtract because canvas Y is inverted
+            const x2 = centerX - lineLength * Math.cos(theta);
+            const y2 = centerY + lineLength * Math.sin(theta); // Add because canvas Y is inverted
+
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.moveTo(x1, y1);
+            sourceOverlayCtx.lineTo(x2, y2);
+            sourceOverlayCtx.stroke();
+            sourceOverlayCtx.setLineDash([]);
+
+            // --- Draw on Radon Overlay ---
+            // Normalize theta to the [0, 2PI] range for mapping
+            if (theta < 0) { theta += 2 * Math.PI; }
+
+            // The sinogram is 0-180, so we map the full 360 of interaction
+            // back to the 0-180 range using symmetry.
+            let display_theta = theta;
+            if (display_theta >= Math.PI) {
+                display_theta -= Math.PI;
+            }
+
+            const x_pos = (display_theta / Math.PI) * radonOverlayCanvas.width;
+
+            radonOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            radonOverlayCtx.lineWidth = 1;
+            radonOverlayCtx.beginPath();
+            radonOverlayCtx.moveTo(x_pos, 0);
+            radonOverlayCtx.lineTo(x_pos, radonOverlayCanvas.height);
+            radonOverlayCtx.stroke();
+        }
+
+        function handleMouseOut() {
+            sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+            radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
         }
     </script>
 </body>
