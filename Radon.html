@@ -27,7 +27,6 @@
             height: 100%;
             object-fit: contain;
         }
-        /* Make overlay canvases non-interactive to mouse events */
         .overlay-canvas {
             position: absolute;
             top: 0;
@@ -84,7 +83,7 @@
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source</h3>
             <div class="relative w-full max-w-[512px] flex flex-col items-center">
                 <p class="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">y</p>
-                <div id="source-wrapper" class="canvas-wrapper relative cursor-crosshair">
+                <div id="source-wrapper" class="canvas-wrapper relative">
                     <video id="webcam-video" class="hidden" autoplay playsinline></video>
                     <canvas id="sourceCanvas"></canvas>
                     <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
@@ -128,7 +127,7 @@
     </main>
 
     <footer class="w-full p-2 bg-gray-100">
-        <p class="text-right text-xs text-gray-500">
+        <p class="text-left text-xs text-gray-500">
             NitaD, Univ. Paris-Saclay, 2025
         </p>
     </footer>
@@ -158,8 +157,9 @@
 
         // --- Constants & State ---
         const IMG_SIZE = 256;
-        const NUM_ANGLES = 180; // All information is captured in 180 degrees
+        const NUM_ANGLES = 180;
         let currentMode = null, webcamStream = null, sourceImage = new Image(), animationFrameId = null;
+        let randomPoint = { x: null, y: null };
 
         // --- Initial Setup ---
         [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
@@ -175,15 +175,23 @@
         // --- Mode Setup ---
         function setupMode(mode) {
             stopWebcam();
-            if(typeof handleMouseOut === 'function') handleMouseOut(); // Clear guides on mode switch
+            handleMouseOut();
             currentMode = mode;
             [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
+            
+            if (mode === 'function' && functionPresets.value === 'single-point') {
+                sourceWrapper.style.cursor = 'ew-resize';
+            } else {
+                sourceWrapper.style.cursor = 'crosshair';
+            }
+            
             if (mode === 'upload') {
                 webcamVideo.classList.add('hidden');
                 sourceCanvas.classList.remove('hidden');
                 useUploadBtn.classList.add('active-btn');
                 statusEl.textContent = 'Select an image file to begin.';
             } else if (mode === 'webcam') {
+                sourceWrapper.style.cursor = 'default';
                 useWebcamBtn.classList.add('active-btn');
                 startWebcam();
             } else if (mode === 'function') {
@@ -243,6 +251,7 @@
             statusEl.textContent = 'Processing...';
 
             generateSource();
+            setupMode(currentMode); // Refresh mode to update cursor
             
             const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
             const { sinogram, rhoMax } = radonTransform(imageData);
@@ -287,7 +296,9 @@
                         const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
                         if (intensity > 5) {
                             for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                                const rho = (x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]);
+                                // Use standard math coordinates (Y-up) 
+                                const y_math = -(y - centerY);
+                                const rho = (x - centerX) * Math.cos(angles[i_theta]) + y_math * Math.sin(angles[i_theta]);
                                 const i_rho = Math.round(rho) + Math.ceil(rhoMax);
                                 if (i_rho >= 0 && i_rho < numRho) {
                                     sinogram[i_theta][i_rho] += intensity;
@@ -341,7 +352,9 @@
                 const cosA = Math.cos(angle), sinA = Math.sin(angle);
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
-                        const rho = (x - centerX) * cosA + (y - centerY) * sinA;
+                        // Use standard math coordinates to match forward transform
+                        const y_math = -(y - centerY);
+                        const rho = (x - centerX) * cosA + y_math * sinA;
                         const i_rho = Math.round(rho) + rhoMax;
                         if (i_rho >= 0 && i_rho < numRho) {
                            reconstructedData[y * width + x] += sinogram[i_theta][i_rho];
@@ -417,6 +430,10 @@
             sourceCtx.fillStyle = 'black';
             sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
             
+            if (type !== 'single-point') {
+                randomPoint = { x: null, y: null };
+            }
+
             if (type === 'shepp-logan') {
                 const phantomData = createSheppLoganData(IMG_SIZE);
                 const imageData = sourceCtx.createImageData(IMG_SIZE, IMG_SIZE);
@@ -445,7 +462,12 @@
                     sourceCtx.fillStyle = 'gray';
                     sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); sourceCtx.fill();
                 } else if (type === 'single-point') {
-                    sourceCtx.fillRect(IMG_SIZE * 0.25, IMG_SIZE * 0.15, 4, 4);
+                    const randomX = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
+                    const randomY = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
+                    
+                    randomPoint.x = randomX;
+                    randomPoint.y = randomY; 
+                    sourceCtx.fillRect(randomX - 2, -randomY - 2, 4, 4);
                 } else if (type === 'center-point') {
                     sourceCtx.fillRect(-2, -2, 4, 4);
                 }
@@ -506,7 +528,7 @@
         }
 
         function handleMouseMove(e) {
-            if (currentMode === 'webcam') {
+            if (currentMode !== 'function' || functionPresets.value !== 'single-point' || randomPoint.x === null) {
                 handleMouseOut();
                 return;
             }
@@ -516,51 +538,98 @@
             
             const rect = sourceWrapper.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
             
             const centerX = sourceOverlayCanvas.width / 2;
             const centerY = sourceOverlayCanvas.height / 2;
 
-            // Correct for inverted Y-axis in graphics and calculate the projection angle theta
-            let theta = Math.atan2(-(mouseY - centerY), mouseX - centerX);
+            const clampedMouseX = Math.max(0, Math.min(mouseX, sourceOverlayCanvas.width));
+            const theta = (clampedMouseX / sourceOverlayCanvas.width) * Math.PI;
 
-            // --- Draw on Source Overlay ---
-            // The visual guide line shows the projection axis theta
-            sourceOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
-            sourceOverlayCtx.lineWidth = 2;
-            sourceOverlayCtx.setLineDash([5, 10]);
-            
+            // Use standard rho formula, consistent with the main transform
+            const rho = randomPoint.x * Math.cos(theta) + randomPoint.y * Math.sin(theta);
+
             const lineLength = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
-            const x1 = centerX + lineLength * Math.cos(theta);
-            const y1 = centerY - lineLength * Math.sin(theta); // Subtract because canvas Y is inverted
-            const x2 = centerX - lineLength * Math.cos(theta);
-            const y2 = centerY + lineLength * Math.sin(theta); // Add because canvas Y is inverted
+            const cos_t = Math.cos(theta);
+            const sin_t = Math.sin(theta);
 
-            sourceOverlayCtx.beginPath();
-            sourceOverlayCtx.moveTo(x1, y1);
-            sourceOverlayCtx.lineTo(x2, y2);
-            sourceOverlayCtx.stroke();
+            // --- options ajoutées le 14 juillet 2025, on voit mieux la projection---
+            // R axes de projection, vert LOR
+            // ligne continue indique direction + pour rho
+            // --- ça c'est moins
+            sourceOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            sourceOverlayCtx.lineWidth = 1.5;
+
+            // Draw the solid (positive) half
             sourceOverlayCtx.setLineDash([]);
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.moveTo(centerX, centerY);
+            sourceOverlayCtx.lineTo(centerX + lineLength * cos_t, centerY - lineLength * sin_t);
+            sourceOverlayCtx.stroke();
 
-            // --- Draw on Radon Overlay ---
-            // Normalize theta to the [0, 2PI] range for mapping
-            if (theta < 0) { theta += 2 * Math.PI; }
+            // Draw the dashed (negative) half
+            sourceOverlayCtx.setLineDash([5, 10]);
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.moveTo(centerX, centerY);
+            sourceOverlayCtx.lineTo(centerX - lineLength * cos_t, centerY + lineLength * sin_t);
+            sourceOverlayCtx.stroke();
+            // --- END MODIFIED ---
+            
+            // Point's absolute position on canvas
+            const point_x_abs = centerX + randomPoint.x;
+            const point_y_abs = centerY - randomPoint.y;
 
-            // The sinogram is 0-180, so we map the full 360 of interaction
-            // back to the 0-180 range using symmetry.
-            let display_theta = theta;
-            if (display_theta >= Math.PI) {
-                display_theta -= Math.PI;
-            }
+            // Projected point's absolute position on canvas
+            const proj_x_abs = centerX + rho * cos_t;
+            const proj_y_abs = centerY - rho * sin_t;
 
-            const x_pos = (display_theta / Math.PI) * radonOverlayCanvas.width;
+            // BLUE: The "drop line" from the point to the axis
+            sourceOverlayCtx.strokeStyle = 'rgba(0, 100, 255, 0.9)';
+            sourceOverlayCtx.lineWidth = 1.5;
+            sourceOverlayCtx.setLineDash([3, 5]);
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.moveTo(point_x_abs, point_y_abs);
+            sourceOverlayCtx.lineTo(proj_x_abs, proj_y_abs);
+            sourceOverlayCtx.stroke();
+            
+            // rho en ligne verte
+            sourceOverlayCtx.strokeStyle = 'rgba(0, 255, 0, 0.9)';
+            sourceOverlayCtx.lineWidth = 2;
+            sourceOverlayCtx.setLineDash([]);
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.moveTo(centerX, centerY);
+            sourceOverlayCtx.lineTo(proj_x_abs, proj_y_abs);
+            sourceOverlayCtx.stroke();
+            
+            // GREEN DOT: projected point on the axis
+            sourceOverlayCtx.fillStyle = 'rgba(0, 255, 0, 0.9)';
+            sourceOverlayCtx.setLineDash([]);
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.arc(proj_x_abs, proj_y_abs, 4, 0, 2 * Math.PI);
+            sourceOverlayCtx.fill();
 
+            // SINOGRAM 
+            const x_pos = (theta / Math.PI) * radonOverlayCanvas.width;
+            const rhoMax = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
+            const y_rho_pos = (radonOverlayCanvas.height / 2) - (rho / rhoMax) * (radonOverlayCanvas.height / 2);
+            
             radonOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
             radonOverlayCtx.lineWidth = 1;
             radonOverlayCtx.beginPath();
             radonOverlayCtx.moveTo(x_pos, 0);
             radonOverlayCtx.lineTo(x_pos, radonOverlayCanvas.height);
             radonOverlayCtx.stroke();
+            
+            radonOverlayCtx.strokeStyle = 'rgba(0, 0, 255, 0.7)';
+            radonOverlayCtx.lineWidth = 1;
+            radonOverlayCtx.beginPath();
+            radonOverlayCtx.moveTo(0, y_rho_pos);
+            radonOverlayCtx.lineTo(radonOverlayCanvas.width, y_rho_pos);
+            radonOverlayCtx.stroke();
+
+            radonOverlayCtx.fillStyle = 'rgba(0, 100, 255, 0.9)';
+            radonOverlayCtx.beginPath();
+            radonOverlayCtx.arc(x_pos, y_rho_pos, 4, 0, 2 * Math.PI);
+            radonOverlayCtx.fill();
         }
 
         function handleMouseOut() {
