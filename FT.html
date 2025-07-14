@@ -85,7 +85,8 @@
                 <div class="flex items-center gap-2">
                     <label for="motif-type" class="text-sm font-medium">Motif:</label>
                     <select id="motif-type" class="bg-white border border-gray-300 text-sm rounded-md p-1">
-                        <option value="duck" selected>Duck</option>
+                        <option value="point"selected>Point</option>
+                        <option value="duck">Duck</option>
                         <option value="circle">Circle</option>
                         <option value="square">Square</option>
                     </select>
@@ -126,7 +127,7 @@
             <p class="text-right font-medium">NitaD, Univ. Paris-Saclay, 2025</p>
         </div>
     </footer>
-
+    
     <script>
         // --- DOM Elements ---
         const useUploadBtn = document.getElementById('use-upload-btn');
@@ -151,7 +152,7 @@
         const cellSizeValue = document.getElementById('cell-size-value');
 
         // --- Constants & State ---
-        const FFT_SIZE = 256;
+        const FFT_SIZE = 512;
         sourceCanvas.width = sourceCanvas.height = FFT_SIZE;
         fftCanvas.width = fftCanvas.height = FFT_SIZE;
 
@@ -246,95 +247,139 @@
             }
         }
 
-        function generateCrystalPattern(patternType) {
-            statusEl.textContent = 'Generating pattern...';
 
-            const motifType = motifTypeSelect.value;
-            const motifSize = parseInt(motifSizeSlider.value);
-            const cellSize = parseInt(cellSizeSlider.value);
+function generateCrystalPattern(patternType) {
+    statusEl.textContent = 'Generating pattern...';
 
-            sourceCtx.fillStyle = 'black';
-            sourceCtx.fillRect(0, 0, FFT_SIZE, FFT_SIZE);
-            sourceCtx.save();
-            sourceCtx.translate(FFT_SIZE / 2, FFT_SIZE / 2);
-            sourceCtx.fillStyle = 'white';
-            
-            switch (patternType) {
-                case 'cubic-lattice': {
-                    for (let x = -FFT_SIZE; x < FFT_SIZE; x += cellSize) {
-                        for (let y = -FFT_SIZE; y < FFT_SIZE; y += cellSize) {
-                            drawMotif(sourceCtx, motifType, x, y, motifSize);
-                        }
-                    }
-                    break;
-                }
-                case 'tetragonal-lattice': {
-                    const spacingY = Math.round(cellSize * 0.7); // Create anisotropy
-                    for (let x = -FFT_SIZE; x < FFT_SIZE; x += cellSize) {
-                        for (let y = -FFT_SIZE; y < FFT_SIZE; y += spacingY) {
-                            drawMotif(sourceCtx, motifType, x, y, motifSize);
-                        }
-                    }
-                    break;
-                }
-                case 'hexagonal-lattice': {
-                    const v1 = { x: cellSize, y: 0 };
-                    const v2 = { x: cellSize * Math.cos(Math.PI / 3), y: cellSize * Math.sin(Math.PI / 3) };
-                    for (let i = -5; i <= 5; i++) {
-                        for (let j = -5; j <= 5; j++) {
-                            const x = i * v1.x + j * v2.x;
-                            const y = i * v1.y + j * v2.y;
-                            if (Math.abs(x) < FFT_SIZE / 2 && Math.abs(y) < FFT_SIZE / 2) {
-                                drawMotif(sourceCtx, motifType, x, y, motifSize);
-                            }
-                        }
-                    }
-                    break;
-                }
-                case 'bcc-lattice': {
-                    for (let x = -FFT_SIZE; x < FFT_SIZE; x += cellSize) {
-                        for (let y = -FFT_SIZE; y < FFT_SIZE; y += cellSize) {
-                            drawMotif(sourceCtx, motifType, x, y, motifSize);
-                            drawMotif(sourceCtx, motifType, x + cellSize / 2, y + cellSize / 2, motifSize);
-                        }
-                    }
-                    break;
-                }
-                case 'diffraction-grating': {
-                    const width = motifSize; // Link grating width to motif size slider
-                    sourceCtx.restore(); 
-                    sourceCtx.save();
-                    sourceCtx.fillStyle = 'white';
-                    for (let x = width; x < FFT_SIZE; x += cellSize) {
-                         sourceCtx.fillRect(x, 0, width, FFT_SIZE);
-                    }
-                    break;
-                }
-                case 'powder-rings': {
-                    const radii = [cellSize, cellSize * 1.6, cellSize * 2.2]; // Link radii to cell size
-                    radii.forEach(r => {
-                        const numPoints = Math.floor(2 * Math.PI * r / (motifSize * 4));
-                        for (let i = 0; i < numPoints; i++) {
-                            const angle = (i / numPoints) * 2 * Math.PI;
-                            const x = r * Math.cos(angle);
-                            const y = r * Math.sin(angle);
-                            drawMotif(sourceCtx, motifType, x, y, motifSize);
-                        }
-                    });
-                    break;
+    const motifType = motifTypeSelect.value;
+    const motifSize = parseInt(motifSizeSlider.value);
+    const cellSize = parseInt(cellSizeSlider.value);
+
+    sourceCtx.fillStyle = 'black';
+    sourceCtx.fillRect(0, 0, FFT_SIZE, FFT_SIZE);
+    sourceCtx.save();
+    sourceCtx.translate(FFT_SIZE / 2, FFT_SIZE / 2);
+    sourceCtx.fillStyle = 'white';
+    
+    switch (patternType) {
+        case 'cubic-lattice': {
+            for (let x = -FFT_SIZE / 2; x < FFT_SIZE / 2; x += cellSize) {
+                for (let y = -FFT_SIZE / 2; y < FFT_SIZE / 2; y += cellSize) {
+                    drawMotif(sourceCtx, motifType, x, y, motifSize);
                 }
             }
-            sourceCtx.restore();
-            performTransform();
+            break;
+        }
+        case 'tetragonal-lattice': {
+            const spacingY = Math.round(cellSize * 0.7);
+            for (let x = -FFT_SIZE / 2; x < FFT_SIZE / 2; x += cellSize) {
+                for (let y = -FFT_SIZE / 2; y < FFT_SIZE / 2; y += spacingY) {
+                    drawMotif(sourceCtx, motifType, x, y, motifSize);
+                }
+            }
+            break;
+        }
+        case 'hexagonal-lattice': {
+            // CORRECTED HEXAGONAL LATTICE WITH FULL COVERAGE
+            const a = cellSize;
+            const height = a * Math.sqrt(3);
+            
+const v1 = { x: a, y: 0 };
+const v2 = { x: a * 0.5, y: a * Math.sqrt(3) / 2 };
+
+const nx = Math.ceil(FFT_SIZE / a) * 2;
+const ny = Math.ceil(FFT_SIZE / (a * Math.sqrt(3) / 2)) * 2;
+
+            
+ for (let i = -nx; i <= nx; i++) {
+    for (let j = -ny; j <= ny; j++) {
+        const x = i * v1.x + j * v2.x;
+        const y = i * v1.y + j * v2.y;
+
+        if (Math.abs(x) <= FFT_SIZE / 2 + a && Math.abs(y) <= FFT_SIZE / 2 + a) {
+            drawMotif(sourceCtx, motifType, x, y, motifSize);
+        }
+    }
+}
+
+            break;
+        }
+        case 'bcc-lattice': {
+            for (let x = -FFT_SIZE / 2; x < FFT_SIZE / 2; x += cellSize) {
+                for (let y = -FFT_SIZE / 2; y < FFT_SIZE / 2; y += cellSize) {
+                    drawMotif(sourceCtx, motifType, x, y, motifSize);
+                    drawMotif(sourceCtx, motifType, x + cellSize / 2, y + cellSize / 2, motifSize);
+                }
+            }
+            break;
+        }
+        case 'diffraction-grating': {
+            const width = motifSize;
+            sourceCtx.restore(); 
+            sourceCtx.save();
+            sourceCtx.fillStyle = 'white';
+            for (let x = width; x < FFT_SIZE; x += cellSize) {
+                 sourceCtx.fillRect(x, 0, width, FFT_SIZE);
+            }
+            break;
+        }
+        case 'powder-rings': {
+            const radii = [cellSize, cellSize * 1.6, cellSize * 2.2];
+            radii.forEach(r => {
+                const numPoints = Math.floor(2 * Math.PI * r / (motifSize * 4));
+                for (let i = 0; i < numPoints; i++) {
+                    const angle = (i / numPoints) * 2 * Math.PI;
+                    const x = r * Math.cos(angle);
+                    const y = r * Math.sin(angle);
+                    drawMotif(sourceCtx, motifType, x, y, motifSize);
+                }
+            });
+            break;
+        }
+    }
+    sourceCtx.restore();
+    performTransform();
+}
+
+
+        function drawScaleBars() {
+            const d = parseInt(cellSizeSlider.value);
+            if (d === 0) return;
+            const k = FFT_SIZE / d;
+            const y_pos = FFT_SIZE - 20;
+            const x_pos = 20;
+
+            sourceCtx.strokeStyle = 'red';
+            sourceCtx.fillStyle = 'red';
+            sourceCtx.font = '14px Inter';
+            sourceCtx.beginPath();
+            sourceCtx.moveTo(x_pos, y_pos);
+            sourceCtx.lineTo(x_pos + d, y_pos);
+            sourceCtx.stroke();
+            sourceCtx.fillText('d', x_pos + d / 2 - 4, y_pos - 8);
+
+            fftCtx.strokeStyle = 'red';
+            fftCtx.fillStyle = 'red';
+            fftCtx.font = '14px Inter';
+            fftCtx.beginPath();
+            fftCtx.moveTo(FFT_SIZE / 2, y_pos);
+            fftCtx.lineTo(FFT_SIZE / 2 + k, y_pos);
+            fftCtx.stroke();
+            fftCtx.fillText('1/d', FFT_SIZE / 2 + k / 2 - 8, y_pos - 8);
         }
 
         function drawMotif(ctx, type, x, y, size) {
             switch(type) {
+                case 'point': drawPoint(ctx, x, y); break; 
                 case 'duck': drawDuck(ctx, x, y, size); break;
                 case 'circle': drawCircle(ctx, x, y, size); break;
                 case 'square': drawSquare(ctx, x, y, size); break;
             }
         }
+        function drawPoint(ctx, x, y) {
+            ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
+        }       
+
         function drawDuck(ctx, x, y, size) {
             ctx.save();
             ctx.translate(x, y);
@@ -401,93 +446,149 @@
                 animationFrameId = null; 
             } 
         }
-        function performTransform() { 
-            statusEl.textContent = 'Processing...'; 
-            if (currentMode === 'webcam') { 
-                drawSourceToCanvas(webcamVideo); 
-            } else if (currentMode === 'upload' && sourceImage.src) { 
-                drawSourceToCanvas(sourceImage); 
-            } 
-            const imageData = sourceCtx.getImageData(0, 0, FFT_SIZE, FFT_SIZE); 
-            const grayscaleMatrix = new Array(FFT_SIZE).fill(0).map(() => new Array(FFT_SIZE)); 
-            for (let y = 0; y < FFT_SIZE; y++) { 
-                for (let x = 0; x < FFT_SIZE; x++) { 
-                    const i = (y * FFT_SIZE + x) * 4; 
-                    grayscaleMatrix[y][x] = 0.299 * imageData.data[i] + 0.587 * imageData.data[i+1] + 0.114 * imageData.data[i+2]; 
-                } 
-            } 
-            const complexMatrix = fft2d(grayscaleMatrix); 
-            fftshift(complexMatrix); 
-            const magnitudeMatrix = new Array(FFT_SIZE).fill(0).map(() => new Array(FFT_SIZE)); 
-            let maxMag = 0; 
-            for (let y = 0; y < FFT_SIZE; y++) { 
-                for (let x = 0; x < FFT_SIZE; x++) { 
-                    const logMag = Math.log(1 + complexMatrix[y][x].magnitude()); 
-                    magnitudeMatrix[y][x] = logMag; 
-                    if (logMag > maxMag) maxMag = logMag; 
-                } 
-            } 
-            const fftImageData = fftCtx.createImageData(FFT_SIZE, FFT_SIZE); 
-            for (let y = 0; y < FFT_SIZE; y++) { 
-                for (let x = 0; x < FFT_SIZE; x++) { 
-                    const i = (y * FFT_SIZE + x) * 4; 
-                    const colorVal = maxMag > 0 ? (magnitudeMatrix[y][x] / maxMag) * 255 : 0; 
-                    fftImageData.data.set([colorVal, colorVal, colorVal, 255], i); 
-                } 
-            } 
-            fftCtx.putImageData(fftImageData, 0, 0); 
-            statusEl.textContent = 'Transform complete.'; 
+
+function performTransform() {
+    statusEl.textContent = 'Processing...';
+    if (currentMode === 'webcam') {
+        drawSourceToCanvas(webcamVideo);
+    } else if (currentMode === 'upload' && sourceImage.src) {
+        drawSourceToCanvas(sourceImage);
+    }
+    const imageData = sourceCtx.getImageData(0, 0, FFT_SIZE, FFT_SIZE);
+    const grayscaleMatrix = new Array(FFT_SIZE).fill(0).map(() => new Array(FFT_SIZE));
+    for (let y = 0; y < FFT_SIZE; y++) {
+        for (let x = 0; x < FFT_SIZE; x++) {
+            const i = (y * FFT_SIZE + x) * 4;
+
+            const gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+
+// Coordinates normalized between -1 and 1
+const nx = (x - FFT_SIZE / 2) / (FFT_SIZE / 2);
+const ny = (y - FFT_SIZE / 2) / (FFT_SIZE / 2);
+
+// 2D Gaussian window: exp(-a * (x^2 + y^2))
+const sigma = 0.4; // You can adjust this (smaller = sharper drop-off)
+const gauss = Math.exp(-(nx * nx + ny * ny) / (2 * sigma * sigma));
+
+grayscaleMatrix[y][x] = gray * gauss;
+
+
         }
-        class Complex { 
-            constructor(re = 0, im = 0) { this.re = re; this.im = im; } 
-            add(other) { return new Complex(this.re + other.re, this.im + other.im); } 
-            sub(other) { return new Complex(this.re - other.re, this.im - other.im); } 
-            mul(other) { return new Complex(this.re * other.re - this.im * other.im, this.re * other.im + this.im * other.re); } 
-            magnitude() { return Math.sqrt(this.re * this.re + this.im * this.im); } 
+    }
+    
+    // FFT PROCESSING
+    const complexMatrix = fft2d(grayscaleMatrix);
+    fftshift(complexMatrix);
+    
+    // Find max magnitude for scaling
+    let maxMag = 0;
+    for (let y = 0; y < FFT_SIZE; y++) {
+        for (let x = 0; x < FFT_SIZE; x++) {
+            const mag = complexMatrix[y][x].magnitude();
+            if (mag > maxMag) maxMag = mag;
         }
-        function fft1d(x) { 
-            const N = x.length; 
-            if (N <= 1) return x; 
-            const even = fft1d(x.filter((_, i) => i % 2 === 0)); 
-            const odd = fft1d(x.filter((_, i) => i % 2 !== 0)); 
-            const result = new Array(N); 
-            for (let k = 0; k < N / 2; k++) { 
-                const angle = -2 * Math.PI * k / N; 
-                const twiddle = new Complex(Math.cos(angle), Math.sin(angle)); 
-                const t = twiddle.mul(odd[k]); 
-                result[k] = even[k].add(t); 
-                result[k + N / 2] = even[k].sub(t); 
-            } 
-            return result; 
+    }
+    
+    // Create FFT visualization with logarithmic scaling
+    const fftImageData = fftCtx.createImageData(FFT_SIZE, FFT_SIZE);
+    for (let y = 0; y < FFT_SIZE; y++) {
+        for (let x = 0; x < FFT_SIZE; x++) {
+            const i = (y * FFT_SIZE + x) * 4;
+            const mag = complexMatrix[y][x].magnitude();
+            // Logarithmic scaling for better dynamic range
+            const logMag = Math.log(1 + mag);
+            const maxLogMag = Math.log(1 + maxMag);
+            const intensity = maxLogMag > 0 ? (logMag / maxLogMag) * 255 : 0;
+            fftImageData.data.set([intensity, intensity, intensity, 255], i);
         }
-        function fft2d(matrix) { 
-            const size = matrix.length; 
-            const complexMatrix = matrix.map(row => row.map(val => new Complex(val, 0))); 
-            for (let i = 0; i < size; i++) complexMatrix[i] = fft1d(complexMatrix[i]); 
-            const transposed = transpose(complexMatrix); 
-            for (let i = 0; i < size; i++) transposed[i] = fft1d(transposed[i]); 
-            return transpose(transposed); 
-        }
-        function transpose(matrix) { 
-            const size = matrix.length; 
-            const newMatrix = new Array(size).fill(0).map(() => new Array(size)); 
-            for (let i = 0; i < size; i++) { 
-                for (let j = 0; j < size; j++) { 
-                    newMatrix[j][i] = matrix[i][j]; 
-                } 
-            } 
-            return newMatrix; 
-        }
-        function fftshift(matrix) { 
-            const half = Math.floor(matrix.length / 2); 
-            for (let y = 0; y < half; y++) { 
-                for (let x = 0; x < half; x++) { 
-                    [matrix[y][x], matrix[y + half][x + half]] = [matrix[y + half][x + half], matrix[y][x]]; 
-                    [matrix[y][x + half], matrix[y + half][x]] = [matrix[y + half][x], matrix[y][x + half]]; 
-                } 
-            } 
+    }
+    fftCtx.putImageData(fftImageData, 0, 0);
+
+    if (currentMode === 'function' && CRYSTAL_PRESETS.includes(functionPresets.value)) {
+        drawScaleBars();
+    }
+    statusEl.textContent = 'Transform complete.';
+}
+
+        class Complex {
+            constructor(re = 0, im = 0) { this.re = re; this.im = im; }
+            add(other) { return new Complex(this.re + other.re, this.im + other.im); }
+            sub(other) { return new Complex(this.re - other.re, this.im - other.im); }
+            mul(other) { return new Complex(this.re * other.re - this.im * other.im, this.re * other.im + this.im * other.re); }
+            magnitude() { return Math.sqrt(this.re * this.re + this.im * this.im); }
         }
 
+        function fft1d(x) {
+            const N = x.length;
+            if (N <= 1) return x;
+            
+            const even = new Array(N / 2);
+            const odd = new Array(N / 2);
+            for (let i = 0; i < N / 2; i++) {
+                even[i] = x[i*2];
+                odd[i] = x[i*2 + 1];
+            }
+
+            const fftEven = fft1d(even);
+            const fftOdd = fft1d(odd);
+            
+            const result = new Array(N);
+            for (let k = 0; k < N / 2; k++) {
+                const angle = -2 * Math.PI * k / N;
+                const twiddle = new Complex(Math.cos(angle), Math.sin(angle));
+                const t = twiddle.mul(fftOdd[k]);
+                result[k] = fftEven[k].add(t);
+                result[k + N / 2] = fftEven[k].sub(t);
+            }
+            return result;
+        }
+
+function fft2d(matrix) {
+    const size = matrix.length;
+    
+    // Start with a complex matrix
+    let data = matrix.map(row => row.map(val => new Complex(val, 0)));
+
+    // 1. Perform 1D FFT on each row
+    for (let i = 0; i < size; i++) {
+        data[i] = fft1d(data[i]);
+    }
+
+    // 2. Transpose the matrix
+    data = transpose(data);
+
+    // 3. Perform 1D FFT on each new row (original columns)
+    for (let i = 0; i < size; i++) {
+        data[i] = fft1d(data[i]);
+    }
+
+    // 4. Transpose back to original orientation
+    data = transpose(data);
+
+    return data;
+}
+
+        function transpose(matrix) {
+            const size = matrix.length;
+            const newMatrix = Array.from({ length: size }, () => new Array(size));
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    newMatrix[j][i] = matrix[i][j];
+                }
+            }
+            return newMatrix;
+        }
+
+        function fftshift(matrix) {
+            const half = Math.floor(matrix.length / 2);
+            for (let y = 0; y < half; y++) {
+                for (let x = 0; x < half; x++) {
+                    [matrix[y][x], matrix[y + half][x + half]] = [matrix[y + half][x + half], matrix[y][x]];
+                    [matrix[y][x + half], matrix[y + half][x]] = [matrix[y + half][x], matrix[y][x + half]];
+                }
+            }
+        }
+        
         // --- ATTACH EVENT LISTENERS AND START ---
         useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
         useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
