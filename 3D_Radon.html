@@ -29,7 +29,7 @@
             width: 98%;
             max-width: 1800px;
             height: 90vh;
-            margin: auto;
+            margin: 2vh auto;
         }
         
         #controls-panel {
@@ -123,6 +123,20 @@
             flex-grow: 1; 
         }
         
+/* --- Checkbox (Boolean) Style --- */
+/* This is a new rule to style the checkbox */
+input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    /* Sets the checkmark color to match the title */
+    accent-color: #004494;
+}
+
+#status {
+    /* Adjust this value to your desired text size */
+    font-size: 13px;
+}
+
         .control-row input[type="number"] { 
             width: 80px; 
             flex-shrink: 0; 
@@ -230,7 +244,7 @@
         }
         
         button { 
-            background-color: #23304d; 
+            background-color: #004494; 
             color: white; 
             border: none; 
             padding: 12px 15px; 
@@ -242,7 +256,7 @@
         }
         
         button:hover { 
-            background-color: #004494; 
+            background-color: #00337a; 
         }
         
         /* Light Theme Slider Styles */
@@ -267,7 +281,7 @@
             appearance:none;
             width:20px;
             height:20px;
-            background:#3b82f6;
+            background:#004494;
             cursor:pointer;
             border-radius:50%;
         }
@@ -275,7 +289,7 @@
         input[type="range"]::-moz-range-thumb{
             width:20px;
             height:20px;
-            background:#3b82f6;
+            background:#004494;
             cursor:pointer;
             border-radius:50%;
         }
@@ -291,11 +305,12 @@
                 <label for="presets">Preset:</label>
                 <div class="select-container">
                     <select id="presets">
-                        <option value="none" selected>None</option>
+                        <option value="small_off_center_sphere" selected>Small Off-Center Sphere</option>
                         <option value="sphere">Sphere</option>
                         <option value="cube">Cube</option>
                         <option value="torus">Torus</option>
                         <option value="icosahedron">Icosahedron</option>
+                        <option value="3_spheres">3 Spheres</option>
                     </select>
                 </div>
             </div>
@@ -319,7 +334,7 @@
             <div class="control-group">
                 <div class="control-row">
                     <input type="checkbox" id="show-slice">
-                    <label for="show-slice" style="display: inline; margin-bottom: 0;">Show Slice Plane</label>
+                    <label for="show-slice" style="display: inline; margin-bottom: 0;">Show Slices</label>
                 </div>
             </div>
             
@@ -334,11 +349,9 @@
         <div id="visualization-area">
             <div class="panel-container">
                 <div class="view-container">
-                    <!-- MODIFICATION: Removed wrapper div -->
                     <div class="panel" id="source-container"></div>
                 </div>
                 <div class="view-container">
-                    <!-- MODIFICATION: Removed wrapper div -->
                     <div class="panel" id="recon-container"></div>
                 </div>
                 <div class="view-container">
@@ -369,7 +382,6 @@
         const progressBarContainer = document.getElementById('progress-bar-container');
         const progressBar = document.getElementById('progress-bar');
         
-        // MODIFICATION: These elements are now the panels themselves
         const sourceContainer = document.getElementById('source-container');
         const reconContainer = document.getElementById('recon-container');
         const sliceCanvas = document.getElementById('slice-canvas');
@@ -383,9 +395,13 @@
         let sinograms = [], reconstructedSlices = [], sourceSlices = [];
         let sourceObjectGroup = new THREE.Group();
         let reconObjectGroup = new THREE.Group();
-        
-        // Icosahedron planes cache
         let icosahedronPlanes = null;
+
+        // Define a fixed, global bounding volume for all slicing and reconstruction.
+        const GLOBAL_BOUNDS = new THREE.Box3(
+            new THREE.Vector3(-1.5, -1.5, -1.5),
+            new THREE.Vector3(1.5, 1.5, 1.5)
+        );
 
         // --- Initialization ---
         function init() {
@@ -398,34 +414,21 @@
             runButton.addEventListener('click', runFullTransform);
             presetSelector.addEventListener('change', handlePresetChange);
             
-            // Set up sliders
             setupSliders();
-            
-            // Set up drag handle
             setupDragHandle();
-            
             handlePresetChange(); 
         }
 
         function setupSliders() {
-            // Slice count slider
-            sliceCountSlider.addEventListener('input', () => {
-                sliceCountValue.value = sliceCountSlider.value;
-            });
-            
+            sliceCountSlider.addEventListener('input', () => { sliceCountValue.value = sliceCountSlider.value; });
             sliceCountValue.addEventListener('change', () => {
                 const val = parseInt(sliceCountValue.value);
-                if (val >= 16 && val <= 256) {
-                    sliceCountSlider.value = val;
-                }
+                if (val >= 16 && val <= 256) { sliceCountSlider.value = val; }
             });
-            
-            // Current slice slider
             currentSliceSlider.addEventListener('input', () => {
                 currentSliceValue.value = currentSliceSlider.value;
                 updateViews();
             });
-            
             currentSliceValue.addEventListener('change', () => {
                 const max = currentSliceSlider.max;
                 let val = parseInt(currentSliceValue.value);
@@ -435,8 +438,6 @@
                 currentSliceValue.value = val;
                 updateViews();
             });
-            
-            // Show slice checkbox
             document.getElementById('show-slice').addEventListener('change', updateSlicePlanes);
         }
 
@@ -458,9 +459,7 @@
                 if (!isResizing) return;
                 const p = resizer.parentElement;
                 const w = e.clientX - p.getBoundingClientRect().left;
-                if (w > 250 && w < p.clientWidth - 400) {
-                    leftPanel.style.width = `${w}px`;
-                }
+                if (w > 250 && w < p.clientWidth - 400) { leftPanel.style.width = `${w}px`; }
             }
             
             function stopResize() {
@@ -486,10 +485,9 @@
             const scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000000); 
             const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-            camera.position.set(0, 0, 3.5);
+            camera.position.set(2, 2, 2); 
             const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
-            // The renderer's canvas is appended directly to the container (the panel)
             container.appendChild(renderer.domElement);
             
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -503,7 +501,6 @@
             const axesHelper = new THREE.AxesHelper(1.5);
             scene.add(axesHelper);
 
-            // This observer watches the panel and resizes the canvas to be a square that fits
             const resizeObserver = new ResizeObserver(entries => {
                  for (let entry of entries) {
                     const { width, height } = entry.contentRect;
@@ -533,58 +530,29 @@
             reconObjectGroup.clear();
             sliceCtx.clearRect(0, 0, sliceCanvas.width, sliceCanvas.height);
             sinogramCtx.clearRect(0, 0, sinogramCanvas.width, sinogramCanvas.height);
-            sinograms = [];
-            reconstructedSlices = [];
-            sourceSlices = [];
+            sinograms = []; reconstructedSlices = []; sourceSlices = [];
             currentSliceSlider.disabled = true;
             currentSliceSlider.value = 0;
             currentSliceValue.value = '0';
             sliceCountSlider.disabled = true;
             progressBar.style.width = '0%';
             progressBarContainer.style.display = 'none';
-            if (presetType === 'none') {
-                statusEl.textContent = 'Select a preset to begin.';
-                runButton.disabled = true;
-            } else {
-                const object3D = generate3DObject(presetType);
-                sourceObjectGroup.add(object3D);
-                statusEl.textContent = 'Object loaded. Click "Run Transform" to process.';
-                runButton.disabled = false;
-                sliceCountSlider.disabled = false;
-            }
+
+            const object3D = generate3DObject(presetType);
+            sourceObjectGroup.add(object3D);
+            statusEl.textContent = 'Object loaded. Click "Run Transform" to process.';
+            runButton.disabled = false;
+            sliceCountSlider.disabled = false;
         }
         
         function createIcosahedronPlanes() {
             const t = (1 + Math.sqrt(5)) / 2;
-            const vertices = [
-                new THREE.Vector3(-1, t, 0).normalize(),
-                new THREE.Vector3(1, t, 0).normalize(),
-                new THREE.Vector3(-1, -t, 0).normalize(),
-                new THREE.Vector3(1, -t, 0).normalize(),
-                new THREE.Vector3(0, -1, t).normalize(),
-                new THREE.Vector3(0, 1, t).normalize(),
-                new THREE.Vector3(0, -1, -t).normalize(),
-                new THREE.Vector3(0, 1, -t).normalize(),
-                new THREE.Vector3(t, 0, -1).normalize(),
-                new THREE.Vector3(t, 0, 1).normalize(),
-                new THREE.Vector3(-t, 0, -1).normalize(),
-                new THREE.Vector3(-t, 0, 1).normalize()
-            ];
-            const faces = [
-                [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-                [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-                [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-                [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
-            ];
+            const vertices = [ new THREE.Vector3(-1, t, 0).normalize(), new THREE.Vector3(1, t, 0).normalize(), new THREE.Vector3(-1, -t, 0).normalize(), new THREE.Vector3(1, -t, 0).normalize(), new THREE.Vector3(0, -1, t).normalize(), new THREE.Vector3(0, 1, t).normalize(), new THREE.Vector3(0, -1, -t).normalize(), new THREE.Vector3(0, 1, -t).normalize(), new THREE.Vector3(t, 0, -1).normalize(), new THREE.Vector3(t, 0, 1).normalize(), new THREE.Vector3(-t, 0, -1).normalize(), new THREE.Vector3(-t, 0, 1).normalize() ];
+            const faces = [ [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1] ];
             const planes = [];
             for (const face of faces) {
-                const v0 = vertices[face[0]];
-                const v1 = vertices[face[1]];
-                const v2 = vertices[face[2]];
-                const normal = new THREE.Vector3().crossVectors(
-                    new THREE.Vector3().subVectors(v1, v0),
-                    new THREE.Vector3().subVectors(v2, v0)
-                ).normalize();
+                const v0 = vertices[face[0]], v1 = vertices[face[1]], v2 = vertices[face[2]];
+                const normal = new THREE.Vector3().crossVectors( new THREE.Vector3().subVectors(v1, v0), new THREE.Vector3().subVectors(v2, v0) ).normalize();
                 const center = new THREE.Vector3().add(v0).add(v1).add(v2).divideScalar(3);
                 if (normal.dot(center) < 0) normal.negate();
                 const d0 = -normal.dot(v0);
@@ -594,68 +562,78 @@
         }
 
         function getIcosahedronPlanes() {
-            if (!icosahedronPlanes) {
-                icosahedronPlanes = createIcosahedronPlanes();
-            }
+            if (!icosahedronPlanes) { icosahedronPlanes = createIcosahedronPlanes(); }
             return icosahedronPlanes;
         }
 
         function isInsideObjectAnalytical(point, object) {
             if (!object) return false;
 
+            // If the object is a Group, check if the point is inside any of its children.
+            if (object.isGroup) {
+                for (const child of object.children) {
+                    if (isInsideObjectAnalytical(point, child)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // Original logic for single Mesh objects.
+            const localPoint = new THREE.Vector3();
+            const inverseMatrix = new THREE.Matrix4().copy(object.matrixWorld).invert();
+            localPoint.copy(point).applyMatrix4(inverseMatrix);
+
             const geo = object.geometry;
+            if (!geo) return false;
+
             switch (geo.type) {
                 case 'SphereGeometry': {
                     const r = geo.parameters.radius;
-                    return point.lengthSq() < (r * r);
+                    return localPoint.lengthSq() < (r * r);
                 }
                 case 'BoxGeometry': {
                     const { width, height, depth } = geo.parameters;
-                    return Math.abs(point.x) < width / 2 && 
-                           Math.abs(point.y) < height / 2 && 
-                           Math.abs(point.z) < depth / 2;
+                    return Math.abs(localPoint.x) < width / 2 && Math.abs(localPoint.y) < height / 2 && Math.abs(localPoint.z) < depth / 2;
                 }
                 case 'TorusGeometry': {
-                    const R = geo.parameters.radius;
-                    const r = geo.parameters.tube;
-                    const p = Math.sqrt(point.x**2 + point.y**2) - R;
-                    return p**2 + point.z**2 < r**2;
+                    const R = geo.parameters.radius; const r = geo.parameters.tube;
+                    const p = Math.sqrt(localPoint.x**2 + localPoint.y**2) - R;
+                    return p**2 + localPoint.z**2 < r**2;
                 }
                 case 'IcosahedronGeometry': {
                     const radius = geo.parameters.radius;
                     const planes = getIcosahedronPlanes();
                     for (let i = 0; i < planes.length; i++) {
                         const plane = planes[i];
-                        if (plane.normal.dot(point) + plane.d0 * radius > 1e-5) {
-                            return false;
-                        }
+                        if (plane.normal.dot(localPoint) + plane.d0 * radius > 1e-5) { return false; }
                     }
                     return true;
                 }
-                default:
-                    return false;
+                default: return false;
             }
         }
 
         function getSlicesFrom3DObject(object, sliceCount, imageSize) {
             const slices = [];
             object.updateWorldMatrix(true, true);
-            const boundingBox = new THREE.Box3().setFromObject(object);
-            const zMin = boundingBox.min.z; const zMax = boundingBox.max.z;
-            const zStep = (zMax - zMin) / sliceCount;
-            const BACKGROUND_INTENSITY = 0; const OBJECT_INTENSITY = 255;
             
+            const zMin = GLOBAL_BOUNDS.min.z;
+            const zMax = GLOBAL_BOUNDS.max.z;
+            const zStep = (zMax - zMin) / sliceCount;
+            const BACKGROUND_INTENSITY = 0; const OBJECT_INTENSITY = 119;
             const point = new THREE.Vector3();
+            const xRange = GLOBAL_BOUNDS.max.x - GLOBAL_BOUNDS.min.x;
+            const yRange = GLOBAL_BOUNDS.max.y - GLOBAL_BOUNDS.min.y;
 
             for (let i = 0; i < sliceCount; i++) {
                 const z = zMin + (i + 0.5) * zStep;
                 const imageData = new ImageData(imageSize, imageSize);
                 for (let y = 0; y < imageSize; y++) {
                     for (let x = 0; x < imageSize; x++) {
-                        const sx = boundingBox.min.x + (x / (imageSize - 1)) * (boundingBox.max.x - boundingBox.min.x);
-                        const sy = boundingBox.min.y + (y / (imageSize - 1)) * (boundingBox.max.y - boundingBox.min.y);
+                        const sx = GLOBAL_BOUNDS.min.x + (x / (imageSize - 1)) * xRange;
+                        const sy = GLOBAL_BOUNDS.max.y - (y / (imageSize - 1)) * yRange;
                         point.set(sx, sy, z);
-
                         let intensity = isInsideObjectAnalytical(point, object) ? OBJECT_INTENSITY : BACKGROUND_INTENSITY;
                         imageData.data.set([intensity, intensity, intensity, 255], (y * imageSize + x) * 4);
                     }
@@ -712,17 +690,20 @@
             };
             },{}]},{},[1])(1)
             });
+
             function radonTransform(imageData, numAngles, rhoMax, numRho) {
                 const width = imageData.width, height = imageData.height, data = imageData.data;
                 const centerX = width / 2, centerY = height / 2;
                 const sinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho).fill(0));
-                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles); // 180 degrees
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
                         const intensity = data[(y * width + x) * 4];
                         if (intensity > 10) {
+                            const x_coord = x - centerX;
+                            const y_coord = -(y - centerY);
                             for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                                const rho = Math.round((x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]));
+                                const rho = Math.round(x_coord * Math.cos(angles[i_theta]) + y_coord * Math.sin(angles[i_theta]));
                                 sinogram[i_theta][rho + rhoMax] += intensity;
                             }
                         }
@@ -730,6 +711,7 @@
                 }
                 return sinogram;
             }
+
             function filterSinogram(sinogram, numAngles, numRho) {
                 const fft = new FFT(numRho);
                 const filteredSinogram = [];
@@ -759,16 +741,19 @@
                 }
                 return filteredSinogram;
             }
+
             function inverseRadonTransform(sinogram, width, height, numAngles, rhoMax, numRho) {
                 const reconstructedData = new Float32Array(width * height).fill(0);
-                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
+                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles); // 180 degrees
                 const centerX = width / 2, centerY = height / 2;
                 for (let i_theta = 0; i_theta < numAngles; i_theta++) {
                     const projection = sinogram[i_theta];
                     const cosA = Math.cos(angles[i_theta]), sinA = Math.sin(angles[i_theta]);
                     for (let y = 0; y < height; y++) {
                         for (let x = 0; x < width; x++) {
-                            const rho = Math.round((x - centerX) * cosA + (y - centerY) * sinA);
+                            const x_coord = x - centerX;
+                            const y_coord = -(y - centerY);
+                            const rho = Math.round(x_coord * cosA + y_coord * sinA);
                             const i_rho = rho + rhoMax;
                             if (i_rho >= 0 && i_rho < numRho) {
                                reconstructedData[y * width + x] += projection[i_rho];
@@ -778,10 +763,11 @@
                 }
                 return reconstructedData;
             }
+
             self.onmessage = function(e) {
                 const { slice, index } = e.data;
                 const { width, height } = slice;
-                const numAngles = 180;
+                const numAngles = 180; // 180 angles for 180 degrees
                 let numRho = Math.pow(2, Math.ceil(Math.log2(2 * Math.ceil(Math.hypot(width, height) / 2))));
                 const rhoMax = numRho / 2;
                 const sinogram = radonTransform(slice, numAngles, rhoMax, numRho);
@@ -816,11 +802,8 @@
                         slicesProcessed++;
                         progressBar.style.width = `${10 + (slicesProcessed / numSlices) * 85}%`;
                         worker.terminate();
-                        if (slicesProcessed === numSlices) {
-                            resolve();
-                        } else {
-                           runWorker();
-                        }
+                        if (slicesProcessed === numSlices) { resolve(); } 
+                        else { runWorker(); }
                     };
                     worker.onerror = (err) => {
                         console.error("Error in worker:", err);
@@ -829,9 +812,7 @@
                     }
                     worker.postMessage({ slice: slices[sliceIndexToProcess], index: sliceIndexToProcess });
                 }
-                for (let i = 0; i < numWorkers; i++) {
-                    runWorker();
-                }
+                for (let i = 0; i < numWorkers; i++) { runWorker(); }
             });
         }
 
@@ -875,13 +856,18 @@
         
         function generate3DObject(type) {
             const material = new THREE.MeshStandardMaterial({ 
-                color: 0x777777, /* was purple color ? */
+                color: 0x777777,
                 metalness: 0.3,
                 roughness: 0.4,
                 side: THREE.DoubleSide 
             });
             let geometry;
+
+            // Handle single-mesh cases first
             switch(type) {
+                case 'small_off_center_sphere':
+                    geometry = new THREE.SphereGeometry(0.05, 32, 32);
+                    break;
                 case 'sphere': 
                     geometry = new THREE.SphereGeometry(0.8, 64, 64); 
                     break;
@@ -894,15 +880,48 @@
                 case 'icosahedron': 
                     geometry = new THREE.IcosahedronGeometry(0.8, 0);
                     break;
+                case '3_spheres': {
+                    const group = new THREE.Group();
+                    for (let i = 0; i < 3; i++) {
+                        const radius = 0.2 + Math.random() * 0.4;
+                        const gray = 0.4 + Math.random() * 0.5;
+                        const sphereMaterial = new THREE.MeshStandardMaterial({
+                            color: new THREE.Color(gray, gray, gray),
+                            metalness: 0.1,
+                            roughness: 0.5,
+                        });
+                        const sphereGeometry = new THREE.SphereGeometry(radius, 32, 32);
+                        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                        sphere.position.set(
+                            (Math.random() - 0.5) * 2,
+                            (Math.random() - 0.5) * 2,
+                            (Math.random() - 0.5) * 2
+                        );
+                        group.add(sphere);
+                    }
+                    return group;
+                }
             }
-            return new THREE.Mesh(geometry, material);
+            const mesh = new THREE.Mesh(geometry, material);
+            if (type === 'small_off_center_sphere') {
+                mesh.position.set(0.1, 0.3, 0.4);
+            }
+            if (type === 'cube') {
+                mesh.rotation.x = Math.PI / 4;
+                mesh.rotation.y = Math.PI / 4;
+            }
+            return mesh;
         }
         
         function displayReconstructedVolume(reconSlices, sourceObject) {
-            const boundingBox = new THREE.Box3().setFromObject(sourceObject);
-            const zMin = boundingBox.min.z; const zMax = boundingBox.max.z;
+            const boundingBox = GLOBAL_BOUNDS;
+            const zMin = boundingBox.min.z;
+            const zMax = boundingBox.max.z;
             const zStep = (zMax - zMin) / reconSlices.length;
             const point = new THREE.Vector3();
+            const xRange = boundingBox.max.x - boundingBox.min.x;
+            const yRange = boundingBox.max.y - boundingBox.min.y;
+
             for(let i=0; i < reconSlices.length; i++) {
                 const sliceData = reconSlices[i];
                 if (!sliceData) continue;
@@ -919,9 +938,11 @@
                         const y_px = Math.floor(p / IMG_SIZE); const x_px = p % IMG_SIZE;
                         const normalizedVal = (sliceData[p] - minVal) / range;
                         const colorVal = normalizedVal * 255;
-                        const sx = boundingBox.min.x + (x_px / (IMG_SIZE - 1)) * (boundingBox.max.x - boundingBox.min.x);
-                        const sy = boundingBox.min.y + (y_px / (IMG_SIZE - 1)) * (boundingBox.max.y - boundingBox.min.y);
+                        
+                        const sx = boundingBox.min.x + (x_px / (IMG_SIZE - 1)) * xRange;
+                        const sy = boundingBox.max.y - (y_px / (IMG_SIZE - 1)) * yRange;
                         point.set(sx, sy, z);
+
                         let isInsideOriginalObject = isInsideObjectAnalytical(point, sourceObject);
                         let alpha = 0;
                         if (isInsideOriginalObject && normalizedVal > 0.2) alpha = 255;
@@ -930,12 +951,7 @@
                 }
                 ctx.putImageData(imageData, 0, 0);
                 const texture = new THREE.CanvasTexture(canvas);
-                const material = new THREE.MeshBasicMaterial({ 
-                    map: texture, 
-                    transparent: true,
-                    alphaTest: 0.1,
-                    side: THREE.DoubleSide 
-                });
+                const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
                 const sizeX = boundingBox.max.x - boundingBox.min.x;
                 const sizeY = boundingBox.max.y - boundingBox.min.y;
                 const geometry = new THREE.PlaneGeometry(sizeX, sizeY);
@@ -948,16 +964,12 @@
         function updateViews() {
             const sliceIndex = parseInt(currentSliceSlider.value);
             currentSliceValue.value = sliceIndex;
-            
-            // Update slice view
             if (sourceSlices && sourceSlices[sliceIndex]) {
                 sliceCanvas.width = IMG_SIZE;
                 sliceCanvas.height = IMG_SIZE;
                 sliceCtx.putImageData(sourceSlices[sliceIndex], 0, 0);
             }
             updateSlicePlanes();
-            
-            // Update sinogram view
             if (sinograms && sinograms[sliceIndex]) {
                 drawSinogram(sinograms[sliceIndex]);
             }
@@ -972,9 +984,7 @@
             const outputImageData = sinogramCtx.createImageData(numRho, numAngles);
             let maxVal = 0;
             for (let i = 0; i < numAngles; i++) {
-                for (let j = 0; j < numRho; j++) {
-                    if (sinogram[i][j] > maxVal) maxVal = sinogram[i][j];
-                }
+                for (let j = 0; j < numRho; j++) { if (sinogram[i][j] > maxVal) maxVal = sinogram[i][j]; }
             }
             if (maxVal === 0) {
                  sinogramCtx.clearRect(0,0, sinogramCanvas.width, sinogramCanvas.height);
@@ -990,7 +1000,6 @@
             sinogramCtx.putImageData(outputImageData, 0, 0);
         }
 
-        
         let showSlice = false;
         let slicePlaneSource = null;
         let slicePlaneRecon = null;
@@ -1002,18 +1011,14 @@
             
             [slicePlaneSource, slicePlaneRecon].forEach(p => {
                 if (p && p.parent) {
-                    p.parent.remove(p);
-                    p.geometry.dispose();
-                    p.material.dispose();
+                    p.parent.remove(p); p.geometry.dispose(); p.material.dispose();
                 }
             });
             slicePlaneSource = slicePlaneRecon = null;
             
-            if (!object3D || !showSlice || !sourceSlices[sliceIndex]) {
-                return;
-            }
+            if (!object3D || !showSlice || !sourceSlices[sliceIndex]) { return; }
             
-            const boundingBox = new THREE.Box3().setFromObject(object3D);
+            const boundingBox = GLOBAL_BOUNDS;
             const zMin = boundingBox.min.z;
             const zMax = boundingBox.max.z;
             const zStep = (zMax - zMin) / sourceSlices.length;
@@ -1021,12 +1026,8 @@
             const sizeX = boundingBox.max.x - boundingBox.min.x;
             const sizeY = boundingBox.max.y - boundingBox.min.y;
             const geometry = new THREE.PlaneGeometry(sizeX, sizeY);
-            const material = new THREE.MeshBasicMaterial({
-                color: 0xffff00,
-                transparent: true,
-                opacity: 0.3,
-                side: THREE.DoubleSide
-            });
+            const material = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+            
             const createPlane = () => {
                 const plane = new THREE.Mesh(geometry.clone(), material.clone());
                 plane.position.z = z;
