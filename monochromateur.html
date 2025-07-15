@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monochromateur RX</title>
+    <style>
+        html, body { 
+            height: 100%;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #eef1f5; 
+            color: #333; 
+            display: flex;
+            flex-direction: column;
+        }
+        .panel { 
+             background-color: #fff; 
+             padding: 20px; 
+             border-radius: 10px; 
+             box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+             box-sizing: border-box;
+             display: flex;
+             flex-direction: column;
+        }
+        
+        /* --- Main Layout Styles --- */
+        .page-container {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            min-height: 0;
+            background-color: #101828;
+        }
+
+        #top-panel {
+            flex: 0 0 120px;
+            min-height: 100px;
+            max-height: 250px;
+            background-color: #101828;
+            padding: 0 10px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        
+        #graphs-container {
+            flex: 1; 
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            min-height: 0;
+            padding: 20px;
+            background-color: #eef1f5;
+        }
+
+        #graphs-container .panel {
+            flex: 1;
+            min-width: 0; 
+        }
+        
+        .resizer-horizontal {
+            flex: 0 0 6px;
+            background: #d1d5db;
+            cursor: row-resize;
+            border-top: 1px solid #b1b5bb;
+            border-bottom: 1px solid #b1b5bb;
+            transition: background-color 0.2s;
+        }
+        .resizer-horizontal:hover {
+            background: #9ca3af;
+        }
+
+        .controls-container {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            justify-content: space-evenly;
+            align-items: center;
+            gap: 15px;
+            padding: 10px 20px;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .control-group { 
+            display: flex; 
+            flex-direction: column; 
+        }
+        label { margin-bottom: 8px; font-weight: 600; font-size: 0.9em;}
+        select, input[type="range"], input[type="number"] {
+            font-size: 0.9em; box-sizing: border-box; width: 100%;
+        }
+        .control-group select {
+            min-width: 120px;
+        }
+        .control-group input[type="number"] {
+            width: 90px;
+        }
+        
+        .display-box {
+            background-color: #2d3748;
+            color: #e2e8f0;
+            padding: 9px;
+            border-radius: 5px;
+            font-size: 0.9em;
+            text-align: center;
+            min-height: 37px; /* Match input height */
+            box-sizing: border-box;
+        }
+
+        .canvas-container { margin-bottom: 10px; flex-grow: 1; position: relative;}
+        canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            border-radius: 5px; 
+            background-color: #fff; 
+        }
+        .legend { margin-top: 10px; padding-left: 5px; font-size: 0.9em; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 5px; }
+        .legend-color { width: 18px; height: 10px; margin-right: 8px; border: 1px solid #ccc; flex-shrink: 0;}
+        .separator { 
+            width: 1px;
+            height: 70px; 
+            background-color: #374151;
+            margin: 0 5px;
+            align-self: center;
+        }
+        footer { 
+            text-align: left; 
+            font-size: 0.8em; 
+            color: #555; 
+            margin-top: auto;
+            padding: 5px 20px;
+            flex-shrink: 0;
+            background-color: #eef1f5;
+        }
+
+        footer p {margin: 0;}
+
+        /* --- Dark theme for top panel ONLY --- */
+        #top-panel label {
+            color: #D1D5DB;
+        }
+        #top-panel select, #top-panel input[type="number"] {
+            background-color: #1F2937;
+            border: 1px solid #4B5563;
+            color: #F9FAFB;
+            border-radius: 5px;
+            padding: 9px;
+        }
+        #resize-ghost {
+            position: fixed;
+            left: 0;
+            width: 100vw;
+            height: 4px;
+            background-color: rgba(59, 130, 246, 0.5);
+            display: none;
+            z-index: 9999;
+            cursor: row-resize;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="page-container" id="page-container">
+        <div id="top-panel">
+            <div class="controls-container">
+                <!-- Source & Crystal -->
+                <div class="control-group">
+                    <label for="anodeElementSelect">Source RX :</label>
+                    <select id="anodeElementSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="crystalSelect">Cristal :</label>
+                    <select id="crystalSelect"></select>
+                </div>
+
+                <div class="separator"></div>
+
+                <!-- Monochromator Angle -->
+                <div class="control-group">
+                    <label>2θ Idéal (Kα₁):</label>
+                    <div id="idealAngleDisplay" class="display-box">--</div>
+                </div>
+                <div class="control-group">
+                    <label for="twoThetaInput">Opération 2θ (°):</label>
+                    <input type="number" id="twoThetaInput" value="28.44" step="0.001">
+                </div>
+                 <div class="control-group">
+                    <label>λ sélectionné (Å):</label>
+                    <div id="selectedLambdaDisplay" class="display-box">--</div>
+                </div>
+
+                <div class="separator"></div>
+                
+                <!-- Display Range -->
+                <div class="control-group">
+                    <label for="lambdaMinInput">λ Min (Å):</label>
+                    <input type="number" id="lambdaMinInput" value="0.1" step="0.1" min="0.1" max="4.0">
+                </div>
+                <div class="control-group">
+                    <label for="lambdaMaxInput">λ Max (Å):</label>
+                    <input type="number" id="lambdaMaxInput" value="4.0" step="0.1" min="0.1" max="4.0">
+                </div>
+            </div>
+        </div>
+        
+        <div class="resizer-horizontal" id="draghandle"></div>
+
+        <div id="graphs-container">
+            <div class="panel">
+                <div class="canvas-container">
+                    <canvas id="spectrumCanvasSource"></canvas>
+                </div>
+                <div id="legendSource" class="legend"></div>
+            </div>
+
+            <div class="panel">
+                <div class="canvas-container">
+                    <canvas id="spectrumCanvasMonochromatized"></canvas>
+                </div>
+                <div id="legendMonochromatized" class="legend"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="resize-ghost"></div>
+
+    <footer>
+        <p>NitaD, Univ Paris-Saclay, version 16 juillet 2025</p>
+    </footer>
+
+    <script>
+        // --- Constants & Configuration ---
+        const H_PLANCK = 6.62607015e-34; 
+        const C_LIGHT = 2.99792458e8;   
+        const E_CHARGE = 1.602176634e-19; 
+        const HC_KEV_A = (H_PLANCK * C_LIGHT / E_CHARGE) * 1e7; 
+
+        const CHAR_LINE_INTENSITY_SCALAR = 45; 
+        const AXIS_FONT = "13px 'Segoe UI', Tahoma, sans-serif";
+        const TITLE_FONT = "15px 'Segoe UI', Tahoma, sans-serif";
+        const MONOCHROMATOR_COLOR = "#3B82F6";
+        const FWHM_TO_SIGMA = 1 / (2 * Math.sqrt(2 * Math.log(2))); // Approx 0.42466
+
+        // --- Data ---
+        const elementData = { 
+            "Cr": { Z: 24, Ka1_energy: 5.4147, Ka2_energy: 5.4055, Kb_energy: 5.9467, K_edge: 5.989, color: "#bcbd22" },
+            "Fe": { Z: 26, Ka1_energy: 6.4038, Ka2_energy: 6.3908, Kb_energy: 7.0580, K_edge: 7.112, color: "#17becf" },
+            "Co": { Z: 27, Ka1_energy: 6.9303, Ka2_energy: 6.9153, Kb_energy: 7.6494, K_edge: 7.709, color: "#ff7f0e" },
+            "Cu": { Z: 29, Ka1_energy: 8.0478, Ka2_energy: 8.0278, Kb_energy: 8.9053, K_edge: 8.979, color: "#d62728" },
+            "Mo": { Z: 42, Ka1_energy: 17.479, Ka2_energy: 17.374, Kb_energy: 19.608, K_edge: 20.000, color: "#9467bd" },
+            "Ag": { Z: 47, Ka1_energy: 22.163, Ka2_energy: 21.990, Kb_energy: 24.942, K_edge: 25.514, color: "#8c564b" },
+        };
+
+        const crystalData = {
+            "Ge(111, curved)":{ d_spacing_A: 3.266, mosaicity_deg: 0.005, peak_reflectivity: 0.4 },
+            "Si(111, flat)":  { d_spacing_A: 3.135, mosaicity_deg: 0.1,   peak_reflectivity: 0.30 },
+            "Ge(111, flat)":  { d_spacing_A: 3.266, mosaicity_deg: 0.15,  peak_reflectivity: 0.35 },
+            "CaF2(200)":      { d_spacing_A: 2.731, mosaicity_deg: 0.2,   peak_reflectivity: 0.18 },
+            "Graphite(002)":  { d_spacing_A: 3.354, mosaicity_deg: 0.5,   peak_reflectivity: 0.15 },
+        };
+
+        // --- DOM Element References ---
+        const anodeElementSelect = document.getElementById('anodeElementSelect');
+        const crystalSelect = document.getElementById('crystalSelect');
+        const idealAngleDisplay = document.getElementById('idealAngleDisplay');
+        const twoThetaInput = document.getElementById('twoThetaInput');
+        const selectedLambdaDisplay = document.getElementById('selectedLambdaDisplay');
+        const lambdaMinInput = document.getElementById('lambdaMinInput');
+        const lambdaMaxInput = document.getElementById('lambdaMaxInput');
+
+        const canvasSource = document.getElementById('spectrumCanvasSource');
+        const legendSourceDiv = document.getElementById('legendSource');
+
+        const canvasMonochromatized = document.getElementById('spectrumCanvasMonochromatized');
+        const legendMonochromatizedDiv = document.getElementById('legendMonochromatized');
+        
+        // --- Initial Population ---
+        Object.keys(elementData).forEach(key => {
+            const optionAnode = new Option(`${key} (Z=${elementData[key].Z})`, key);
+            anodeElementSelect.add(optionAnode);
+        });
+        anodeElementSelect.value = "Cu";
+
+        Object.keys(crystalData).forEach(key => {
+            const optionCrystal = new Option(key, key);
+            crystalSelect.add(optionCrystal);
+        });
+        crystalSelect.value = "Si(111, flat)";
+
+        // --- Helper Functions ---
+        const degreesToRadians = deg => deg * (Math.PI / 180);
+        const radiansToDegrees = rad => rad * (180 / Math.PI);
+        const energyToWavelength_A = energy_keV => (energy_keV <= 0) ? Infinity : HC_KEV_A / energy_keV;
+        const wavelengthToEnergy_keV = lambda_A => (lambda_A <= 1e-6) ? Infinity : HC_KEV_A / lambda_A;
+        const gaussian = (x, mean, sigma) => Math.exp(-Math.pow(x - mean, 2) / (2 * Math.pow(sigma, 2)));
+
+        // --- Core Calculation Functions ---
+        function calculateEmissionSpectrumData(anodeParams, voltage_kV, current_mA, dataRange) {
+            const Z = anodeParams.Z;
+            const lambda_min_A = energyToWavelength_A(voltage_kV);
+            const num_points_emission = 2000;
+            const spectrumPoints = [];
+            let max_intensity = 0;
+
+            for (let i = 0; i < num_points_emission; i++) {
+                const lambda_A = dataRange.min + (i / (num_points_emission - 1)) * (dataRange.max - dataRange.min);
+                if (lambda_A < 1e-4) { 
+                     spectrumPoints.push({ lambda: lambda_A, intensity: 0}); continue;
+                }
+
+                let intensity_brems = 0;
+                if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity && lambda_A !== 0) {
+                    intensity_brems = current_mA * Z * ( (1 / lambda_min_A) - (1 / lambda_A) ) / (lambda_A * lambda_A);
+                    intensity_brems = Math.max(0, intensity_brems);
+                }
+
+                let intensity_lines = 0;
+                const line_current_factor = current_mA / 10.0;
+
+                if (voltage_kV > anodeParams.K_edge) {
+                    const overvoltage_K_factor = Math.pow(Math.max(0, voltage_kV - anodeParams.K_edge), 1.65);
+                    const base_K_char_peak_intensity = line_current_factor * overvoltage_K_factor * CHAR_LINE_INTENSITY_SCALAR;
+                    intensity_lines += gaussian(lambda_A, energyToWavelength_A(anodeParams.Ka1_energy), 0.0005) * base_K_char_peak_intensity * 2.0;
+                    intensity_lines += gaussian(lambda_A, energyToWavelength_A(anodeParams.Ka2_energy), 0.0005) * base_K_char_peak_intensity * 1.0;
+                    intensity_lines += gaussian(lambda_A, energyToWavelength_A(anodeParams.Kb_energy), 0.0007) * base_K_char_peak_intensity * 0.5;
+                }
+                
+                const total_intensity = intensity_brems + intensity_lines;
+                spectrumPoints.push({ lambda: lambda_A, intensity: total_intensity });
+                if (total_intensity > max_intensity) max_intensity = total_intensity;
+            }
+            return { points: spectrumPoints, max_intensity: max_intensity };
+        }
+
+        function calculateIdealBraggAngle(sourceSpectrum, anodeParams, crystalParams) {
+            const lambda_Ka1_A = energyToWavelength_A(anodeParams.Ka1_energy);
+            const lambda_Ka2_A = energyToWavelength_A(anodeParams.Ka2_energy);
+            
+            const search_min_A = Math.min(lambda_Ka1_A, lambda_Ka2_A) - 0.01;
+            const search_max_A = Math.max(lambda_Ka1_A, lambda_Ka2_A) + 0.01;
+
+            let peak_lambda = lambda_Ka1_A;
+            let max_intensity = -1;
+
+            sourceSpectrum.points.forEach(p => {
+                if (p.lambda >= search_min_A && p.lambda <= search_max_A) {
+                    if (p.intensity > max_intensity) {
+                        max_intensity = p.intensity;
+                        peak_lambda = p.lambda;
+                    }
+                }
+            });
+
+            const d_spacing = crystalParams.d_spacing_A;
+            const sin_theta = peak_lambda / (2 * d_spacing);
+
+            if (Math.abs(sin_theta) > 1) return null;
+            
+            const theta_rad = Math.asin(sin_theta);
+            return radiansToDegrees(2 * theta_rad);
+        }
+        
+        function calculateMonochromatizedSpectrum(sourceSpectrum, crystalParams, operationalAngle_2theta) {
+            const monochromatizedPoints = [];
+            let max_intensity = 0;
+            const d_spacing = crystalParams.d_spacing_A;
+            const mosaicity_rad = degreesToRadians(crystalParams.mosaicity_deg);
+            const theta_rad = degreesToRadians(operationalAngle_2theta / 2);
+            
+            const orderReflectivity = [1.0, 0.2, 0.05]; 
+
+            sourceSpectrum.points.forEach(p => {
+                let total_reflectivity = 0;
+
+                for (let n = 1; n <= 3; n++) {
+                    const lambda_center_n = (2 * d_spacing / n) * Math.sin(theta_rad);
+                    const d_lambda_d_theta = (2 * d_spacing / n) * Math.cos(theta_rad);
+                    const fwhm_lambda_n = Math.abs(d_lambda_d_theta * mosaicity_rad);
+                    const sigma_lambda_n = fwhm_lambda_n * FWHM_TO_SIGMA;
+
+                    if (sigma_lambda_n > 1e-6) {
+                        const reflectivity_n = gaussian(p.lambda, lambda_center_n, sigma_lambda_n);
+                        total_reflectivity += reflectivity_n * orderReflectivity[n - 1];
+                    }
+                }
+                
+                const final_intensity = p.intensity * total_reflectivity * crystalParams.peak_reflectivity;
+
+                monochromatizedPoints.push({ lambda: p.lambda, intensity: final_intensity });
+                if (final_intensity > max_intensity) max_intensity = final_intensity;
+            });
+
+            const primary_lambda = (2 * d_spacing) * Math.sin(theta_rad);
+
+            return { 
+                points: monochromatizedPoints, 
+                max_intensity: max_intensity,
+                selected_lambda_A: primary_lambda
+            };
+        }
+
+        // --- Plotting ---
+        function plotFunction(canvas, ctx, options) {
+            const { displayRange, datasets, legendDiv, legendItems, drawYAxis } = options;
+            const rect = canvas.getBoundingClientRect();
+            ctx.clearRect(0, 0, rect.width, rect.height);
+            
+            const p = { left: 80, right: 30, top: 40, bottom: 60 }; 
+            const plotWidth = rect.width - p.left - p.right;
+            const plotHeight = rect.height - p.top - p.bottom;
+            
+            if (plotWidth <= 0 || plotHeight <= 0) return;
+
+            ctx.strokeStyle = "#888";
+            ctx.lineWidth = 1;
+
+            ctx.beginPath(); 
+            ctx.rect(p.left, p.top, plotWidth, plotHeight);
+            ctx.stroke();
+            
+            // X-Axis (Wavelength)
+            const x_range_lambda = displayRange.max - displayRange.min;
+            ctx.font = AXIS_FONT;
+            ctx.fillStyle = "#333";
+            const num_x_ticks = Math.max(2, Math.min(10, Math.floor(plotWidth / 80)));
+            ctx.textAlign = "center";
+            
+            ctx.beginPath();
+            if (x_range_lambda > 1e-6) {
+                for (let i = 0; i <= num_x_ticks; i++) {
+                    const lambda_val = displayRange.min + i * x_range_lambda / num_x_ticks;
+                    const x = p.left + (i / num_x_ticks) * plotWidth;
+                    ctx.moveTo(x, p.top + plotHeight);
+                    ctx.lineTo(x, p.top + plotHeight + 5);
+                    ctx.fillText(lambda_val.toFixed(2), x, p.top + plotHeight + 22);
+                }
+            }
+            ctx.stroke();
+
+            ctx.font = TITLE_FONT;
+            ctx.fillText("Longueur d'onde (Å)", p.left + plotWidth / 2, p.top + plotHeight + 45);
+            
+            if (drawYAxis !== false) {
+                const dataset = datasets[0];
+                const { yAxisLabel, yMax } = dataset;
+                
+                ctx.textAlign = "right";
+                ctx.font = AXIS_FONT;
+                ctx.beginPath();
+                for (let i = 0; i <= 5; i++) {
+                    const val = (i / 5) * yMax;
+                    const y = p.top + plotHeight - (i / 5) * plotHeight;
+                    ctx.moveTo(p.left, y);
+                    ctx.lineTo(p.left - 5, y);
+                    ctx.fillText(val.toExponential(1), p.left - 10, y + 4);
+                }
+                ctx.stroke();
+
+                ctx.save();
+                ctx.translate(p.left / 2 - 15, p.top + plotHeight / 2); 
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.font = TITLE_FONT;
+                ctx.fillText(yAxisLabel, 0, 0);
+                ctx.restore();
+            }
+
+            datasets.forEach(dataset => {
+                const { data, color, yKey, yMax } = dataset;
+                if (!data) return;
+
+                ctx.beginPath();
+                let firstPoint = true;
+                if (x_range_lambda > 1e-6) {
+                    data.points.forEach(pt => {
+                        const lambda_val = pt.lambda;
+                        if (lambda_val >= displayRange.min && lambda_val <= displayRange.max) {
+                            const y_val = pt[yKey];
+                            const x_pos_norm = (lambda_val - displayRange.min) / x_range_lambda;
+                            const x = p.left + x_pos_norm * plotWidth;
+                            const y = p.top + plotHeight - Math.max(0, Math.min(1, y_val / yMax)) * plotHeight; 
+                            if (firstPoint) { ctx.moveTo(x, y); firstPoint = false; } 
+                            else { ctx.lineTo(x, y); }
+                        }
+                    });
+                }
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2.5; 
+                ctx.stroke();
+            });
+
+            if(legendDiv && legendItems) {
+                legendDiv.innerHTML = legendItems.map(item => 
+                    `<div class="legend-item"><div class="legend-color" style="background-color:${item.color};"></div>${item.label}</div>`
+                ).join('');
+            }
+        }
+
+        // --- Main Simulation Update ---
+        function updateSimulation(sourceChanged = false) {
+            const ctxSource = canvasSource.getContext('2d');
+            const ctxMonochromatized = canvasMonochromatized.getContext('2d');
+
+            const anodeKey = anodeElementSelect.value;
+            const crystalKey = crystalSelect.value;
+            const voltage = 40;
+            const current = 30;
+            
+            let lambdaMin = parseFloat(lambdaMinInput.value);
+            let lambdaMax = parseFloat(lambdaMaxInput.value);
+
+            if (isNaN(lambdaMin) || lambdaMin < 0.1) { lambdaMin = 0.1; lambdaMinInput.value = 0.1; }
+            if (isNaN(lambdaMax) || lambdaMax > 4.0) { lambdaMax = 4.0; lambdaMaxInput.value = 4.0; }
+            if (lambdaMin >= lambdaMax) {
+                lambdaMin = lambdaMax - 0.1;
+                lambdaMinInput.value = lambdaMin.toFixed(1);
+            }
+
+            const displayRange = { min: lambdaMin, max: lambdaMax };
+
+            const anodeParams = elementData[anodeKey];
+            const crystalParams = crystalData[crystalKey];
+            
+            const sourceSpectrum = calculateEmissionSpectrumData(anodeParams, voltage, current, displayRange);
+            const idealAngle = calculateIdealBraggAngle(sourceSpectrum, anodeParams, crystalParams);
+            
+            if (idealAngle !== null) {
+                idealAngleDisplay.textContent = `${idealAngle.toFixed(3)}°`;
+                if (sourceChanged) {
+                    twoThetaInput.value = idealAngle.toFixed(3);
+                }
+            } else {
+                idealAngleDisplay.textContent = "N/A";
+            }
+            
+            const currentOperationalAngle = parseFloat(twoThetaInput.value);
+            const monochromatizedSpectrum = calculateMonochromatizedSpectrum(sourceSpectrum, crystalParams, currentOperationalAngle);
+            selectedLambdaDisplay.textContent = `${monochromatizedSpectrum.selected_lambda_A.toFixed(4)} Å`;
+
+            const sourceYMax = sourceSpectrum.max_intensity > 0 ? sourceSpectrum.max_intensity * 1.05 : 1;
+            
+            plotFunction(canvasSource, ctxSource, {
+                displayRange,
+                drawYAxis: true,
+                legendDiv: legendSourceDiv,
+                legendItems: [ { label: `Source: ${anodeKey} (40kV, 30mA)`, color: anodeParams.color } ],
+                datasets: [{
+                    data: sourceSpectrum, yKey: 'intensity',
+                    yAxisLabel: 'Intensité Source (u.a.)', color: anodeParams.color,
+                    yMax: sourceYMax
+                }]
+            });
+            
+            plotFunction(canvasMonochromatized, ctxMonochromatized, {
+                displayRange,
+                drawYAxis: false,
+                legendDiv: legendMonochromatizedDiv,
+                legendItems: [ { label: `Faisceau diffracté (ordres 1-3)`, color: MONOCHROMATOR_COLOR } ],
+                datasets: [{
+                    data: monochromatizedSpectrum, yKey: 'intensity',
+                    yAxisLabel: '', color: MONOCHROMATOR_COLOR,
+                    yMax: sourceYMax
+                }]
+            });
+        }
+
+        // --- Event Listeners ---
+        anodeElementSelect.addEventListener('change', () => updateSimulation(true));
+        crystalSelect.addEventListener('change', () => updateSimulation(true));
+        twoThetaInput.addEventListener('input', () => updateSimulation(false));
+        lambdaMinInput.addEventListener('input', () => updateSimulation(false));
+        lambdaMaxInput.addEventListener('input', () => updateSimulation(false));
+
+        // --- Sizing and Resizing Logic ---
+        const resizer = document.getElementById('draghandle');
+        const topPanel = document.getElementById('top-panel');
+        const graphsContainer = document.getElementById('graphs-container');
+        const ghost = document.getElementById('resize-ghost');
+        const pageContainer = document.getElementById('page-container');
+
+        function setCanvasSize(canvas) {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
+                canvas.width = Math.round(rect.width * dpr);
+                canvas.height = Math.round(rect.height * dpr);
+                const ctx = canvas.getContext('2d');
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                return true; 
+            }
+            return false; 
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            let changed1 = setCanvasSize(canvasSource);
+            let changed2 = setCanvasSize(canvasMonochromatized);
+            if(changed1 || changed2) {
+                requestAnimationFrame(() => updateSimulation(false));
+            }
+        });
+        resizeObserver.observe(graphsContainer); 
+
+        let isResizing = false;
+        let finalHeight = 0;
+        resizer.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            isResizing = true;
+            ghost.style.top = `${e.clientY}px`;
+            ghost.style.display = 'block';
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', stopResize);
+        });
+
+        function handleMouseMove(e) {
+            if (!isResizing) return;
+            const newTopHeight = e.clientY - pageContainer.getBoundingClientRect().top;
+            finalHeight = newTopHeight;
+            ghost.style.top = `${e.clientY}px`;
+        }
+
+        function stopResize() {
+            isResizing = false;
+            ghost.style.display = 'none';
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+            if(finalHeight > 0) {
+                 topPanel.style.flexBasis = `${finalHeight}px`;
+            }
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', stopResize);
+        }
+
+        // Initialize
+        updateSimulation(true);
+        
+    </script>
+</body>
+</html>
