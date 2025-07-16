@@ -42,6 +42,25 @@
             --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);
             box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
         }
+         input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            background: #d1d5db; /* gray-300 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 1rem;
+            width: 1rem;
+            border-radius: 9999px;
+            background: #3b82f6; /* blue-500 */
+            cursor: pointer;
+            margin-top: -0.25rem;
+        }
     </style>
 </head>
 <body class="flex flex-col h-screen bg-gray-100 overflow-hidden">
@@ -59,8 +78,8 @@
                 <div class="flex items-center gap-2">
                     <label for="function-presets" class="text-sm font-medium text-gray-700">or select a Preset:</label>
                     <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
-                        <option value="off-center-point" selected>Off-Center Point</option>
-                        <option value="two-points">Two Points</option>
+                        <option value="point" selected>Point (Interactive)</option>
+                        <option value="two-points">Two Points (Interactive)</option>
                         <option value="center-point">Center Point</option>
                         <option value="circle">Circle</option>
                         <option value="square">Square</option>
@@ -82,33 +101,38 @@
     <main class="flex-grow p-8 md:p-12 grid grid-cols-1 md:grid-cols-3 gap-12 items-start justify-items-center overflow-auto">
         <div class="w-full flex flex-col items-center">
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source</h3>
-            <div class="relative w-full max-w-[512px] flex flex-col items-center">
+            <div class="relative w-full max-w-[512px]">
                 <p class="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">y</p>
                 <div id="source-wrapper" class="canvas-wrapper relative">
                     <video id="webcam-video" class="hidden" autoplay playsinline></video>
                     <canvas id="sourceCanvas"></canvas>
                     <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
                 </div>
-                <p class="text-sm text-gray-600 mt-1">x</p>
                 <p class="absolute left-0 top-0 -translate-x-full pr-1 text-xs text-gray-500">128</p>
                 <p class="absolute left-0 bottom-0 -translate-x-full pr-1 text-xs text-gray-500">-128</p>
                 <p class="absolute -bottom-4 left-0 text-xs text-gray-500">-128</p>
                 <p class="absolute -bottom-4 right-0 text-xs text-gray-500">128</p>
             </div>
+            <div class="w-full max-w-[512px]">
+                <p class="text-sm text-center text-gray-600 mt-1">x</p>
+            </div>
         </div>
         <div class="w-full flex flex-col items-center">
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Radon Transform (Sinogram)</h3>
-             <div class="relative w-full max-w-[512px] flex flex-col items-center">
+            <div class="relative w-full max-w-[512px]">
                 <p class="absolute -left-8 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">Position (ρ)</p>
                 <div id="radon-wrapper" class="canvas-wrapper relative">
                     <canvas id="radonCanvas"></canvas>
                     <canvas id="radonOverlayCanvas" class="overlay-canvas"></canvas>
                 </div>
-                <p class="text-sm text-gray-600 mt-1">Angle (θ)</p>
-                <p class="absolute -bottom-4 left-0 text-xs text-gray-500">0°</p>
-                <p class="absolute -bottom-4 right-0 text-xs text-gray-500">180°</p>
                 <p id="rho-max-label" class="absolute left-0 top-0 -translate-x-full pr-1 text-xs text-gray-500"></p>
                 <p id="rho-min-label" class="absolute left-0 bottom-0 -translate-x-full pr-1 text-xs text-gray-500"></p>
+            </div>
+            <div class="w-full max-w-[512px]">
+                 <div id="sweep-container" class="w-full mt-2 hidden">
+                    <input type="range" id="sweep-slider" min="0" value="0">
+                    <label for="sweep-slider" class="block text-center text-sm font-medium text-gray-700 mt-1">Sweep Angle (θ): <span id="sweep-value" class="font-mono">0</span>°</label>
+                </div>
             </div>
         </div>
         <div class="w-full flex flex-col items-center">
@@ -154,38 +178,42 @@
             sourceOverlayCanvas = document.getElementById('sourceOverlayCanvas'),
             sourceOverlayCtx = sourceOverlayCanvas.getContext('2d'),
             radonOverlayCanvas = document.getElementById('radonOverlayCanvas'),
-            radonOverlayCtx = radonOverlayCanvas.getContext('2d');
+            radonOverlayCtx = radonOverlayCanvas.getContext('2d'),
+            sweepContainer = document.getElementById('sweep-container'),
+            sweepSlider = document.getElementById('sweep-slider'),
+            sweepValue = document.getElementById('sweep-value');
 
         // --- Constants & State ---
         const IMG_SIZE = 256;
         const NUM_ANGLES = 180;
-        const INTERACTIVE_MODES = ['off-center-point', 'two-points'];
+        const INTERACTIVE_MODES = ['point', 'two-points'];
         let currentMode = null, webcamStream = null, sourceImage = new Image(), animationFrameId = null;
         let randomPoints = [];
+        let globalRhoMax = 0;
 
         // --- Initial Setup ---
         [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
+        sweepSlider.max = NUM_ANGLES - 1;
+
         useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
         useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
         imageUpload.addEventListener('change', handleImageUpload);
         functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
         filterCheckbox.addEventListener('change', () => performTransform());
-        setupInteractiveGuides();
+        sweepSlider.addEventListener('input', e => handleSweep(parseInt(e.target.value)));
+
         setupMode('function');
         performTransform();
 
         // --- Mode Setup ---
         function setupMode(mode) {
             stopWebcam();
-            handleMouseOut();
             currentMode = mode;
             [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
-            
-            if (mode === 'function' && INTERACTIVE_MODES.includes(functionPresets.value)) {
-                sourceWrapper.style.cursor = 'ew-resize';
-            } else {
-                sourceWrapper.style.cursor = 'crosshair';
-            }
+            sourceWrapper.style.cursor = 'default';
+
+            const isInteractive = mode === 'function' && INTERACTIVE_MODES.includes(functionPresets.value);
+            sweepContainer.classList.toggle('hidden', !isInteractive);
             
             if (mode === 'upload') {
                 webcamVideo.classList.add('hidden');
@@ -193,7 +221,6 @@
                 useUploadBtn.classList.add('active-btn');
                 statusEl.textContent = 'Select an image file to begin.';
             } else if (mode === 'webcam') {
-                sourceWrapper.style.cursor = 'default';
                 useWebcamBtn.classList.add('active-btn');
                 startWebcam();
             } else if (mode === 'function') {
@@ -253,12 +280,13 @@
             statusEl.textContent = 'Processing...';
 
             generateSource();
-            setupMode(currentMode); // Refresh mode to update cursor
+            setupMode(currentMode);
             
             const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
             const { sinogram, rhoMax } = radonTransform(imageData);
             drawSinogram(sinogram);
 
+            globalRhoMax = rhoMax;
             rhoMaxLabel.textContent = `+${Math.round(rhoMax)}`;
             rhoMinLabel.textContent = `-${Math.round(rhoMax)}`;
 
@@ -266,6 +294,14 @@
             const finalSinogram = useFilter ? filterSinogram(sinogram) : sinogram;
             const reconstructedData = inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE);
             drawReconstruction(reconstructedData);
+
+            if (INTERACTIVE_MODES.includes(functionPresets.value)) {
+                sweepSlider.value = 0;
+                handleSweep(0);
+            } else {
+                 sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+                 radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
+            }
 
             const endTime = performance.now();
             statusEl.textContent = `Transform complete (${Math.round(endTime-startTime)}ms).`;
@@ -298,7 +334,6 @@
                         const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
                         if (intensity > 5) {
                             for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                                // Use standard math coordinates (Y-up) 
                                 const y_math = -(y - centerY);
                                 const rho = (x - centerX) * Math.cos(angles[i_theta]) + y_math * Math.sin(angles[i_theta]);
                                 const i_rho = Math.round(rho) + Math.ceil(rhoMax);
@@ -354,7 +389,6 @@
                 const cosA = Math.cos(angle), sinA = Math.sin(angle);
                 for (let y = 0; y < height; y++) {
                     for (let x = 0; x < width; x++) {
-                        // Use standard math coordinates to match forward transform
                         const y_math = -(y - centerY);
                         const rho = (x - centerX) * cosA + y_math * sinA;
                         const i_rho = Math.round(rho) + rhoMax;
@@ -448,6 +482,7 @@
             } else {
                 sourceCtx.save();
                 sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
+                 sourceCtx.fillStyle = 'white';
                 if (type === 'circle') {
                     sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.4, 0, 2 * Math.PI); sourceCtx.fill();
                 } else if (type === 'square') {
@@ -460,26 +495,21 @@
                     sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI); sourceCtx.fill();
                     sourceCtx.fillStyle = 'gray';
                     sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); sourceCtx.fill();
-                } else if (type === 'off-center-point') {
-                    const x = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
-                    const y = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
+                } else if (type === 'point') {
+                    const x = 60; // Fixed position for consistency
+                    const y = 40;
                     randomPoints.push({ x, y });
-                    sourceCtx.fillStyle = 'white';
                     sourceCtx.fillRect(x - 2, -y - 2, 4, 4);
                 } else if (type === 'two-points') {
-                    const x1 = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
-                    const y1 = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
+                    const x1 = 60, y1 = 40;
                     randomPoints.push({ x: x1, y: y1 });
-                    sourceCtx.fillStyle = 'white';
                     sourceCtx.fillRect(x1 - 2, -y1 - 2, 4, 4);
                     
-                    const x2 = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
-                    const y2 = (Math.random() * 0.8 - 0.4) * IMG_SIZE;
+                    const x2 = -30, y2 = -70;
                     randomPoints.push({ x: x2, y: y2 });
                     sourceCtx.fillStyle = 'gray';
                     sourceCtx.fillRect(x2 - 2, -y2 - 2, 4, 4);
                 } else if (type === 'center-point') {
-                    sourceCtx.fillStyle = 'white';
                     sourceCtx.fillRect(-2, -2, 4, 4);
                 }
                 sourceCtx.restore();
@@ -533,28 +563,20 @@
         }
 
         // --- Interactive Guides ---
-        function setupInteractiveGuides() {
-            sourceWrapper.addEventListener('mousemove', handleMouseMove);
-            sourceWrapper.addEventListener('mouseout', handleMouseOut);
-        }
-
-        function handleMouseMove(e) {
-            if (currentMode !== 'function' || !INTERACTIVE_MODES.includes(functionPresets.value) || randomPoints.length === 0) {
-                handleMouseOut();
+        function handleSweep(i_theta) {
+            sweepValue.textContent = i_theta; // Update the angle value display
+            if (randomPoints.length === 0) {
+                sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+                radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
                 return;
             }
 
             sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
             radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
             
-            const rect = sourceWrapper.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            
             const centerX = sourceOverlayCanvas.width / 2;
             const centerY = sourceOverlayCanvas.height / 2;
-
-            const clampedMouseX = Math.max(0, Math.min(mouseX, sourceOverlayCanvas.width));
-            const theta = (clampedMouseX / sourceOverlayCanvas.width) * Math.PI;
+            const theta = (i_theta / (NUM_ANGLES - 1)) * Math.PI;
 
             const lineLength = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
             const cos_t = Math.cos(theta);
@@ -585,7 +607,6 @@
             
             // --- Sinogram Common Elements ---
             const x_pos = (theta / Math.PI) * radonOverlayCanvas.width;
-            const rhoMax = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
             
             // Orange vertical line for theta on sinogram
             radonOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.8)';
@@ -604,11 +625,9 @@
                 const lineColor = rhoLineColors[index % rhoLineColors.length];
                 const rho = point.x * cos_t + point.y * sin_t;
                 
-                // Point's absolute position on canvas
                 const point_x_abs = centerX + point.x;
                 const point_y_abs = centerY - point.y;
 
-                // Projected point's absolute position on canvas
                 const proj_x_abs = centerX + rho * cos_t;
                 const proj_y_abs = centerY - rho * sin_t;
 
@@ -638,7 +657,7 @@
                 sourceOverlayCtx.fill();
 
                 // --- Sinogram Canvas Indicators ---
-                const y_rho_pos = (radonOverlayCanvas.height / 2) - (rho / rhoMax) * (radonOverlayCanvas.height / 2);
+                const y_rho_pos = (radonOverlayCanvas.height / 2) - (rho / globalRhoMax) * (radonOverlayCanvas.height / 2);
             
                 // Horizontal line for rho
                 radonOverlayCtx.strokeStyle = lineColor;
@@ -654,11 +673,6 @@
                 radonOverlayCtx.arc(x_pos, y_rho_pos, 4, 0, 2 * Math.PI);
                 radonOverlayCtx.fill();
             });
-        }
-
-        function handleMouseOut() {
-            sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
-            radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
         }
     </script>
 </body>
