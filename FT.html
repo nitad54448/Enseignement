@@ -58,22 +58,18 @@
                 <button id="use-webcam-btn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 focus:outline-none ring-green-500 ring-offset-2 transition-all duration-200">
                     Use Webcam
                 </button>
-                <button id="use-function-btn" class="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 focus:outline-none ring-indigo-500 ring-offset-2 transition-all duration-200">
-                    Generate Function
-                </button>
                  <input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
             </div>
             <div id="status" class="w-full sm:w-auto text-sm text-center text-gray-600 mt-2 sm:mt-0">Select a source to begin.</div>
         </div>
-        <div id="function-section" class="hidden container mx-auto mt-4">
+        <div id="function-section" class="container mx-auto mt-4">
             <div class="flex items-center gap-2">
                 <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
-                    <option value="">Choose a preset...</option>
+                    <option value="">Choose a function or pattern...</option>
                     <optgroup label="Crystallography &amp; Diffraction">
                         <option value="cubic-lattice">Cubic Lattice (2D)</option>
                         <option value="tetragonal-lattice">Tetragonal Lattice (2D)</option>
                         <option value="hexagonal-lattice">Hexagonal Lattice (2D)</option>
-                        <option value="bcc-lattice">Body-Centered Lattice (2D)</option>
                         <option value="diffraction-grating">Diffraction Grating</option>
                         <option value="powder-rings">Powder Pattern (Polycrystal)</option>
                     </optgroup>
@@ -85,9 +81,8 @@
                         <option value="(Math.abs(x) < 0.3 && Math.abs(y) < 0.3) ? 255 : 0">Square Aperture</option>
                     </optgroup>
                 </select>
-                <input type="text" id="function-input" placeholder="Enter a function of x and y..." class="flex-grow p-2 border rounded-lg">
-                <button id="generate-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">Generate</button>
-            </div>
+                <input type="text" id="function-input" placeholder="...or enter a custom function of x and y" class="flex-grow p-2 border rounded-lg">
+<button id="generate-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">Generate</button>            </div>
              <div id="crystal-controls" class="hidden mt-3 p-3 bg-gray-50 rounded-lg flex items-center justify-center flex-wrap gap-x-6 gap-y-2">
                 <div class="flex items-center gap-2">
                     <label for="motif-type" class="text-sm font-medium">Motif:</label>
@@ -100,8 +95,8 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <label for="motif-size" class="text-sm font-medium">Motif Size:</label>
-                    <input type="range" id="motif-size" min="1" max="20" value="4" class="w-24">
-                    <span id="motif-size-value" class="text-sm font-semibold w-4">4</span>
+                    <input type="range" id="motif-size" min="1" max="20" value="8" class="w-24">
+                    <span id="motif-size-value" class="text-sm font-semibold w-4">8</span>
                 </div>
                  <div class="flex items-center gap-2">
                     <label for="cell-size" class="text-sm font-medium">Cell Size:</label>
@@ -139,7 +134,6 @@
         // --- DOM Elements ---
         const useUploadBtn = document.getElementById('use-upload-btn');
         const useWebcamBtn = document.getElementById('use-webcam-btn');
-        const useFunctionBtn = document.getElementById('use-function-btn');
         const imageUpload = document.getElementById('image-upload');
         const statusEl = document.getElementById('status');
         const webcamVideo = document.getElementById('webcam-video');
@@ -173,7 +167,7 @@
         
         const CRYSTAL_PRESETS = [
             'cubic-lattice', 'tetragonal-lattice', 'hexagonal-lattice',
-            'bcc-lattice', 'diffraction-grating', 'powder-rings'
+            'diffraction-grating', 'powder-rings'
         ];
 
         // --- ALL FUNCTION DEFINITIONS ---
@@ -189,12 +183,10 @@
             currentMode = mode;
             stopTransformLoop();
             
-            [useUploadBtn, useWebcamBtn, useFunctionBtn].forEach(btn => btn.classList.remove('active-btn'));
+            [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
             
             crystalControls.classList.add('hidden');
-            functionSection.classList.add('hidden');
-            useFunctionBtn.classList.remove('hidden');
-
+            
             if (mode === 'upload') {
                 stopWebcam();
                 webcamVideo.classList.add('hidden');
@@ -209,8 +201,6 @@
                 stopWebcam();
                 webcamVideo.classList.add('hidden');
                 sourceCanvas.classList.remove('hidden');
-                functionSection.classList.remove('hidden');
-                useFunctionBtn.classList.add('hidden');
                 statusEl.textContent = 'Choose a preset or enter a function.';
             }
         }
@@ -305,15 +295,6 @@ function generateCrystalPattern(patternType) {
             }
             break;
         }
-        case 'bcc-lattice': {
-            for (let x = -FFT_SIZE / 2; x < FFT_SIZE / 2; x += cellSize) {
-                for (let y = -FFT_SIZE / 2; y < FFT_SIZE / 2; y += cellSize) {
-                    drawMotif(sourceCtx, motifType, x, y, motifSize);
-                    drawMotif(sourceCtx, motifType, x + cellSize / 2, y + cellSize / 2, motifSize);
-                }
-            }
-            break;
-        }
         case 'diffraction-grating': {
             const width = motifSize;
             sourceCtx.restore(); 
@@ -325,16 +306,18 @@ function generateCrystalPattern(patternType) {
             break;
         }
         case 'powder-rings': {
-            const radii = [cellSize, cellSize * 1.6, cellSize * 2.2];
-            radii.forEach(r => {
-                const numPoints = Math.floor(2 * Math.PI * r / (motifSize * 4));
-                for (let i = 0; i < numPoints; i++) {
-                    const angle = (i / numPoints) * 2 * Math.PI;
-                    const x = r * Math.cos(angle);
-                    const y = r * Math.sin(angle);
-                    drawMotif(sourceCtx, motifType, x, y, motifSize);
-                }
-            });
+            const numSquares = 250; // More squares
+            const size = parseInt(motifSizeSlider.value);
+            for (let i = 0; i < numSquares; i++) {
+                const x = (Math.random() - 0.5) * (FFT_SIZE - size * 2);
+                const y = (Math.random() - 0.5) * (FFT_SIZE - size * 2);
+                const angle = Math.random() * 2 * Math.PI;
+                sourceCtx.save();
+                sourceCtx.translate(x, y);
+                sourceCtx.rotate(angle);
+                sourceCtx.fillRect(-size, -size, size * 2, size * 2);
+                sourceCtx.restore();
+            }
             break;
         }
     }
@@ -570,9 +553,12 @@ function fft2d(matrix) {
         // --- ATTACH EVENT LISTENERS AND START ---
         useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
         useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
-        useFunctionBtn.addEventListener('click', () => setupMode('function'));
         imageUpload.addEventListener('change', handleImageUpload);
-        generateBtn.addEventListener('click', generateFromFunction);
+        
+        generateBtn.addEventListener('click', () => {
+            setupMode('function');
+            generateFromFunction();
+        });
         
         functionPresets.addEventListener('change', () => {
             const value = functionPresets.value;
@@ -580,6 +566,7 @@ function fft2d(matrix) {
                 crystalControls.classList.add('hidden');
                 return;
             }
+            setupMode('function');
             functionInput.value = ''; 
             if (CRYSTAL_PRESETS.includes(value)) {
                 crystalControls.classList.remove('hidden');
