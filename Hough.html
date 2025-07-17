@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Hough Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .canvas-wrapper {
+            background-color: #e5e7eb; /* gray-200 */
+            display: grid;
+            place-items: center;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 512px;
+            aspect-ratio: 1 / 1;
+        }
+        .canvas-wrapper > canvas {
+            grid-area: 1 / 1 / 2 / 2;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+         .projection-wrapper {
+            background-color: #e5e7eb; /* gray-200 */
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 512px;
+            height: 80px;
+        }
+        .overlay-canvas {
+            pointer-events: none;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        .active-btn {
+            --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+            --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+            box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            background: #d1d5db; /* gray-300 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 1rem;
+            width: 1rem;
+            border-radius: 9999px;
+            background: #3b82f6; /* blue-500 */
+            cursor: pointer;
+            margin-top: -0.25rem;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-gray-100 overflow-hidden">
+
+    <header class="bg-white p-3 shadow-md w-full z-10">
+        <div class="container mx-auto flex items-center justify-between flex-wrap gap-4">
+            <h1 class="text-xl font-bold text-gray-800 hidden sm:block">2D Hough Explorer</h1>
+            <div class="flex items-center gap-4 flex-wrap">
+                <button id="use-upload-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none ring-blue-500 ring-offset-2 transition-all duration-200">
+                    Upload Image
+                </button>
+                <div class="flex items-center gap-2">
+                    <label for="function-presets" class="text-sm font-medium text-gray-700">or select a Preset:</label>
+                    <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
+                        <option value="simple-line" selected>Simple Line</option>
+                        <option value="intersecting-lines">Intersecting Lines</option>
+                        <option value="parallel-lines">Parallel Lines</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="square">Square</option>
+                        <option value="circle">Circle</option>
+                        <option value="ellipse">Ellipse</option>
+                        <option value="star">Star</option>
+                        <option value="building">Building Facade</option>
+                        <option value="sudoku">Sudoku Grid</option>
+                    </select>
+                </div>
+                 <div class="flex items-center gap-2">
+                    <label for="threshold-slider" class="text-sm font-medium text-gray-700">Detection Threshold:</label>
+                    <input type="range" id="threshold-slider" min="0" max="100" value="60">
+                    <span id="threshold-value" class="text-sm font-mono text-gray-700 w-8">60</span>
+                </div>
+                 <input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
+            </div>
+            <div id="status" class="w-full sm:w-auto text-sm text-center text-gray-600 mt-2 sm:mt-0">Select a source to begin.</div>
+        </div>
+    </header>
+
+    <main class="flex-grow p-4 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-8 items-start justify-items-center overflow-auto">
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">1. Source</h3>
+            <div class="relative w-full max-w-[512px] flex flex-col items-center">
+                <div id="source-wrapper" class="canvas-wrapper">
+                    <canvas id="sourceCanvas"></canvas>
+                    <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+            </div>
+             <div class="w-full max-w-[512px]">
+                <div id="sweep-container" class="w-full mt-4">
+                    <input type="range" id="sweep-slider" min="0" value="0">
+                    <label for="sweep-slider" class="block text-center text-sm font-medium text-gray-700 mt-1">Sweep Angle (θ): <span id="sweep-value" class="font-mono">0</span>°</label>
+                </div>
+            </div>
+        </div>
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">2. Hough Space</h3>
+             <div class="relative w-full max-w-[512px]">
+                <p class="absolute -left-8 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">Position (ρ)</p>
+                <div id="hough-wrapper" class="canvas-wrapper relative">
+                    <canvas id="houghCanvas"></canvas>
+                    <canvas id="houghOverlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+                <p id="rho-max-label" class="absolute left-0 top-0 -translate-x-full pr-1 text-xs text-gray-500"></p>
+                <p id="rho-min-label" class="absolute left-0 bottom-0 -translate-x-full pr-1 text-xs text-gray-500"></p>
+                <p class="absolute -bottom-5 left-0 text-xs text-gray-500">0°</p>
+                <p class="absolute -bottom-5 right-0 text-xs text-gray-500">180°</p>
+             </div>
+            <div class="w-full max-w-[512px] mt-8">
+                 <p class="text-sm text-center text-gray-600 mt-1 mb-2">Projection Profile at θ = <span id="sweep-value-2" class="font-mono">0</span>°</p>
+                 <div class="projection-wrapper">
+                    <canvas id="projectionCanvas"></canvas>
+                 </div>
+            </div>
+        </div>
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">3. Detected Lines</h3>
+             <div class="relative w-full max-w-[512px] flex flex-col items-center">
+                <div id="recon-wrapper" class="canvas-wrapper">
+                    <canvas id="detectionCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="w-full p-2 bg-gray-100">
+        <p class="text-left text-xs text-gray-500">
+            NitaD, Univ. Paris-Saclay, 2025
+        </p>
+    </footer>
+
+    <script>
+        // --- DOM Elements ---
+        const useUploadBtn = document.getElementById('use-upload-btn'),
+            imageUpload = document.getElementById('image-upload'),
+            statusEl = document.getElementById('status'),
+            sourceCanvas = document.getElementById('sourceCanvas'),
+            sourceCtx = sourceCanvas.getContext('2d'),
+            houghCanvas = document.getElementById('houghCanvas'),
+            houghCtx = houghCanvas.getContext('2d'),
+            projectionCanvas = document.getElementById('projectionCanvas'),
+            projectionCtx = projectionCanvas.getContext('2d'),
+            detectionCanvas = document.getElementById('detectionCanvas'),
+            detectionCtx = detectionCanvas.getContext('2d'),
+            functionPresets = document.getElementById('function-presets'),
+            thresholdSlider = document.getElementById('threshold-slider'),
+            thresholdValueEl = document.getElementById('threshold-value'),
+            rhoMaxLabel = document.getElementById('rho-max-label'),
+            rhoMinLabel = document.getElementById('rho-min-label'),
+            sourceOverlayCanvas = document.getElementById('sourceOverlayCanvas'),
+            sourceOverlayCtx = sourceOverlayCanvas.getContext('2d'),
+            houghOverlayCanvas = document.getElementById('houghOverlayCanvas'),
+            houghOverlayCtx = houghOverlayCanvas.getContext('2d'),
+            sweepContainer = document.getElementById('sweep-container'),
+            sweepSlider = document.getElementById('sweep-slider'),
+            sweepValue = document.getElementById('sweep-value'),
+            sweepValue2 = document.getElementById('sweep-value-2');
+
+
+        // --- Constants & State ---
+        const IMG_SIZE = 256;
+        const NUM_ANGLES = 180;
+        let NUM_RHO, RHO_MAX;
+        let currentMode = null, sourceImage = new Image();
+        let accumulator = [], maxAccumulatorValue = 0;
+        let cosAngles = new Float32Array(NUM_ANGLES), sinAngles = new Float32Array(NUM_ANGLES);
+
+        // --- Initial Setup ---
+        function initializeParameters() {
+            RHO_MAX = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
+            NUM_RHO = 2 * Math.ceil(RHO_MAX);
+            
+            [sourceCanvas, detectionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
+            projectionCanvas.width = NUM_RHO;
+            projectionCanvas.height = 80;
+
+            for(let i=0; i < NUM_ANGLES; i++) {
+                const angle = i * Math.PI / NUM_ANGLES;
+                cosAngles[i] = Math.cos(angle);
+                sinAngles[i] = Math.sin(angle);
+            }
+            sweepSlider.max = NUM_ANGLES - 1;
+        }
+        
+        initializeParameters();
+
+        useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
+        imageUpload.addEventListener('change', handleImageUpload);
+        functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
+        sweepSlider.addEventListener('input', (e) => handleSliderChange(parseInt(e.target.value)));
+        thresholdSlider.addEventListener('input', (e) => {
+            thresholdValueEl.textContent = e.target.value;
+            drawDetectedLines();
+        });
+        
+        setupMode('function');
+        performTransform();
+
+        // --- Mode Setup ---
+        function setupMode(mode) {
+            currentMode = mode;
+            useUploadBtn.classList.remove('active-btn');
+            
+            if (mode === 'upload') {
+                useUploadBtn.classList.add('active-btn');
+                statusEl.textContent = 'Select an image file to begin.';
+            } else if (mode === 'function') {
+                statusEl.textContent = 'Choose a preset to generate a pattern.';
+            }
+        }
+        
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                sourceImage.src = URL.createObjectURL(file);
+                sourceImage.onload = () => {
+                    setupMode('upload');
+                    performTransform();
+                };
+            }
+        }
+
+        // --- Main Execution ---
+        function performTransform() {
+            const startTime = performance.now();
+            
+            // 1. Generate Source Image & Setup Mode
+            generateSource();
+            setupMode(currentMode);
+            
+            // 2. Pre-processing: Edge Detection (Internal)
+            const sourceImageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
+            const edgeImageData = sobelFilter(sourceImageData);
+
+            // 3. Hough Transform
+            const { accumulator: houghAccumulator, rhoMax: houghRhoMax, maxVotes } = houghTransform(edgeImageData);
+            accumulator = houghAccumulator;
+            RHO_MAX = houghRhoMax;
+            maxAccumulatorValue = maxVotes;
+            
+            rhoMaxLabel.textContent = `+${Math.round(RHO_MAX)}`;
+            rhoMinLabel.textContent = `-${Math.round(RHO_MAX)}`;
+            
+            // 4. Draw main results
+            drawAccumulator();
+            drawDetectedLines();
+            
+            // 5. Initialize interactive display
+            sweepSlider.value = 0;
+            handleSliderChange(0);
+
+            const endTime = performance.now();
+            statusEl.textContent = `Transform complete (${Math.round(endTime-startTime)}ms).`;
+        }
+
+        // --- Data Generation ---
+        function generateSource() {
+            if (currentMode === 'function') {
+                generateFromFunction();
+            } else if (currentMode === 'upload' && sourceImage.src) {
+                drawSourceToCanvas(sourceImage);
+            }
+        }
+
+        // --- Core Logic: Pre-processing, Hough Transform & Line Detection ---
+        function sobelFilter(imageData) {
+            const width = imageData.width;
+            const height = imageData.height;
+            const grayscale = new Uint8ClampedArray(width * height);
+            const output = new ImageData(width, height);
+
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                grayscale[i / 4] = (imageData.data[i] * 0.299) + (imageData.data[i + 1] * 0.587) + (imageData.data[i + 2] * 0.114);
+            }
+            
+            const kernelX = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
+            const kernelY = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]];
+            const SOBEL_THRESHOLD = 80;
+
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    let pixelX = 0, pixelY = 0;
+                    for (let j = -1; j <= 1; j++) {
+                        for (let i = -1; i <= 1; i++) {
+                            const val = grayscale[(y + j) * width + (x + i)];
+                            pixelX += val * kernelX[j + 1][i + 1];
+                            pixelY += val * kernelY[j + 1][i + 1];
+                        }
+                    }
+                    const magnitude = Math.sqrt(pixelX * pixelX + pixelY * pixelY);
+                    const outIdx = (y * width + x) * 4;
+                    const color = magnitude > SOBEL_THRESHOLD ? 255 : 0;
+                    output.data[outIdx] = output.data[outIdx+1] = output.data[outIdx+2] = color;
+                    output.data[outIdx+3] = 255;
+                }
+            }
+            return output;
+        }
+
+        function houghTransform(edgeImageData) {
+            const width = edgeImageData.width, height = edgeImageData.height, data = edgeImageData.data;
+            const centerX = width / 2, centerY = height / 2;
+            const houghRhoMax = Math.hypot(width, height) / 2;
+            const numRho = 2 * Math.ceil(houghRhoMax);
+            const houghAccumulator = Array.from({ length: NUM_ANGLES }, () => new Uint32Array(numRho));
+            let maxVotes = 0;
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    if (data[idx] > 128) { // Is an edge point
+                        for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
+                            const y_math = -(y - centerY);
+                            const x_math = x - centerX;
+                            const rho = x_math * cosAngles[i_theta] + y_math * sinAngles[i_theta];
+                            const i_rho = Math.round(rho) + Math.ceil(houghRhoMax);
+                            if (i_rho >= 0 && i_rho < numRho) {
+                                const currentVotes = ++houghAccumulator[i_theta][i_rho];
+                                if(currentVotes > maxVotes) maxVotes = currentVotes;
+                            }
+                        }
+                    }
+                }
+            }
+            return { accumulator: houghAccumulator, rhoMax: houghRhoMax, maxVotes };
+        }
+        
+        function findAccumulatorPeaks() {
+            const peaks = [];
+            if (accumulator.length === 0 || maxAccumulatorValue === 0) return peaks;
+            
+            const threshold = (thresholdSlider.value / 100) * maxAccumulatorValue;
+
+            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
+                for (let i_rho = 0; i_rho < NUM_RHO; i_rho++) {
+                    const votes = accumulator[i_theta][i_rho];
+                    if (votes >= threshold) {
+                        let isPeak = true;
+                        for (let di = -2; di <= 2; di++) {
+                            for (let dr = -2; dr <= 2; dr++) {
+                                if (di === 0 && dr === 0) continue;
+                                const ni = (i_theta + di + NUM_ANGLES) % NUM_ANGLES;
+                                const nr = i_rho + dr;
+                                if (nr >= 0 && nr < NUM_RHO && accumulator[ni][nr] > votes) {
+                                    isPeak = false;
+                                    break;
+                                }
+                            }
+                            if (!isPeak) break;
+                        }
+                        if (isPeak) peaks.push({ i_theta, i_rho, votes });
+                    }
+                }
+            }
+            return peaks.sort((a, b) => b.votes - a.votes);
+        }
+
+        // --- Visualization Functions ---
+        function drawAccumulator() {
+            if (accumulator.length === 0) return;
+            houghCanvas.width = NUM_ANGLES;
+            houghCanvas.height = NUM_RHO;
+            houghCtx.fillStyle = 'black';
+            houghCtx.fillRect(0, 0, NUM_ANGLES, NUM_RHO);
+            const outputImageData = houghCtx.createImageData(NUM_ANGLES, NUM_RHO);
+            if (maxAccumulatorValue === 0) return;
+
+            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
+                for (let i_rho = 0; i_rho < NUM_RHO; i_rho++) {
+                    const val = Math.pow(accumulator[i_theta][i_rho] / maxAccumulatorValue, 0.5) * 255;
+                    const idx = ((NUM_RHO - 1 - i_rho) * NUM_ANGLES + i_theta) * 4;
+                    outputImageData.data[idx] = outputImageData.data[idx + 1] = outputImageData.data[idx + 2] = val;
+                    outputImageData.data[idx + 3] = 255;
+                }
+            }
+            houghCtx.putImageData(outputImageData, 0, 0);
+        }
+
+        function drawDetectedLines() {
+            const peaks = findAccumulatorPeaks();
+            
+            detectionCtx.fillStyle = 'black';
+            detectionCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+            
+            if (peaks.length === 0) {
+                 handleSliderChange(parseInt(sweepSlider.value));
+                 return;
+            }
+            
+            detectionCtx.save();
+            detectionCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
+            detectionCtx.strokeStyle = 'white';
+            detectionCtx.lineWidth = 1;
+            peaks.forEach(peak => {
+                const theta = peak.i_theta * Math.PI / NUM_ANGLES;
+                const rho = peak.i_rho - (NUM_RHO / 2);
+                const cos_t = Math.cos(theta), sin_t = Math.sin(theta);
+                const x0 = rho * cos_t, y0 = rho * sin_t;
+                const x1 = Math.round(x0 + 1000 * (-sin_t)), y1 = Math.round(y0 + 1000 * (cos_t));
+                const x2 = Math.round(x0 - 1000 * (-sin_t)), y2 = Math.round(y0 - 1000 * (cos_t));
+                detectionCtx.beginPath();
+                detectionCtx.moveTo(x1, -y1);
+                detectionCtx.lineTo(x2, -y2);
+                detectionCtx.stroke();
+            });
+            detectionCtx.restore();
+
+            handleSliderChange(parseInt(sweepSlider.value));
+        }
+
+        // --- Preset Generation & Drawing ---
+        function generateFromFunction() {
+            const type = functionPresets.value;
+            sourceCtx.fillStyle = 'black';
+            sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+            sourceCtx.save();
+            sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
+            sourceCtx.strokeStyle = 'white';
+            
+            const drawLine = (x1, y1, x2, y2) => {
+                sourceCtx.beginPath(); sourceCtx.moveTo(x1, y1); sourceCtx.lineTo(x2, y2); sourceCtx.stroke();
+            };
+
+            switch (type) {
+                case 'simple-line':
+                    sourceCtx.lineWidth = 2;
+                    drawLine(-90, 60, 90, -50);
+                    break;
+                case 'triangle':
+                    sourceCtx.lineWidth = 2;
+                    const pt1 = [-80, -70], pt2 = [90, -50], pt3 = [10, 80];
+                    drawLine(pt1[0],-pt1[1],pt2[0],-pt2[1]);
+                    drawLine(pt2[0],-pt2[1],pt3[0],-pt3[1]);
+                    drawLine(pt3[0],-pt3[1],pt1[0],-pt1[1]);
+                    break;
+                case 'square':
+                    sourceCtx.lineWidth = 2;
+                    const size = 150;
+                    sourceCtx.strokeRect(-size/2, -size/2, size, size);
+                    break;
+                case 'parallel-lines':
+                    sourceCtx.lineWidth = 2;
+                    for(let i = -4; i <= 4; i++) {
+                        const offset = i * 20;
+                        drawLine(-120, -100 + offset, 120, 80 + offset);
+                    }
+                    break;
+                case 'intersecting-lines':
+                    sourceCtx.lineWidth = 2;
+                    drawLine(-100, -80, 100, 60);
+                    drawLine(-100, 80, 100, -60);
+                    break;
+                case 'circle':
+                    sourceCtx.lineWidth = 2;
+                    sourceCtx.beginPath();
+                    sourceCtx.arc(0, 0, 80, 0, 2 * Math.PI);
+                    sourceCtx.stroke();
+                    break;
+                case 'ellipse':
+                     sourceCtx.lineWidth = 2;
+                    sourceCtx.beginPath();
+                    sourceCtx.ellipse(0, 0, 90, 60, 0, 0, 2 * Math.PI);
+                    sourceCtx.stroke();
+                    break;
+                case 'star':
+                    sourceCtx.lineWidth = 2;
+                    sourceCtx.beginPath();
+                    const spikes = 5, outerRadius = 100, innerRadius = 40;
+                    let rot = Math.PI / 2 * 3;
+                    let x, y;
+                    for (let i = 0; i < spikes; i++) {
+                        x = Math.cos(rot) * outerRadius;
+                        y = Math.sin(rot) * outerRadius;
+                        sourceCtx.lineTo(x, y);
+                        rot += (Math.PI * 2) / (spikes * 2);
+
+                        x = Math.cos(rot) * innerRadius;
+                        y = Math.sin(rot) * innerRadius;
+                        sourceCtx.lineTo(x, y);
+                        rot += (Math.PI * 2) / (spikes * 2);
+                    }
+                    sourceCtx.closePath();
+                    sourceCtx.stroke();
+                    break;
+                case 'building':
+                    sourceCtx.lineWidth = 3;
+                    const w = 40, h = 30, gap = 15;
+                    for (let r = -2; r < 2; r++) {
+                        for (let c = -2; c < 2; c++) {
+                            const x = (c + 0.5) * (w + gap);
+                            const y = (r + 0.5) * (h + gap);
+                            sourceCtx.strokeRect(x - w/2, y - h/2, w, h);
+                        }
+                    }
+                    break;
+                case 'sudoku':
+                    const gridSize = 198;
+                    const cellSize = gridSize / 9;
+                    sourceCtx.beginPath();
+                    for(let i = 0; i <= 9; i++) {
+                        const pos = -gridSize/2 + i * cellSize;
+                        sourceCtx.lineWidth = (i % 3 === 0) ? 2.5 : 1;
+                        // vertical lines
+                        sourceCtx.moveTo(pos, -gridSize/2);
+                        sourceCtx.lineTo(pos, gridSize/2);
+                        // horizontal lines
+                        sourceCtx.moveTo(-gridSize/2, pos);
+                        sourceCtx.lineTo(gridSize/2, pos);
+                    }
+                    sourceCtx.stroke();
+                    break;
+            }
+            sourceCtx.restore();
+        }
+        
+        function drawSourceToCanvas(source) {
+            sourceCtx.fillStyle = 'black';
+            sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+            const sourceW = source.width, sourceH = source.height;
+            const ratio = Math.min(IMG_SIZE / sourceW, IMG_SIZE / sourceH);
+            const sx = (IMG_SIZE - sourceW * ratio) / 2, sy = (IMG_SIZE - sourceH * ratio) / 2;
+            sourceCtx.drawImage(source, 0, 0, sourceW, sourceH, sx, sy, sourceW * ratio, sourceH * ratio);
+        }
+
+        function drawProjectionProfile(i_theta) {
+            if (!accumulator || accumulator.length === 0) return;
+
+            const projectionData = accumulator[i_theta];
+            const w = projectionCanvas.width;
+            const h = projectionCanvas.height;
+            projectionCtx.clearRect(0, 0, w, h);
+
+            let maxVal = 0;
+            for(let i=0; i < projectionData.length; i++) {
+                if(projectionData[i] > maxVal) maxVal = projectionData[i];
+            }
+
+            if(maxVal === 0) return;
+
+            projectionCtx.beginPath();
+            projectionCtx.moveTo(0, h);
+            
+            const scaleY = h / maxVal;
+            const scaleX = w / projectionData.length;
+
+            for (let i = 0; i < projectionData.length; i++) {
+                const x = i * scaleX;
+                const y = h - (projectionData[i] * scaleY);
+                projectionCtx.lineTo(x, y);
+            }
+            
+            projectionCtx.lineTo(w, h);
+            projectionCtx.closePath();
+            
+            projectionCtx.fillStyle = 'rgba(59, 130, 246, 0.5)'; // blue-500 with opacity
+            projectionCtx.strokeStyle = 'rgba(59, 130, 246, 1)'; // blue-500
+            projectionCtx.lineWidth = 2;
+            projectionCtx.fill();
+            projectionCtx.stroke();
+        }
+
+        // --- Interactive Guides ---
+        function handleSliderChange(i_theta) {
+            const angleDeg = Math.round(i_theta * 180 / NUM_ANGLES);
+            sweepValue.textContent = angleDeg;
+            sweepValue2.textContent = angleDeg;
+
+            drawProjectionProfile(i_theta);
+
+            sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+            
+            houghOverlayCanvas.width = houghCanvas.width;
+            houghOverlayCanvas.height = houghCanvas.height;
+            houghOverlayCtx.clearRect(0,0, houghOverlayCanvas.width, houghOverlayCanvas.height);
+
+            const centerX = sourceOverlayCanvas.width / 2;
+            const centerY = sourceOverlayCanvas.height / 2;
+            const theta = i_theta * Math.PI / NUM_ANGLES;
+            
+            // Draw projection axis on source image
+            const lineLength = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+            const cos_t = cosAngles[i_theta];
+            const sin_t = sinAngles[i_theta];
+            const x1 = centerX - lineLength * cos_t;
+            const y1 = centerY + lineLength * sin_t;
+            const x2 = centerX + lineLength * cos_t;
+            const y2 = centerY - lineLength * sin_t;
+
+            sourceOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            sourceOverlayCtx.lineWidth = 1;
+            sourceOverlayCtx.setLineDash([5, 5]);
+            sourceOverlayCtx.beginPath();
+            sourceOverlayCtx.moveTo(x1, y1);
+            sourceOverlayCtx.lineTo(x2, y2);
+            sourceOverlayCtx.stroke();
+            sourceOverlayCtx.setLineDash([]);
+
+
+            // Draw angle arc on source
+            sourceOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
+            sourceOverlayCtx.lineWidth = 2.;
+            sourceOverlayCtx.beginPath();
+            // In canvas, positive angles are clockwise. We draw from 0 to theta.
+            sourceOverlayCtx.arc(centerX, centerY, 25, 0, theta);
+            sourceOverlayCtx.stroke();
+            
+            // Draw vertical line on Hough space
+            houghOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
+            houghOverlayCtx.lineWidth = 2;
+            houghOverlayCtx.beginPath();
+            houghOverlayCtx.moveTo(i_theta, 0);
+            houghOverlayCtx.lineTo(i_theta, houghOverlayCanvas.height);
+            houghOverlayCtx.stroke();
+        }
+    </script>
+</body>
+</html>
