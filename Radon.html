@@ -187,26 +187,32 @@
             sweepValue = document.getElementById('sweep-value');
 
         // --- Constants & State ---
-        const IMG_SIZE = 256; // <-- résolution
+        const IMG_SIZE = 256;
         const INTERACTIVE_MODES = ['point', 'two-points'];
 
         let NUM_ANGLES, NUM_RHO, RHO_MAX;
         let currentMode = null, sourceImage = new Image();
         let randomPoints = [];
+        let cosAngles, sinAngles; // Precomputed trig values
         
         // --- Initial Setup ---
         function initializeParameters() {
-            // Derive constants from IMG_SIZE; idéal c'est 256 sinon c'est trop lent, scaling N^3
             RHO_MAX = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
             NUM_RHO = 2 * Math.ceil(RHO_MAX);
-            NUM_ANGLES = Math.round(IMG_SIZE * 1.5); 
-            // Update canvas dimensions
-            [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
+            NUM_ANGLES = Math.round(IMG_SIZE * 1.5);
+            
+            // Precompute trig values
+            cosAngles = new Float32Array(NUM_ANGLES);
+            sinAngles = new Float32Array(NUM_ANGLES);
+            for (let i = 0; i < NUM_ANGLES; i++) {
+                const angle = i * Math.PI / NUM_ANGLES;
+                cosAngles[i] = Math.cos(angle);
+                sinAngles[i] = Math.sin(angle);
+            }
 
-            // Update sweep slider range
+            [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
             sweepSlider.max = NUM_ANGLES - 1;
 
-            // Update all axis labels dynamically
             const halfSize = IMG_SIZE / 2;
             const labels = {
                 'source-y-pos': halfSize, 'source-y-neg': -halfSize,
@@ -220,13 +226,9 @@
             }
         }
 
-        initializeParameters(); // Run setup on script load
+        initializeParameters();
 
-        // Only trigger the file input on click.
-        // The mode is now set inside handleImageUpload, which only runs if a file is
-        // actually selected. This prevents the UI from changing if the user cancels.
         useUploadBtn.addEventListener('click', () => { imageUpload.click(); });
-
         imageUpload.addEventListener('change', handleImageUpload);
         functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
         filterCheckbox.addEventListener('change', () => performTransform());
@@ -279,9 +281,6 @@
             const reconstructedData = inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE);
             drawReconstruction(reconstructedData);
 
-            // Check for currentMode === 'function'.
-            // This ensures guidelines are ONLY drawn when using an interactive preset,
-            // and are automatically cleared when an image is uploaded.
             if (currentMode === 'function' && INTERACTIVE_MODES.includes(functionPresets.value)) {
                 sweepSlider.value = 0;
                 handleSweep(0);
@@ -303,26 +302,39 @@
             }
         }
 
-        // --- Core Logic: Radon, Filter, Inverse Radon ---
+        // --- Optimized Core Logic ---
         function radonTransform(imageData) {
             const width = imageData.width, height = imageData.height, data = imageData.data;
             const centerX = width / 2, centerY = height / 2;
             const sinogram = Array.from({ length: NUM_ANGLES }, () => new Float32Array(NUM_RHO));
-            const angles = Array.from({ length: NUM_ANGLES }, (_, i) => i * Math.PI / NUM_ANGLES);
             
+            // Precompute pixel intensities
+            const intensities = new Uint8Array(width * height);
             for (let y = 0; y < height; y++) {
                 for (let x = 0; x < width; x++) {
                     const idx = (y * width + x) * 4;
-                    if (data[idx+3] > 0) {
-                        const intensity = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                    if (data[idx + 3] > 0) {
+                        intensities[y * width + x] = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+                    }
+                }
+            }
+
+            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
+                const cosA = cosAngles[i_theta];
+                const sinA = sinAngles[i_theta];
+                const row = sinogram[i_theta];
+                
+                for (let y = 0; y < height; y++) {
+                    const y_math = -(y - centerY);
+                    const rowOffset = y * width;
+                    
+                    for (let x = 0; x < width; x++) {
+                        const intensity = intensities[rowOffset + x];
                         if (intensity > 5) {
-                            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                                const y_math = -(y - centerY);
-                                const rho = (x - centerX) * Math.cos(angles[i_theta]) + y_math * Math.sin(angles[i_theta]);
-                                const i_rho = Math.round(rho) + (NUM_RHO / 2);
-                                if (i_rho >= 0 && i_rho < NUM_RHO) {
-                                    sinogram[i_theta][i_rho] += intensity;
-                                }
+                            const rho = (x - centerX) * cosA + y_math * sinA;
+                            const i_rho = Math.round(rho) + (NUM_RHO / 2);
+                            if (i_rho >= 0 && i_rho < NUM_RHO) {
+                                row[i_rho] += intensity;
                             }
                         }
                     }
@@ -364,18 +376,31 @@
             if (numAngles === 0) return new Float32Array(width * height);
             const numRho = sinogram[0].length;
             const reconstructedData = new Float32Array(width * height);
-            const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
             const centerX = width / 2, centerY = height / 2;
+            
+            // Precompute trig values for reconstruction
+            const cosAngles = new Float32Array(numAngles);
+            const sinAngles = new Float32Array(numAngles);
+            for (let i = 0; i < numAngles; i++) {
+                const angle = i * Math.PI / numAngles;
+                cosAngles[i] = Math.cos(angle);
+                sinAngles[i] = Math.sin(angle);
+            }
+
             for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                const angle = angles[i_theta];
-                const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                const cosA = cosAngles[i_theta];
+                const sinA = sinAngles[i_theta];
+                const sinogramRow = sinogram[i_theta];
+                
                 for (let y = 0; y < height; y++) {
+                    const y_math = -(y - centerY);
+                    const rowOffset = y * width;
+                    
                     for (let x = 0; x < width; x++) {
-                        const y_math = -(y - centerY);
                         const rho = (x - centerX) * cosA + y_math * sinA;
                         const i_rho = Math.round(rho) + (NUM_RHO / 2);
                         if (i_rho >= 0 && i_rho < numRho) {
-                           reconstructedData[y * width + x] += sinogram[i_theta][i_rho];
+                           reconstructedData[rowOffset + x] += sinogramRow[i_rho];
                         }
                     }
                 }
@@ -399,19 +424,26 @@
             radonCtx.fillStyle = 'black';
             radonCtx.fillRect(0, 0, numAngles, numRho);
             const outputImageData = radonCtx.createImageData(numAngles, numRho);
+            
+            // Find max value in a single pass
             let maxVal = 0;
             for (let i = 0; i < numAngles; i++) {
+                const row = sinogram[i];
                 for (let j = 0; j < numRho; j++) {
-                    if (sinogram[i][j] > maxVal) maxVal = sinogram[i][j];
+                    if (row[j] > maxVal) maxVal = row[j];
                 }
             }
+            
             if (maxVal === 0) {
                 radonCtx.putImageData(outputImageData, 0, 0);
                 return;
             };
+            
+            const scale = 255 / maxVal;
             for (let i_theta = 0; i_theta < numAngles; i_theta++) {
+                const row = sinogram[i_theta];
                 for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
+                    const val = row[i_rho] * scale;
                     const idx = ((numRho - 1 - i_rho) * numAngles + i_theta) * 4;
                     outputImageData.data[idx] = val;
                     outputImageData.data[idx + 1] = val;
@@ -425,16 +457,21 @@
         function drawReconstruction(data) {
             reconstructionCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
             const outputImageData = reconstructionCtx.createImageData(IMG_SIZE, IMG_SIZE);
+            
+            // Find min/max in a single pass
             let maxVal = -Infinity, minVal = Infinity;
-            for(const val of data) {
+            for (let i = 0; i < data.length; i++) {
+                const val = data[i];
                 if (val > maxVal) maxVal = val;
                 if (val < minVal) minVal = val;
             }
+            
             const range = maxVal - minVal;
             if (range < 1e-9) return;
             
+            const scale = 255 / range;
             for (let i = 0; i < data.length; i++) {
-                const val = ((data[i] - minVal) / range) * 255;
+                const val = (data[i] - minVal) * scale;
                 const idx = i * 4;
                 outputImageData.data[idx] = val;
                 outputImageData.data[idx + 1] = val;
@@ -514,7 +551,7 @@
         }
 
        function createSheppLoganData(size) {
-            const data = new Array(size * size).fill(0);
+            const data = new Float32Array(size * size).fill(0);
             const ellipses = [
                 [0,    0,      .69,   .92,   90,  1],
                 [0,   -0.0184, .6624, .874,  90, -0.8],
@@ -527,22 +564,36 @@
                 [0,    -.605,  .023,  .023,  0,   0.1],
                 [.06,  -.605,  .023,  .046,  90,  0.1]
             ];
+            
+            const halfSize = size / 2;
+            const ellipseParams = ellipses.map(ell => {
+                const [x0, y0, a, b, angle, gray] = ell;
+                const angRad = -angle * Math.PI / 180;
+                const cosA = Math.cos(angRad);
+                const sinA = Math.sin(angRad);
+                return { x0, y0, a, b, cosA, sinA, gray };
+            });
+            
             for (let j = 0; j < size; j++) {
+                const y = (j - halfSize) / halfSize;
+                const rowOffset = j * size;
+                
                 for (let i = 0; i < size; i++) {
-                    const x = (i - size / 2) / (size / 2);
-                    const y = (j - size / 2) / (size / 2);
+                    const x = (i - halfSize) / halfSize;
                     let intensitySum = 0;
-                    for (const ell of ellipses) {
-                        const [x0, y0, a, b, angle, gray] = ell;
-                        const angRad = -angle * Math.PI / 180;
-                        const cosA = Math.cos(angRad), sinA = Math.sin(angRad);
-                        const term1 = (((x - x0) * cosA + (y - y0) * sinA) / a) ** 2;
-                        const term2 = (((x - x0) * sinA - (y - y0) * cosA) / b) ** 2;
+                    
+                    for (const ell of ellipseParams) {
+                        const { x0, y0, a, b, cosA, sinA, gray } = ell;
+                        const dx = x - x0;
+                        const dy = y - y0;
+                        const term1 = ((dx * cosA + dy * sinA) / a) ** 2;
+                        const term2 = ((dx * sinA - dy * cosA) / b) ** 2;
+                        
                         if (term1 + term2 <= 1) {
                             intensitySum += gray;
                         }
                     }
-                    data[j * size + i] = Math.max(0, Math.min(255, intensitySum * 255));
+                    data[rowOffset + i] = Math.max(0, Math.min(255, intensitySum * 255));
                 }
             }
             return data;
@@ -550,7 +601,7 @@
 
         // --- Interactive Guides ---
         function handleSweep(i_theta) {
-            sweepValue.textContent = Math.round((i_theta / (NUM_ANGLES - 1)) * 180); // Display angle 0-180
+            sweepValue.textContent = Math.round((i_theta / (NUM_ANGLES - 1)) * 180);
             if (randomPoints.length === 0) {
                 sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
                 radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
