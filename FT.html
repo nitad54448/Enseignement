@@ -44,6 +44,13 @@
     <header class="bg-white p-3 shadow-md w-full z-10">
         <div class="container mx-auto flex items-center justify-between flex-wrap gap-4">
             <h1 class="text-xl font-bold text-gray-800 hidden sm:block">2D FT Explorer</h1>
+            
+            <div class="flex items-center gap-2">
+                <label for="sigma-slider" class="text-sm font-medium text-gray-700">Filter, sigma</label>
+                <input type="range" id="sigma-slider" min="0.1" max="1.5" value="0.4" step="0.05" class="w-32">
+                <span id="sigma-value" class="text-sm font-semibold w-8 text-left text-gray-800">0.4</span>
+            </div>
+            
             <div class="flex items-center gap-3 flex-wrap">
                 <button id="use-upload-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none ring-blue-500 ring-offset-2 transition-all duration-200">
                     Upload Image
@@ -150,6 +157,8 @@
         const cellSizeSlider = document.getElementById('cell-size');
         const motifSizeValue = document.getElementById('motif-size-value');
         const cellSizeValue = document.getElementById('cell-size-value');
+        const sigmaSlider = document.getElementById('sigma-slider');
+        const sigmaValue = document.getElementById('sigma-value');
 
         // --- Constants & State ---
         const FFT_SIZE = 512;
@@ -280,28 +289,20 @@ function generateCrystalPattern(patternType) {
             break;
         }
         case 'hexagonal-lattice': {
-            // CORRECTED HEXAGONAL LATTICE WITH FULL COVERAGE
             const a = cellSize;
-            const height = a * Math.sqrt(3);
-            
-const v1 = { x: a, y: 0 };
-const v2 = { x: a * 0.5, y: a * Math.sqrt(3) / 2 };
-
-const nx = Math.ceil(FFT_SIZE / a) * 2;
-const ny = Math.ceil(FFT_SIZE / (a * Math.sqrt(3) / 2)) * 2;
-
-            
- for (let i = -nx; i <= nx; i++) {
-    for (let j = -ny; j <= ny; j++) {
-        const x = i * v1.x + j * v2.x;
-        const y = i * v1.y + j * v2.y;
-
-        if (Math.abs(x) <= FFT_SIZE / 2 + a && Math.abs(y) <= FFT_SIZE / 2 + a) {
-            drawMotif(sourceCtx, motifType, x, y, motifSize);
-        }
-    }
-}
-
+            const v1 = { x: a, y: 0 };
+            const v2 = { x: a * 0.5, y: a * Math.sqrt(3) / 2 };
+            const nx = Math.ceil(FFT_SIZE / a) * 2;
+            const ny = Math.ceil(FFT_SIZE / (a * Math.sqrt(3) / 2)) * 2;
+            for (let i = -nx; i <= nx; i++) {
+                for (let j = -ny; j <= ny; j++) {
+                    const x = i * v1.x + j * v2.x;
+                    const y = i * v1.y + j * v2.y;
+                    if (Math.abs(x) <= FFT_SIZE / 2 + a && Math.abs(y) <= FFT_SIZE / 2 + a) {
+                        drawMotif(sourceCtx, motifType, x, y, motifSize);
+                    }
+                }
+            }
             break;
         }
         case 'bcc-lattice': {
@@ -459,20 +460,15 @@ function performTransform() {
     for (let y = 0; y < FFT_SIZE; y++) {
         for (let x = 0; x < FFT_SIZE; x++) {
             const i = (y * FFT_SIZE + x) * 4;
-
             const gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
 
-// Coordinates normalized between -1 and 1
-const nx = (x - FFT_SIZE / 2) / (FFT_SIZE / 2);
-const ny = (y - FFT_SIZE / 2) / (FFT_SIZE / 2);
+            const nx = (x - FFT_SIZE / 2) / (FFT_SIZE / 2);
+            const ny = (y - FFT_SIZE / 2) / (FFT_SIZE / 2);
 
-// 2D Gaussian window: exp(-a * (x^2 + y^2))
-const sigma = 0.4; // You can adjust this (smaller = sharper drop-off)
-const gauss = Math.exp(-(nx * nx + ny * ny) / (2 * sigma * sigma));
+            const sigma = parseFloat(sigmaSlider.value);
 
-grayscaleMatrix[y][x] = gray * gauss;
-
-
+            const gauss = Math.exp(-(nx * nx + ny * ny) / (2 * sigma * sigma));
+            grayscaleMatrix[y][x] = gray * gauss;
         }
     }
     
@@ -480,7 +476,6 @@ grayscaleMatrix[y][x] = gray * gauss;
     const complexMatrix = fft2d(grayscaleMatrix);
     fftshift(complexMatrix);
     
-    // Find max magnitude for scaling
     let maxMag = 0;
     for (let y = 0; y < FFT_SIZE; y++) {
         for (let x = 0; x < FFT_SIZE; x++) {
@@ -489,13 +484,11 @@ grayscaleMatrix[y][x] = gray * gauss;
         }
     }
     
-    // Create FFT visualization with logarithmic scaling
     const fftImageData = fftCtx.createImageData(FFT_SIZE, FFT_SIZE);
     for (let y = 0; y < FFT_SIZE; y++) {
         for (let x = 0; x < FFT_SIZE; x++) {
             const i = (y * FFT_SIZE + x) * 4;
             const mag = complexMatrix[y][x].magnitude();
-            // Logarithmic scaling for better dynamic range
             const logMag = Math.log(1 + mag);
             const maxLogMag = Math.log(1 + maxMag);
             const intensity = maxLogMag > 0 ? (logMag / maxLogMag) * 255 : 0;
@@ -545,26 +538,11 @@ grayscaleMatrix[y][x] = gray * gauss;
 
 function fft2d(matrix) {
     const size = matrix.length;
-    
-    // Start with a complex matrix
     let data = matrix.map(row => row.map(val => new Complex(val, 0)));
-
-    // 1. Perform 1D FFT on each row
-    for (let i = 0; i < size; i++) {
-        data[i] = fft1d(data[i]);
-    }
-
-    // 2. Transpose the matrix
+    for (let i = 0; i < size; i++) { data[i] = fft1d(data[i]); }
     data = transpose(data);
-
-    // 3. Perform 1D FFT on each new row (original columns)
-    for (let i = 0; i < size; i++) {
-        data[i] = fft1d(data[i]);
-    }
-
-    // 4. Transpose back to original orientation
+    for (let i = 0; i < size; i++) { data[i] = fft1d(data[i]); }
     data = transpose(data);
-
     return data;
 }
 
@@ -621,6 +599,13 @@ function fft2d(matrix) {
         cellSizeSlider.addEventListener('input', () => {
             cellSizeValue.textContent = cellSizeSlider.value;
             regenerateCrystalIfActive();
+        });
+
+        sigmaSlider.addEventListener('input', () => {
+            sigmaValue.textContent = sigmaSlider.value;
+            if (currentMode !== 'webcam' && (sourceImage.src || currentMode === 'function')) {
+                performTransform();
+            }
         });
 
         // Initialize default mode
