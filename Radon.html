@@ -86,11 +86,14 @@
                             <option value="shepp-logan">Shepp-Logan Phantom</option>
                         </select>
                     </div>
+
+
                     <div class="flex items-center gap-2">
-                        <input type="checkbox" id="filter-checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" checked>
-                        <label for="filter-checkbox" class="text-sm font-medium text-gray-700">Use Filtered Back-Projection</label>
-                    </div>
-                    <input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
+    <input type="checkbox" id="filter-checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500" checked>
+    <label for="filter-checkbox" class="text-sm font-medium text-gray-700">Use Filtered Back-Projection</label>
+</div>
+
+<input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
                 </div>
             </div>
             <div id="status" class="w-full sm:w-auto text-sm text-center text-gray-600 mt-2 sm:mt-0">Select a source to begin.</div>
@@ -160,7 +163,7 @@
     </footer>
 
     <script>
-        // --- DOM Elements ---
+        // --- Elements ---
         const useUploadBtn = document.getElementById('use-upload-btn'),
             imageUpload = document.getElementById('image-upload'),
             statusEl = document.getElementById('status'),
@@ -193,11 +196,10 @@
         
         // --- Initial Setup ---
         function initializeParameters() {
-            // Derive constants from IMG_SIZE
+            // Derive constants from IMG_SIZE; idéal c'est 256 sinon c'est trop lent, scaling N^3
             RHO_MAX = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
             NUM_RHO = 2 * Math.ceil(RHO_MAX);
-            NUM_ANGLES = Math.round(IMG_SIZE * 1.5); // Good balance of quality and performance
-
+            NUM_ANGLES = Math.round(IMG_SIZE * 1.5); 
             // Update canvas dimensions
             [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
 
@@ -220,7 +222,11 @@
 
         initializeParameters(); // Run setup on script load
 
-        useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
+        // Only trigger the file input on click.
+        // The mode is now set inside handleImageUpload, which only runs if a file is
+        // actually selected. This prevents the UI from changing if the user cancels.
+        useUploadBtn.addEventListener('click', () => { imageUpload.click(); });
+
         imageUpload.addEventListener('change', handleImageUpload);
         functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
         filterCheckbox.addEventListener('change', () => performTransform());
@@ -273,7 +279,10 @@
             const reconstructedData = inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE);
             drawReconstruction(reconstructedData);
 
-            if (INTERACTIVE_MODES.includes(functionPresets.value)) {
+            // Check for currentMode === 'function'.
+            // This ensures guidelines are ONLY drawn when using an interactive preset,
+            // and are automatically cleared when an image is uploaded.
+            if (currentMode === 'function' && INTERACTIVE_MODES.includes(functionPresets.value)) {
                 sweepSlider.value = 0;
                 handleSweep(0);
             } else {
