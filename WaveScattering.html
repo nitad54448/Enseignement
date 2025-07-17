@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wave Scattering</title>
+    <title>Wave Scattering (Phase Corrected)</title>
     <style>
         :root {
             --accent-color: #31477c; /* Unified color */
@@ -104,7 +104,7 @@
         <div id="controls-panel">
             <h1>Wave Scattering</h1>
             <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">
-                A new wavefront is emitted when the particle's <b>acceleration is maximum</b>—at the highest and lowest points of its oscillation.
+                A new wavefront is emitted when the particle's <b>acceleration is maximum</b>. The color of the radiated wave matches the corresponding polarization vector (yellow for peak, red for trough) to show that the resulting wave has the same frequency as the incoming wave.
             </p>
 
              <div class="control-group">
@@ -242,8 +242,7 @@
         }
 
         function createRadiatedWave() {
-            // --- THIS IS THE ONLY CHANGE: Removed side: THREE.DoubleSide ---
-            // This prevents rendering the inside of the shape, fixing the visual artifact.
+            // Each shell will have its material cloned, so we can change colors individually.
             const radiatedMat = new THREE.MeshPhongMaterial({
                 color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7,
             });
@@ -308,13 +307,29 @@
             renderer.render(scene, camera);
         }
 
+        // --- MODIFIED FUNCTION ---
+        // This function now sets the color of the emitted wave based on its phase.
         function emitRadiatedPulse(currentPhase, lastPhase) {
             const currentCycle = Math.floor((currentPhase / Math.PI) - 0.5);
             if (currentCycle > lastEmittedCycle) {
                 lastEmittedCycle = currentCycle;
+
                 const shell = radiatedWave.shells[nextShellIndex];
                 shell.isActive = true;
                 shell.birthTime = time;
+
+                // Determine color based on emission point (peak vs. trough acceleration)
+                const isPeakEmission = currentCycle % 2 === 0;
+                const peakColor = 0xFFFF00;    // Color of the peak polarization vector
+                const troughColor = 0xE74C3C;  // Color of the trough polarization vector
+                const targetColor = isPeakEmission ? peakColor : troughColor;
+
+                // Apply the color to the materials of the emitted shell (both torus and sphere)
+                shell.torus.material.color.set(targetColor);
+                shell.torus.material.emissive.set(targetColor);
+                shell.sphere.material.color.set(targetColor);
+                shell.sphere.material.emissive.set(targetColor);
+
                 nextShellIndex = (nextShellIndex + 1) % config.numRadiatedShells;
             }
         }
@@ -331,7 +346,7 @@
                 if (age > config.shellMaxAge) { shell.isActive = false; return; }
                 const scale = age * config.waveSpeed;
                 
-                const opacity = 0.5 * (1 - age / config.shellMaxAge) * amplitudeScale;
+                const opacity = 0.9 * (1 - age / config.shellMaxAge) * amplitudeScale;
                 
                 if (isLinear) {
                     if (config.polarizationType === 'linear_vertical') {
