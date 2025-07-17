@@ -28,6 +28,7 @@
 | 🔄 [**2D Radon Transform**](https://nitad54448.github.io/Enseignement/Radon.html) | This tool computes and displays the 2D Radon Transform (Sinogram) of an image. |
 | 🎨 [**Color Radon Transform**](https://nitad54448.github.io/Enseignement/ColorRadon.html) | An explorer for the 2D Radon Transform on color images, demonstrating filtered back-projection. |
 | 🧊 [**3D Radon Transform**](3D_Radon_-_DS.html) | A 3D explorer for computed tomography, showing the reconstruction of a 3D object from its 2D slices. |
+| ✍️ [**2D Hough Explorer**](Hough.html) | An interactive explorer for the Hough Transform, used for line detection in images. |
 
 ---
 
@@ -269,6 +270,22 @@ An interactive explorer for visualizing the principles of computed tomography (C
     * **Parallel Processing**: Utilizes Web Workers to perform the Radon transforms on multiple slices in parallel, improving performance.
     * **Filtered Back-Projection**: Implements the filtered back-projection algorithm to reconstruct the 3D object from the sinograms.
 * **Technologies**: HTML, JavaScript, Three.js.
+
+---
+
+### ✍️ 17. 2D Hough Explorer
+[**Launch Hough Explorer**](Hough.html)
+
+An interactive explorer for visualizing the principles of the Hough Transform for line detection in 2D images.
+
+* **Features**:
+    * **Input Source**: Choose from a variety of preset patterns (e.g., simple lines, square, circle, Sudoku grid) or upload your own image.
+    * **Hough Space Visualization**: Displays the accumulator array (Hough space) in the (ρ, θ) parameter space.
+    * **Interactive Detection**: An adjustable threshold slider to control the sensitivity of line detection.
+    * **Linked Visualizations**: Interactively sweep through projection angles (θ) to see the corresponding projection axis on the source image and the profile in Hough space.
+    * **Edge Detection**: Automatically applies a Sobel filter to the source image to detect edges before applying the transform.
+    * **Results**: Shows the final detected lines overlaid on a black background.
+* **Technologies**: HTML, JavaScript.
 
 ---
 
