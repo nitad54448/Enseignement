@@ -147,12 +147,11 @@
         </div>
     </div>
 
-    <footer>NitaD, Univ Paris-Saclay, version 08 july 2025.</footer>
+    <footer id="footer-date"></footer>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script>
-        // --- JAVASCRIPT IS UNCHANGED ---
         let scene, camera, renderer, controls;
         let particle;
         const incomingWave = { planes: [], peakVectors: [], troughVectors: [] };
@@ -204,6 +203,12 @@
             document.querySelectorAll('input[name="charge"]').forEach(r => r.addEventListener('change', (e) => config.particleCharge = parseInt(e.target.value)));
             document.getElementById('polarization-selector').addEventListener('change', (e) => config.polarizationType = e.target.value);
             document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => config.showRadiatedWave = e.target.checked);
+            
+            // Set footer date
+            const date = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('footer-date').textContent = `NitaD, Univ Paris-Saclay, version ${date.toLocaleDateString('en-US', options)}.`;
+
 
             window.addEventListener('resize', onWindowResize, false);
             setupResizer();
@@ -223,7 +228,7 @@
             const planeMat = new THREE.MeshBasicMaterial({ color: 0x3498DB, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
 
             for (let i = 0; i < config.numPlanes; i++) {
-                const plane = new THREE.Mesh(planeGeom, planeMat.clone());
+               const plane = new THREE.Mesh(planeGeom, planeMat.clone());
                 plane.rotation.y = Math.PI / 2;
                 scene.add(plane);
                 incomingWave.planes.push(plane);
@@ -237,13 +242,27 @@
         }
 
         function createRadiatedWave() {
-            const radiatedMat = new THREE.MeshPhongMaterial({ color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7 });
+            // --- THIS IS THE ONLY CHANGE: Removed side: THREE.DoubleSide ---
+            // This prevents rendering the inside of the shape, fixing the visual artifact.
+            const radiatedMat = new THREE.MeshPhongMaterial({
+                color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7,
+            });
             const sphereGeom = new THREE.SphereGeometry(1, 32, 24);
-            const torusGeom = new THREE.TorusGeometry(1, 0.15, 16, 48);
+
+            const points = [];
+            const profileSegments = 32;
+            for (let i = 0; i <= profileSegments; i++) {
+                const theta = (i / profileSegments) * Math.PI;
+                const x = Math.pow(Math.sin(theta), 2);
+                const y = Math.sin(theta) * Math.cos(theta);
+                points.push(new THREE.Vector2(x, y));
+            }
+            const dipoleGeom = new THREE.LatheGeometry(points, 48);
 
             for (let i = 0; i < config.numRadiatedShells; i++) {
                 const shell = {
-                    sphere: new THREE.Mesh(sphereGeom, radiatedMat.clone()), torus: new THREE.Mesh(torusGeom, radiatedMat.clone()),
+                    sphere: new THREE.Mesh(sphereGeom, radiatedMat.clone()),
+                    torus: new THREE.Mesh(dipoleGeom, radiatedMat.clone()),
                     isActive: false, birthTime: 0,
                 };
                 shell.sphere.visible = false;
@@ -311,10 +330,15 @@
                 const age = time - shell.birthTime;
                 if (age > config.shellMaxAge) { shell.isActive = false; return; }
                 const scale = age * config.waveSpeed;
-                const opacity = 0.8 * (1 - age / config.shellMaxAge) * amplitudeScale;
+                
+                const opacity = 0.5 * (1 - age / config.shellMaxAge) * amplitudeScale;
+                
                 if (isLinear) {
-                    if (config.polarizationType === 'linear_vertical') shell.torus.rotation.set(Math.PI / 2, 0, 0);
-                    else shell.torus.rotation.set(0, 0, Math.PI / 2);
+                    if (config.polarizationType === 'linear_vertical') {
+                        shell.torus.rotation.set(0, 0, 0);
+                    } else {
+                        shell.torus.rotation.set(Math.PI / 2, 0, 0);
+                    }
                     shell.torus.scale.setScalar(scale);
                     shell.torus.material.opacity = opacity;
                 } else {
