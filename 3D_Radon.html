@@ -123,19 +123,16 @@
             flex-grow: 1; 
         }
         
-/* --- Checkbox (Boolean) Style --- */
-/* This is a new rule to style the checkbox */
-input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    /* Sets the checkmark color to match the title */
-    accent-color: #004494;
-}
+        /* --- Checkbox (Boolean) Style --- */
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #004494;
+        }
 
-#status {
-    /* Adjust this value to your desired text size */
-    font-size: 13px;
-}
+        #status {
+            font-size: 13px;
+        }
 
         .control-row input[type="number"] { 
             width: 80px; 
@@ -201,7 +198,6 @@ input[type="checkbox"] {
             aspect-ratio: 1 / 1;
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
             border: 1px solid #444;
-            /* MODIFICATION: Use flexbox to center the content (the canvas) */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -209,7 +205,6 @@ input[type="checkbox"] {
         
         canvas {
             display: block;
-            /* MODIFICATION: Ensure canvas fits within its container without distortion */
             max-width: 100%;
             max-height: 100%;
             background-color: black;
@@ -241,22 +236,6 @@ input[type="checkbox"] {
             font-size: 0.8em; 
             color: #888; 
             z-index: 100; 
-        }
-        
-        button { 
-            background-color: #004494; 
-            color: white; 
-            border: none; 
-            padding: 12px 15px; 
-            border-radius: 5px; 
-            cursor: pointer; 
-            font-weight: 600; 
-            width: 100%; 
-            margin-top: 10px; 
-        }
-        
-        button:hover { 
-            background-color: #00337a; 
         }
         
         /* Light Theme Slider Styles */
@@ -339,8 +318,8 @@ input[type="checkbox"] {
             </div>
             
             <div class="control-group">
-                <button id="run-transform" disabled>Run Transform</button>
-                <div id="status" style="margin-top: 10px; font-style: italic; min-height: 20px;">Select a preset to begin.</div>
+                <!-- MODIFICATION: Run button removed. Status element remains. -->
+                <div id="status" style="margin-top: 10px; font-style: italic; min-height: 20px;">Initializing...</div>
             </div>
             
             <div id="progress-bar-container"><div id="progress-bar"></div></div>
@@ -377,7 +356,7 @@ input[type="checkbox"] {
         const sliceCountValue = document.getElementById('slice-count-value');
         const currentSliceSlider = document.getElementById('current-slice');
         const currentSliceValue = document.getElementById('current-slice-value');
-        const runButton = document.getElementById('run-transform');
+        // MODIFICATION: runButton constant is no longer needed.
         const statusEl = document.getElementById('status');
         const progressBarContainer = document.getElementById('progress-bar-container');
         const progressBar = document.getElementById('progress-bar');
@@ -411,7 +390,7 @@ input[type="checkbox"] {
             reconScene.scene.add(reconObjectGroup);
             syncCameras();
             animate();
-            runButton.addEventListener('click', runFullTransform);
+            // MODIFICATION: The click listener for the run button is removed.
             presetSelector.addEventListener('change', handlePresetChange);
             
             setupSliders();
@@ -420,11 +399,21 @@ input[type="checkbox"] {
         }
 
         function setupSliders() {
+            // MODIFICATION: Add 'change' event listeners to trigger the transform automatically.
+            // The 'input' event is used for live visual feedback of the value.
             sliceCountSlider.addEventListener('input', () => { sliceCountValue.value = sliceCountSlider.value; });
+            sliceCountSlider.addEventListener('change', runFullTransform);
+
             sliceCountValue.addEventListener('change', () => {
-                const val = parseInt(sliceCountValue.value);
-                if (val >= 16 && val <= 256) { sliceCountSlider.value = val; }
+                let val = parseInt(sliceCountValue.value);
+                // Clamp the value to the allowed range
+                if (isNaN(val) || val < 16) val = 16;
+                if (val > 256) val = 256;
+                sliceCountValue.value = val;
+                sliceCountSlider.value = val;
+                runFullTransform();
             });
+
             currentSliceSlider.addEventListener('input', () => {
                 currentSliceValue.value = currentSliceSlider.value;
                 updateViews();
@@ -525,6 +514,7 @@ input[type="checkbox"] {
         }
 
         function handlePresetChange() {
+            // MODIFICATION: This function now triggers the transform directly.
             const presetType = presetSelector.value;
             sourceObjectGroup.clear();
             reconObjectGroup.clear();
@@ -534,15 +524,15 @@ input[type="checkbox"] {
             currentSliceSlider.disabled = true;
             currentSliceSlider.value = 0;
             currentSliceValue.value = '0';
-            sliceCountSlider.disabled = true;
             progressBar.style.width = '0%';
             progressBarContainer.style.display = 'none';
 
             const object3D = generate3DObject(presetType);
             sourceObjectGroup.add(object3D);
-            statusEl.textContent = 'Object loaded. Click "Run Transform" to process.';
-            runButton.disabled = false;
-            sliceCountSlider.disabled = false;
+            
+            // MODIFICATION: The status text and button enabling are removed.
+            // The transform is called automatically.
+            runFullTransform();
         }
         
         function createIcosahedronPlanes() {
@@ -569,7 +559,6 @@ input[type="checkbox"] {
         function isInsideObjectAnalytical(point, object) {
             if (!object) return false;
 
-            // If the object is a Group, check if the point is inside any of its children.
             if (object.isGroup) {
                 for (const child of object.children) {
                     if (isInsideObjectAnalytical(point, child)) {
@@ -579,7 +568,6 @@ input[type="checkbox"] {
                 return false;
             }
 
-            // Original logic for single Mesh objects.
             const localPoint = new THREE.Vector3();
             const inverseMatrix = new THREE.Matrix4().copy(object.matrixWorld).invert();
             localPoint.copy(point).applyMatrix4(inverseMatrix);
@@ -817,9 +805,11 @@ input[type="checkbox"] {
         }
 
         async function runFullTransform() {
-            runButton.disabled = true;
+            // MODIFICATION: Disable controls during processing.
             presetSelector.disabled = true;
             sliceCountSlider.disabled = true;
+            sliceCountValue.disabled = true;
+
             statusEl.textContent = 'Processing...';
             progressBarContainer.style.display = 'block';
             progressBar.style.width = '5%';
@@ -849,9 +839,11 @@ input[type="checkbox"] {
                  progressBarContainer.style.display = 'none';
                  progressBar.style.width = '0%';
             }, 1000);
-            runButton.disabled = false;
+            
+            // MODIFICATION: Re-enable controls after processing is complete.
             presetSelector.disabled = false;
             sliceCountSlider.disabled = false;
+            sliceCountValue.disabled = false;
         }
         
         function generate3DObject(type) {
@@ -863,7 +855,6 @@ input[type="checkbox"] {
             });
             let geometry;
 
-            // Handle single-mesh cases first
             switch(type) {
                 case 'small_off_center_sphere':
                     geometry = new THREE.SphereGeometry(0.05, 32, 32);
