@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pair Distribution Function Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .canvas-wrapper {
+            background-color: #f3f4f6; /* gray-100 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 512px;
+            aspect-ratio: 1 / 1;
+            border: 1px solid #d1d5db; /* gray-300 */
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background-color: #ffffff;
+        }
+        .overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            background-color: transparent;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            background: #d1d5db; /* gray-300 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 1.25rem;
+            width: 1.25rem;
+            border-radius: 9999px;
+            background: #3b82f6; /* blue-500 */
+            cursor: pointer;
+            margin-top: -0.375rem;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        input[type=range]:disabled::-webkit-slider-thumb {
+            background: #9ca3af; /* gray-400 */
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen bg-gray-50 overflow-hidden">
+
+    <header class="bg-white p-4 shadow-md w-full z-10 border-b">
+        <div class="container mx-auto flex items-center justify-between flex-wrap gap-4">
+            <div class="flex items-center gap-8">
+                <h1 class="text-2xl font-bold text-gray-800">Pair Distribution Function</h1>
+            </div>
+             <div id="status" class="text-sm text-gray-600">Select a preset or click on the left canvas.</div>
+        </div>
+        <div class="container mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 items-center gap-x-6 gap-y-4 mt-4">
+             <div class="flex items-center gap-2">
+                <label for="function-presets" class="text-sm font-medium text-gray-700">Preset:</label>
+                <select id="function-presets" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 w-full">
+                    <option value="crystal">Crystal</option>
+                    <option value="crystal-hex">Compact Crystal</option>
+                    <option value="liquid" selected>Liquid-like</option>
+                    <option value="gas">Random (Gas)</option>
+                    <option value="liquid-crystal-smectic">Liquid Crystal (Smectic)</option>
+                </select>
+            </div>
+             <div class="flex items-center gap-3 w-full">
+                <label for="particle-slider" class="text-sm font-medium text-gray-700 whitespace-nowrap">Particles:</label>
+                <input type="range" id="particle-slider" min="20" max="1000" value="600" class="w-full">
+                <span id="particle-count" class="font-mono text-sm text-gray-800 w-8 text-center">600</span>
+            </div>
+            <div class="flex items-center gap-3 w-full">
+                <label for="temp-slider" class="text-sm font-medium text-gray-700 whitespace-nowrap">Disorder:</label>
+                <input type="range" id="temp-slider" min="0" max="20" value="8" class="w-full">
+                <span id="temp-value" class="font-mono text-sm text-gray-800 w-8 text-center">8</span>
+            </div>
+            <button id="reset-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 w-full md:w-auto">
+                Reset
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-grow p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 items-start justify-items-center overflow-auto">
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Particle Distribution</h3>
+            <div class="relative w-full max-w-[512px]">
+                <div id="source-wrapper" class="canvas-wrapper cursor-crosshair">
+                    <canvas id="sourceCanvas"></canvas>
+                    <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+            </div>
+             <div class="w-full max-w-[512px] mt-4">
+                <div id="sweep-container" class="w-full mt-4">
+                    <input type="range" id="sweep-slider" min="0" max="10" step="0.1" value="0">
+                    <label for="sweep-slider" class="block text-center text-sm font-medium text-gray-700 mt-1">Highlight Distance (in diameters): <span id="sweep-value" class="font-mono">0.0</span></label>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full flex flex-col items-center">
+            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Pair Distribution Function, g(d)</h3>
+            <div class="relative w-full max-w-[512px]">
+                <div id="pdf-wrapper" class="canvas-wrapper">
+                    <canvas id="pdfCanvas"></canvas>
+                    <canvas id="pdfOverlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+                 <p class="text-sm text-center text-gray-600 mt-2">Distance, d</p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="w-full p-4 text-center">
+        <p class="text-sm text-gray-500">
+            A simulation for educational purposes. NitaD, Univ Paris-Saclay, 2025. nitad54448.github.io
+        </p>
+    </footer>
+
+    <script>
+        // --- Elements ---
+        const statusEl = document.getElementById('status');
+        const sourceCanvas = document.getElementById('sourceCanvas');
+        const sourceCtx = sourceCanvas.getContext('2d');
+        const sourceOverlayCanvas = document.getElementById('sourceOverlayCanvas');
+        const sourceOverlayCtx = sourceOverlayCanvas.getContext('2d');
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const pdfCtx = pdfCanvas.getContext('2d');
+        const pdfOverlayCanvas = document.getElementById('pdfOverlayCanvas');
+        const pdfOverlayCtx = pdfOverlayCanvas.getContext('2d');
+
+        const functionPresets = document.getElementById('function-presets');
+        const particleSlider = document.getElementById('particle-slider');
+        const particleCount = document.getElementById('particle-count');
+        const tempSlider = document.getElementById('temp-slider');
+        const tempValue = document.getElementById('temp-value');
+        const resetBtn = document.getElementById('reset-btn');
+        
+        const sweepSlider = document.getElementById('sweep-slider');
+        const sweepValue = document.getElementById('sweep-value');
+
+        // --- Constants & State ---
+        const BOX_SIZE = 512;
+        const PARTICLE_RADIUS = 10;
+        const PARTICLE_DIAMETER = PARTICLE_RADIUS * 2;
+        const R_MAX_UNITS = 10; // Max distance in plot, in units of particle diameters
+        let points = [];
+        let pdfData = { g_r: [], radii: [] };
+        let originalParticleCount = 200;
+
+        // --- Initial Setup ---
+        function initialize() {
+            [sourceCanvas, sourceOverlayCanvas, pdfCanvas, pdfOverlayCanvas].forEach(c => {
+                c.width = BOX_SIZE;
+                c.height = BOX_SIZE;
+            });
+            sweepSlider.max = R_MAX_UNITS;
+            originalParticleCount = particleSlider.value;
+            
+            addEventListeners();
+            updateVisualization();
+        }
+
+        function addEventListeners() {
+            functionPresets.addEventListener('change', () => {
+                points = []; 
+                const isGas = functionPresets.value === 'gas';
+                particleSlider.disabled = isGas;
+                if (isGas) {
+                    originalParticleCount = particleSlider.value;
+                    particleSlider.value = 30; // Enforce low density for gas
+                } else {
+                    particleSlider.value = originalParticleCount;
+                }
+                particleCount.textContent = particleSlider.value;
+                updateVisualization();
+            });
+            particleSlider.addEventListener('input', e => particleCount.textContent = e.target.value);
+            particleSlider.addEventListener('change', () => {
+                points = [];
+                originalParticleCount = particleSlider.value;
+                updateVisualization();
+            });
+            tempSlider.addEventListener('input', e => tempValue.textContent = e.target.value);
+            tempSlider.addEventListener('change', () => {
+                points = [];
+                updateVisualization();
+            });
+            resetBtn.addEventListener('click', () => {
+                points = [];
+                updateVisualization();
+            });
+            sweepSlider.addEventListener('input', e => handleSliderChange(parseFloat(e.target.value)));
+            sourceCanvas.addEventListener('click', handleCanvasClick);
+        }
+
+        // --- Main Execution ---
+        function updateVisualization() {
+            statusEl.textContent = 'Generating points...';
+            generatePoints();
+            drawPoints();
+            
+            statusEl.textContent = 'Calculating g(distance)...';
+            pdfData = calculatePDF(points, BOX_SIZE, R_MAX_UNITS, 0.05);
+            drawPDF(pdfData);
+            
+            handleSliderChange(parseFloat(sweepSlider.value));
+            statusEl.textContent = `Ready. ${points.length} particles.`;
+        }
+        
+        // --- Point Generation: Hard-Sphere Model ---
+        function tryPlaceParticle(newPoint, minDistance) {
+            for (const p of points) {
+                if (Math.hypot(p.x - newPoint.x, p.y - newPoint.y) < minDistance) {
+                    return false; // Placement failed
+                }
+            }
+            points.push(newPoint);
+            return true; // Placement successful
+        }
+
+        function generatePoints() {
+            const mode = functionPresets.value;
+            const numPoints = parseInt(particleSlider.value);
+            const temperature = parseInt(tempSlider.value);
+            
+            if (points.length > 0) return;
+
+            if (mode === 'crystal') {
+                const spacing = PARTICLE_DIAMETER * 1.1;
+                const numPerSide = Math.ceil(Math.sqrt(numPoints));
+                const totalWidth = (numPerSide - 1) * spacing;
+                const offset = (BOX_SIZE - totalWidth) / 2;
+                let count = 0;
+                for (let i = 0; i < numPerSide && count < numPoints; i++) {
+                    for (let j = 0; j < numPerSide && count < numPoints; j++) {
+                        points.push({ x: offset + i * spacing, y: offset + j * spacing });
+                        count++;
+                    }
+                }
+            } else if (mode === 'crystal-hex') {
+                const spacing = PARTICLE_DIAMETER * 1.15;
+                const rowHeight = spacing * Math.sqrt(3) / 2;
+                const numCols = Math.floor(BOX_SIZE / spacing) + 1;
+                const numRows = Math.floor(BOX_SIZE / rowHeight) + 1;
+
+                const totalWidth = (numCols - 1) * spacing;
+                const totalHeight = (numRows - 1) * rowHeight;
+                const xOffset = (BOX_SIZE - totalWidth) / 2;
+                const yOffset = (BOX_SIZE - totalHeight) / 2;
+
+                let count = 0;
+                for (let j = 0; j < numRows && count < numPoints; j++) {
+                    const horizontalShift = (j % 2 === 0) ? 0 : spacing / 2;
+                    for (let i = 0; i < numCols && count < numPoints; i++) {
+                        const x = xOffset + i * spacing + horizontalShift;
+                        const y = yOffset + j * rowHeight;
+                        if (x < BOX_SIZE + PARTICLE_RADIUS && y < BOX_SIZE + PARTICLE_RADIUS) {
+                             points.push({ x, y });
+                             count++;
+                        }
+                    }
+                }
+
+            } else { // Handle gas, liquid, and liquid crystals with random placement
+                const minDistance = (mode === 'gas') ? 0 : PARTICLE_DIAMETER;
+                for (let i = 0; i < numPoints; i++) {
+                    let attempts = 0;
+                    while (attempts < 200) {
+                        let newPoint;
+                        if (mode === 'liquid-crystal-smectic') {
+                            const layerSpacing = PARTICLE_DIAMETER * 2.5;
+                            const layerDeviation = PARTICLE_DIAMETER / 2;
+                            const numLayers = Math.floor(BOX_SIZE / layerSpacing);
+                            const layerIndex = Math.floor(Math.random() * numLayers);
+                            newPoint = { x: Math.random() * BOX_SIZE, y: (layerIndex + 0.5) * layerSpacing + (Math.random() - 0.5) * 2 * layerDeviation };
+                        } else {
+                           newPoint = { x: Math.random() * BOX_SIZE, y: Math.random() * BOX_SIZE };
+                        }
+                        
+                        if (tryPlaceParticle(newPoint, minDistance)) {
+                            break; // Success
+                        }
+                        attempts++;
+                    }
+                }
+            }
+            
+            if (temperature > 0) {
+                const idealPoints = [...points];
+                points = [];
+                for (const p of idealPoints) {
+                    let attempts = 0;
+                    while(attempts < 50) {
+                        const newPos = {
+                            x: (p.x + (Math.random() - 0.5) * temperature + BOX_SIZE) % BOX_SIZE,
+                            y: (p.y + (Math.random() - 0.5) * temperature + BOX_SIZE) % BOX_SIZE
+                        };
+                        if (tryPlaceParticle(newPos, PARTICLE_DIAMETER)) {
+                            break;
+                        }
+                        attempts++;
+                    }
+                }
+            }
+        }
+
+        function handleCanvasClick(event) {
+            const rect = sourceCanvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left) * (BOX_SIZE / rect.width);
+            const y = (event.clientY - rect.top) * (BOX_SIZE / rect.height);
+            
+            if (tryPlaceParticle({ x, y }, PARTICLE_DIAMETER)) {
+                particleSlider.value = points.length;
+                particleCount.textContent = points.length;
+                updateVisualization();
+            } else {
+                statusEl.textContent = "Cannot place particle here: Too close to another.";
+                setTimeout(() => { statusEl.textContent = `Ready. ${points.length} particles.`}, 2000);
+            }
+        }
+
+        function calculatePDF(points, boxSize, rMaxUnits, drUnits) {
+            const N = points.length;
+            if (N < 2) return { g_r: [], radii: [] };
+
+            const rho = N / (boxSize * boxSize);
+            const nBins = Math.ceil(rMaxUnits / drUnits);
+            const histogram = new Float32Array(nBins).fill(0);
+
+            for (let i = 0; i < N; i++) {
+                for (let j = i + 1; j < N; j++) {
+                    const rPixels = Math.hypot(points[j].x - points[i].x, points[j].y - points[i].y);
+                    if (rPixels === 0) continue;
+                    const rUnits = rPixels / PARTICLE_DIAMETER;
+                    if (rUnits < rMaxUnits) {
+                        const binIndex = Math.floor(rUnits / drUnits);
+                        if(binIndex < nBins) histogram[binIndex] += 2;
+                    }
+                }
+            }
+
+            const g_r = new Float32Array(nBins);
+            const radii = new Float32Array(nBins);
+            
+            for (let i = 0; i < nBins; i++) {
+                const rLowerUnits = i * drUnits;
+                const rUpperUnits = (i + 1) * drUnits;
+                radii[i] = (rLowerUnits + rUpperUnits) / 2;
+                
+                const shellAreaPixels = Math.PI * ( (rUpperUnits * PARTICLE_DIAMETER)**2 - (rLowerUnits * PARTICLE_DIAMETER)**2 );
+                const idealCountInShell = rho * shellAreaPixels;
+                
+                g_r[i] = (idealCountInShell > 1e-9) ? (histogram[i] / N) / idealCountInShell : 0;
+            }
+
+            return { g_r, radii };
+        }
+
+        function getColorForDistance(distanceUnits, maxDistanceUnits) {
+            const hue = (1 - Math.min(distanceUnits / maxDistanceUnits, 1)) * 240; // 240 is blue, 0 is red
+            return `hsl(${hue}, 90%, 60%)`;
+        }
+
+        function drawPoints() {
+            sourceCtx.fillStyle = '#ffffff';
+            sourceCtx.fillRect(0, 0, BOX_SIZE, BOX_SIZE);
+            
+            if (points.length === 0) return;
+
+            const center = { x: BOX_SIZE / 2, y: BOX_SIZE / 2 };
+            let centralParticle = points[0];
+            let minD = Infinity;
+            for(const p of points) {
+                const d = Math.hypot(p.x - center.x, p.y - center.y);
+                if (d < minD) { minD = d; centralParticle = p; }
+            }
+            
+            for (const p of points) {
+                if (p === centralParticle) continue;
+                const distPixels = Math.hypot(p.x - centralParticle.x, p.y - centralParticle.y);
+                const distUnits = distPixels / PARTICLE_DIAMETER;
+                sourceCtx.fillStyle = getColorForDistance(distUnits, R_MAX_UNITS);
+                sourceCtx.beginPath();
+                sourceCtx.arc(p.x, p.y, PARTICLE_RADIUS, 0, 2 * Math.PI);
+                sourceCtx.fill();
+            }
+            sourceCtx.fillStyle = 'black';
+            sourceCtx.beginPath();
+            sourceCtx.arc(centralParticle.x, centralParticle.y, PARTICLE_RADIUS, 0, 2 * Math.PI);
+            sourceCtx.fill();
+        }
+
+        function drawPDF({ g_r, radii }) {
+            pdfCtx.fillStyle = '#ffffff';
+            pdfCtx.fillRect(0, 0, BOX_SIZE, BOX_SIZE);
+            
+            if (g_r.length === 0) return;
+
+            let max_g = 0;
+            for(let val of g_r) { if (val > max_g) max_g = val; }
+            const yAxisMax = Math.max(2.5, Math.ceil(max_g * 1.1));
+
+            const scaleX = BOX_SIZE / R_MAX_UNITS;
+            const scaleY = BOX_SIZE / yAxisMax;
+            
+            pdfCtx.save();
+            pdfCtx.strokeStyle = '#d1d5db';
+            pdfCtx.fillStyle = '#6b7280';
+            pdfCtx.font = '12px Inter';
+            pdfCtx.lineWidth = 1;
+
+            for (let i = 0; i <= yAxisMax; i++) {
+                const y = BOX_SIZE - i * scaleY;
+                pdfCtx.beginPath();
+                pdfCtx.moveTo(0, y);
+                pdfCtx.lineTo(BOX_SIZE, y);
+                pdfCtx.stroke();
+                if(i > 0) pdfCtx.fillText(i, 5, y - 5);
+            }
+            for (let i = 0; i <= R_MAX_UNITS; i++) {
+                const x = i * scaleX;
+                pdfCtx.beginPath();
+                pdfCtx.moveTo(x, 0);
+                pdfCtx.lineTo(x, BOX_SIZE);
+                pdfCtx.stroke();
+                if(i > 0) pdfCtx.fillText(i, x + 5, BOX_SIZE - 5);
+            }
+            pdfCtx.restore();
+
+            const gradient = pdfCtx.createLinearGradient(0, 0, BOX_SIZE, 0);
+            for(let i=0; i<1; i+=0.05) {
+                gradient.addColorStop(i, getColorForDistance(i * R_MAX_UNITS, R_MAX_UNITS));
+            }
+            pdfCtx.strokeStyle = gradient;
+            pdfCtx.lineWidth = 3;
+            pdfCtx.beginPath();
+            pdfCtx.moveTo(0, BOX_SIZE - g_r[0] * scaleY);
+
+            for (let i = 0; i < g_r.length; i++) {
+                const x = radii[i] * scaleX;
+                const y = BOX_SIZE - g_r[i] * scaleY;
+                pdfCtx.lineTo(x, y);
+            }
+            pdfCtx.stroke();
+        }
+
+        function handleSliderChange(rUnits) {
+            sweepValue.textContent = rUnits.toFixed(1);
+            
+            sourceOverlayCtx.clearRect(0, 0, BOX_SIZE, BOX_SIZE);
+            pdfOverlayCtx.clearRect(0, 0, BOX_SIZE, BOX_SIZE);
+            
+            if (rUnits > 0) {
+                const rPixels = rUnits * PARTICLE_DIAMETER;
+                sourceOverlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                sourceOverlayCtx.lineWidth = 2;
+
+                const center = { x: BOX_SIZE / 2, y: BOX_SIZE / 2 };
+                let centralParticle = points[0];
+                if(points.length > 0) {
+                    let minD = Infinity;
+                    for(const p of points) {
+                        const d = Math.hypot(p.x - center.x, p.y - center.y);
+                        if (d < minD) { minD = d; centralParticle = p; }
+                    }
+                    sourceOverlayCtx.beginPath();
+                    sourceOverlayCtx.arc(centralParticle.x, centralParticle.y, rPixels, 0, 2 * Math.PI);
+                    sourceOverlayCtx.stroke();
+                }
+
+
+                const x_pos = (rUnits / R_MAX_UNITS) * BOX_SIZE;
+                pdfOverlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.9)';
+                pdfOverlayCtx.lineWidth = 2;
+                pdfOverlayCtx.beginPath();
+                pdfOverlayCtx.moveTo(x_pos, 0);
+                pdfOverlayCtx.lineTo(x_pos, BOX_SIZE);
+                pdfOverlayCtx.stroke();
+            }
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
