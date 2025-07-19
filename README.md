@@ -16,6 +16,7 @@
 | 🎯 [**Wave Scattering**](https://nitad54448.github.io/Enseignement/WaveScattering.html) | An interactive simulation of a wave scattering off a charged particle (Thomson scattering). |
 | 💎 [**Miller Planes Viewer**](https://nitad54448.github.io/Enseignement/Miller.html) | Visualize (hkl) crystallographic planes. |
 | ↔️ [**Direction Visualizer**](https://nitad54448.github.io/Enseignement/Directions.html) | Visualize [uvw] crystallographic directions within a unit cell for all crystal systems. |
+| 📄 [**Pair Distribution Function Explorer**](pdf.html) | An interactive simulation to explore the Pair Distribution Function (PDF), g(d), for various 2D particle arrangements. |
 | 🌐 [**Reciprocal Space Viewer**](https://nitad54448.github.io/Enseignement/RSpace.html) | This tool allows for the visualization of a reciprocal lattice for all crystal systems. |
 | ⚛️ [**Atomic Energy Levels**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html) | This viewer schematically displays atomic energy levels (K, L, M) for different elements. |
 | 📈 [**XRD Emission Spectra**](https://nitad54448.github.io/Enseignement/Emission.html) | This simulator generates and displays X-ray emission spectra. |
@@ -96,7 +97,26 @@ Visualize [uvw] crystallographic directions within a unit cell for all crystal s
 
 ---
 
-### 🌐 5. Reciprocal Space Viewer
+### 📄 5. Pair Distribution Function Explorer
+[**Launch PDF Explorer**](https://nitad54448.github.io/Enseignement/pdf.html)
+
+An interactive simulation to explore the Pair Distribution Function (PDF), g(d), for various 2D particle arrangements. The footer of the program notes it was created by NitaD, Univ Paris-Saclay, in 2025.
+
+* **Concepts Covered**:
+    * **Particle Distribution**: Generate and visualize different 2D arrangements of particles, including crystalline, liquid-like, gaseous, and liquid crystal states.
+    * **Pair Distribution Function g(d)**: Calculates and plots the g(d) function, which describes the probability of finding a particle at a certain distance from a reference particle.
+    * **Short-Range vs. Long-Range Order**: Observe the distinct features of the g(d) for different states of matter, from the sharp peaks of a crystal to the broad humps of a liquid and the flat line of a gas.
+* **Interactive Controls**:
+    * **Presets**: Choose from different structural models: Crystal, Compact Crystal, Liquid-like, Gas, and Smectic Liquid Crystal.
+    * **Particle Count**: Adjust the number of particles in the simulation box.
+    * **Disorder**: Introduce thermal-like random displacements to the particle positions.
+    * **Click to Add**: Manually add particles to the distribution.
+    * **Distance Highlighting**: A slider interactively highlights a specific distance on both the particle distribution and the g(d) plot.
+* **Technologies**: HTML, JavaScript, TailwindCSS, 2D Canvas API.
+
+---
+
+### 🌐 6. Reciprocal Space Viewer
 [**Launch Reciprocal Space Simulator**](https://nitad54448.github.io/Enseignement/RSpace.html)
 
 This tool allows for the visualization of a reciprocal lattice for all crystal systems.
@@ -109,7 +129,7 @@ This tool allows for the visualization of a reciprocal lattice for all crystal s
 
 ---
 
-### ⚛️ 6. Atomic Energy Level Diagram
+### ⚛️ 7. Atomic Energy Level Diagram
 [**Launch Atomic Levels Simulator**](https://nitad54448.github.io/Enseignement/niveaux_atomiques.html)
 
 This viewer schematically displays atomic energy levels (K, L, M) for different elements and allows visualization of common electronic transitions (Kα, Kβ, Lα, etc.).
@@ -124,7 +144,7 @@ This viewer schematically displays atomic energy levels (K, L, M) for different 
 
 ---
 
-### 📈 7. XRD Emission Spectra Simulator
+### 📈 8. XRD Emission Spectra Simulator
 [**Launch Emission Simulator**](https://nitad54448.github.io/Enseignement/Emission.html)
 
 This simulator generates and displays X-ray emission spectra, including Bremsstrahlung radiation and characteristic lines.
@@ -139,7 +159,7 @@ This simulator generates and displays X-ray emission spectra, including Bremsstr
 
 ---
 
-### 📊 8. XRD Absorption and Filters Simulator
+### 📊 9. XRD Absorption and Filters Simulator
 [**Launch Filters Simulator**](https://nitad54448.github.io/Enseignement/filtres.html)
 
 This tool simulates the X-ray emission from an anode, the effect of a filter on the spectrum, and displays the filter's mass absorption coefficient.
@@ -155,7 +175,7 @@ This tool simulates the X-ray emission from an anode, the effect of a filter on 
 
 ---
 
-### 🌍 9. Ewald Sphere and XRD Viewer
+### 🌍 10. Ewald Sphere and XRD Viewer
 [**Launch Ewald Sphere Simulator**](https://nitad54448.github.io/Enseignement/ewald.html)
 
 This simulator visualizes the construction of the Ewald sphere in reciprocal space for an orthorhombic lattice.
@@ -172,7 +192,7 @@ This simulator visualizes the construction of the Ewald sphere in reciprocal spa
 
 ---
 
-### 🔬 10. Experimental Diffraction Methods
+### 🔬 11. Experimental Diffraction Methods
 [**Launch Diffraction Methods Simulator**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html)
 
 This software visualizes the reciprocal lattice for three different experimental diffraction methods.
@@ -185,7 +205,7 @@ This software visualizes the reciprocal lattice for three different experimental
 
 ---
 
-### 🖥️ 11. Single Crystal Diffraction Simulator
+### 🖥️ 12. Single Crystal Diffraction Simulator
 [**Launch Single Crystal Simulator**](4-circles.html)
 
 An advanced simulator for visualizing single-crystal X-ray diffraction. It combines a 3D view of the reciprocal lattice and Ewald sphere with a 2D detector view of the resulting diffraction pattern.
@@ -202,7 +222,7 @@ An advanced simulator for visualizing single-crystal X-ray diffraction. It combi
 
 ---
 
-### 🎞️ 12. Kiessig Fringes Simulator
+### 🎞️ 13. Kiessig Fringes Simulator
 [**Launch Kiessig Fringes Simulator**](https://nitad54448.github.io/Enseignement/kiessig.html)
 
 This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film with interface roughness. The footer of the program notes it uses the Parratt formalism with Névot-Croce roughness.
@@ -216,7 +236,7 @@ This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single 
 
 ---
 
-### ✨ 13. 2D Fourier Transform Explorer
+### ✨ 14. 2D Fourier Transform Explorer
 [**Launch FT Explorer**](https://nitad54448.github.io/Enseignement/FT.html)
 
 This explorer visualizes the 2D Fourier Transform of various sources.
@@ -229,7 +249,7 @@ This explorer visualizes the 2D Fourier Transform of various sources.
 
 ---
 
-### 🔄 14. 2D Radon Transform Explorer
+### 🔄 15. 2D Radon Transform Explorer
 [**Launch Radon Explorer**](https://nitad54448.github.io/Enseignement/Radon.html)
 
 This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
@@ -241,7 +261,7 @@ This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
 
 ---
 
-### 🎨 15. Color Radon Transform Explorer
+### 🎨 16. Color Radon Transform Explorer
 [**Launch Color Radon Explorer**](https://nitad54448.github.io/Enseignement/ColorRadon.html)
 
 An interactive explorer for the 2D Radon Transform on color images, demonstrating filtered back-projection for tomographic reconstruction.
@@ -257,7 +277,7 @@ An interactive explorer for the 2D Radon Transform on color images, demonstratin
 
 ---
 
-### 🧊 16. 3D Radon Transform Explorer
+### 🧊 17. 3D Radon Transform Explorer
 [**Launch 3D Radon Explorer**](3D_Radon_-_DS.html)
 
 An interactive explorer for visualizing the principles of computed tomography (CT) in three dimensions. It demonstrates how a 3D object can be reconstructed from a series of 2D projections (slices).
@@ -273,7 +293,7 @@ An interactive explorer for visualizing the principles of computed tomography (C
 
 ---
 
-### ✍️ 17. 2D Hough Explorer
+### ✍️ 18. 2D Hough Explorer
 [**Launch Hough Explorer**](Hough.html)
 
 An interactive explorer for visualizing the principles of the Hough Transform for line detection in 2D images.
