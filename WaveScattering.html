@@ -154,19 +154,16 @@
     <script>
         let scene, camera, renderer, controls;
         let particle;
-        const incomingWave = { planes: [], peakVectors: [], troughVectors: [] };
+        const incomingWave = { planes: [], vectors: [], polarizationAngles: [], passedParticle: [] };
         const radiatedWave = { shells: [] };
         let time = 0;
         let lastEmittedCycle = -1;
         let nextShellIndex = 0;
 
-        let nonPolarizedAngle = 0;
-        let lastAngleChangeTime = 0;
-        const angleChangeInterval = 0.5;
-
         const config = {
             numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
             polarizationType: 'linear_vertical', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 2.0,
+            vectorsPerCycle: 12,
         };
         config.wavelength = config.waveSpeed / config.oscillationFrequency * (2 * Math.PI);
 
@@ -204,7 +201,6 @@
             document.getElementById('polarization-selector').addEventListener('change', (e) => config.polarizationType = e.target.value);
             document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => config.showRadiatedWave = e.target.checked);
             
-            // Set footer date
             const date = new Date();
             const options = { year: 'numeric', month: 'long', day: 'numeric' };
             document.getElementById('footer-date').textContent = `NitaD, Univ Paris-Saclay, version ${date.toLocaleDateString('en-US', options)}.`;
@@ -222,7 +218,7 @@
             particle = new THREE.Mesh(geometry, material);
             scene.add(particle);
         }
-
+        
         function createIncomingWave() {
             const planeGeom = new THREE.PlaneGeometry(config.sceneExtent * 1.5, config.sceneExtent * 1.5);
             const planeMat = new THREE.MeshBasicMaterial({ color: 0x3498DB, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
@@ -232,17 +228,21 @@
                 plane.rotation.y = Math.PI / 2;
                 scene.add(plane);
                 incomingWave.planes.push(plane);
-                const peakVec = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0,0,0), 1, 0xFFFF00, 0.5, 0.25);
-                scene.add(peakVec);
-                incomingWave.peakVectors.push(peakVec);
-                const troughVec = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0,0,0), 1, 0xE74C3C, 0.5, 0.25);
-                scene.add(troughVec);
-                incomingWave.troughVectors.push(troughVec);
+                
+                incomingWave.polarizationAngles.push(Math.random() * 2 * Math.PI);
+                incomingWave.passedParticle.push(false); 
+
+                const vectorsForPlane = [];
+                for (let j = 0; j < config.vectorsPerCycle; j++) {
+                    const vector = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0,0,0), 1, 0xFFFF00, 0.4, 0.2);
+                    scene.add(vector);
+                    vectorsForPlane.push(vector);
+                }
+                incomingWave.vectors.push(vectorsForPlane);
             }
         }
 
         function createRadiatedWave() {
-            // Each shell will have its material cloned, so we can change colors individually.
             const radiatedMat = new THREE.MeshPhongMaterial({
                 color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7,
             });
@@ -276,39 +276,86 @@
             requestAnimationFrame(animate);
             const lastTime = time;
             time += 0.015;
+
             const omega_t = config.oscillationFrequency * time;
             const firstPeakOffset = (config.waveSpeed * time) % config.wavelength;
+            
+            if (config.polarizationType === 'non_polarized') {
+                for (let i = 0; i < config.numPlanes; i++) {
+                    const peakX = config.sceneExtent + firstPeakOffset - i * config.wavelength;
+                    const hasPassed = incomingWave.passedParticle[i];
+
+                    if (!hasPassed && peakX < 0) {
+                        incomingWave.passedParticle[i] = true;
+                    }
+
+                    if (hasPassed && peakX > config.sceneExtent) {
+                        incomingWave.passedParticle[i] = false;
+                        incomingWave.polarizationAngles[i] = Math.random() * 2 * Math.PI;
+                    }
+                }
+            }
+            
+            const k = (2 * Math.PI) / config.wavelength;
+            const maxLength = 1.5;
+
             for (let i = 0; i < config.numPlanes; i++) {
                 const peakX = config.sceneExtent + firstPeakOffset - i * config.wavelength;
                 incomingWave.planes[i].position.x = peakX;
-                incomingWave.peakVectors[i].position.x = peakX;
-                const troughX = peakX - config.wavelength / 2;
-                incomingWave.troughVectors[i].position.x = troughX;
-                updateVectorsForConstantPhase(incomingWave.peakVectors[i], incomingWave.troughVectors[i]);
+                // --- CORRECTION: Re-enabled the wavefront plane visibility ---
+                incomingWave.planes[i].visible = true;
+
+                for (let j = 0; j < config.vectorsPerCycle; j++) {
+                    const vector = incomingWave.vectors[i][j];
+                    const vectorX = peakX - (j / config.vectorsPerCycle) * config.wavelength;
+                    vector.position.x = vectorX;
+                    
+                    const phase = omega_t - k * vectorX;
+                    const amplitude = -Math.sin(phase);
+
+                    let polarizationDir = new THREE.Vector3();
+                    switch (config.polarizationType) {
+                        case 'linear_vertical':   polarizationDir.set(0, 1, 0); break;
+                        case 'linear_horizontal': polarizationDir.set(0, 0, 1); break;
+                        case 'non_polarized':
+                            const currentAngle = incomingWave.polarizationAngles[i];
+                            polarizationDir.set(0, Math.cos(currentAngle), Math.sin(currentAngle));
+                            break;
+                    }
+                    
+                    const finalDirection = amplitude >= 0 ? polarizationDir : polarizationDir.clone().multiplyScalar(-1);
+                    vector.setDirection(finalDirection);
+
+                    vector.setLength(Math.abs(amplitude) * maxLength, 0.4, 0.2);
+                    vector.setColor(amplitude >= 0 ? 0xFFFF00 : 0xE74C3C);
+                    vector.visible = Math.abs(amplitude) > 0.05;
+                }
             }
+            
+            const particlePhase = omega_t;
+            let particleAngle = 0;
+            if (config.polarizationType === 'non_polarized') {
+                const i_particle = Math.floor((config.sceneExtent + firstPeakOffset) / config.wavelength);
+                const clamped_i = Math.max(0, Math.min(i_particle, config.numPlanes - 1));
+                particleAngle = incomingWave.polarizationAngles[clamped_i];
+            }
+
             const effectiveAmplitude = config.baseAmplitude / config.particleMass;
-            const phaseAtOrigin = omega_t;
             let displacement = new THREE.Vector3();
             switch (config.polarizationType) {
-                case 'linear_vertical': displacement.y = -Math.sin(phaseAtOrigin); break;
-                case 'linear_horizontal': displacement.z = -Math.sin(phaseAtOrigin); break;
+                case 'linear_vertical': displacement.y = -Math.sin(particlePhase); break;
+                case 'linear_horizontal': displacement.z = -Math.sin(particlePhase); break;
                 case 'non_polarized':
-                    if (time - lastAngleChangeTime > angleChangeInterval) {
-                        nonPolarizedAngle = Math.random() * 2 * Math.PI;
-                        lastAngleChangeTime = time;
-                    }
-                    displacement.set(0, -Math.sin(phaseAtOrigin) * Math.cos(nonPolarizedAngle), -Math.sin(phaseAtOrigin) * Math.sin(nonPolarizedAngle));
+                    displacement.set(0, -Math.sin(particlePhase) * Math.cos(particleAngle), -Math.sin(particlePhase) * Math.sin(particleAngle));
                     break;
             }
             particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * config.particleCharge);
-            emitRadiatedPulse(phaseAtOrigin, lastTime * config.oscillationFrequency);
+            emitRadiatedPulse(particlePhase, lastTime * config.oscillationFrequency);
             updateRadiatedWave(effectiveAmplitude);
             controls.update();
             renderer.render(scene, camera);
         }
 
-        // --- MODIFIED FUNCTION ---
-        // This function now sets the color of the emitted wave based on its phase.
         function emitRadiatedPulse(currentPhase, lastPhase) {
             const currentCycle = Math.floor((currentPhase / Math.PI) - 0.5);
             if (currentCycle > lastEmittedCycle) {
@@ -318,13 +365,11 @@
                 shell.isActive = true;
                 shell.birthTime = time;
 
-                // Determine color based on emission point (peak vs. trough acceleration)
                 const isPeakEmission = currentCycle % 2 === 0;
-                const peakColor = 0xFFFF00;    // Color of the peak polarization vector
-                const troughColor = 0xE74C3C;  // Color of the trough polarization vector
+                const peakColor = 0xFFFF00;
+                const troughColor = 0xE74C3C;
                 const targetColor = isPeakEmission ? peakColor : troughColor;
 
-                // Apply the color to the materials of the emitted shell (both torus and sphere)
                 shell.torus.material.color.set(targetColor);
                 shell.torus.material.emissive.set(targetColor);
                 shell.sphere.material.color.set(targetColor);
@@ -362,22 +407,7 @@
                 }
             });
         }
-
-        function updateVectorsForConstantPhase(peakVec, troughVec) {
-             const length = 1.5;
-             let peakDir = new THREE.Vector3();
-             switch (config.polarizationType) {
-                case 'linear_vertical': peakDir.set(0, 1, 0); break;
-                case 'linear_horizontal': peakDir.set(0, 0, 1); break;
-                case 'non_polarized': peakDir.set(0, Math.cos(nonPolarizedAngle), Math.sin(nonPolarizedAngle)); break;
-                default: peakDir.set(0, 1, 0); break;
-            }
-            peakVec.setDirection(peakDir);
-            troughVec.setDirection(peakDir.clone().multiplyScalar(-1));
-            peakVec.setLength(length, 0.5, 0.25);
-            troughVec.setLength(length, 0.5, 0.25);
-        }
-
+        
         function onWindowResize() {
             const container = document.getElementById('visualization-area');
             const width = container.clientWidth;
