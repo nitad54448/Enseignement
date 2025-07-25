@@ -3,19 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HKL Plane Visualizer</title>
+    <title>Crystallography Visualizer (Planes & Directions)</title>
     <style>
         body { font-family: system-ui, sans-serif; margin: 0; background-color: #f0f0f0; color: #333; display: flex; height: 100vh; overflow: hidden; }
-        #app-container { display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; width: 98%; max-width: 1800px; height: 92vh; margin: 2vh auto; }
+        #app-container { display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 12px; overflow: hidden; width: 98%; max-width: 1800px; height: 92vh; margin: 2vh auto; }
         #controls-panel {
-            width: 280px;
-            min-width: 160px;
-            max-width: 400px;
-            flex-shrink: 0;
-            padding: 10px;
-            background-color: #f9f9f9;
-            border-right: 1px solid #e0e0e0;
-            overflow-y: auto;
+            width: 280px; min-width: 220px; max-width: 500px; flex-shrink: 0; padding: 20px;
+            background-color: #f9f9f9; border-right: 1px solid #e0e0e0; overflow-y: auto;
         }
         #drag-handle { width: 5px; cursor: col-resize; background-color: #e0e0e0; flex-shrink: 0; transition: background-color 0.2s; }
         #drag-handle:hover { background-color: #0056b3; }
@@ -26,52 +20,26 @@
         .indices-group, .param-group { display: flex; gap: 10px; }
         .indices-group input { text-align: center; }
         .slider-group { display: flex; align-items: center; gap: 10px; }
-        .slider-group input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            flex-grow: 1;
-            width: 100%;
-            background: transparent;
-            cursor: pointer;
-        }
-        .slider-group input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            margin-top: -6px;
-            width: 18px;
-            height: 18px;
-            background: #0056b3;
-            border-radius: 50%;
-        }
-        .slider-group input[type="range"]::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
-            background: #0056b3;
-            border-radius: 50%;
-            border: none;
-        }
-        .slider-group input[type="range"]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 6px;
-            background: #ddd;
-            border-radius: 3px;
-        }
-        .slider-group input[type="range"]::-moz-range-track {
-            width: 100%;
-            height: 6px;
-            background: #ddd;
-            border-radius: 3px;
-        }
+        .slider-group input[type="range"] { flex-grow: 1; cursor: pointer; }
         #visualization-area { flex-grow: 1; position: relative; background-color: #111827; min-width: 0; }
         canvas { display: block; }
-        .legend { margin-top: 15px; padding: 12px; font-size: 0.9em; flex-shrink: 0; background: #f0f0f0; border: 1px solid #e0e0e0; border-radius: 5px; font-family: 'Courier New', Courier, monospace; line-height: 1.5; }
+        #info { position:absolute; bottom:10px; right:10px; padding: 12px; font-size: 0.9em; background: rgba(240,240,240,0.85); border-radius: 5px; font-family: 'Courier New', Courier, monospace; line-height: 1.5; }
         footer { position: fixed; bottom: 10px; left: 20px; font-size: 0.8em; color: #888; z-index: 100; }
     </style>
 </head>
 <body>
     <div id="app-container">
         <div id="controls-panel">
-            <h1>HKL Plane Visualizer</h1>
+            <h1>Crystallography Visualizer</h1>
+            
+            <div class="control-group">
+                <label for="modeSelector">Mode:</label>
+                <select id="modeSelector">
+                    <option value="plane" selected>Plane (hkl)</option>
+                    <option value="direction">Direction [uvw]</option>
+                </select>
+            </div>
+            
             <div class="control-group">
                 <label for="crystalSystem">Crystal System:</label>
                 <select id="crystalSystem">
@@ -92,167 +60,384 @@
             <div class="control-group" id="params-controls">
                 <label>Lattice Parameters (Å & °)</label>
                 <div class="param-group">
-                    <div class="input-group" id="group-a"><input title="Lattice parameter a" type="number" id="a" value="4" step="0.1" min="1"></div>
-                    <div class="input-group" id="group-b"><input title="Lattice parameter b" type="number" id="b" value="4" step="0.1" min="1"></div>
-                    <div class="input-group" id="group-c"><input title="Lattice parameter c" type="number" id="c" value="4" step="0.1" min="1"></div>
+                    <div title="Lattice parameter a"><input type="number" id="a" value="4" step="0.1" min="1"></div>
+                    <div title="Lattice parameter b"><input type="number" id="b" value="4" step="0.1" min="1"></div>
+                    <div title="Lattice parameter c"><input type="number" id="c" value="4" step="0.1" min="1"></div>
                 </div>
                 <div class="param-group" style="margin-top:10px">
-                    <div class="input-group" id="group-alpha"><input title="Lattice angle alpha" type="number" id="alpha" value="90" step="1" min="1" max="179"></div>
-                    <div class="input-group" id="group-beta"><input title="Lattice angle beta" type="number" id="beta" value="90" step="1" min="1" max="179"></div>
-                    <div class="input-group" id="group-gamma"><input title="Lattice angle gamma" type="number" id="gamma" value="90" step="1" min="1" max="179"></div>
+                    <div title="Lattice angle alpha"><input type="number" id="alpha" value="90" step="1" min="1" max="179"></div>
+                    <div title="Lattice angle beta"><input type="number" id="beta" value="90" step="1" min="1" max="179"></div>
+                    <div title="Lattice angle gamma"><input type="number" id="gamma" value="90" step="1" min="1" max="179"></div>
                 </div>
             </div>
 
-            <div class="control-group" id="hkl-controls">
-                <label>HKL Plane Indices</label>
-                <div class="indices-group">
-                     <div class="input-group"><input type="number" id="h" value="1" step="1"></div>
-                     <div class="input-group"><input type="number" id="k" value="1" step="1"></div>
-                     <div class="input-group"><input type="number" id="l" value="1" step="1"></div>
+            <div id="mode-specific-controls">
+                <div class="control-group" id="plane-controls">
+                    <label>Plane Indices (h k l)</label>
+                    <div class="indices-group">
+                         <input type="number" id="h" value="1" step="1">
+                         <input type="number" id="k" value="1" step="1">
+                         <input type="number" id="l" value="1" step="1">
+                    </div>
+                </div>
+                <div class="control-group" id="direction-controls" style="display: none;">
+                    <label>Direction Indices [u v w]</label>
+                    <div class="indices-group">
+                        <input type="number" id="u" value="1" step="1">
+                        <input type="number" id="v" value="1" step="1">
+                        <input type="number" id="w" value="1" step="1">
+                    </div>
                 </div>
             </div>
 
-            <div class="control-group">
-               <label for="viewType">Display Options</label>
+             <div class="control-group">
+               <label for="nodeSize">Node Size:</label>
+               <div class="slider-group"><input type="range" id="nodeSize" min="0.05" max="0.3" step="0.01" value="0.1"></div>
+            </div>
+             <div class="control-group">
+               <label for="viewType">Camera View</label>
                <select id="viewType">
                    <option value="perspective">Perspective</option>
                    <option value="orthographic" selected>Orthographic</option>
                </select>
             </div>
-             <div class="control-group">
-               <label for="nodeSize">Node Size:</label>
-               <div class="slider-group">
-                    <input type="range" id="nodeSize" min="0.05" max="0.25" step="0.01" value="0.1">
-               </div>
-            </div>
         </div>
         <div id="drag-handle"></div>
         <div id="visualization-area">
             <div id="threejs-container" style="width:100%; height:100%;"></div>
-            <div id="info" class="legend" style="position:absolute; bottom:10px; right:10px; background: rgba(240,240,240,0.8);">Click the plane for details.</div>
+            <div id="info">Select a mode and parameters.</div>
         </div>
     </div>
     
-    <footer >NitaD, Univ Paris-Saclay, version 12 july 2025.</footer>
+    <footer>Unified by NitaD, Univ Paris-Saclay, July 2025.</footer>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script>
         const centeringOptions={triclinic:["P"],monoclinic:["P","C"],orthorhombic:["P","C","I","F"],tetragonal:["P","I"],trigonal:["P","R"],hexagonal:["P"],cubic:["P","I","F"]};
-        let scene,camera,renderer,controls,perspectiveCamera,orthographicCamera,font,selectedPlane=null;
-        let unitCellLines=new THREE.Group(),latticeNodes=new THREE.Group(),hklPlanes=new THREE.Group();
-        const FONT_URL='https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_regular.typeface.json';
-        const dom={info:document.getElementById('info'),system:document.getElementById('crystalSystem'),centering:document.getElementById('centering'),nodeSize:document.getElementById('nodeSize'),viewType:document.getElementById('viewType'),inputs:{a:document.getElementById('a'),b:document.getElementById('b'),c:document.getElementById('c'),alpha:document.getElementById('alpha'),beta:document.getElementById('beta'),gamma:document.getElementById('gamma')},groups:{a:document.getElementById('group-a'),b:document.getElementById('group-b'),c:document.getElementById('group-c'),alpha:document.getElementById('group-alpha'),beta:document.getElementById('group-beta'),gamma:document.getElementById('group-gamma')},hkl:{h:document.getElementById('h'),k:document.getElementById('k'),l:document.getElementById('l')}};
+        let scene, camera, renderer, controls, perspectiveCamera, orthographicCamera, font, selectedPlane = null;
+        let unitCellLines = new THREE.Group(), latticeNodes = new THREE.Group(), hklPlanes = new THREE.Group(), directionVector = new THREE.Group();
+        const FONT_URL = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_regular.typeface.json';
 
-        function init(){
-            scene=new THREE.Scene();
-            scene.background=new THREE.Color(0x111827);
-            scene.add(unitCellLines,latticeNodes,hklPlanes);
-            const container=document.getElementById('threejs-container'),aspect=container.clientWidth/container.clientHeight,frustumSize=15;
-            perspectiveCamera=new THREE.PerspectiveCamera(50,aspect,0.1,1000);
-            orthographicCamera=new THREE.OrthographicCamera(frustumSize*aspect/-2,frustumSize*aspect/2,frustumSize/2,frustumSize/-2,0.1,1000);
-            camera=orthographicCamera;
-            camera.position.set(8,6,10);
-            renderer=new THREE.WebGLRenderer({antialias:true});
-            renderer.setSize(container.clientWidth,container.clientHeight);
+        const dom = {
+            info: document.getElementById('info'),
+            modeSelector: document.getElementById('modeSelector'),
+            system: document.getElementById('crystalSystem'),
+            centering: document.getElementById('centering'),
+            nodeSize: document.getElementById('nodeSize'),
+            viewType: document.getElementById('viewType'),
+            planeControls: document.getElementById('plane-controls'),
+            directionControls: document.getElementById('direction-controls'),
+            params: { a: document.getElementById('a'), b: document.getElementById('b'), c: document.getElementById('c'), alpha: document.getElementById('alpha'), beta: document.getElementById('beta'), gamma: document.getElementById('gamma') },
+            hkl: { h: document.getElementById('h'), k: document.getElementById('k'), l: document.getElementById('l') },
+            uvw: { u: document.getElementById('u'), v: document.getElementById('v'), w: document.getElementById('w') }
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111827);
+            scene.add(unitCellLines, latticeNodes, hklPlanes, directionVector);
+            
+            const container = document.getElementById('threejs-container'), aspect = container.clientWidth / container.clientHeight, frustumSize = 15;
+            perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 1000);
+            orthographicCamera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
+            camera = orthographicCamera;
+            camera.position.set(8, 6, 10);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
             container.appendChild(renderer.domElement);
-            controls=new THREE.OrbitControls(camera,renderer.domElement);
-            scene.add(new THREE.HemisphereLight(0xffffff,0x555555,1.5));
-            const light=new THREE.DirectionalLight(0xffffff,1);
-            light.position.set(10,15,5);
-            scene.add(light);
-            new THREE.FontLoader().load(FONT_URL,f=>{font=f;updateCenteringOptions()});
-            dom.system.addEventListener('change',()=>{updateParameterFields();updateCenteringOptions()});
-            dom.centering.addEventListener('change',updateScene);
 
-            // Corrected event listener for lattice parameter inputs
-            Object.values(dom.inputs).forEach(input => input.addEventListener('change', e => {
-                const target = e.target;
-                const min = parseFloat(target.min);
-                const max = parseFloat(target.max);
-                let value = parseFloat(target.value);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.5));
+            scene.add(new THREE.DirectionalLight(0xffffff, 1));
 
-                if (isNaN(value)) {
-                    target.value = min; // Reset to the minimum if input is not a number
-                } else {
-                    if (!isNaN(min) && value < min) {
-                        target.value = min; // Correct to the minimum value
-                    }
-                    if (!isNaN(max) && value > max) {
-                        target.value = max; // Correct to the maximum value
-                    }
-                }
-                
-                syncLinkedParameters();
-                updateScene();
-            }));
+            new THREE.FontLoader().load(FONT_URL, f => { font = f; updateCenteringOptions(); });
 
-            Object.values(dom.hkl).forEach(i=>i.addEventListener('change',e=>{e.target.value=parseInt(e.target.value,10)||0;updateScene()}));
-            dom.nodeSize.addEventListener('input',updateScene);
-            dom.viewType.addEventListener('change',switchCameraView);
-            renderer.domElement.addEventListener('click',onObjectClick);
-            updateParameterFields();
-            updateCenteringOptions();
+            // --- Event Listeners ---
+            dom.modeSelector.addEventListener('change', onModeChange);
+            dom.system.addEventListener('change', () => { updateParameterFields(); updateCenteringOptions(); });
+            dom.centering.addEventListener('change', updateScene);
+            Object.values(dom.params).forEach(i => i.addEventListener('change', () => { syncLinkedParameters(); updateScene(); }));
+            Object.values(dom.hkl).forEach(i => i.addEventListener('change', () => { i.value = parseInt(i.value, 10) || 0; updateScene(); }));
+            Object.values(dom.uvw).forEach(i => i.addEventListener('change', () => { i.value = parseInt(i.value, 10) || 0; updateScene(); }));
+            dom.nodeSize.addEventListener('input', updateScene);
+            dom.viewType.addEventListener('change', switchCameraView);
+            renderer.domElement.addEventListener('click', onObjectClick);
+
             setupResizer();
             onWindowResize();
+            updateParameterFields();
+            updateCenteringOptions(); // This also calls updateScene
+            onModeChange();
             animate();
         }
-        function animate(){requestAnimationFrame(animate);controls.update();unitCellLines.children.forEach(c=>{if(c.isMesh&&c.geometry.type==='TextGeometry')c.quaternion.copy(camera.quaternion)});renderer.render(scene,camera)}
-        function switchCameraView(){const p=new THREE.Vector3(),q=new THREE.Quaternion();camera.getWorldPosition(p);camera.getWorldQuaternion(q);camera=dom.viewType.value==='orthographic'?orthographicCamera:perspectiveCamera;camera.position.copy(p);camera.quaternion.copy(q);controls.object=camera;controls.update()}
-        function clearScene(){[unitCellLines,latticeNodes,hklPlanes].forEach(g=>{while(g.children.length){const o=g.children[0];g.remove(o);if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose()}});selectedPlane=null}
-        function updateScene(){clearScene();const p={};Object.keys(dom.inputs).forEach(k=>p[k]=parseFloat(dom.inputs[k].value));const hkl={};Object.keys(dom.hkl).forEach(k=>hkl[k]=parseInt(dom.hkl[k].value)||0);const{v_a,v_b,v_c}=getDirectVectors(p.a,p.b,p.c,p.alpha,p.beta,p.gamma);if(!v_a)return;drawUnitCell(v_a,v_b,v_c);drawLatticeNodes(v_a,v_b,v_c,dom.centering.value);if(hkl.h!==0||hkl.k!==0||hkl.l!==0){drawHklPlanes(v_a,v_b,v_c,p,hkl.h,hkl.k,hkl.l)}updateInfo()}
-        
-        function getDirectVectors(a, b, c, alpha, beta, gamma) {
-            const r = Math.PI / 180;
-            const ca = Math.cos(alpha * r), cb = Math.cos(beta * r), cg = Math.cos(gamma * r);
-            const sg = Math.sin(gamma * r);
 
-            // First, calculate vectors using the standard convention (a on x-axis, b in xy-plane)
-            const v_a_orig = new THREE.Vector3(a, 0, 0);
-            const v_b_orig = new THREE.Vector3(b * cg, b * sg, 0);
-            
-            if (Math.abs(sg) < 1e-9) return {}; // Avoid division by zero if gamma is 0 or 180
-
-            const cx = c * cb;
-            const cy = c * (ca - cb * cg) / sg;
-            const cz2 = c * c - cx * cx - cy * cy;
-            const cz = cz2 > 0 ? Math.sqrt(cz2) : 0;
-            const v_c_orig = new THREE.Vector3(cx, cy, cz);
-
-            if (isNaN(v_c_orig.x)) return {};
-
-            // Now, rotate the entire system to make the c-axis vertical (aligned with world Y-axis)
-            const targetY = new THREE.Vector3(0, 1, 0);
-            const sourceVec = v_c_orig.clone().normalize();
-
-            // Only apply rotation if the c-vector is valid
-            if (sourceVec.lengthSq() < 1e-9) {
-                return { v_a: v_a_orig, v_b: v_b_orig, v_c: v_c_orig };
-            }
-            
-            const quaternion = new THREE.Quaternion();
-            // This computes the rotation needed to go from the original c-direction to the vertical target
-            quaternion.setFromUnitVectors(sourceVec, targetY);
-
-            // Apply the same rotation to all three lattice vectors
-            const v_a = v_a_orig.clone().applyQuaternion(quaternion);
-            const v_b = v_b_orig.clone().applyQuaternion(quaternion);
-            const v_c = v_c_orig.clone().applyQuaternion(quaternion);
-
-            return { v_a, v_b, v_c };
+        function onModeChange() {
+            const mode = dom.modeSelector.value;
+            dom.planeControls.style.display = (mode === 'plane') ? 'block' : 'none';
+            dom.directionControls.style.display = (mode === 'direction') ? 'block' : 'none';
+            selectedPlane = null; // Deselect plane when changing mode
+            updateScene();
         }
 
-        function getReciprocalVectors(a,b,c,alpha,beta,gamma){const{v_a,v_b,v_c}=getDirectVectors(a,b,c,alpha,beta,gamma);if(!v_a)return{};const V=v_a.clone().dot(v_b.clone().cross(v_c));if(Math.abs(V)<1e-9)return{};const f=2*Math.PI/V;return{b1:v_b.clone().cross(v_c).multiplyScalar(f),b2:v_c.clone().cross(v_a).multiplyScalar(f),b3:v_a.clone().cross(v_b).multiplyScalar(f)}}
-        function drawUnitCell(v_a,v_b,v_c){const m=new THREE.LineBasicMaterial({color:0xcccccc,transparent:true,opacity:0.8}),o=new THREE.Vector3(0,0,0),p=[o,v_a,v_b,v_c,v_a.clone().add(v_b),v_a.clone().add(v_c),v_b.clone().add(v_c),v_a.clone().add(v_b).add(v_c)],e=[0,1,0,2,0,3,1,4,1,5,2,4,2,6,3,5,3,6,4,7,5,7,6,7],g=new THREE.BufferGeometry().setFromPoints(p);g.setIndex(e);unitCellLines.add(new THREE.LineSegments(g,m));if(font){const lm=new THREE.MeshBasicMaterial({color:0xffffff});['a','b','c'].forEach((l,i)=>{const g=new THREE.TextGeometry(l,{font,size:0.35,height:0.02});g.center();const m=new THREE.Mesh(g,lm);m.position.copy([v_a,v_b,v_c][i]).multiplyScalar(1.2);unitCellLines.add(m)})}}
-        function drawLatticeNodes(v_a,v_b,v_c,c){const r=parseFloat(dom.nodeSize.value),m=new THREE.MeshStandardMaterial({color:0x4f46e5,roughness:0.5});let C=[new THREE.Vector3(0,0,0),new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),new THREE.Vector3(1,1,0),new THREE.Vector3(1,0,1),new THREE.Vector3(0,1,1),new THREE.Vector3(1,1,1)];if(c==='I')C.push(new THREE.Vector3(0.5,0.5,0.5));else if(c==='F')C.push(new THREE.Vector3(0.5,0.5,0),new THREE.Vector3(0.5,0,0.5),new THREE.Vector3(0,0.5,0.5),new THREE.Vector3(1,0.5,0.5),new THREE.Vector3(0.5,1,0.5),new THREE.Vector3(0.5,0.5,1));else if(c==='C')C.push(new THREE.Vector3(0.5,0.5,0),new THREE.Vector3(0.5,0.5,1));else if(c==='R'&&dom.system.value==='trigonal')C.push(new THREE.Vector3(2/3,1/3,1/3),new THREE.Vector3(1/3,2/3,2/3));C.forEach(f=>{const p=new THREE.Vector3().addScaledVector(v_a,f.x).addScaledVector(v_b,f.y).addScaledVector(v_c,f.z),s=new THREE.Mesh(new THREE.SphereGeometry(r,20,20),m.clone());s.position.copy(p);latticeNodes.add(s)})}
-        function drawHklPlanes(v_a,v_b,v_c,p,h,k,l){const{b1,b2,b3}=getReciprocalVectors(p.a,p.b,p.c,p.alpha,p.beta,p.gamma);if(!b1)return;const g=new THREE.Vector3().addScaledVector(b1,h).addScaledVector(b2,k).addScaledVector(b3,l);if(g.length()<1e-9)return;const d=2*Math.PI/g.length(),dv=g.clone().normalize().multiplyScalar(d);let V=[];if(h!==0)V.push(v_a.clone().divideScalar(h));if(k!==0)V.push(v_b.clone().divideScalar(k));if(l!==0)V.push(v_c.clone().divideScalar(l));if(V.length<3){const o=new THREE.Vector3(0,0,0);let p1,p2,p3,p4;if(h===0&&k===0){p1=o;p2=v_a;p3=v_a.clone().add(v_b);p4=v_b;if(l!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_c.clone().divideScalar(l)))}else if(h===0&&l===0){p1=o;p2=v_a;p3=v_a.clone().add(v_c);p4=v_c;if(k!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_b.clone().divideScalar(k)))}else if(k===0&&l===0){p1=o;p2=v_b;p3=v_b.clone().add(v_c);p4=v_c;if(h!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_a.clone().divideScalar(h)))}else if(h===0){p1=v_b.clone().divideScalar(k);p2=v_c.clone().divideScalar(l);p3=p2.clone().add(v_a);p4=p1.clone().add(v_a)}else if(k===0){p1=v_a.clone().divideScalar(h);p2=v_c.clone().divideScalar(l);p3=p2.clone().add(v_b);p4=p1.clone().add(v_b)}else{p1=v_a.clone().divideScalar(h);p2=v_b.clone().divideScalar(k);p3=p2.clone().add(v_c);p4=p1.clone().add(v_c)}V=[p1,p2,p3,p4]}if(V.length<3)return;const cP=(v,m)=>{const g=new THREE.BufferGeometry().setFromPoints(v);g.setIndex([0,1,2,...(v.length===4?[0,2,3]:[])]);g.computeVertexNormals();return new THREE.Mesh(g,m)};const mP=cP(V,new THREE.MeshPhongMaterial({color:0x007bff,transparent:true,opacity:0.7,side:THREE.DoubleSide}));mP.userData={h,k,l,params:p,isClickable:true};hklPlanes.add(mP,cP(V.map(v=>v.clone().sub(dv)),new THREE.MeshPhongMaterial({color:0x66adff,transparent:true,opacity:0.35,side:THREE.DoubleSide})),cP(V.map(v=>v.clone().add(dv)),new THREE.MeshPhongMaterial({color:0x66adff,transparent:true,opacity:0.35,side:THREE.DoubleSide})))}
-        function onObjectClick(e){e.preventDefault();const c=renderer.domElement,m=new THREE.Vector2(((e.clientX-c.getBoundingClientRect().left)/c.width)*2-1,-((e.clientY-c.getBoundingClientRect().top)/c.height)*2+1),r=new THREE.Raycaster();r.setFromCamera(m,camera);const i=r.intersectObjects(hklPlanes.children.filter(c=>c.userData.isClickable));if(selectedPlane&&selectedPlane.material)selectedPlane.material.color.setHex(0x007bff);selectedPlane=(i.length>0)?i[0].object:null;if(selectedPlane)selectedPlane.material.color.setHex(0xffa500);updateInfo()}
-        function updateInfo(){if(!selectedPlane){dom.info.innerHTML="Click a plane for details."}else{const{h,k,l,params}=selectedPlane.userData,d=calculateDSpacing(h,k,l,params),dt=isFinite(d)?`${d.toFixed(4)} Å`:`&infin;`;dom.info.innerHTML=`<b>Plane: (${h},${k},${l})</b> | d_hkl: ${dt}`}}
-        function calculateDSpacing(h,k,l,p){const{b1,b2,b3}=getReciprocalVectors(p.a,p.b,p.c,p.alpha,p.beta,p.gamma);if(!b1)return NaN;const g=new THREE.Vector3().addScaledVector(b1,h).addScaledVector(b2,k).addScaledVector(b3,l),gl=g.length();if(gl<1e-9)return Infinity;return 2*Math.PI/gl}
-        function updateParameterFields(){const s=dom.system.value;Object.values(dom.groups).forEach(g=>g.style.display='flex');Object.values(dom.inputs).forEach(i=>i.disabled=false);const h=p=>p.forEach(p=>{dom.groups[p].style.display='none'});switch(s){case'cubic':h(['b','c','alpha','beta','gamma']);break;case'tetragonal':h(['b','alpha','beta','gamma']);break;case'orthorhombic':h(['alpha','beta','gamma']);break;case'hexagonal':h(['b','alpha','beta']);dom.inputs.gamma.value=120;dom.inputs.gamma.disabled=true;break;case'trigonal':h(['b','c','beta','gamma']);break;case'monoclinic':h(['alpha','gamma']);break}syncLinkedParameters()}
-        function syncLinkedParameters(){const s=dom.system.value,{a,alpha}=dom.inputs,S=(p,v)=>{dom.inputs[p].value=v;dom.inputs[p].disabled=true};switch(s){case'cubic':S('b',a.value);S('c',a.value);S('alpha',90);S('beta',90);S('gamma',90);break;case'tetragonal':S('b',a.value);S('alpha',90);S('beta',90);S('gamma',90);break;case'orthorhombic':S('alpha',90);S('beta',90);S('gamma',90);break;case'hexagonal':S('b',a.value);S('alpha',90);S('beta',90);S('gamma',120);break;case'trigonal':S('b',a.value);S('c',a.value);S('beta',alpha.value);S('gamma',alpha.value);break;case'monoclinic':S('alpha',90);S('gamma',90);break}}
-        function updateCenteringOptions(){const s=dom.system.value,o=centeringOptions[s],c=dom.centering.value;dom.centering.innerHTML='';o.forEach(opt=>{const O=document.createElement('option');O.value=opt;O.textContent=opt;dom.centering.appendChild(O)});if(o.includes(c))dom.centering.value=c;updateScene()}
-        function onWindowResize(){const c=document.getElementById('visualization-area'),w=c.clientWidth,h=c.clientHeight,a=w/h,fs=15;camera.aspect=a;if(camera.isOrthographicCamera){camera.left=fs*a/-2;camera.right=fs*a/2;camera.top=fs/2;camera.bottom=fs/-2}camera.updateProjectionMatrix();renderer.setSize(w,h)}
-        function setupResizer(){const r=document.getElementById('drag-handle'),p=document.getElementById('controls-panel');let isR=!1;r.addEventListener('mousedown',e=>{e.preventDefault();isR=!0;document.body.style.cursor='col-resize';document.body.style.userSelect='none'});window.addEventListener('mousemove',e=>{if(!isR)return;const w=e.clientX-r.parentElement.getBoundingClientRect().left;if(w>200&&w<600){p.style.width=`${w}px`;onWindowResize()}});window.addEventListener('mouseup',()=>{isR=!1;document.body.style.cursor='default';document.body.style.userSelect='auto'})}
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function switchCameraView() {
+            const p = new THREE.Vector3(), q = new THREE.Quaternion();
+            camera.getWorldPosition(p);
+            camera.getWorldQuaternion(q);
+            camera = dom.viewType.value === 'orthographic' ? orthographicCamera : perspectiveCamera;
+            camera.position.copy(p);
+            camera.quaternion.copy(q);
+            controls.object = camera;
+            controls.update();
+        }
+
+        function clearScene() {
+            [unitCellLines, latticeNodes, hklPlanes, directionVector].forEach(g => {
+                while(g.children.length) {
+                    const o = g.children[0];
+                    g.remove(o);
+                    if(o.geometry) o.geometry.dispose();
+                    if(o.material) o.material.dispose();
+                }
+            });
+            selectedPlane = null;
+        }
+
+        function updateScene() {
+            clearScene();
+            const p = {}; Object.keys(dom.params).forEach(k => p[k] = parseFloat(dom.params[k].value));
+            const { v_a, v_b, v_c } = getDirectVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
+            if (!v_a) return;
+
+            drawUnitCell(v_a, v_b, v_c);
+            drawLatticeNodes(v_a, v_b, v_c, dom.centering.value);
+            
+            const mode = dom.modeSelector.value;
+            if (mode === 'plane') {
+                const hkl = {}; Object.keys(dom.hkl).forEach(k => hkl[k] = parseInt(dom.hkl[k].value) || 0);
+                if (hkl.h !== 0 || hkl.k !== 0 || hkl.l !== 0) {
+                    drawHklPlanes(v_a, v_b, v_c, p, hkl.h, hkl.k, hkl.l);
+                }
+            } else if (mode === 'direction') {
+                const uvw = {}; Object.keys(dom.uvw).forEach(k => uvw[k] = parseInt(dom.uvw[k].value) || 0);
+                drawDirectionVector(v_a, v_b, v_c, uvw.u, uvw.v, uvw.w);
+            }
+            updateInfo();
+        }
+
+        function getDirectVectors(a, b, c, alpha, beta, gamma) {
+            const r = Math.PI/180;
+            const ca=Math.cos(alpha*r), cb=Math.cos(beta*r), cg=Math.cos(gamma*r), sg=Math.sin(gamma*r);
+            const v_a = new THREE.Vector3(a, 0, 0);
+            const v_b = new THREE.Vector3(b*cg, b*sg, 0);
+            if (Math.abs(sg)<1e-9) return {};
+            const cx = c*cb, cy = c*(ca-cb*cg)/sg;
+            const cz_sq = c*c - cx*cx - cy*cy;
+            const v_c = new THREE.Vector3(cx, cy, cz_sq > 0 ? Math.sqrt(cz_sq) : 0);
+            return (isNaN(v_c.x)) ? {} : { v_a, v_b, v_c };
+        }
+
+        function getReciprocalVectors(a, b, c, alpha, beta, gamma) {
+            const { v_a, v_b, v_c } = getDirectVectors(a, b, c, alpha, beta, gamma);
+            if (!v_a) return {};
+            const V = v_a.clone().dot(v_b.clone().cross(v_c));
+            if (Math.abs(V) < 1e-9) return {};
+            const f = 2 * Math.PI / V;
+            return {
+                b1: v_b.clone().cross(v_c).multiplyScalar(f),
+                b2: v_c.clone().cross(v_a).multiplyScalar(f),
+                b3: v_a.clone().cross(v_b).multiplyScalar(f),
+            };
+        }
+
+        function drawUnitCell(v_a, v_b, v_c) {
+            const mat = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.8 });
+            const pts = [new THREE.Vector3(), v_a, v_b, v_c, v_a.clone().add(v_b), v_a.clone().add(v_c), v_b.clone().add(v_c), v_a.clone().add(v_b).add(v_c)];
+            const edges = [0,1,0,2,0,3,1,4,1,5,2,4,2,6,3,5,3,6,4,7,5,7,6,7];
+            const geom = new THREE.BufferGeometry().setFromPoints(pts);
+            geom.setIndex(edges);
+            unitCellLines.add(new THREE.LineSegments(geom, mat));
+        }
+
+        function drawLatticeNodes(v_a, v_b, v_c, centering) {
+            const radius = parseFloat(dom.nodeSize.value);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x4f46e5, roughness: 0.5 });
+            let coords = [new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1), new THREE.Vector3(1,1,0), new THREE.Vector3(1,0,1), new THREE.Vector3(0,1,1), new THREE.Vector3(1,1,1)];
+            if (centering === 'I') coords.push(new THREE.Vector3(0.5,0.5,0.5));
+            else if (centering === 'F') coords.push(new THREE.Vector3(0.5,0.5,0), new THREE.Vector3(0.5,0,0.5), new THREE.Vector3(0,0.5,0.5), new THREE.Vector3(1,0.5,0.5), new THREE.Vector3(0.5,1,0.5), new THREE.Vector3(0.5,0.5,1));
+            else if (centering === 'C') coords.push(new THREE.Vector3(0.5,0.5,0), new THREE.Vector3(0.5,0.5,1));
+            else if (centering === 'R' && dom.system.value === 'trigonal') coords.push(new THREE.Vector3(2/3,1/3,1/3), new THREE.Vector3(1/3,2/3,2/3));
+            
+            const unique = new Map();
+            coords.forEach(fr => {
+                 const pos = new THREE.Vector3().addScaledVector(v_a,fr.x).addScaledVector(v_b,fr.y).addScaledVector(v_c,fr.z);
+                 const key = pos.toArray().map(c=>c.toFixed(4)).join(',');
+                 if(!unique.has(key)){ const s=new THREE.Mesh(new THREE.SphereGeometry(radius,20,20),mat); s.position.copy(pos); latticeNodes.add(s); unique.set(key,1); }
+            });
+        }
+
+        function drawDirectionVector(v_a, v_b, v_c, u, v, w) {
+            const dir = new THREE.Vector3().addScaledVector(v_a,u).addScaledVector(v_b,v).addScaledVector(v_c,w);
+            const len = dir.length();
+            if (len < 1e-9) return;
+            directionVector.add(new THREE.ArrowHelper(dir.normalize(), new THREE.Vector3(), len, 0xd90429, len * 0.1, len * 0.06));
+        }
+
+        function drawHklPlanes(v_a, v_b, v_c, p, h, k, l) {
+            const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
+            if (!b1) return;
+            const g = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
+            if (g.length() < 1e-9) return;
+            const d = 2 * Math.PI / g.length();
+            const dv = g.clone().normalize().multiplyScalar(d);
+            let V = [];
+            if (h !== 0) V.push(v_a.clone().divideScalar(h));
+            if (k !== 0) V.push(v_b.clone().divideScalar(k));
+            if (l !== 0) V.push(v_c.clone().divideScalar(l));
+
+            if (V.length < 3) { // Logic to draw planes parallel to axes
+                const o=new THREE.Vector3(0,0,0);
+                let p1,p2,p3,p4;
+                if(h===0&&k===0){p1=o;p2=v_a;p3=v_a.clone().add(v_b);p4=v_b;if(l!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_c.clone().divideScalar(l)))}
+                else if(h===0&&l===0){p1=o;p2=v_a;p3=v_a.clone().add(v_c);p4=v_c;if(k!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_b.clone().divideScalar(k)))}
+                else if(k===0&&l===0){p1=o;p2=v_b;p3=v_b.clone().add(v_c);p4=v_c;if(h!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_a.clone().divideScalar(h)))}
+                else if(h===0){p1=v_b.clone().divideScalar(k);p2=v_c.clone().divideScalar(l);p3=p2.clone().add(v_a);p4=p1.clone().add(v_a)}
+                else if(k===0){p1=v_a.clone().divideScalar(h);p2=v_c.clone().divideScalar(l);p3=p2.clone().add(v_b);p4=p1.clone().add(v_b)}
+                else{p1=v_a.clone().divideScalar(h);p2=v_b.clone().divideScalar(k);p3=p2.clone().add(v_c);p4=p1.clone().add(v_c)}
+                V=[p1,p2,p3,p4];
+            }
+            if (V.length < 3) return;
+
+            const createPlane = (verts, mat) => {
+                const geom = new THREE.BufferGeometry().setFromPoints(verts);
+                geom.setIndex([0, 1, 2, ...(verts.length === 4 ? [0, 2, 3] : [])]);
+                geom.computeVertexNormals();
+                return new THREE.Mesh(geom, mat);
+            };
+            const mainMat = new THREE.MeshPhongMaterial({ color: 0x007bff, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+            const neighborMat = new THREE.MeshPhongMaterial({ color: 0x66adff, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+            
+            const mainPlane = createPlane(V, mainMat);
+            mainPlane.userData = { h, k, l, params: p, isClickable: true };
+            hklPlanes.add(mainPlane);
+            hklPlanes.add(createPlane(V.map(v => v.clone().sub(dv)), neighborMat.clone()));
+            hklPlanes.add(createPlane(V.map(v => v.clone().add(dv)), neighborMat.clone()));
+        }
+        
+        function onObjectClick(e) {
+            if (dom.modeSelector.value !== 'plane') return;
+            e.preventDefault();
+            const c = renderer.domElement, m = new THREE.Vector2(((e.clientX - c.getBoundingClientRect().left) / c.width) * 2 - 1, -((e.clientY - c.getBoundingClientRect().top) / c.height) * 2 + 1);
+            const r = new THREE.Raycaster();
+            r.setFromCamera(m, camera);
+            const i = r.intersectObjects(hklPlanes.children.filter(c => c.userData.isClickable));
+
+            if (selectedPlane && selectedPlane.material) selectedPlane.material.color.setHex(0x007bff);
+            selectedPlane = (i.length > 0) ? i[0].object : null;
+            if (selectedPlane) selectedPlane.material.color.setHex(0xffa500);
+            updateInfo();
+        }
+
+        function updateInfo() {
+            const mode = dom.modeSelector.value;
+            if (mode === 'direction') {
+                const { u, v, w } = dom.uvw;
+                dom.info.innerHTML = `<b>Direction: [${u.value} ${v.value} ${w.value}]</b>`;
+            } else { // mode === 'plane'
+                if (!selectedPlane) {
+                    const { h, k, l } = dom.hkl;
+                    dom.info.innerHTML = `<b>Plane: (${h.value} ${k.value} ${l.value})</b><br>Click plane for d-spacing.`;
+                } else {
+                    const { h, k, l, params } = selectedPlane.userData;
+                    const d = calculateDSpacing(h, k, l, params);
+                    const d_text = isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`;
+                    dom.info.innerHTML = `<b>Plane: (${h},${k},${l})</b> | d_hkl: ${d_text}`;
+                }
+            }
+        }
+
+        function calculateDSpacing(h, k, l, p) {
+            const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
+            if (!b1) return NaN;
+            const g = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
+            const gl = g.length();
+            return (gl < 1e-9) ? Infinity : 2 * Math.PI / gl;
+        }
+
+        function updateParameterFields() {
+            const system = dom.system.value;
+            Object.values(dom.params).forEach(input => { input.parentElement.style.display = 'flex'; input.disabled = false; });
+            const hide = keys => keys.forEach(key => dom.params[key].parentElement.style.display = 'none');
+            
+            switch (system) {
+                case 'cubic': hide(['b', 'c', 'alpha', 'beta', 'gamma']); break;
+                case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break;
+                case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break;
+                case 'hexagonal': hide(['b', 'alpha', 'beta']); dom.params.gamma.value = 120; break;
+                case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break;
+                case 'monoclinic': hide(['alpha', 'gamma']); break;
+                case 'triclinic': break;
+            }
+            syncLinkedParameters();
+        }
+
+        function syncLinkedParameters() {
+            const system = dom.system.value;
+            const { a, b, c, alpha, beta, gamma } = dom.params;
+            const set = (p, val, disable=true) => { p.value = val; p.disabled = disable; };
+
+            switch (system) {
+                case 'cubic': set(b, a.value); set(c, a.value); set(alpha, 90); set(beta, 90); set(gamma, 90); break;
+                case 'tetragonal': set(b, a.value); set(alpha, 90); set(beta, 90); set(gamma, 90); break;
+                case 'orthorhombic': set(alpha, 90); set(beta, 90); set(gamma, 90); break;
+                case 'hexagonal': set(b, a.value); set(alpha, 90); set(beta, 90); set(gamma, 120); break;
+                case 'trigonal': set(b, a.value); set(c, a.value); set(beta, alpha.value); set(gamma, alpha.value); break;
+                case 'monoclinic': set(alpha, 90); set(gamma, 90); break;
+            }
+        }
+
+        function updateCenteringOptions() {
+            const system = dom.system.value;
+            const options = centeringOptions[system];
+            const current = dom.centering.value;
+            dom.centering.innerHTML = '';
+            options.forEach(opt => {
+                const el = document.createElement('option');
+                el.value = opt;
+                el.textContent = {P: "Primitive", I: "Body-centered (I)", F: "Face-centered (F)", C: "Base-centered (C)", R: "Rhombohedral (R)"}[opt];
+                dom.centering.appendChild(el);
+            });
+            if (options.includes(current)) dom.centering.value = current;
+            else dom.centering.value = options[0];
+            updateScene();
+        }
+
+        function onWindowResize() {
+            const c = document.getElementById('visualization-area'), w = c.clientWidth, h = c.clientHeight, a = w / h, fs = 15;
+            if (camera.isOrthographicCamera) { camera.left = fs * a / -2; camera.right = fs * a / 2; camera.top = fs / 2; camera.bottom = fs / -2; }
+            camera.aspect = a;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+
+        function setupResizer() {
+            const r = document.getElementById('drag-handle'), p = document.getElementById('controls-panel');
+            let isResizing = false;
+            r.addEventListener('mousedown', e => { e.preventDefault(); isResizing = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; });
+            window.addEventListener('mousemove', e => {
+                if (!isResizing) return;
+                const newWidth = e.clientX - r.parentElement.getBoundingClientRect().left;
+                if (newWidth > 220 && newWidth < 600) { p.style.width = `${newWidth}px`; onWindowResize(); }
+            });
+            window.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; });
+        }
+
         init();
     </script>
 </body>
