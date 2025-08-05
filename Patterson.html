@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Patterson Function Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .canvas-wrapper {
+            background-color: #e5e7eb; /* gray-200 */
+            border-radius: 0.75rem; /* rounded-lg */
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            width: 100%;
+            overflow: hidden;
+        }
+        canvas {
+            cursor: crosshair;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .atom-list-item {
+            transition: background-color 0.2s ease-in-out;
+        }
+        input[type="radio"]:checked + label {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #2563eb;
+        }
+        .coord-input {
+            width: 60px;
+            text-align: center;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            padding: 2px 4px;
+        }
+        .coord-input:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 1px;
+            background-color: white;
+        }
+        .plot-grid {
+            display: grid;
+            grid-template-areas:
+                'y-axis plot'
+                '.      x-axis';
+            grid-template-rows: 1fr auto;
+            grid-template-columns: auto 1fr;
+            gap: 0.25rem;
+        }
+        .y-axis-labels { grid-area: y-axis; }
+        .x-axis-labels { grid-area: x-axis; }
+        .plot-area { grid-area: plot; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 antialiased">
+
+    <header class="bg-white p-4 shadow-md w-full z-10">
+        <div class="container mx-auto">
+            <h1 class="text-2xl font-bold text-gray-800">Patterson Function Simulator</h1>
+            <p class="text-sm text-gray-600">A tool for teaching and learning crystallography.</p>
+        </div>
+    </header>
+
+    <main class="flex-grow p-4 md:p-6">
+        <div class="container mx-auto">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+            
+                <!-- Controls Panel -->
+                <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-md h-fit">
+                    <h2 class="text-xl font-semibold mb-4 border-b pb-2">Controls & Atoms</h2>
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="font-semibold text-gray-700">Instructions</h3>
+                            <p class="text-sm text-gray-600 mt-1">
+                                1. Select atom type & click on the canvas to add.<br>
+                                2. Edit atom coordinates directly in the list below.<br>
+                                3. Hover over Patterson peaks to see the vectors.
+                            </p>
+                        </div>
+                         <div>
+                            <h3 class="font-semibold text-gray-700 mb-2">Select Atom Type to Add</h3>
+                            <div id="atom-type-selector" class="grid grid-cols-2 gap-2">
+                                <input type="radio" id="atom-type-a" name="atom-type" value="A" class="sr-only" checked>
+                                <label for="atom-type-a" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type A</label>
+                                
+                                <input type="radio" id="atom-type-b" name="atom-type" value="B" class="sr-only">
+                                <label for="atom-type-b" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type B</label>
+                            </div>
+                        </div>
+                         <div>
+                            <h3 class="font-semibold text-gray-700 mb-2">Vector Details</h3>
+                            <div id="vector-info-box" class="bg-gray-100 p-3 rounded-lg border border-gray-200 min-h-[100px] text-sm font-mono">
+                                Hover over a Patterson peak...
+                            </div>
+                        </div>
+                        <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">
+                            Clear All Atoms
+                        </button>
+                        <div>
+                            <h3 class="font-semibold text-gray-700 mb-2">Atom List</h3>
+                            <div id="atom-list-container" class="max-h-72 overflow-y-auto bg-gray-100 p-3 rounded-lg border border-gray-200">
+                                <ul id="atom-list" class="space-y-2">
+                                    <li id="no-atoms-msg" class="text-gray-500 text-sm">No atoms added yet.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Canvases -->
+                <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Crystal Structure Canvas -->
+                    <div class="bg-white p-4 rounded-xl shadow-md">
+                        <h2 class="text-lg font-semibold text-center mb-3">Crystal Structure (Real Space)</h2>
+                        <div class="plot-grid">
+                            <div id="real-y-axis" class="y-axis-labels"></div>
+                            <div id="real-x-axis" class="x-axis-labels"></div>
+                            <div class="plot-area canvas-wrapper"><canvas id="real-space-canvas"></canvas></div>
+                        </div>
+                    </div>
+
+                    <!-- Patterson Map Canvas -->
+                    <div class="bg-white p-4 rounded-xl shadow-md">
+                        <h2 class="text-lg font-semibold text-center mb-3">Patterson Map (Vector Space)</h2>
+                        <div class="plot-grid">
+                            <div id="patterson-y-axis" class="y-axis-labels"></div>
+                            <div id="patterson-x-axis" class="x-axis-labels"></div>
+                            <div class="plot-area canvas-wrapper"><canvas id="patterson-canvas"></canvas></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Diffraction Pattern Canvas -->
+                    <div class="bg-white p-4 rounded-xl shadow-md">
+                        <h2 class="text-lg font-semibold text-center mb-3">Diffraction Pattern (|F<sub>hkl</sub>|²)</h2>
+                        <div class="plot-grid">
+                            <div id="diffraction-y-axis" class="y-axis-labels"></div>
+                            <div id="diffraction-x-axis" class="x-axis-labels"></div>
+                            <div class="plot-area canvas-wrapper"><canvas id="diffraction-canvas"></canvas></div>
+                        </div>
+                    </div>
+
+                    <!-- FT of Intensities Canvas -->
+                    <div class="bg-white p-4 rounded-xl shadow-md">
+                        <h2 class="text-lg font-semibold text-center mb-3">FT of Intensities (Patterson)</h2>
+                        <div class="plot-grid">
+                            <div id="ft-y-axis" class="y-axis-labels"></div>
+                            <div id="ft-x-axis" class="x-axis-labels"></div>
+                            <div class="plot-area canvas-wrapper"><canvas id="ft-canvas"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <footer class="w-full p-3 bg-white border-t border-gray-200 mt-auto">
+        <div class="container mx-auto text-xs text-gray-600 flex justify-between items-center">
+            <p>This tool demonstrates the relationship between a crystal structure, its diffraction pattern, and the Patterson function.</p>
+            <p class="text-right font-medium">NitaD, Univ. Paris-Saclay, 2025</p>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM ELEMENT SELECTION ---
+            const realCanvas = document.getElementById('real-space-canvas');
+            const pattersonCanvas = document.getElementById('patterson-canvas');
+            const diffractionCanvas = document.getElementById('diffraction-canvas');
+            const ftCanvas = document.getElementById('ft-canvas');
+            const clearBtn = document.getElementById('clear-btn');
+            const atomList = document.getElementById('atom-list');
+            const noAtomsMsg = document.getElementById('no-atoms-msg');
+            const atomTypeSelector = document.getElementById('atom-type-selector');
+            const vectorInfoBox = document.getElementById('vector-info-box');
+
+            const realCtx = realCanvas.getContext('2d');
+            const pattersonCtx = pattersonCanvas.getContext('2d');
+            const diffractionCtx = diffractionCanvas.getContext('2d');
+            const ftCtx = ftCanvas.getContext('2d');
+
+            // --- STATE MANAGEMENT ---
+            let atoms = [];
+            let pattersonPeaks = [];
+            let diffractionIntensities = [];
+            let ftOfIntensities = null;
+            let highlightedVector = null;
+            let currentAtomType = 'A';
+            const diffractionGridSize = 10;
+
+            // --- CONSTANTS ---
+            const ATOM_COLOR_A = '#3b82f6';
+            const ATOM_COLOR_B = '#ef4444';
+            const ATOMIC_WEIGHTS = { 'A': 1, 'B': 2 };
+            const HIGHLIGHT_COLOR_1 = '#db2777';
+            const HIGHLIGHT_COLOR_2 = '#c026d3';
+            const VECTOR_COLOR = '#7e22ce';
+            const PEAK_COLOR = '#16a34a';
+            const ORIGIN_PEAK_COLOR = '#f59e0b';
+            const ATOM_RADIUS_A = 7; 
+            const ATOM_RADIUS_B = 11;
+            const MIN_PEAK_RADIUS = 4;
+            const MAX_PEAK_RADIUS = 9;
+            
+            // --- CALCULATION FUNCTIONS ---
+
+            function calculatePattersonMap() {
+                pattersonPeaks = [];
+                if (atoms.length === 0) return;
+                let maxWeight = 0;
+                for (let i = 0; i < atoms.length; i++) {
+                    for (let j = 0; j < atoms.length; j++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            for (let dy = -1; dy <= 1; dy++) {
+                                const u = (atoms[j].x + dx) - atoms[i].x;
+                                const v = (atoms[j].y + dy) - atoms[i].y;
+                                if (Math.abs(u) > 1.01 || Math.abs(v) > 1.01) continue;
+                                const weight = ATOMIC_WEIGHTS[atoms[i].type] * ATOMIC_WEIGHTS[atoms[j].type];
+                                if (weight > maxWeight) maxWeight = weight;
+                                pattersonPeaks.push({ u, v, from: i, to: j, weight });
+                            }
+                        }
+                    }
+                }
+                pattersonPeaks.forEach(peak => {
+                    const weightRatio = maxWeight > 1 ? (peak.weight - 1) / (maxWeight - 1) : 0;
+                    peak.radius = MIN_PEAK_RADIUS + weightRatio * (MAX_PEAK_RADIUS - MIN_PEAK_RADIUS);
+                });
+            }
+
+            function calculateDiffractionPattern() {
+                diffractionIntensities = [];
+                if (atoms.length === 0) return;
+                for (let h = -diffractionGridSize; h <= diffractionGridSize; h++) {
+                    for (let k = -diffractionGridSize; k <= diffractionGridSize; k++) {
+                        let F_real = 0, F_imag = 0;
+                        atoms.forEach(atom => {
+                            const phase = 2 * Math.PI * (h * atom.x + k * atom.y);
+                            const f = ATOMIC_WEIGHTS[atom.type];
+                            F_real += f * Math.cos(phase);
+                            F_imag += f * Math.sin(phase);
+                        });
+                        const intensity = F_real * F_real + F_imag * F_imag;
+                        diffractionIntensities.push({ h, k, intensity });
+                    }
+                }
+            }
+
+            function calculateFTofIntensities() {
+                if (diffractionIntensities.length === 0 || ftCanvas.width === 0) {
+                    ftOfIntensities = null; return;
+                }
+                const size = ftCanvas.width;
+                ftOfIntensities = ftCtx.createImageData(size, size);
+                let maxPattersonVal = 0;
+                const pattersonGrid = [];
+                for (let v_px = 0; v_px < size; v_px++) {
+                    for (let u_px = 0; u_px < size; u_px++) {
+                        const u = (u_px / size) * 2 - 1;
+                        const v = (v_px / size) * 2 - 1;
+                        let pattersonVal = 0;
+                        diffractionIntensities.forEach(spot => {
+                            const phase = 2 * Math.PI * (spot.h * (u / 2) + spot.k * (v / 2));
+                            pattersonVal += spot.intensity * Math.cos(phase);
+                        });
+                        pattersonGrid.push(pattersonVal);
+                        if (pattersonVal > maxPattersonVal) maxPattersonVal = pattersonVal;
+                    }
+                }
+                for (let i = 0; i < pattersonGrid.length; i++) {
+                    const normalizedVal = pattersonGrid[i] > 0 && maxPattersonVal > 0 ? Math.floor(255 * (pattersonGrid[i] / maxPattersonVal)) : 0;
+                    const pixelIndex = i * 4;
+                    ftOfIntensities.data[pixelIndex] = normalizedVal;
+                    ftOfIntensities.data[pixelIndex+1] = normalizedVal;
+                    ftOfIntensities.data[pixelIndex+2] = normalizedVal;
+                    ftOfIntensities.data[pixelIndex+3] = 255;
+                }
+            }
+
+            // --- DRAWING FUNCTIONS ---
+
+            function resizeCanvases() {
+                const size = realCanvas.parentElement.clientWidth;
+                [realCanvas, pattersonCanvas, diffractionCanvas, ftCanvas].forEach(c => {
+                    c.width = size; c.height = size;
+                });
+                redrawAll();
+            }
+
+            function drawAxisLabels(yId, xId, centered, isDiffraction, theme) {
+                const yEl = document.getElementById(yId);
+                const xEl = document.getElementById(xId);
+                yEl.innerHTML = '';
+                xEl.innerHTML = '';
+
+                const textColor = theme === 'dark' ? 'text-gray-400' : 'text-gray-500';
+                yEl.className = `y-axis-labels flex flex-col justify-between text-right text-xs pr-1 ${textColor}`;
+                xEl.className = `x-axis-labels flex justify-between text-center text-xs ${textColor}`;
+
+                const numLabels = 5; 
+                for (let i = 0; i <= numLabels; i++) {
+                    const ySpan = document.createElement('span');
+                    let yLabel;
+                    if (centered) {
+                        const val = 1 - (i / numLabels) * 2;
+                        yLabel = isDiffraction ? Math.round(val * diffractionGridSize) : val.toFixed(1);
+                    } else {
+                        const val = 1 - (i / numLabels);
+                        yLabel = val.toFixed(1);
+                    }
+                    ySpan.textContent = yLabel;
+                    yEl.appendChild(ySpan);
+
+                    const xSpan = document.createElement('span');
+                    let xLabel;
+                    if (centered) {
+                        const val = -1 + (i / numLabels) * 2;
+                        xLabel = isDiffraction ? Math.round(val * diffractionGridSize) : val.toFixed(1);
+                    } else {
+                        const val = i / numLabels;
+                        xLabel = val.toFixed(1);
+                    }
+                    xSpan.textContent = xLabel;
+                    xEl.appendChild(xSpan);
+                }
+            }
+
+            function drawGridOnCanvas(ctx, theme = 'light') {
+                const size = ctx.canvas.width;
+                const bgColor = theme === 'dark' ? 'black' : '#f8fafc';
+                const gridColor = theme === 'dark' ? '#4a4a4a' : '#e2e8f0';
+                
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, size, size);
+                ctx.strokeStyle = gridColor;
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 10; i++) {
+                    const pos = i * size / 10;
+                    ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, size); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(size, pos); ctx.stroke();
+                }
+            }
+
+            function drawAtoms() {
+                drawGridOnCanvas(realCtx);
+                const size = realCanvas.width;
+                
+                atoms.forEach((atom, index) => {
+                    for (let i = -1; i <= 1; i++) {
+                        for (let j = -1; j <= 1; j++) {
+                            const x = atom.x + i;
+                            const y = atom.y + j;
+                            if (x >= -0.01 && x <= 1.01 && y >= -0.01 && y <= 1.01) {
+                                realCtx.fillStyle = atom.type === 'A' ? ATOM_COLOR_A : ATOM_COLOR_B;
+                                realCtx.strokeStyle = 'white';
+                                realCtx.lineWidth = 2;
+                                if (highlightedVector) {
+                                    if (index === highlightedVector.from || index === highlightedVector.to) {
+                                        realCtx.fillStyle = index === highlightedVector.from ? HIGHLIGHT_COLOR_1 : HIGHLIGHT_COLOR_2;
+                                    }
+                                }
+                                const radius = atom.type === 'A' ? ATOM_RADIUS_A : ATOM_RADIUS_B;
+                                realCtx.beginPath();
+                                realCtx.arc(x * size, y * size, radius, 0, 2 * Math.PI);
+                                realCtx.fill();
+                                realCtx.stroke();
+                            }
+                        }
+                    }
+                });
+
+                if (highlightedVector) {
+                    const fromAtom = atoms[highlightedVector.from];
+                    const toAtom = atoms[highlightedVector.to];
+                    if (fromAtom && toAtom) {
+                        realCtx.strokeStyle = VECTOR_COLOR;
+                        realCtx.lineWidth = 2.5;
+                        realCtx.lineCap = 'round';
+                        realCtx.beginPath();
+                        realCtx.moveTo(fromAtom.x * size, fromAtom.y * size);
+                        realCtx.lineTo(toAtom.x * size, toAtom.y * size);
+                        realCtx.stroke();
+                        const angle = Math.atan2(toAtom.y - fromAtom.y, toAtom.x - fromAtom.x);
+                        realCtx.fillStyle = VECTOR_COLOR;
+                        realCtx.save();
+                        realCtx.translate(toAtom.x * size, toAtom.y * size);
+                        realCtx.rotate(angle);
+                        realCtx.beginPath();
+                        realCtx.moveTo(0, 0); realCtx.lineTo(-10, -5); realCtx.lineTo(-10, 5);
+                        realCtx.closePath(); realCtx.fill();
+                        realCtx.restore();
+                    }
+                }
+            }
+
+            function drawPattersonMap() {
+                drawGridOnCanvas(pattersonCtx);
+                const size = pattersonCanvas.width;
+                const center = size / 2;
+                pattersonPeaks.forEach(peak => {
+                    const isOriginPeak = Math.abs(peak.u) < 1e-9 && Math.abs(peak.v) < 1e-9;
+                    const isHighlighted = highlightedVector && peak.from === highlightedVector.from && peak.to === highlightedVector.to && Math.abs(peak.u - highlightedVector.u) < 1e-9 && Math.abs(peak.v - highlightedVector.v) < 1e-9;
+                    pattersonCtx.fillStyle = isOriginPeak ? ORIGIN_PEAK_COLOR : PEAK_COLOR;
+                    pattersonCtx.strokeStyle = 'white';
+                    pattersonCtx.lineWidth = 2;
+                    if (isHighlighted) {
+                        pattersonCtx.fillStyle = VECTOR_COLOR;
+                    }
+                    pattersonCtx.beginPath();
+                    pattersonCtx.arc(peak.u * center + center, peak.v * center + center, peak.radius, 0, 2 * Math.PI);
+                    pattersonCtx.fill();
+                    pattersonCtx.stroke();
+                });
+                if (highlightedVector) {
+                    pattersonCtx.fillStyle = '#1e293b';
+                    pattersonCtx.font = 'bold 12px Inter';
+                    const text = `(${highlightedVector.u.toFixed(2)}, ${highlightedVector.v.toFixed(2)})`;
+                    const xPos = highlightedVector.u * center + center + 10;
+                    const yPos = highlightedVector.v * center + center;
+                    pattersonCtx.textAlign = 'left';
+                    pattersonCtx.textBaseline = 'middle';
+                    pattersonCtx.fillText(text, xPos, yPos);
+                }
+            }
+
+            function drawDiffractionPattern() {
+                drawGridOnCanvas(diffractionCtx, 'dark');
+                const size = diffractionCanvas.width;
+                const center = size / 2;
+                
+                let maxIntensity = 0;
+                diffractionIntensities.forEach(spot => {
+                    if (spot.h === 0 && spot.k === 0) return;
+                    if (spot.intensity > maxIntensity) maxIntensity = spot.intensity;
+                });
+
+                if (maxIntensity < 1e-9) {
+                    const firstSpot = diffractionIntensities.find(s => s.intensity > 1e-9);
+                    if (firstSpot) maxIntensity = firstSpot.intensity;
+                    else return;
+                }
+
+                const maxLogIntensity = Math.log(1 + maxIntensity);
+
+                diffractionIntensities.forEach(spot => {
+                    if (spot.h === 0 && spot.k === 0) return;
+
+                    const logIntensity = Math.log(1 + spot.intensity);
+                    const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
+
+                    if (normalizedIntensity < 0.01) return;
+
+                    const radius = 1.5 + 8 * normalizedIntensity;
+                    const x = center + (spot.h / diffractionGridSize) * center;
+                    const y = center - (spot.k / diffractionGridSize) * center;
+                    
+                    const colorValue = Math.floor(200 * normalizedIntensity) + 55;
+                    diffractionCtx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
+                    diffractionCtx.beginPath();
+                    diffractionCtx.arc(x, y, radius, 0, 2 * Math.PI);
+                    diffractionCtx.fill();
+                });
+            }
+
+            function drawFTofIntensities() {
+                drawGridOnCanvas(ftCtx);
+                if (ftOfIntensities) {
+                    ftCtx.putImageData(ftOfIntensities, 0, 0);
+                }
+            }
+            
+            function updateAtomList() {
+                const activeElement = document.activeElement;
+                const activeId = activeElement ? activeElement.id : null;
+                atomList.innerHTML = '';
+                if (atoms.length === 0) {
+                    noAtomsMsg.style.display = 'block';
+                } else {
+                    noAtomsMsg.style.display = 'none';
+                    atoms.forEach((atom, index) => {
+                        const li = document.createElement('li');
+                        li.className = 'atom-list-item flex justify-between items-center bg-white p-2 rounded-md border';
+                        const isHighlighted = highlightedVector && (index === highlightedVector.from || index === highlightedVector.to);
+                        if(isHighlighted) {
+                            li.style.backgroundColor = index === highlightedVector.from ? '#fbcfe8' : '#e9d5ff';
+                        }
+                        li.innerHTML = `
+                            <div class="flex items-center gap-2 font-mono text-sm">
+                                <span>Atom ${index + 1} (${atom.type}):</span>
+                                <span>(</span>
+                                <input type="number" step="0.01" min="0" max="1" value="${atom.x.toFixed(2)}" id="atom-${index}-x" data-index="${index}" data-coord="x" class="coord-input">,
+                                <input type="number" step="0.01" min="0" max="1" value="${atom.y.toFixed(2)}" id="atom-${index}-y" data-index="${index}" data-coord="y" class="coord-input">
+                                <span>)</span>
+                            </div>
+                            <button data-index="${index}" class="remove-atom-btn text-red-500 hover:text-red-700 text-xs font-semibold">REMOVE</button>
+                        `;
+                        atomList.appendChild(li);
+                    });
+                }
+                if (activeId && document.getElementById(activeId)) {
+                    document.getElementById(activeId).focus();
+                }
+            }
+
+            function updateVectorInfo() {
+                if (!highlightedVector) {
+                    vectorInfoBox.innerHTML = 'Hover over a Patterson peak...'; return;
+                }
+                const fromAtom = atoms[highlightedVector.from];
+                const toAtom = atoms[highlightedVector.to];
+                if (!fromAtom || !toAtom) return;
+                vectorInfoBox.innerHTML = `
+                    <div class="space-y-1">
+                        <div><span class="text-pink-600">Atom 1 (x₁,y₁):</span> (${fromAtom.x.toFixed(2)}, ${fromAtom.y.toFixed(2)})</div>
+                        <div><span class="text-purple-600">Atom 2 (x₂,y₂):</span> (${toAtom.x.toFixed(2)}, ${toAtom.y.toFixed(2)})</div>
+                        <div class="pt-2">
+                           <div>u = x₂-x₁ = ${highlightedVector.u.toFixed(2)}</div>
+                           <div>v = y₂-y₁ = ${highlightedVector.v.toFixed(2)}</div>
+                        </div>
+                        <div class="font-bold pt-2"><span class="text-indigo-700">Vector (u,v):</span> (${highlightedVector.u.toFixed(2)}, ${highlightedVector.v.toFixed(2)})</div>
+                    </div>
+                `;
+            }
+
+            function redrawAll() {
+                calculatePattersonMap();
+                calculateDiffractionPattern();
+                calculateFTofIntensities();
+                updateAtomList();
+                updateVectorInfo();
+                drawAxisLabels('real-y-axis', 'real-x-axis', false, false, 'light');
+                drawAtoms();
+                drawAxisLabels('patterson-y-axis', 'patterson-x-axis', true, false, 'light');
+                drawPattersonMap();
+                drawAxisLabels('diffraction-y-axis', 'diffraction-x-axis', true, true, 'dark');
+                drawDiffractionPattern();
+                drawAxisLabels('ft-y-axis', 'ft-x-axis', true, false, 'light');
+                drawFTofIntensities();
+            }
+
+            // --- EVENT HANDLERS ---
+            function handleAtomTypeChange(event) {
+                if (event.target.name === 'atom-type') currentAtomType = event.target.value;
+            }
+            function handleAddAtom(event) {
+                const rect = realCanvas.getBoundingClientRect();
+                const x = (event.clientX - rect.left) / rect.width;
+                const y = (event.clientY - rect.top) / rect.height;
+                if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+                    atoms.push({ x, y, type: currentAtomType });
+                    redrawAll();
+                }
+            }
+            function handleAtomListInteraction(event) {
+                if (event.target.classList.contains('remove-atom-btn')) {
+                    const indexToRemove = parseInt(event.target.dataset.index, 10);
+                    atoms.splice(indexToRemove, 1);
+                    highlightedVector = null; 
+                    redrawAll();
+                }
+            }
+            function handleCoordinateChange(event) {
+                if (event.target.classList.contains('coord-input')) {
+                    const index = parseInt(event.target.dataset.index, 10);
+                    const coord = event.target.dataset.coord;
+                    let value = parseFloat(event.target.value);
+                    if (isNaN(value)) { redrawAll(); return; }
+                    if (value < 0) value = 0;
+                    if (value > 1) value = 1;
+                    if (atoms[index]) {
+                        atoms[index][coord] = value;
+                        redrawAll();
+                    }
+                }
+            }
+            function handlePattersonHover(event) {
+                const rect = pattersonCanvas.getBoundingClientRect();
+                const center = rect.width / 2;
+                const mouseU = ((event.clientX - rect.left) - center) / center;
+                const mouseV = ((event.clientY - rect.top) - center) / center;
+                let foundPeak = null;
+                let minDistance = Infinity;
+                const hoverThreshold = (MAX_PEAK_RADIUS * 2) / rect.width;
+                for (const peak of pattersonPeaks) {
+                    const dist = Math.sqrt(Math.pow(peak.u - mouseU, 2) + Math.pow(peak.v - mouseV, 2));
+                    if (dist < hoverThreshold && dist < minDistance) {
+                        minDistance = dist;
+                        foundPeak = peak;
+                    }
+                }
+                if (JSON.stringify(foundPeak) !== JSON.stringify(highlightedVector)) {
+                    highlightedVector = foundPeak;
+                    redrawAll();
+                }
+            }
+            function clearAll() {
+                atoms = [];
+                highlightedVector = null;
+                redrawAll();
+            }
+            
+            // --- INITIALIZATION AND EVENT LISTENERS ---
+            atomTypeSelector.addEventListener('change', handleAtomTypeChange);
+            realCanvas.addEventListener('click', handleAddAtom);
+            clearBtn.addEventListener('click', clearAll);
+            atomList.addEventListener('click', handleAtomListInteraction);
+            atomList.addEventListener('change', handleCoordinateChange);
+            pattersonCanvas.addEventListener('mousemove', handlePattersonHover);
+            pattersonCanvas.addEventListener('mouseleave', () => {
+                if (highlightedVector) {
+                    highlightedVector = null;
+                    redrawAll();
+                }
+            });
+            window.addEventListener('resize', resizeCanvases);
+            resizeCanvases();
+        });
+    </script>
+</body>
+</html>
