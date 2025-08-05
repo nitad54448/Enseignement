@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1D & 2D Convolution Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .canvas-wrapper {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            padding: 1rem;
+            width: 100%;
+        }
+        canvas, video {
+            width: 100%;
+            height: auto;
+            background-color: #f9fafb;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            object-fit: cover;
+        }
+        #canvas-g-1d, #canvas-f-1d, #canvas-result-1d {
+             height: 150px;
+             aspect-ratio: auto;
+        }
+        #canvas-f-2d, #canvas-result-2d {
+            aspect-ratio: 1 / 1;
+        }
+        select, input[type="range"], button {
+            cursor: pointer;
+        }
+        .hidden {
+            display: none !important;
+        }
+        #status {
+            min-height: 1.25rem;
+        }
+        /* Style for active source buttons, inspired by FT.html */
+        .active-btn {
+            --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+            --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+            box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+        }
+    </style>
+</head>
+<body class="antialiased text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 flex flex-col min-h-screen">
+
+        <header id="main-header" class="bg-white p-4 rounded-lg shadow-md mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-2xl font-bold text-gray-900">Convolution Explorer</h1>
+                <div class="flex items-center gap-4">
+                    <label for="mode-select" class="text-sm font-medium">Mode:</label>
+                    <select id="mode-select" class="w-48 text-sm rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                        <option value="1D">1D Convolution</option>
+                        <option value="2D">2D Convolution</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="controls-container" class="border-t pt-4">
+                <!-- 1D CONTROLS -->
+                <div id="controls-1d" class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                    <div class="space-y-3">
+                        <h3 class="text-lg font-semibold">Function f(x)</h3>
+                        <div id="f-controls-1d">
+                            <!-- 1D f(x) controls will be populated by JS -->
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <h3 class="text-lg font-semibold">Function g(x)</h3>
+                        <div id="g-controls-1d">
+                             <!-- 1D g(x) controls will be populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2D CONTROLS -->
+                <div id="controls-2d" class="hidden grid grid-cols-1 md:grid-cols-2 gap-8">
+                     <div class="space-y-3">
+                        <h3 class="text-lg font-semibold">Source Image f(x,y)</h3>
+                        <div id="f-controls-2d">
+                             <!-- 2D f(x,y) controls are populated by JS -->
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <h3 class="text-lg font-semibold">Kernel g(x,y)</h3>
+                        <div class="flex items-start gap-4">
+                            <div class="flex-1 space-y-3" id="g-controls-2d">
+                                <!-- 2D g(x,y) controls are here -->
+                            </div>
+                            <div class="canvas-wrapper p-1 w-28 h-28 flex-shrink-0">
+                                 <canvas id="canvas-g-2d" width="100" height="100"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main id="main-content" class="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Canvases will be dynamically added here -->
+        </main>
+        
+        <footer class="text-center mt-8 text-sm text-gray-500">
+            <p>Convolution is calculated using discrete summation. For 2D, it's applied to image pixels.</p>
+            <p class="mt-1">Built for educational purposes. NitaD, Univ. Paris-Saclay, 2025</p>
+        </footer>
+    </div>
+
+    <script>
+    // --- DOM Elements ---
+    const mainHeader = document.getElementById('main-header');
+    const controls1D = document.getElementById('controls-1d');
+    const controls2D = document.getElementById('controls-2d');
+    const mainContent = document.getElementById('main-content');
+    let statusEl; // Will be assigned after it's created in 2D mode
+
+    // --- Canvas References (will be created dynamically) ---
+    let canvasF, canvasG, canvasResult, webcamVideo;
+    let ctxF, ctxG, ctxResult;
+
+    // --- State & Constants ---
+    let MODE = '1D';
+    const SIZE_1D = 512;
+    const SIZE_2D = 400;
+    let webcamStream = null;
+    let animationFrameId = null;
+    let activeSourceButton = null; // To track the active 2D source button
+
+    const params = {
+        '1D': { 
+            f: { type: 'dirac-comb', spacing: 50, width: 20, height: 1.0, pos1: 180, pos2: 320 }, 
+            g: { type: 'gaussian', width: 20, fwhm: 30, decay: 50 } 
+        },
+        '2D': { 
+            f: { source: 'grid' }, 
+            g: { type: 'gaussian-blur', sigma: 1.4, strength: 1, size: 3 } 
+        }
+    };
+    
+    // --- SAMPLE IMAGE GENERATORS ---
+    const SAMPLE_IMAGES = {
+        'grid': createGridPattern(),
+        'circle': createCirclePattern(),
+        'checkerboard': createCheckerboardPattern()
+    };
+
+    function createGridPattern() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, 200, 200);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        for (let i = 0; i <= 200; i += 20) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 200); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(200, i); ctx.stroke();
+        }
+        return canvas.toDataURL();
+    }
+
+    function createCirclePattern() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, 200, 200);
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.arc(100, 100, 60, 0, 2 * Math.PI);
+        ctx.fill();
+        return canvas.toDataURL();
+    }
+
+    function createCheckerboardPattern() {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        const squareSize = 25;
+        for (let x = 0; x < 200; x += squareSize) {
+            for (let y = 0; y < 200; y += squareSize) {
+                const isBlack = ((x / squareSize) + (y / squareSize)) % 2 === 0;
+                ctx.fillStyle = isBlack ? 'black' : 'white';
+                ctx.fillRect(x, y, squareSize, squareSize);
+            }
+        }
+        return canvas.toDataURL();
+    }
+
+    // --- CORE ALGORITHMS ---
+    function convolve1D(signal, kernel) { 
+        const signalLen = signal.length; 
+        const kernelLen = kernel.length; 
+        const result = new Array(signalLen).fill(0); 
+        const kernelCenter = Math.floor(kernelLen / 2); 
+        for (let i = 0; i < signalLen; i++) { 
+            let sum = 0; 
+            for (let j = 0; j < kernelLen; j++) { 
+                const signalIndex = i - j + kernelCenter; 
+                if (signalIndex >= 0 && signalIndex < signalLen) { 
+                    sum += signal[signalIndex] * kernel[j]; 
+                } 
+            } 
+            result[i] = sum; 
+        } 
+        return result; 
+    }
+
+    function convolve2D(sourceData, width, height, kernel) { 
+        const src = sourceData.data; 
+        const resultData = new Uint8ClampedArray(src.length); 
+        const kernelSize = kernel.length; 
+        const halfKernel = Math.floor(kernelSize / 2); 
+        let kernelSum = 0;
+        for (let i = 0; i < kernelSize; i++) {
+            for (let j = 0; j < kernelSize; j++) {
+                kernelSum += kernel[i][j];
+            }
+        }
+        if (kernelSum === 0) kernelSum = 1;
+        for (let y = 0; y < height; y++) { 
+            for (let x = 0; x < width; x++) { 
+                let r = 0, g = 0, b = 0; 
+                for (let ky = 0; ky < kernelSize; ky++) { 
+                    for (let kx = 0; kx < kernelSize; kx++) { 
+                        const sy = y + ky - halfKernel; 
+                        const sx = x + kx - halfKernel; 
+                        if (sy >= 0 && sy < height && sx >= 0 && sx < width) { 
+                            const i = (sy * width + sx) * 4; 
+                            const weight = kernel[ky][kx]; 
+                            r += src[i] * weight; 
+                            g += src[i + 1] * weight; 
+                            b += src[i + 2] * weight; 
+                        } 
+                    } 
+                } 
+                const outIndex = (y * width + x) * 4; 
+                resultData[outIndex] = Math.max(0, Math.min(255, r / kernelSum)); 
+                resultData[outIndex + 1] = Math.max(0, Math.min(255, g / kernelSum)); 
+                resultData[outIndex + 2] = Math.max(0, Math.min(255, b / kernelSum)); 
+                resultData[outIndex + 3] = 255; 
+            } 
+        } 
+        return new ImageData(resultData, width, height); 
+    }
+
+    // --- FUNCTION/DATA GENERATORS ---
+    function create1DFunction(type, size, p) { 
+        const data = new Array(size).fill(0); 
+        switch (type) { 
+            case 'dirac-comb': 
+                for (let i = p.spacing; i < size; i += p.spacing) { if (i < size) data[i] = p.height; } break; 
+            case 'single-gaussian': 
+                const c = size / 2; 
+                for (let i = 0; i < size; i++) { data[i] = p.height * Math.exp(-0.5 * Math.pow((i - c) / p.width, 2)); } break; 
+            case 'square-pulse': 
+                const s = Math.floor(size / 2 - p.width / 2); 
+                for (let i = s; i < s + p.width && i < size; i++) { if (i >= 0) data[i] = p.height; } break; 
+            case 'two-peaks': 
+                for (let i = 0; i < size; i++) { data[i] = p.height * Math.exp(-0.5 * Math.pow((i - p.pos1) / p.width, 2)) + p.height * 0.8 * Math.exp(-0.5 * Math.pow((i - p.pos2) / p.width, 2)); } break; 
+            case 'gaussian': 
+                for (let i = 0; i < size; i++) { data[i] = Math.exp(-0.5 * Math.pow((i - size / 2) / p.width, 2)); } break; 
+            case 'lorentzian': 
+                for (let i = 0; i < size; i++) { data[i] = 1 / (1 + Math.pow((i - size / 2) / (p.fwhm / 2), 2)); } break; 
+            case 'triangle': 
+                const hw = p.width / 2; 
+                for (let i = 0; i < size; i++) { const d = Math.abs(i - size / 2); if (d < hw) data[i] = 1.0 - d / hw; } break; 
+            case 'exp-decay': 
+                for (let i = Math.floor(size/2); i < size; i++) { data[i] = Math.exp(-(i - size/2) / p.decay); } break; 
+        } 
+        return data; 
+    }
+
+    function generate2DKernel(type, p) { 
+        switch(type) { 
+            case 'gaussian-blur': 
+                const size = Math.max(3, Math.ceil(p.sigma * 6) | 1);
+                const kernel = Array(size).fill(0).map(() => Array(size).fill(0)); 
+                const center = Math.floor(size / 2); 
+                let sum = 0;
+                for (let y = 0; y < size; y++) { 
+                    for (let x = 0; x < size; x++) { 
+                        const distSq = Math.pow(x - center, 2) + Math.pow(y - center, 2); 
+                        const value = Math.exp(-distSq / (2 * p.sigma * p.sigma)); 
+                        kernel[y][x] = value; sum += value;
+                    } 
+                }
+                for (let y = 0; y < size; y++) { for (let x = 0; x < size; x++) { kernel[y][x] /= sum; } } return kernel; 
+            case 'sharpen': 
+                const centerVal = 1 + 4 * p.strength; return [[0, -p.strength, 0], [-p.strength, centerVal, -p.strength], [0, -p.strength, 0]]; 
+            case 'box-blur': 
+                const s = p.size % 2 === 0 ? p.size + 1 : p.size; return Array(s).fill(0).map(() => Array(s).fill(1 / (s * s))); 
+            case 'edge-detect-h': return [[1,2,1],[0,0,0],[-1,-2,-1]]; 
+            case 'edge-detect-v': return [[1,0,-1],[2,0,-2],[1,0,-1]]; 
+            case 'identity': default: return [[0,0,0],[0,1,0],[0,0,0]]; 
+        } 
+    }
+
+    // --- DRAWING ---
+    function draw1DFunction(ctx, data, color) { 
+        const w = ctx.canvas.width, h = ctx.canvas.height; 
+        ctx.clearRect(0, 0, w, h); 
+        if (!data || data.length === 0) return;
+        const maxVal = Math.max(...data, 1.0); 
+        ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, h - 20); ctx.lineTo(w, h - 20); ctx.stroke(); 
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); 
+        const startY = h - 20 - (data[0] / maxVal) * (h - 40);
+        ctx.moveTo(0, startY); 
+        for (let i = 1; i < data.length; i++) { 
+            const x = (i / (data.length - 1)) * w; 
+            const y = h - 20 - (data[i] / maxVal) * (h - 40); 
+            ctx.lineTo(x, y); 
+        } 
+        ctx.stroke(); 
+    }
+
+    function draw2DKernel(ctx, kernel) { 
+        const w = ctx.canvas.width, h = ctx.canvas.height; 
+        ctx.clearRect(0, 0, w, h); 
+        if (!kernel || kernel.length === 0) return;
+        const s = kernel.length;
+        const cellSize = Math.min(w, h) / s; 
+        const flat = kernel.flat();
+        const min = Math.min(...flat);
+        const max = Math.max(...flat); 
+        for (let y = 0; y < s; y++) { 
+            for (let x = 0; x < s; x++) { 
+                const val = kernel[y][x]; 
+                const norm = (max > min) ? (val - min) / (max - min) : 0.5; 
+                const cVal = Math.floor(norm * 255); 
+                ctx.fillStyle = `rgb(${cVal}, ${cVal}, ${cVal})`; 
+                ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize); 
+                ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 0.5;
+                ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize); 
+                if (cellSize > 15) {
+                    ctx.fillStyle = (norm > 0.5) ? 'black' : 'white'; 
+                    ctx.font = `${Math.min(10, cellSize * 0.3)}px Inter`; 
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; 
+                    ctx.fillText(val.toFixed(2), x * cellSize + cellSize / 2, y * cellSize + cellSize / 2); 
+                }
+            } 
+        } 
+    }
+
+    function drawSourceToCanvasCover(source, canvas, context) { 
+        const w = canvas.width, h = canvas.height; 
+        const sW = source.videoWidth || source.width || source.naturalWidth;
+        const sH = source.videoHeight || source.height || source.naturalHeight; 
+        if (!sW || !sH) return;
+        const canvasAspect = w / h;
+        const sourceAspect = sW / sH; 
+        let sx, sy, sw, sh; 
+        if (sourceAspect > canvasAspect) { 
+            sw = sH * canvasAspect; sh = sH; sx = (sW - sw) / 2; sy = 0; 
+        } else { 
+            sw = sW; sh = sW / canvasAspect; sx = 0; sy = (sH - sh) / 2; 
+        } 
+        context.drawImage(source, sx, sy, sw, sh, 0, 0, w, h); 
+    }
+
+    // --- UI & CONTROL LOGIC (HTML generators) ---
+    function getSliderHTML(id, label, min, max, value, step = 0.1) { 
+        return `<div><label for="${id}" class="block text-sm font-medium text-gray-700">${label}: <span id="${id}-value" class="font-bold">${value}</span></label><input type="range" id="${id}" min="${min}" max="${max}" value="${value}" step="${step}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div>`;
+    }
+
+    function getSelectHTML(id, label, options, selected) { 
+        let opts = Object.entries(options).map(([v, t]) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${t}</option>`).join(''); 
+        return `<div><label for="${id}" class="block text-sm font-medium text-gray-700">${label}</label><select id="${id}" class="mt-1 block w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">${opts}</select></div>`;
+    }
+
+    // --- UI Population ---
+    function populateControls() {
+        // 1D
+        const fControls1D = document.getElementById('f-controls-1d');
+        const gControls1D = document.getElementById('g-controls-1d');
+        fControls1D.innerHTML = getSelectHTML('f-type-1d', 'Type', {'dirac-comb': 'Dirac Comb', 'single-gaussian': 'Single Peak', 'square-pulse': 'Square Pulse', 'two-peaks': 'Two Peaks'}, params['1D'].f.type) + `<div id="f-sliders-1d" class="space-y-2 mt-2"></div>`;
+        gControls1D.innerHTML = getSelectHTML('g-type-1d', 'Type', {'gaussian': 'Gaussian', 'lorentzian': 'Lorentzian', 'triangle': 'Triangle', 'exp-decay': 'Asymmetric Decay'}, params['1D'].g.type) + `<div id="g-sliders-1d" class="space-y-2 mt-2"></div>`;
+        update1DParamSliders();
+
+        // 2D
+        const fControls2D = document.getElementById('f-controls-2d');
+        const gControls2D = document.getElementById('g-controls-2d');
+        
+        fControls2D.innerHTML = `
+            <div class="flex items-center gap-4 flex-wrap mb-3">
+                <div class="flex items-center gap-2">
+                    <button id="use-upload-btn" class="bg-blue-500 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-600 focus:outline-none ring-blue-500 ring-offset-2 transition-all duration-200">
+                        Upload Image
+                    </button>
+                    <button id="use-webcam-btn" class="bg-green-500 text-white px-3 py-1.5 text-sm rounded-md hover:bg-green-600 focus:outline-none ring-green-500 ring-offset-2 transition-all duration-200">
+                        Use Webcam
+                    </button>
+                </div>
+                <div id="status" class="text-sm text-gray-600 font-medium"></div>
+            </div>
+            <div>
+                <label for="preset-select-2d" class="block text-sm font-medium text-gray-700">Or select a preset</label>
+                <select id="preset-select-2d" class="mt-1 block w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                    <option value="grid">Grid Pattern</option>
+                    <option value="circle">Circle Pattern</option>
+                    <option value="checkerboard">Checkerboard</option>
+                </select>
+            </div>
+        `;
+        
+        gControls2D.innerHTML = getSelectHTML('g-type-2d', 'Kernel Type', {'gaussian-blur': 'Gaussian Blur', 'sharpen': 'Sharpen', 'box-blur': 'Box Blur', 'edge-detect-h': 'Edge Detect (H)', 'edge-detect-v': 'Edge Detect (V)', 'identity': 'Identity (None)'}, params['2D'].g.type) + `<div id="g-sliders-2d" class="space-y-2 mt-2"></div>`;
+        
+        update2DKernelSliders();
+    }
+    
+    function update1DParamSliders() {
+        const fSliderContainer = document.getElementById('f-sliders-1d');
+        const gSliderContainer = document.getElementById('g-sliders-1d');
+        let fHtml = '', gHtml = '';
+        const p1D = params['1D'];
+        switch (p1D.f.type) {
+            case 'dirac-comb': fHtml += getSliderHTML('f-spacing', 'Spacing', 10, 100, p1D.f.spacing, 1); break;
+            case 'single-gaussian': fHtml += getSliderHTML('f-width-sg', 'Width (Std Dev)', 5, 50, p1D.f.width, 1); break;
+            case 'square-pulse': fHtml += getSliderHTML('f-width-sp', 'Width', 10, 200, p1D.f.width, 1); break;
+            case 'two-peaks': fHtml += getSliderHTML('f-width-tp', 'Peak Width', 5, 40, p1D.f.width, 1) + getSliderHTML('f-pos1', 'Peak 1 Pos', 50, 250, p1D.f.pos1, 1) + getSliderHTML('f-pos2', 'Peak 2 Pos', 260, 460, p1D.f.pos2, 1); break;
+        }
+        switch (p1D.g.type) {
+            case 'gaussian': gHtml += getSliderHTML('g-width', 'Width (Std Dev)', 1, 50, p1D.g.width, 1); break;
+            case 'lorentzian': gHtml += getSliderHTML('g-fwhm', 'FWHM', 2, 100, p1D.g.fwhm, 1); break;
+            case 'triangle': gHtml += getSliderHTML('g-width-tri', 'Base Width', 2, 150, p1D.g.width, 1); break;
+            case 'exp-decay': gHtml += getSliderHTML('g-decay', 'Decay Rate', 5, 100, p1D.g.decay, 1); break;
+        }
+        fSliderContainer.innerHTML = fHtml;
+        gSliderContainer.innerHTML = gHtml;
+    }
+
+    function update2DKernelSliders() {
+        const gSliderContainer = document.getElementById('g-sliders-2d');
+        let gHtml = '';
+        const p2D = params['2D'];
+        switch (p2D.g.type) {
+            case 'gaussian-blur': gHtml += getSliderHTML('g-sigma-2d', 'Sigma', 0.1, 5, p2D.g.sigma, 0.1); break;
+            case 'sharpen': gHtml += getSliderHTML('g-strength-2d', 'Strength', 0.1, 3, p2D.g.strength, 0.1); break;
+            case 'box-blur': gHtml += getSliderHTML('g-size-2d', 'Size', 3, 15, p2D.g.size, 2); break;
+        }
+        gSliderContainer.innerHTML = gHtml;
+    }
+
+    function updateAndDraw() {
+        if (!ctxF) return;
+        if (MODE === '1D') {
+            const fData = create1DFunction(params['1D'].f.type, SIZE_1D, params['1D'].f);
+            const gData = create1DFunction(params['1D'].g.type, Math.floor(SIZE_1D / 2), params['1D'].g);
+            const resultData = convolve1D(fData, gData);
+            draw1DFunction(ctxF, fData, '#3b82f6');
+            const gPadded = new Array(SIZE_1D).fill(0);
+            const startIdx = Math.floor((SIZE_1D - gData.length) / 2);
+            for (let i = 0; i < gData.length; i++) { if (startIdx + i < SIZE_1D) gPadded[startIdx + i] = gData[i]; }
+            draw1DFunction(ctxG, gPadded, '#ef4444');
+            draw1DFunction(ctxResult, resultData, '#10b981');
+        } else {
+            statusEl.textContent = 'Processing...';
+            try {
+                const kernel = generate2DKernel(params['2D'].g.type, params['2D'].g);
+                draw2DKernel(document.getElementById('canvas-g-2d').getContext('2d'), kernel);
+                const sourceData = ctxF.getImageData(0, 0, canvasF.width, canvasF.height);
+                const resultImageData = convolve2D(sourceData, canvasF.width, canvasF.height, kernel);
+                ctxResult.putImageData(resultImageData, 0, 0);
+                statusEl.textContent = 'Convolution complete.';
+            } catch (error) {
+                console.error('Error in 2D convolution:', error);
+                statusEl.textContent = 'Error processing convolution.';
+            }
+        }
+    }
+
+    // --- EVENT LISTENERS (DELEGATION) ---
+    function handleHeaderChange(e) {
+        const t = e.target;
+        if (!t.id) return;
+        const id = t.id, v = t.type === 'range' ? parseFloat(t.value) : t.value;
+        const vs = document.getElementById(`${id}-value`);
+        if(vs) { vs.textContent = (t.step && String(t.step).includes('.')) ? parseFloat(v).toFixed(1) : v; }
+        const p1D = params['1D'], p2D = params['2D'];
+        switch(id) {
+            case 'mode-select': setupMode(v); return;
+            case 'f-type-1d': p1D.f.type = v; update1DParamSliders(); break;
+            case 'g-type-1d': p1D.g.type = v; update1DParamSliders(); break;
+            case 'f-spacing': p1D.f.spacing = v; break;
+            case 'f-width-sg': case 'f-width-sp': case 'f-width-tp': p1D.f.width = v; break;
+            case 'f-pos1': p1D.f.pos1 = v; break;
+            case 'f-pos2': p1D.f.pos2 = v; break;
+            case 'g-width': p1D.g.width = v; break;
+            case 'g-fwhm': p1D.g.fwhm = v; break;
+            case 'g-width-tri': p1D.g.width = v; break;
+            case 'g-decay': p1D.g.decay = v; break;
+            case 'g-type-2d': p2D.g.type = v; update2DKernelSliders(); break;
+            case 'g-sigma-2d': p2D.g.sigma = v; break;
+            case 'g-strength-2d': p2D.g.strength = v; break;
+            case 'g-size-2d': p2D.g.size = v; break;
+        }
+        updateAndDraw();
+    }
+    
+    // --- DYNAMIC LAYOUT & MODE SWITCHING ---
+    function buildLayout() {
+        mainContent.innerHTML = '';
+        if (MODE === '1D') {
+            mainContent.className = 'flex-grow grid grid-cols-1 lg:grid-cols-2 gap-6';
+            mainContent.innerHTML = `<div class="canvas-wrapper"><h2 class="text-xl font-semibold text-center mb-3">f(x) & g(x)</h2><canvas id="canvas-f-1d" width="${SIZE_1D}" height="150"></canvas><canvas id="canvas-g-1d" width="${SIZE_1D}" height="150"></canvas></div><div class="canvas-wrapper"><h2 class="text-xl font-semibold text-center mb-3">Result: (f * g)(x)</h2><canvas id="canvas-result-1d" width="${SIZE_1D}" height="150"></canvas></div>`;
+            canvasF = document.getElementById('canvas-f-1d');
+            canvasG = document.getElementById('canvas-g-1d');
+            canvasResult = document.getElementById('canvas-result-1d');
+            ctxF = canvasF.getContext('2d');
+            ctxG = canvasG.getContext('2d');
+            ctxResult = canvasResult.getContext('2d');
+        } else {
+            mainContent.className = 'flex-grow grid grid-cols-1 md:grid-cols-2 gap-6';
+            mainContent.innerHTML = `<div class="canvas-wrapper"><h2 class="text-xl font-semibold text-center mb-3">Source f(x,y)</h2><div class="relative"><video id="webcam-video" class="hidden w-full aspect-square rounded-lg border" autoplay playsinline></video><canvas id="canvas-f-2d" width="${SIZE_2D}" height="${SIZE_2D}" class="w-full aspect-square"></canvas></div></div><div class="canvas-wrapper"><h2 class="text-xl font-semibold text-center mb-3">Result: (f * g)(x,y)</h2><canvas id="canvas-result-2d" width="${SIZE_2D}" height="${SIZE_2D}" class="w-full aspect-square"></canvas></div>`;
+            canvasF = document.getElementById('canvas-f-2d');
+            canvasResult = document.getElementById('canvas-result-2d');
+            webcamVideo = document.getElementById('webcam-video');
+            ctxF = canvasF.getContext('2d', { willReadFrequently: true });
+            ctxG = null;
+            ctxResult = canvasResult.getContext('2d');
+        }
+    }
+    
+    function setupMode(newMode) {
+        MODE = newMode;
+        stopWebcam();
+        updateActiveButton(null);
+        
+        if (MODE === '1D') {
+            controls1D.classList.remove('hidden');
+            controls2D.classList.add('hidden');
+            buildLayout();
+            populateControls();
+            updateAndDraw();
+        } else { // 2D Mode
+            controls1D.classList.add('hidden');
+            controls2D.classList.remove('hidden');
+            buildLayout();
+            populateControls();
+            
+            // Re-assign statusEl now that it exists in the DOM
+            statusEl = document.getElementById('status');
+            statusEl.textContent = 'Select a source to begin.'; // Set initial text
+
+            const useUploadBtn = document.getElementById('use-upload-btn');
+            const useWebcamBtn = document.getElementById('use-webcam-btn');
+            const presetSelect = document.getElementById('preset-select-2d');
+            const fileInput = document.getElementById('image-upload-actual');
+
+            useUploadBtn.addEventListener('click', () => fileInput.click());
+            useWebcamBtn.addEventListener('click', () => {
+                params['2D'].f.source = 'webcam';
+                startWebcam();
+            });
+            presetSelect.addEventListener('change', (e) => loadPreset(e.target.value));
+            
+            loadPreset(params['2D'].f.source || 'grid');
+        }
+    }
+    
+    // --- 2D SOURCE HANDLING ---
+    function updateActiveButton(buttonToActivate) {
+        if (activeSourceButton) {
+            activeSourceButton.classList.remove('active-btn');
+        }
+        if (buttonToActivate) {
+            buttonToActivate.classList.add('active-btn');
+        }
+        activeSourceButton = buttonToActivate;
+    }
+
+    function loadPreset(sourceType) {
+        stopWebcam();
+        updateActiveButton(null);
+        document.getElementById('preset-select-2d').value = sourceType;
+        params['2D'].f.source = sourceType;
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+            if (canvasF && ctxF) {
+                drawSourceToCanvasCover(img, canvasF, ctxF);
+                updateAndDraw();
+            }
+        };
+        img.onerror = () => {
+            console.error('Failed to load sample image:', sourceType);
+            if (statusEl) statusEl.textContent = 'Failed to load sample image.';
+        };
+        img.src = SAMPLE_IMAGES[sourceType];
+    }
+
+    function startWebcam() {
+        if (webcamStream) return;
+        if (statusEl) statusEl.textContent = 'Requesting webcam access...';
+        updateActiveButton(document.getElementById('use-webcam-btn'));
+        navigator.mediaDevices.getUserMedia({ video: { width: { ideal: SIZE_2D }, height: { ideal: SIZE_2D } } })
+        .then(stream => {
+            webcamStream = stream;
+            webcamVideo.srcObject = stream;
+            webcamVideo.classList.remove('hidden');
+            canvasF.classList.add('hidden');
+            if (statusEl) statusEl.textContent = 'Webcam active.';
+            webcamVideo.addEventListener('loadedmetadata', transformLoop2D);
+        })
+        .catch(err => {
+            console.error('Webcam error:', err);
+            if (statusEl) statusEl.textContent = 'Could not access webcam.';
+            loadPreset('grid');
+        });
+    }
+    
+    function stopWebcam() {
+        if (webcamStream) {
+            webcamStream.getTracks().forEach(track => track.stop());
+            webcamStream = null;
+        }
+        if (webcamVideo) {
+            webcamVideo.classList.add('hidden');
+            webcamVideo.srcObject = null;
+        }
+        if (canvasF) {
+            canvasF.classList.remove('hidden');
+        }
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+    }
+    
+    function transformLoop2D() {
+        if (!webcamStream || !webcamVideo || !canvasF || !ctxF) return;
+        try {
+            drawSourceToCanvasCover(webcamVideo, canvasF, ctxF);
+            updateAndDraw();
+        } catch (error) {
+            console.error('Error in webcam loop:', error);
+        }
+        animationFrameId = requestAnimationFrame(transformLoop2D);
+    }
+
+    // --- INITIALIZATION ---
+    function init() {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.id = 'image-upload-actual';
+        fileInput.className = 'hidden';
+        fileInput.accept = 'image/*';
+        document.body.appendChild(fileInput);
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                stopWebcam();
+                updateActiveButton(document.getElementById('use-upload-btn'));
+                params['2D'].f.source = 'upload';
+                const img = new Image();
+                img.onload = () => {
+                    if (canvasF && ctxF) {
+                        drawSourceToCanvasCover(img, canvasF, ctxF);
+                        updateAndDraw();
+                    }
+                    URL.revokeObjectURL(img.src);
+                };
+                img.onerror = () => {
+                    if (statusEl) statusEl.textContent = 'Failed to load uploaded image.';
+                    URL.revokeObjectURL(img.src);
+                    loadPreset('grid');
+                };
+                img.src = URL.createObjectURL(file);
+            }
+        });
+        
+        mainHeader.addEventListener('change', handleHeaderChange);
+        mainHeader.addEventListener('input', handleHeaderChange);
+        setupMode('1D');
+    }
+
+    window.addEventListener('beforeunload', stopWebcam);
+    window.addEventListener('load', init);
+    </script>
+</body>
+</html>
