@@ -12,12 +12,15 @@
         body {
             font-family: 'Inter', sans-serif;
         }
+        /* Wrapper for the canvas elements */
         .canvas-wrapper {
             background-color: #e5e7eb; /* gray-200 */
-            border-radius: 0.75rem; /* rounded-lg */
             box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
             width: 100%;
             overflow: hidden;
+        }
+        .canvas-wrapper.rounded {
+             border-radius: 0.75rem; /* rounded-lg */
         }
         canvas {
             cursor: crosshair;
@@ -46,6 +49,7 @@
             outline-offset: 1px;
             background-color: white;
         }
+        /* Grid layout for plots and their axes */
         .plot-grid {
             display: grid;
             grid-template-areas:
@@ -58,6 +62,15 @@
         .y-axis-labels { grid-area: y-axis; }
         .x-axis-labels { grid-area: x-axis; }
         .plot-area { grid-area: plot; }
+        
+        /* Custom styles for the toggle switch */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #3b82f6; /* blue-500 */
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #3b82f6; /* blue-500 */
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 antialiased">
@@ -95,6 +108,27 @@
                                 <label for="atom-type-b" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type B</label>
                             </div>
                         </div>
+
+                        <!-- New Diffraction Controls -->
+                        <div class="space-y-4 pt-4 border-t">
+                             <h3 class="font-semibold text-gray-700">Diffraction Controls</h3>
+                             <div>
+                                <label for="hk-range-slider" class="block mb-2 text-sm font-medium text-gray-700">Range (h,k): <span id="hk-range-value" class="font-bold">5</span></label>
+                                <input type="range" id="hk-range-slider" min="3" max="20" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <label for="spot-size-slider" class="block mb-2 text-sm font-medium text-gray-700">Spot Size Multiplier: <span id="spot-size-value" class="font-bold">5</span></label>
+                                <input type="range" id="spot-size-slider" min="1" max="15" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <label for="toggle-hk-labels" class="text-sm font-medium text-gray-700">Show h,k Labels</label>
+                                <div class="relative inline-block w-10 mr-2 align-middle select-none">
+                                    <input type="checkbox" name="toggle" id="toggle-hk-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
+                                    <label for="toggle-hk-labels" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                                </div>
+                            </div>
+                        </div>
+
                          <div>
                             <h3 class="font-semibold text-gray-700 mb-2">Vector Details</h3>
                             <div id="vector-info-box" class="bg-gray-100 p-3 rounded-lg border border-gray-200 min-h-[100px] text-sm font-mono">
@@ -117,8 +151,8 @@
 
                 <!-- Canvases -->
                 <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Crystal Structure Canvas -->
-                    <div class="bg-white p-4 rounded-xl shadow-md">
+                    <!-- Crystal Structure Canvas (Straight Angles) -->
+                    <div class="bg-white p-4 shadow-md">
                         <h2 class="text-lg font-semibold text-center mb-3">Crystal Structure (Real Space)</h2>
                         <div class="plot-grid">
                             <div id="real-y-axis" class="y-axis-labels"></div>
@@ -127,8 +161,8 @@
                         </div>
                     </div>
 
-                    <!-- Patterson Map Canvas -->
-                    <div class="bg-white p-4 rounded-xl shadow-md">
+                    <!-- Patterson Map Canvas (Straight Angles) -->
+                    <div class="bg-white p-4 shadow-md">
                         <h2 class="text-lg font-semibold text-center mb-3">Patterson Map (Vector Space)</h2>
                         <div class="plot-grid">
                             <div id="patterson-y-axis" class="y-axis-labels"></div>
@@ -137,23 +171,23 @@
                         </div>
                     </div>
                     
-                    <!-- Diffraction Pattern Canvas -->
+                    <!-- Diffraction Pattern Canvas (Rounded) -->
                     <div class="bg-white p-4 rounded-xl shadow-md">
                         <h2 class="text-lg font-semibold text-center mb-3">Diffraction Pattern (|F<sub>hkl</sub>|²)</h2>
                         <div class="plot-grid">
                             <div id="diffraction-y-axis" class="y-axis-labels"></div>
                             <div id="diffraction-x-axis" class="x-axis-labels"></div>
-                            <div class="plot-area canvas-wrapper"><canvas id="diffraction-canvas"></canvas></div>
+                            <div class="plot-area canvas-wrapper rounded"><canvas id="diffraction-canvas"></canvas></div>
                         </div>
                     </div>
 
-                    <!-- FT of Intensities Canvas -->
+                    <!-- FT of Intensities Canvas (Rounded) -->
                     <div class="bg-white p-4 rounded-xl shadow-md">
                         <h2 class="text-lg font-semibold text-center mb-3">FT of Intensities (Patterson)</h2>
                         <div class="plot-grid">
                             <div id="ft-y-axis" class="y-axis-labels"></div>
                             <div id="ft-x-axis" class="x-axis-labels"></div>
-                            <div class="plot-area canvas-wrapper"><canvas id="ft-canvas"></canvas></div>
+                            <div class="plot-area canvas-wrapper rounded"><canvas id="ft-canvas"></canvas></div>
                         </div>
                     </div>
                 </div>
@@ -179,6 +213,12 @@
             const noAtomsMsg = document.getElementById('no-atoms-msg');
             const atomTypeSelector = document.getElementById('atom-type-selector');
             const vectorInfoBox = document.getElementById('vector-info-box');
+            // New controls
+            const hkRangeSlider = document.getElementById('hk-range-slider');
+            const hkRangeValue = document.getElementById('hk-range-value');
+            const toggleHkLabels = document.getElementById('toggle-hk-labels');
+            const spotSizeSlider = document.getElementById('spot-size-slider');
+            const spotSizeValue = document.getElementById('spot-size-value');
 
             const realCtx = realCanvas.getContext('2d');
             const pattersonCtx = pattersonCanvas.getContext('2d');
@@ -192,7 +232,10 @@
             let ftOfIntensities = null;
             let highlightedVector = null;
             let currentAtomType = 'A';
-            const diffractionGridSize = 10;
+            // State for new controls
+            let diffractionGridSize = 5;
+            let showHkLabels = true;
+            let diffractionSpotSizeFactor = 5;
 
             // --- CONSTANTS ---
             const ATOM_COLOR_A = '#3b82f6';
@@ -347,6 +390,40 @@
                 }
             }
 
+            function drawDiffractionGrid(ctx, theme = 'dark') {
+                const size = ctx.canvas.width;
+                const bgColor = theme === 'dark' ? 'black' : '#f8fafc';
+                const gridColor = theme === 'dark' ? '#374151' : '#e5e7eb';
+                const axisColor = theme === 'dark' ? '#6b7280' : '#d1d5db';
+                const center = size / 2;
+
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, size, size);
+                
+                ctx.strokeStyle = gridColor;
+                ctx.lineWidth = 0.5;
+
+                for (let i = 1; i <= diffractionGridSize; i++) {
+                    let pos = center + (i / diffractionGridSize) * center;
+                    ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, size); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(size, pos); ctx.stroke();
+                    pos = center - (i / diffractionGridSize) * center;
+                    ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, size); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(size, pos); ctx.stroke();
+                }
+                
+                ctx.strokeStyle = axisColor;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(center, 0);
+                ctx.lineTo(center, size);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, center);
+                ctx.lineTo(size, center);
+                ctx.stroke();
+            }
+
             function drawAtoms() {
                 drawGridOnCanvas(realCtx);
                 const size = realCanvas.width;
@@ -430,7 +507,7 @@
             }
 
             function drawDiffractionPattern() {
-                drawGridOnCanvas(diffractionCtx, 'dark');
+                drawDiffractionGrid(diffractionCtx, 'dark');
                 const size = diffractionCanvas.width;
                 const center = size / 2;
                 
@@ -440,11 +517,7 @@
                     if (spot.intensity > maxIntensity) maxIntensity = spot.intensity;
                 });
 
-                if (maxIntensity < 1e-9) {
-                    const firstSpot = diffractionIntensities.find(s => s.intensity > 1e-9);
-                    if (firstSpot) maxIntensity = firstSpot.intensity;
-                    else return;
-                }
+                if (maxIntensity < 1e-9) return;
 
                 const maxLogIntensity = Math.log(1 + maxIntensity);
 
@@ -456,7 +529,7 @@
 
                     if (normalizedIntensity < 0.01) return;
 
-                    const radius = 1.5 + 8 * normalizedIntensity;
+                    const radius = 1 + diffractionSpotSizeFactor * normalizedIntensity;
                     const x = center + (spot.h / diffractionGridSize) * center;
                     const y = center - (spot.k / diffractionGridSize) * center;
                     
@@ -466,10 +539,38 @@
                     diffractionCtx.arc(x, y, radius, 0, 2 * Math.PI);
                     diffractionCtx.fill();
                 });
+
+                if (showHkLabels) {
+                    diffractionCtx.fillStyle = '#fbbf24';
+                    diffractionCtx.font = '10px Inter';
+                    diffractionCtx.textAlign = 'center';
+                    diffractionCtx.textBaseline = 'middle';
+                    
+                    diffractionIntensities.forEach(spot => {
+                        if (spot.h === 0 && spot.k === 0) return;
+
+                        const logIntensity = Math.log(1 + spot.intensity);
+                        const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
+
+                        if (normalizedIntensity < 0.15) return;
+
+                        const x = center + (spot.h / diffractionGridSize) * center;
+                        const y = center - (spot.k / diffractionGridSize) * center;
+                        
+                        const labelOffset = 12;
+                        const labelY = y - labelOffset;
+                        
+                        diffractionCtx.fillText(`${spot.h},${spot.k}`, x, labelY);
+                    });
+                }
+
+                diffractionCtx.fillStyle = '#ef4444';
+                diffractionCtx.fillText('0,0', center, center - 10);
             }
 
             function drawFTofIntensities() {
-                drawGridOnCanvas(ftCtx);
+                // BUG FIX: Use 'dark' theme to match the diffraction pattern canvas
+                drawGridOnCanvas(ftCtx, 'dark');
                 if (ftOfIntensities) {
                     ftCtx.putImageData(ftOfIntensities, 0, 0);
                 }
@@ -540,7 +641,8 @@
                 drawPattersonMap();
                 drawAxisLabels('diffraction-y-axis', 'diffraction-x-axis', true, true, 'dark');
                 drawDiffractionPattern();
-                drawAxisLabels('ft-y-axis', 'ft-x-axis', true, false, 'light');
+                // BUG FIX: Use 'dark' theme for the FT canvas axis labels to match its background
+                drawAxisLabels('ft-y-axis', 'ft-x-axis', true, false, 'dark');
                 drawFTofIntensities();
             }
 
@@ -604,6 +706,20 @@
                 highlightedVector = null;
                 redrawAll();
             }
+            function handleHkRangeChange(event) {
+                diffractionGridSize = parseInt(event.target.value, 10);
+                hkRangeValue.textContent = diffractionGridSize;
+                redrawAll();
+            }
+            function handleToggleHkLabels(event) {
+                showHkLabels = event.target.checked;
+                redrawAll();
+            }
+            function handleSpotSizeChange(event) {
+                diffractionSpotSizeFactor = parseInt(event.target.value, 10);
+                spotSizeValue.textContent = diffractionSpotSizeFactor;
+                redrawAll();
+            }
             
             // --- INITIALIZATION AND EVENT LISTENERS ---
             atomTypeSelector.addEventListener('change', handleAtomTypeChange);
@@ -618,6 +734,10 @@
                     redrawAll();
                 }
             });
+            hkRangeSlider.addEventListener('input', handleHkRangeChange);
+            toggleHkLabels.addEventListener('change', handleToggleHkLabels);
+            spotSizeSlider.addEventListener('input', handleSpotSizeChange);
+
             window.addEventListener('resize', resizeCanvases);
             resizeCanvases();
         });
