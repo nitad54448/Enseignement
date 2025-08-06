@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Diffraction Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .canvas-wrapper {
+            background-color: #e5e7eb; /* gray-200 */
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+            width: 100%;
+            overflow: hidden;
+            /* Ensure the wrapper is square by setting a 1:1 aspect ratio */
+            aspect-ratio: 1 / 1;
+        }
+        canvas {
+            cursor: crosshair;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        input[type="radio"]:checked + label {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #2563eb;
+        }
+        .coord-input {
+            width: 60px;
+            text-align: center;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            padding: 2px 4px;
+        }
+        .coord-input:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 1px;
+            background-color: white;
+        }
+        .plot-grid {
+            display: grid;
+            grid-template-areas:
+                'y-axis plot'
+                '.      x-axis';
+            grid-template-rows: 1fr auto;
+            grid-template-columns: auto 1fr;
+            gap: 0.25rem;
+        }
+        .y-axis-labels { grid-area: y-axis; }
+        .x-axis-labels { grid-area: x-axis; }
+        .plot-area { grid-area: plot; }
+        
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #3b82f6;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 antialiased">
+
+    <header class="bg-white p-4 shadow-md w-full z-10">
+        <div class="container mx-auto">
+            <h1 class="text-2xl font-bold text-gray-800">2D Diffraction Simulator</h1>
+            <p class="text-sm text-gray-600">A tool for teaching the basics of diffraction.</p>
+        </div>
+    </header>
+
+    <main class="flex-grow p-4 md:p-6">
+        <div class="container mx-auto">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+            
+                <!-- Controls Panel -->
+                <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-md h-fit">
+                    <h2 class="text-xl font-semibold mb-4 border-b pb-2">Controls</h2>
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="font-semibold text-gray-700">Instructions</h3>
+                            <p class="text-sm text-gray-600 mt-1">
+                                1. Select atom type & click on the crystal structure to add.<br>
+                                2. Adjust scattering factors to see their effect on intensities.<br>
+                                3. Modify the diffraction range and spot size as needed.
+                            </p>
+                        </div>
+                         <div>
+                            <h3 class="font-semibold text-gray-700 mb-2">Select Atom Type to Add</h3>
+                            <div id="atom-type-selector" class="grid grid-cols-2 gap-2">
+                                <input type="radio" id="atom-type-a" name="atom-type" value="A" class="sr-only" checked>
+                                <label for="atom-type-a" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type A</label>
+                                
+                                <input type="radio" id="atom-type-b" name="atom-type" value="B" class="sr-only">
+                                <label for="atom-type-b" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type B</label>
+                            </div>
+                        </div>
+                        <!-- Detected Lattice Display -->
+                        <div>
+                            <h3 class="font-semibold text-gray-700">Detected Lattice</h3>
+                            <p id="lattice-type-display" class="text-lg font-mono font-bold text-blue-600 p-2 bg-blue-50 rounded-lg text-center">p (primitive)</p>
+                        </div>
+                        <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">
+                            Clear All Atoms
+                        </button>
+                        <div>
+                            <h3 class="font-semibold text-gray-700 mb-2">Atom List</h3>
+                            <div id="atom-list-container" class="max-h-72 overflow-y-auto bg-gray-100 p-3 rounded-lg border border-gray-200">
+                                <ul id="atom-list" class="space-y-2">
+                                    <li id="no-atoms-msg" class="text-gray-500 text-sm">No atoms added yet.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Canvases and their specific controls -->
+                <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Crystal Structure Block -->
+                    <div class="bg-white p-4 shadow-md flex flex-col gap-4">
+                        <h2 class="text-lg font-semibold">Crystal Structure (Real Space)</h2>
+                        <div class="plot-grid flex-grow">
+                            <div id="real-y-axis" class="y-axis-labels"></div>
+                            <div id="real-x-axis" class="x-axis-labels"></div>
+                            <div class="plot-area canvas-wrapper"><canvas id="real-space-canvas"></canvas></div>
+                        </div>
+                        <!-- Scattering Factor Controls -->
+                        <div class="space-y-4 pt-4 border-t">
+                             <h3 class="font-semibold text-gray-700">Scattering Factors</h3>
+                             <div>
+                                <label for="fa-slider" class="block mb-2 text-sm font-medium text-gray-700">Atom A (f<sub>A</sub>): <span id="fa-value" class="font-bold">6</span></label>
+                                <input type="range" id="fa-slider" min="1" max="80" value="6" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <label for="fb-slider" class="block mb-2 text-sm font-medium text-gray-700">Atom B (f<sub>B</sub>): <span id="fb-value" class="font-bold">29</span></label>
+                                <input type="range" id="fb-slider" min="1" max="80" value="29" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Diffraction Pattern Block -->
+                    <div class="bg-white p-4 shadow-md flex flex-col gap-4">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-lg font-semibold">Diffraction Pattern (|F<sub>hkl</sub>|²)</h2>
+                            <div class="flex items-center gap-2 text-sm">
+                                <label for="toggle-hk-labels" class="font-medium text-gray-700 cursor-pointer">Show h,k</label>
+                                <div class="relative inline-block w-10 align-middle select-none">
+                                    <input type="checkbox" name="toggle" id="toggle-hk-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
+                                    <label for="toggle-hk-labels" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="plot-grid flex-grow">
+                            <div id="diffraction-y-axis" class="y-axis-labels"></div>
+                            <div id="diffraction-x-axis" class="x-axis-labels"></div>
+                            <div class="plot-area canvas-wrapper"><canvas id="diffraction-canvas"></canvas></div>
+                        </div>
+                        <!-- Diffraction Controls -->
+                        <div class="space-y-4 pt-4 border-t">
+                             <h3 class="font-semibold text-gray-700">Diffraction Controls</h3>
+                             <div>
+                                <label for="hk-range-slider" class="block mb-2 text-sm font-medium text-gray-700">Range (h,k): <span id="hk-range-value" class="font-bold">5</span></label>
+                                <input type="range" id="hk-range-slider" min="3" max="20" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <label for="spot-size-slider" class="block mb-2 text-sm font-medium text-gray-700">Spot Size Multiplier: <span id="spot-size-value" class="font-bold">5</span></label>
+                                <input type="range" id="spot-size-slider" min="1" max="15" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <footer class="w-full p-3 bg-white border-t border-gray-200 mt-auto">
+        <div class="container mx-auto text-xs text-gray-600 flex justify-between items-center">
+            <p>This tool demonstrates the relationship between a crystal structure and its diffraction pattern.</p>
+            <p class="text-right font-medium">NitaD, Univ. Paris-Saclay, 2025</p>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM ELEMENT SELECTION ---
+            const realCanvas = document.getElementById('real-space-canvas');
+            const diffractionCanvas = document.getElementById('diffraction-canvas');
+            const clearBtn = document.getElementById('clear-btn');
+            const atomList = document.getElementById('atom-list');
+            const noAtomsMsg = document.getElementById('no-atoms-msg');
+            const atomTypeSelector = document.getElementById('atom-type-selector');
+            const latticeTypeDisplay = document.getElementById('lattice-type-display');
+            
+            // Controls
+            const faSlider = document.getElementById('fa-slider');
+            const faValue = document.getElementById('fa-value');
+            const fbSlider = document.getElementById('fb-slider');
+            const fbValue = document.getElementById('fb-value');
+            const hkRangeSlider = document.getElementById('hk-range-slider');
+            const hkRangeValue = document.getElementById('hk-range-value');
+            const toggleHkLabels = document.getElementById('toggle-hk-labels');
+            const spotSizeSlider = document.getElementById('spot-size-slider');
+            const spotSizeValue = document.getElementById('spot-size-value');
+
+            const realCtx = realCanvas.getContext('2d');
+            const diffractionCtx = diffractionCanvas.getContext('2d');
+
+            // --- STATE MANAGEMENT ---
+            let atoms = [];
+            let diffractionIntensities = [];
+            let currentAtomType = 'A';
+            let scatteringFactors = { 'A': 6, 'B': 29 };
+            let diffractionGridSize = 5;
+            let showHkLabels = true;
+            let diffractionSpotSizeFactor = 5;
+            let latticeType = 'p';
+
+            // --- CONSTANTS ---
+            const ATOM_COLOR_A = '#3b82f6';
+            const ATOM_COLOR_B = '#ef4444';
+            const MIN_ATOM_RADIUS = 3;
+            const MAX_ATOM_RADIUS = 15;
+            // FIX: Tightened tolerance to be smaller than the displayed precision
+            const COORD_TOLERANCE = 0.001;
+            
+            // --- CALCULATION AND LOGIC FUNCTIONS ---
+
+            /**
+             * Detects the lattice type (p or c) based on atom positions.
+             * This robust version handles floating point issues and periodic boundaries.
+             * @returns {string} 'p' for primitive, 'c' for centered.
+             */
+            function detectLatticeType() {
+                const isCentered = (arr) => {
+                    if (arr.length === 0) return true; // Trivial case: an empty set is "centered"
+                    if (arr.length % 2 !== 0) return false; // An odd number of atoms cannot be centered
+
+                    const paired = new Array(arr.length).fill(false);
+                    for (let i = 0; i < arr.length; i++) {
+                        if (paired[i]) continue; // Skip atoms that are already paired
+
+                        let foundPair = false;
+                        for (let j = i + 1; j < arr.length; j++) {
+                            if (paired[j]) continue;
+                            
+                            // Calculate the shortest vector between two atoms, considering periodic boundaries
+                            let dx = Math.abs(arr[i].x - arr[j].x);
+                            let dy = Math.abs(arr[i].y - arr[j].y);
+                            dx = Math.min(dx, 1.0 - dx);
+                            dy = Math.min(dy, 1.0 - dy);
+
+                            // Check if this vector is (0.5, 0.5) within a given tolerance
+                            if (Math.abs(dx - 0.5) < COORD_TOLERANCE && Math.abs(dy - 0.5) < COORD_TOLERANCE) {
+                                paired[i] = true;
+                                paired[j] = true;
+                                foundPair = true;
+                                break; // Found a pair, move to the next unpaired atom
+                            }
+                        }
+                        if (!foundPair) return false; // If any atom is left unpaired, it's not centered
+                    }
+                    return true; // All atoms were successfully paired
+                };
+                
+                const atomsA = atoms.filter(a => a.type === 'A').map(a => ({x: a.x, y: a.y}));
+                const atomsB = atoms.filter(a => a.type === 'B').map(a => ({x: a.x, y: a.y}));
+
+                if (isCentered(atomsA) && isCentered(atomsB) && atoms.length > 0) {
+                    return 'c';
+                }
+                
+                return 'p';
+            }
+
+            function calculateDiffractionPattern() {
+                diffractionIntensities = [];
+                latticeType = detectLatticeType(); // Detect lattice type before calculation
+
+                if (atoms.length === 0) return;
+
+                for (let h = -diffractionGridSize; h <= diffractionGridSize; h++) {
+                    for (let k = -diffractionGridSize; k <= diffractionGridSize; k++) {
+                        
+                        // Apply extinction rules for C-centered lattice
+                        if (latticeType === 'c' && (h + k) % 2 !== 0) {
+                            diffractionIntensities.push({ h, k, intensity: 0 });
+                            continue;
+                        }
+
+                        let F_real = 0, F_imag = 0;
+                        atoms.forEach(atom => {
+                            const phase = 2 * Math.PI * (h * atom.x + k * atom.y);
+                            const f = scatteringFactors[atom.type];
+                            F_real += f * Math.cos(phase);
+                            F_imag += f * Math.sin(phase);
+                        });
+                        let intensity = F_real * F_real + F_imag * F_imag;
+
+                        // Add a tolerance to handle floating point inaccuracies
+                        if (intensity < 1e-9) {
+                            intensity = 0;
+                        }
+                        
+                        diffractionIntensities.push({ h, k, intensity });
+                    }
+                }
+            }
+
+            // --- DRAWING FUNCTIONS ---
+
+            function resizeCanvases() {
+                [realCanvas, diffractionCanvas].forEach(canvas => {
+                    const wrapper = canvas.parentElement;
+                    const size = wrapper.clientWidth;
+                    canvas.width = size;
+                    canvas.height = size;
+                });
+                redrawAll();
+            }
+
+            function drawAxisLabels(yId, xId, centered, isDiffraction, theme) {
+                const yEl = document.getElementById(yId);
+                const xEl = document.getElementById(xId);
+                yEl.innerHTML = '';
+                xEl.innerHTML = '';
+
+                const textColor = theme === 'dark' ? 'text-gray-400' : 'text-gray-500';
+                yEl.className = `w-8 flex-shrink-0 y-axis-labels flex flex-col justify-between text-right text-xs pr-1 ${textColor}`;
+                xEl.className = `x-axis-labels flex justify-between text-center text-xs ${textColor}`;
+
+                const numLabels = 5; 
+                for (let i = 0; i <= numLabels; i++) {
+                    const ySpan = document.createElement('span');
+                    let yLabel;
+                    if (centered) {
+                        const val = 1 - (i / numLabels) * 2;
+                        yLabel = isDiffraction ? Math.round(val * diffractionGridSize) : val.toFixed(1);
+                    } else {
+                        const val = i / numLabels;
+                        yLabel = val.toFixed(1);
+                    }
+                    ySpan.textContent = yLabel;
+                    if (!centered) {
+                        yEl.insertBefore(ySpan, yEl.firstChild);
+                    } else {
+                         yEl.appendChild(ySpan);
+                    }
+
+                    const xSpan = document.createElement('span');
+                    let xLabel;
+                    if (centered) {
+                        const val = -1 + (i / numLabels) * 2;
+                        xLabel = isDiffraction ? Math.round(val * diffractionGridSize) : val.toFixed(1);
+                    } else {
+                        const val = i / numLabels;
+                        xLabel = val.toFixed(1);
+                    }
+                    xSpan.textContent = xLabel;
+                    xEl.appendChild(xSpan);
+                }
+            }
+
+            function drawGridOnCanvas(ctx, theme = 'light') {
+                const size = ctx.canvas.width;
+                const bgColor = theme === 'dark' ? 'black' : '#f8fafc';
+                const gridColor = theme === 'dark' ? '#4a4a4a' : '#e2e8f0';
+                
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, size, size);
+                ctx.strokeStyle = gridColor;
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 10; i++) {
+                    const pos = i * size / 10;
+                    ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, size); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(size, pos); ctx.stroke();
+                }
+            }
+
+            function drawDiffractionGrid(ctx, theme = 'dark') {
+                const size = ctx.canvas.width;
+                const bgColor = theme === 'dark' ? 'black' : '#f8fafc';
+                const gridColor = theme === 'dark' ? '#374151' : '#e5e7eb';
+                const axisColor = theme === 'dark' ? '#6b7280' : '#d1d5db';
+                const center = size / 2;
+
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, size, size);
+                
+                ctx.strokeStyle = gridColor;
+                ctx.lineWidth = 0.5;
+
+                for (let i = 1; i <= diffractionGridSize; i++) {
+                    let pos = center + (i / diffractionGridSize) * center;
+                    ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, size); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(size, pos); ctx.stroke();
+                    pos = center - (i / diffractionGridSize) * center;
+                    ctx.beginPath(); ctx.moveTo(pos, 0); ctx.lineTo(pos, size); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, pos); ctx.lineTo(size, pos); ctx.stroke();
+                }
+                
+                ctx.strokeStyle = axisColor;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(center, 0);
+                ctx.lineTo(center, size);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, center);
+                ctx.lineTo(size, center);
+                ctx.stroke();
+            }
+            
+            function getAtomRadius(type) {
+                const factor = scatteringFactors[type];
+                const minFactor = 1;
+                const maxFactor = 80;
+                const normalized = (factor - minFactor) / (maxFactor - minFactor);
+                return MIN_ATOM_RADIUS + normalized * (MAX_ATOM_RADIUS - MIN_ATOM_RADIUS);
+            }
+
+            function drawAtoms() {
+                drawGridOnCanvas(realCtx);
+                const size = realCanvas.width;
+                
+                atoms.forEach((atom) => {
+                    for (let i = -1; i <= 1; i++) {
+                        for (let j = -1; j <= 1; j++) {
+                            const x = atom.x + i;
+                            const y = 1 - (atom.y + j);
+
+                            const drawX = x * size;
+                            const drawY = y * size;
+
+                            if (drawX >= -MAX_ATOM_RADIUS && drawX <= size + MAX_ATOM_RADIUS && 
+                                drawY >= -MAX_ATOM_RADIUS && drawY <= size + MAX_ATOM_RADIUS) {
+                                
+                                realCtx.fillStyle = atom.type === 'A' ? ATOM_COLOR_A : ATOM_COLOR_B;
+                                realCtx.strokeStyle = 'white';
+                                realCtx.lineWidth = 2;
+                                const radius = getAtomRadius(atom.type);
+                                realCtx.beginPath();
+                                realCtx.arc(drawX, drawY, radius, 0, 2 * Math.PI);
+                                realCtx.fill();
+                                realCtx.stroke();
+                            }
+                        }
+                    }
+                });
+            }
+
+            function drawDiffractionPattern() {
+                drawDiffractionGrid(diffractionCtx, 'dark');
+                const size = diffractionCanvas.width;
+                const center = size / 2;
+                
+                let maxIntensity = 0;
+                diffractionIntensities.forEach(spot => {
+                    if (spot.h === 0 && spot.k === 0) return;
+                    if (spot.intensity > maxIntensity) maxIntensity = spot.intensity;
+                });
+
+                if (maxIntensity < 1e-9) return;
+
+                const maxLogIntensity = Math.log(1 + maxIntensity);
+
+                diffractionIntensities.forEach(spot => {
+                    if (spot.h === 0 && spot.k === 0) return;
+                    
+                    if (spot.intensity === 0) return; // Don't draw spots with zero intensity
+
+                    const logIntensity = Math.log(1 + spot.intensity);
+                    const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
+
+                    if (normalizedIntensity < 0.01) return;
+
+                    const radius = 1 + diffractionSpotSizeFactor * normalizedIntensity;
+                    const x = center + (spot.h / diffractionGridSize) * center;
+                    const y = center - (spot.k / diffractionGridSize) * center;
+                    
+                    const colorValue = Math.floor(200 * normalizedIntensity) + 55;
+                    diffractionCtx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
+                    diffractionCtx.beginPath();
+                    diffractionCtx.arc(x, y, radius, 0, 2 * Math.PI);
+                    diffractionCtx.fill();
+                });
+
+                if (showHkLabels) {
+                    diffractionCtx.fillStyle = '#fbbf24';
+                    diffractionCtx.font = '10px Inter';
+                    diffractionCtx.textAlign = 'center';
+                    diffractionCtx.textBaseline = 'middle';
+                    
+                    diffractionIntensities.forEach(spot => {
+                        if (spot.h === 0 && spot.k === 0) return;
+                        
+                        if (spot.intensity === 0) return;
+
+                        const logIntensity = Math.log(1 + spot.intensity);
+                        const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
+
+                        if (normalizedIntensity < 0.15) return;
+
+                        const x = center + (spot.h / diffractionGridSize) * center;
+                        const y = center - (spot.k / diffractionGridSize) * center;
+                        
+                        const labelOffset = 12;
+                        const labelY = y - labelOffset;
+                        
+                        diffractionCtx.fillText(`${spot.h},${spot.k}`, x, labelY);
+                    });
+                }
+
+                diffractionCtx.fillStyle = '#ef4444';
+                diffractionCtx.fillText('0,0', center, center - 10);
+            }
+            
+            function updateAtomList() {
+                const activeElement = document.activeElement;
+                const activeId = activeElement ? activeElement.id : null;
+                atomList.innerHTML = '';
+                if (atoms.length === 0) {
+                    noAtomsMsg.style.display = 'block';
+                } else {
+                    noAtomsMsg.style.display = 'none';
+                    atoms.forEach((atom, index) => {
+                        const li = document.createElement('li');
+                        li.className = 'flex justify-between items-center bg-white p-2 rounded-md border';
+                        li.innerHTML = `
+                            <div class="flex items-center gap-2 font-mono text-sm">
+                                <span>Atom ${index + 1} (${atom.type}):</span>
+                                <span>(</span>
+                                <input type="number" step="0.01" min="0" max="1" value="${atom.x.toFixed(2)}" id="atom-${index}-x" data-index="${index}" data-coord="x" class="coord-input">,
+                                <input type="number" step="0.01" min="0" max="1" value="${atom.y.toFixed(2)}" id="atom-${index}-y" data-index="${index}" data-coord="y" class="coord-input">
+                                <span>)</span>
+                            </div>
+                            <button data-index="${index}" class="remove-atom-btn text-red-500 hover:text-red-700 text-xs font-semibold">REMOVE</button>
+                        `;
+                        atomList.appendChild(li);
+                    });
+                }
+                if (activeId && document.getElementById(activeId)) {
+                    document.getElementById(activeId).focus();
+                }
+            }
+
+            function updateLatticeDisplay() {
+                const typeName = latticeType === 'c' ? 'c (centered)' : 'p (primitive)';
+                latticeTypeDisplay.textContent = typeName;
+            }
+
+            function redrawAll() {
+                calculateDiffractionPattern();
+                updateAtomList();
+                updateLatticeDisplay();
+                drawAxisLabels('real-y-axis', 'real-x-axis', false, false, 'light');
+                drawAtoms();
+                drawAxisLabels('diffraction-y-axis', 'diffraction-x-axis', true, true, 'dark');
+                drawDiffractionPattern();
+            }
+
+            // --- EVENT HANDLERS ---
+            function handleAtomTypeChange(event) {
+                if (event.target.name === 'atom-type') currentAtomType = event.target.value;
+            }
+            function handleAddAtom(event) {
+                const rect = realCanvas.getBoundingClientRect();
+                const x = (event.clientX - rect.left) / rect.width;
+                const y = 1 - ((event.clientY - rect.top) / rect.height);
+                if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+                    atoms.push({ x, y, type: currentAtomType });
+                    redrawAll();
+                }
+            }
+            function handleAtomListInteraction(event) {
+                if (event.target.classList.contains('remove-atom-btn')) {
+                    const indexToRemove = parseInt(event.target.dataset.index, 10);
+                    atoms.splice(indexToRemove, 1);
+                    redrawAll();
+                }
+            }
+            function handleCoordinateChange(event) {
+                if (event.target.classList.contains('coord-input')) {
+                    const index = parseInt(event.target.dataset.index, 10);
+                    const coord = event.target.dataset.coord;
+                    let value = parseFloat(event.target.value);
+                    if (isNaN(value)) { redrawAll(); return; }
+                    if (value < 0) value = 0;
+                    if (value > 1) value = 1;
+                    if (atoms[index]) {
+                        atoms[index][coord] = value;
+                        redrawAll();
+                    }
+                }
+            }
+            function clearAll() {
+                atoms = [];
+                redrawAll();
+            }
+            function handleHkRangeChange(event) {
+                diffractionGridSize = parseInt(event.target.value, 10);
+                hkRangeValue.textContent = diffractionGridSize;
+                redrawAll();
+            }
+            function handleToggleHkLabels(event) {
+                showHkLabels = event.target.checked;
+                redrawAll();
+            }
+            function handleSpotSizeChange(event) {
+                diffractionSpotSizeFactor = parseInt(event.target.value, 10);
+                spotSizeValue.textContent = diffractionSpotSizeFactor;
+                redrawAll();
+            }
+            function handleScatteringFactorChange(event) {
+                const value = parseInt(event.target.value, 10);
+                if (event.target.id === 'fa-slider') {
+                    scatteringFactors.A = value;
+                    faValue.textContent = value;
+                } else if (event.target.id === 'fb-slider') {
+                    scatteringFactors.B = value;
+                    fbValue.textContent = value;
+                }
+                redrawAll();
+            }
+            
+            // --- INITIALIZATION AND EVENT LISTENERS ---
+            atomTypeSelector.addEventListener('change', handleAtomTypeChange);
+            realCanvas.addEventListener('click', handleAddAtom);
+            clearBtn.addEventListener('click', clearAll);
+            atomList.addEventListener('click', handleAtomListInteraction);
+            atomList.addEventListener('change', handleCoordinateChange);
+            
+            hkRangeSlider.addEventListener('input', handleHkRangeChange);
+            toggleHkLabels.addEventListener('change', handleToggleHkLabels);
+            spotSizeSlider.addEventListener('input', handleSpotSizeChange);
+            faSlider.addEventListener('input', handleScatteringFactorChange);
+            fbSlider.addEventListener('input', handleScatteringFactorChange);
+
+            window.addEventListener('resize', resizeCanvases);
+            // Add a small delay to ensure layout is stable before initial draw
+            setTimeout(resizeCanvases, 50);
+        });
+    </script>
+</body>
+</html>
