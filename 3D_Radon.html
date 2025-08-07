@@ -318,7 +318,6 @@
             </div>
             
             <div class="control-group">
-                <!-- MODIFICATION: Run button removed. Status element remains. -->
                 <div id="status" style="margin-top: 10px; font-style: italic; min-height: 20px;">Initializing...</div>
             </div>
             
@@ -347,7 +346,7 @@
         </div>
     </div>
     
-    <footer>NitaD, Univ Paris-Saclay, 2025.</footer>
+    <footer>Radon 3D, version 14 july 2025. NitaD, Univ Paris-Saclay.</footer>
     
     <script>
         // --- DOM Elements ---
@@ -602,7 +601,7 @@
             }
         }
 
-        function getSlicesFrom3DObject(object, sliceCount, imageSize) {
+function getSlicesFrom3DObject(object, sliceCount, imageSize) {
             const slices = [];
             object.updateWorldMatrix(true, true);
             
@@ -622,8 +621,15 @@
                         const sx = GLOBAL_BOUNDS.min.x + (x / (imageSize - 1)) * xRange;
                         const sy = GLOBAL_BOUNDS.max.y - (y / (imageSize - 1)) * yRange;
                         point.set(sx, sy, z);
-                        let intensity = isInsideObjectAnalytical(point, object) ? OBJECT_INTENSITY : BACKGROUND_INTENSITY;
-                        imageData.data.set([intensity, intensity, intensity, 255], (y * imageSize + x) * 4);
+                        
+                        // Check if the point is inside the object
+                        const isInside = isInsideObjectAnalytical(point, object);
+                        
+                        // Set intensity and alpha based on whether it's inside or outside
+                        const intensity = isInside ? OBJECT_INTENSITY : BACKGROUND_INTENSITY;
+                        const alpha = isInside ? 255 : 0; // Make background transparent
+                        
+                        imageData.data.set([intensity, intensity, intensity, alpha], (y * imageSize + x) * 4);
                     }
                 }
                 slices.push(imageData);
@@ -991,24 +997,38 @@
             sinogramCtx.putImageData(outputImageData, 0, 0);
         }
 
-        let showSlice = false;
         let slicePlaneSource = null;
         let slicePlaneRecon = null;
+        const slicePlaneMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffff00,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide
+        });
 
         function updateSlicePlanes() {
             const sliceIndex = parseInt(currentSliceSlider.value);
             const object3D = sourceObjectGroup.children[0];
-            showSlice = document.getElementById('show-slice').checked;
-            
-            [slicePlaneSource, slicePlaneRecon].forEach(p => {
-                if (p && p.parent) {
-                    p.parent.remove(p); p.geometry.dispose(); p.material.dispose();
-                }
-            });
-            slicePlaneSource = slicePlaneRecon = null;
-            
-            if (!object3D || !showSlice || !sourceSlices[sliceIndex]) { return; }
-            
+            const showSliceChecked = document.getElementById('show-slice').checked;
+
+            // Clean up old planes explicitly.
+            if (slicePlaneSource && slicePlaneSource.parent) {
+                slicePlaneSource.parent.remove(slicePlaneSource);
+                slicePlaneSource.geometry.dispose();
+                slicePlaneSource = null;
+            }
+            if (slicePlaneRecon && slicePlaneRecon.parent) {
+                slicePlaneRecon.parent.remove(slicePlaneRecon);
+                slicePlaneRecon.geometry.dispose();
+                slicePlaneRecon = null;
+            }
+
+            // Do not proceed if the checkbox is off or data is missing.
+            if (!object3D || !showSliceChecked || !sourceSlices[sliceIndex]) {
+                return;
+            }
+
+            // Calculate plane dimensions and position.
             const boundingBox = GLOBAL_BOUNDS;
             const zMin = boundingBox.min.z;
             const zMax = boundingBox.max.z;
@@ -1016,21 +1036,19 @@
             const z = zMin + (sliceIndex + 0.5) * zStep;
             const sizeX = boundingBox.max.x - boundingBox.min.x;
             const sizeY = boundingBox.max.y - boundingBox.min.y;
-            const geometry = new THREE.PlaneGeometry(sizeX, sizeY);
-            const material = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
-            
-            const createPlane = () => {
-                const plane = new THREE.Mesh(geometry.clone(), material.clone());
-                plane.position.z = z;
-                return plane;
-            };
-            
-            slicePlaneSource = createPlane();
-            slicePlaneRecon = createPlane();
+            const planeGeometry = new THREE.PlaneGeometry(sizeX, sizeY);
+
+            // Create and add the source plane using the shared yellow material.
+            slicePlaneSource = new THREE.Mesh(planeGeometry, slicePlaneMaterial);
+            slicePlaneSource.position.z = z;
             sourceObjectGroup.add(slicePlaneSource);
+
+            // Create and add the reconstruction plane using a cloned geometry and the same material.
+            slicePlaneRecon = new THREE.Mesh(planeGeometry.clone(), slicePlaneMaterial);
+            slicePlaneRecon.position.z = z;
             reconObjectGroup.add(slicePlaneRecon);
         }
-
+        
         // --- Start the application ---
         init();
     </script>
