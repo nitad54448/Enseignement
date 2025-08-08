@@ -3,371 +3,360 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Powder XRD Simulator</title>
+    <title>Powder XRD Simulator (v3)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .control-panel label {
-            font-weight: 500;
-        }
-        .control-panel input, .control-panel select {
-            transition: all 0.3s ease;
-        }
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f0f0f0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        #controls-panel { width: 420px; min-width: 320px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
+        #drag-handle { width: 6px; cursor: col-resize; background-color: #374151; flex-shrink: 0; transition: background-color 0.2s; }
+        #drag-handle:hover { background-color: #3b82f6; }
+        #results-area { flex-grow: 1; position: relative; background-color: #ffffff; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: #1f2937; }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        .control-input, .control-select { width: 100%; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 0.75rem; transition: all 0.2s ease; }
+        .control-input:focus, .control-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
+        footer { width: 100%; background-color: #ffffff; padding: 8px 24px; font-size: 0.8em; color: #4b5563; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body>
 
-    <div class="container mx-auto p-4 md:p-8">
-        <header class="text-center mb-8">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Simple Cubic Powder XRD Simulator</h1>
-            <p class="mt-2 text-lg text-gray-600">Visualize diffraction patterns for cubic crystal structures.</p>
-        </header>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Control Panel -->
-            <div class="lg:col-span-1 bg-gray-800 text-gray-200 p-6 rounded-xl shadow-lg control-panel">
-                <h2 class="text-2xl font-semibold mb-6 border-b border-gray-600 pb-3">Simulation Parameters</h2>
-                
-                <div class="space-y-6">
-                    <div>
-                        <label for="crystal-structure" class="block text-sm font-medium text-gray-300 mb-2">Crystal Structure</label>
-                        <select id="crystal-structure" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
-                            <option value="SC">Simple Cubic (SC)</option>
-                            <option value="FCC" selected>Face-Centered Cubic (FCC)</option>
-                            <option value="BCC">Body-Centered Cubic (BCC)</option>
-                            <option value="Diamond">Diamond Cubic</option>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1 class="text-2xl font-bold text-white mb-2">Powder XRD Simulator</h1>
+            <p class="text-sm text-gray-400 mb-6">Visualize diffraction patterns for cubic crystal structures.</p>
+            
+            <div class="space-y-6">
+                <div class="control-group">
+                    <label for="crystal-structure" class="control-label">Crystal Structure</label>
+                    <select id="crystal-structure" class="control-select">
+                        <option value="SC">Simple Cubic (SC)</option>
+                        <option value="FCC" selected>Face-Centered Cubic (FCC)</option>
+                        <option value="BCC">Body-Centered Cubic (BCC)</option>
+                        <option value="Diamond">Diamond Cubic</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="lattice-parameter" class="control-label">Lattice Parameter (a) in Å</label>
+                    <input type="number" id="lattice-parameter" value="3.61" step="0.01" class="control-input">
+                </div>
+                <div class="control-group">
+                    <label for="element-select" class="control-label">Element (Atomic Form Factor)</label>
+                    <select id="element-select" class="control-select">
+                        <option value="Si">Si</option>
+                        <option value="Cu" selected>Cu</option>
+                        <option value="Fe">Fe</option>
+                        <option value="Al">Al</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="xray-wavelength" class="control-label">X-Ray Wavelength (λ) in Å</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="number" id="xray-wavelength" value="1.5406" step="0.0001" class="control-input">
+                        <select id="wavelength-preset" class="control-select w-auto pr-8">
+                            <option value="1.5406">Cu Kα</option>
+                            <option value="0.7093">Mo Kα</option>
+                            <option value="1.7889">Co Kα</option>
                         </select>
-                    </div>
-                    <div>
-                        <label for="lattice-parameter" class="block text-sm font-medium text-gray-300 mb-2">Lattice Parameter (a) in Å</label>
-                        <input type="number" id="lattice-parameter" value="3.61" step="0.01" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
-                    </div>
-                    <div>
-                        <label for="element-select" class="block text-sm font-medium text-gray-300 mb-2">Element (for atomic form factor)</label>
-                        <select id="element-select" class="w-full bg-transparent border border-gray-500 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
-                            <option value="Si" selected>Si</option>
-                            <option value="Cu">Cu</option>
-                            <option value="Fe">Fe</option>
-                            <option value="Al">Al</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="xray-wavelength" class="block text-sm font-medium text-gray-300 mb-2">X-Ray Wavelength (λ) in Å</label>
-                        <div class="flex items-center space-x-2">
-                            <input type="number" id="xray-wavelength" value="1.5406" step="0.0001" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
-                            <select id="wavelength-preset" class="p-3 bg-gray-600 border border-gray-500 rounded-lg hover:bg-gray-500 text-white">
-                                <option value="1.5406">Cu Kα</option>
-                                <option value="0.7093">Mo Kα</option>
-                                <option value="1.7889">Co Kα</option>
-                            </select>
-                        </div>
-                    </div>
-                     <div>
-                        <label for="thermal-factor" class="block text-sm font-medium text-gray-300 mb-2">Thermal Factor B (Å²)</label>
-                        <input type="number" id="thermal-factor" value="0.5" step="0.1" min="0" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
                     </div>
                 </div>
+                 <div class="control-group">
+                    <label for="thermal-factor" class="control-label">Thermal Factor B (Å²)</label>
+                    <input type="number" id="thermal-factor" value="0.5" step="0.1" min="0" class="control-input">
+                </div>
             </div>
+        </div>
 
-            <!-- Results Display -->
-            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg">
-                <div id="results-container">
-                    <h2 class="text-2xl font-semibold mb-4 text-center">Diffraction Pattern</h2>
-                    <div class="relative h-64 md:h-96">
-                        <canvas id="xrd-chart"></canvas>
-                    </div>
-                    <h3 class="text-xl font-semibold mt-8 mb-4 border-t pt-6">Calculated Diffraction Peaks</h3>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">2θ (°)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">d-spacing (Å)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">(hkl)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Multiplicity (p)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Intensity (a.u.)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="peak-table-body" class="bg-white divide-y divide-gray-200">
-                                <!-- Rows will be inserted here by JavaScript -->
-                            </tbody>
-                        </table>
-                    </div>
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+            <div id="results-container" class="w-full h-full flex flex-col">
+                <h2 class="text-2xl font-semibold mb-4 text-center text-gray-800">Diffraction Pattern</h2>
+                <div class="relative flex-1 min-h-0">
+                    <canvas id="xrd-chart"></canvas>
+                </div>
+                <h3 class="text-xl font-semibold mt-6 mb-4 border-t pt-4 text-gray-800">Calculated Diffraction Peaks</h3>
+                <div class="relative flex-1 overflow-y-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50 sticky top-0">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">2θ (°)</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">d-spacing (Å)</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">(hkl)</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Multiplicity</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Intensity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="peak-table-body" class="bg-white divide-y divide-gray-200">
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 
+    <footer>
+        NitaD, Univ Paris-Saclay, Aug 2025
+    </footer>
+
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            // --- DOM Element References ---
-            const structureSelect = document.getElementById('crystal-structure');
-            const latticeParamInput = document.getElementById('lattice-parameter');
-            const wavelengthInput = document.getElementById('xray-wavelength');
-            const elementSelect = document.getElementById('element-select');
-            const wavelengthPreset = document.getElementById('wavelength-preset');
-            const thermalFactorInput = document.getElementById('thermal-factor');
-            const peakTableBody = document.getElementById('peak-table-body');
-            const resultsContainer = document.getElementById('results-container');
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- DOM Element References ---
+        const controls = {
+            structure: document.getElementById('crystal-structure'),
+            latticeParam: document.getElementById('lattice-parameter'),
+            wavelength: document.getElementById('xray-wavelength'),
+            element: document.getElementById('element-select'),
+            wavelengthPreset: document.getElementById('wavelength-preset'),
+            thermalFactor: document.getElementById('thermal-factor'),
+            peakTableBody: document.getElementById('peak-table-body'),
+            chartCanvas: document.getElementById('xrd-chart')
+        };
 
-            let xrdChart = null;
+        let xrdChart; // Will hold the chart instance
 
-            // --- Event Listeners for Live Updates ---
-            wavelengthPreset.addEventListener('change', (e) => {
-                wavelengthInput.value = e.target.value;
-                runSimulation();
-            });
+        // --- Main Simulation Function ---
+        const runSimulation = () => {
+            const params = {
+                structure: controls.structure.value,
+                a: parseFloat(controls.latticeParam.value),
+                lambda: parseFloat(controls.wavelength.value),
+                B: parseFloat(controls.thermalFactor.value),
+                element: controls.element.value
+            };
 
-            const allControls = [
-                structureSelect,
-                latticeParamInput,
-                wavelengthInput,
-                thermalFactorInput
-            ];
-
-            allControls.forEach(control => {
-                control.addEventListener('input', runSimulation);
-            });
-
-
-            // --- Core Simulation Logic ---
-            function runSimulation() {
-                // 1. Get user inputs
-                const params = {
-                    structure: structureSelect.value,
-                    a: parseFloat(latticeParamInput.value),
-                    lambda: parseFloat(wavelengthInput.value),
-                    B: parseFloat(thermalFactorInput.value),
-                    element: elementSelect ? elementSelect.value : 'Si'
-                };
-
-                if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0) {
-                    return;
-                }
-
-                // 2. Calculate diffraction peaks
-                const peaks = calculatePeaks(params);
-
-                // 3. Display results
-                displayResults(peaks);
+            if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0) {
+                return;
             }
 
-            /**
-             * Calculates the allowed diffraction peaks for a given structure.
-             * @param {object} params - The simulation parameters object.
-             * @returns {Array<object>} An array of peak objects.
-             */
-            function calculatePeaks(params) {
-                const { structure, a, lambda } = params;
-                const calculatedPeaks = [];
-                const max_hkl = 8; 
+            const peaks = calculatePeaks(params);
+            const maxIntensity = populateTable(peaks);
+            plotDiffractogram(peaks, maxIntensity);
+        };
 
-                for (let h = 0; h <= max_hkl; h++) {
-                    for (let k = 0; k <= max_hkl; k++) {
-                        for (let l = 0; l <= max_hkl; l++) {
-                            if (h === 0 && k === 0 && l === 0) continue;
+        // --- Calculation Functions ---
+        const calculatePeaks = (params) => {
+            const { structure, a, lambda } = params;
+            const calculatedPeaks = [];
+            const max_hkl = 8;
 
-                            if (isReflectionAllowed(structure, h, k, l)) {
-                                const hkl_sq = h * h + k * k + l * l;
-                                const d_spacing = a / Math.sqrt(hkl_sq);
-                                const sin_theta = lambda / (2 * d_spacing);
+            for (let h = 0; h <= max_hkl; h++) {
+                for (let k = 0; k <= max_hkl; k++) {
+                    for (let l = 0; l <= max_hkl; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
 
-                                if (sin_theta <= 1) {
-                                    const theta_rad = Math.asin(sin_theta);
-                                    const two_theta_deg = 2 * theta_rad * (180 / Math.PI);
-                                    const multiplicity = getMultiplicity(h, k, l);
-                                    const intensity = calculateIntensity(theta_rad, multiplicity, params, h, k, l);
+                        if (isReflectionAllowed(structure, h, k, l)) {
+                            const hkl_sq = h*h + k*k + l*l;
+                            const d = a / Math.sqrt(hkl_sq);
+                            const sinTheta = lambda / (2 * d);
 
+                            if (sinTheta <= 1) {
+                                const thetaRad = Math.asin(sinTheta);
+                                const intensity = calculateIntensity(thetaRad, params, h, k, l);
+                                if (intensity > 0) {
                                     calculatedPeaks.push({
-                                        two_theta: two_theta_deg,
-                                        d: d_spacing,
-                                        h, k, l,
-                                        multiplicity: multiplicity,
-                                        intensity: intensity
+                                        two_theta: 2 * thetaRad * (180 / Math.PI),
+                                        d: d, h, k, l, intensity
                                     });
                                 }
                             }
                         }
                     }
                 }
-                
-                const uniquePeaks = {};
-calculatedPeaks.forEach(peak => {
-    const key = peak.d.toFixed(4);
-    if (!uniquePeaks[key]) {
-        uniquePeaks[key] = {
-            two_theta: peak.two_theta,
-            d: peak.d,
-            h: peak.h, k: peak.k, l: peak.l,
-            multiplicity: peak.multiplicity,
-            intensity: peak.intensity
+            }
+            return combineDegeneratePeaks(calculatedPeaks);
         };
-    } else {
-        uniquePeaks[key].intensity += peak.intensity;
-        uniquePeaks[key].multiplicity += peak.multiplicity;
-    }
-});
-return Object.values(uniquePeaks).sort((a, b) => a.two_theta - b.two_theta);
-            }
-
-            function isReflectionAllowed(structure, h, k, l) {
-                switch (structure) {
-                    case 'SC':
-                        return true; // All reflections are allowed for Simple Cubic
-                    case 'BCC': 
-                        return (h + k + l) % 2 === 0;
-                    case 'FCC': 
-                        return (h % 2 === 0 && k % 2 === 0 && l % 2 === 0) || (h % 2 !== 0 && k % 2 !== 0 && l % 2 !== 0);
-                    case 'Diamond':
-                        const allOdd = h % 2 !== 0 && k % 2 !== 0 && l % 2 !== 0;
-                        const allEven = h % 2 === 0 && k % 2 === 0 && l % 2 === 0;
-                        return allOdd || (allEven && (h + k + l) % 4 === 0);
-                    default: 
-                        return true;
-                }
-            }
-            
-            /**
-             * Calculates peak intensity based on several physical factors.
-             */
-            function calculateIntensity(theta_rad, multiplicity, params, h, k, l) {
-                const { lambda, B, element, structure } = params;
-
-                const cos_theta = Math.cos(theta_rad);
-                const cos_2theta = Math.cos(2 * theta_rad);
-                const sin_theta = Math.sin(theta_rad);
-
-                const sin_safe = Math.max(sin_theta, 1e-6);
-                const cos_safe = Math.max(cos_theta, 1e-6);
-
-                // Lorentz-polarization with average polarization factor
-                const Lp_raw = (1 + cos_2theta * cos_2theta) / (sin_safe * sin_safe * cos_safe);
-                const Lp = Lp_raw / 2.0;
-
-                const p = multiplicity;
-
-                const s = sin_theta / lambda;
-                const debyeWallerFactor = Math.exp(-2 * B * (s * s));
-
-                // per-element empirical atomic form-factor approx (Gaussian-like). Values tuned per element.
-                const alphaMap = { 'Si': 3.5, 'Cu': 4.0, 'Fe': 4.2, 'Al': 3.2 };
-                const Zmap = { 'Si': 14, 'Cu': 29, 'Fe': 26, 'Al': 13 };
-                const alpha = alphaMap[element] || 3.5;
-                const Z = Zmap[element] || 14;
-                const f_amp = Z * Math.exp(-alpha * s * s);
-
-                // simple structure factor handling: monoatomic lattices -> factor 1, diamond has two-atom basis
-                let structureFactorAmplitude = 1.0;
-                if (structure === 'Diamond') {
-                    const n = (h + k + l) % 4;
-                    if (n === 0) structureFactorAmplitude = 2.0;
-                    else if (n === 2) structureFactorAmplitude = 0.0;
-                    else structureFactorAmplitude = Math.SQRT2;
-                }
-
-                const amplitude = f_amp * structureFactorAmplitude;
-                const F_sq = amplitude * amplitude;
-
-                return F_sq * p * Lp * debyeWallerFactor;
-            }
-
-            function getMultiplicity(h, k, l) {
-                const indices = [Math.abs(h), Math.abs(k), Math.abs(l)].sort((a, b) => b - a);
-                let h_s = indices[0], k_s = indices[1], l_s = indices[2];
-
-                if (h_s > k_s && k_s > l_s && l_s > 0) return 48; // hkl
-                if (h_s > k_s && k_s > 0 && l_s === 0) return 24; // hk0
-                if (h_s === k_s && k_s > l_s && l_s > 0) return 24; // hhl
-                if (h_s > k_s && k_s === l_s && l_s > 0) return 24; // hkk
-                if (h_s > 0 && k_s === 0 && l_s === 0) return 6;  // h00
-                if (h_s === k_s && k_s > 0 && l_s === 0) return 12; // hh0
-                if (h_s === k_s && k_s === l_s && l_s > 0) return 8;  // hhh
-                return 0;
-            }
-
-            // --- Display and Plotting ---
-            function displayResults(peaks) {
-                peakTableBody.innerHTML = '';
-                let maxIntensity = 0;
-                if (peaks.length > 0) {
-                    maxIntensity = Math.max(...peaks.map(p => p.intensity));
-                }
-
-                peaks.forEach(peak => {
-                    const normalizedIntensity = maxIntensity > 0 ? (peak.intensity / maxIntensity * 100) : 0;
-                    const row = `
-                        <tr>
-                            <td class="px-4 py-3 whitespace-nowrap">${peak.two_theta.toFixed(4)}</td>
-                            <td class="px-4 py-3 whitespace-nowrap">${peak.d.toFixed(4)}</td>
-                            <td class="px-4 py-3 whitespace-nowrap">(${peak.h}, ${peak.k}, ${peak.l})</td>
-                            <td class="px-4 py-3 whitespace-nowrap text-center">${peak.multiplicity}</td>
-                            <td class="px-4 py-3 whitespace-nowrap">${normalizedIntensity.toFixed(2)}</td>
-                        </tr>
-                    `;
-                    peakTableBody.innerHTML += row;
-                });
-                
-                if (peaks.length === 0) {
-                     peakTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4">No diffraction peaks found. Try increasing the lattice parameter or decreasing the wavelength.</td></tr>`;
-                }
-
-                plotDiffractogram(peaks, maxIntensity);
-            }
-
-            function plotDiffractogram(peaks, maxIntensity) {
-                const ctx = document.getElementById('xrd-chart').getContext('2d');
-                const peakWidth = 0.5;
-                const plotData = [];
-                for (let two_theta = 0; two_theta <= 160; two_theta += 0.1) {
-                    let intensity = Math.random() * 1.5 + 1; // Baseline noise
-                    peaks.forEach(peak => {
-                        const normalizedIntensity = maxIntensity > 0 ? (peak.intensity / maxIntensity * 100) : 0;
-                        const gaussian = normalizedIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * (peakWidth / 2.355) ** 2));
-                        intensity += gaussian;
+        
+        const combineDegeneratePeaks = (peaks) => {
+            const uniquePeaks = new Map();
+            peaks.forEach(peak => {
+                const key = peak.d.toFixed(5);
+                const multiplicity = getMultiplicity(peak.h, peak.k, peak.l);
+                if (!uniquePeaks.has(key)) {
+                    uniquePeaks.set(key, {
+                        ...peak,
+                        intensity: peak.intensity * multiplicity,
+                        multiplicity,
+                        hkl_list: [`(${peak.h},${peak.k},${peak.l})`]
                     });
-                    plotData.push({ x: two_theta, y: intensity });
+                } else {
+                    const existing = uniquePeaks.get(key);
+                    existing.intensity += peak.intensity * multiplicity;
+                    existing.multiplicity += multiplicity;
+                    existing.hkl_list.push(`(${peak.h},${peak.k},${peak.l})`);
                 }
+            });
+            return Array.from(uniquePeaks.values()).sort((a, b) => a.two_theta - b.two_theta);
+        };
 
-                if (xrdChart) xrdChart.destroy();
+        const isReflectionAllowed = (structure, h, k, l) => {
+            const sum = h + k + l;
+            const h_even = h % 2 === 0;
+            const k_even = k % 2 === 0;
+            const l_even = l % 2 === 0;
 
-                xrdChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        datasets: [{
-                            label: 'Intensity',
-                            data: plotData,
-                            borderColor: 'rgb(79, 70, 229)',
-                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            tension: 0.1,
-                            fill: true,
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: { type: 'linear', position: 'bottom', title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, min: 0, max: 160 },
-                            y: { title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, min: 0, suggestedMax: 110 }
-                        },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: { mode: 'index', intersect: false, callbacks: { title: (items) => `2θ ≈ ${items[0].parsed.x.toFixed(2)}°` }}
-                        }
-                    }
-                });
+            switch (structure) {
+                case 'SC': return true;
+                case 'BCC': return sum % 2 === 0;
+                case 'FCC': return (h_even === k_even) && (k_even === l_even);
+                case 'Diamond':
+                    if (!((h_even === k_even) && (k_even === l_even))) return false; // must be all even or all odd
+                    if (h_even && k_even && l_even) return sum % 4 === 0; // if all even, sum must be multiple of 4
+                    return true; // if all odd, allowed
+                default: return true;
+            }
+        };
+
+        const calculateIntensity = (thetaRad, params, h, k, l) => {
+            const { lambda, B, element, structure } = params;
+            const sinTheta = Math.sin(thetaRad);
+            if (sinTheta < 1e-6) return 0;
+
+            const cosTheta = Math.cos(thetaRad);
+            if (cosTheta < 1e-6) return 0;
+            
+            // Lorentz-polarization factor
+            const cos2Theta = Math.cos(2 * thetaRad);
+            const Lp = (1 + cos2Theta * cos2Theta) / (sinTheta * sinTheta * cosTheta);
+
+            // Debye-Waller (thermal) factor
+            const s = sinTheta / lambda;
+            const debyeWaller = Math.exp(-2 * B * s * s);
+
+            // Atomic form factor squared (simplified)
+            const alphaMap = { 'Si': 3.5, 'Cu': 4.0, 'Fe': 4.2, 'Al': 3.2 };
+            const Zmap = { 'Si': 14, 'Cu': 29, 'Fe': 26, 'Al': 13 };
+            const f_amp = (Zmap[element] || 1) * Math.exp(-(alphaMap[element] || 0) * s * s);
+            let F_sq = f_amp * f_amp; // Base for SC, BCC, FCC
+
+            // Structure factor modification for Diamond
+            if (structure === 'Diamond') {
+                const sum_hkl = h + k + l;
+                if (sum_hkl % 4 === 2) F_sq = 0; // Systematically absent
+                else if (sum_hkl % 2 !== 0) F_sq *= 32; // All odd, e.g. (111)
+                else if (sum_hkl % 4 === 0) F_sq *= 64; // All even, sum mult of 4, e.g. (220)
             }
             
-            // Initial calculation on page load
+            return F_sq * Lp * debyeWaller;
+        };
+
+        const getMultiplicity = (h, k, l) => {
+            const a_h = Math.abs(h), a_k = Math.abs(k), a_l = Math.abs(l);
+            if (a_h > a_k && a_k > a_l && a_l > 0) return 48;
+            if (a_h > a_k && a_k > 0 && a_l == 0) return 24;
+            if (a_h == a_k && a_k > a_l && a_l > 0) return 24;
+            if (a_h > a_k && a_k == a_l && a_l > 0) return 24;
+            if (a_h == a_k && a_k == a_l && a_l > 0) return 8;
+            if (a_h == a_k && a_l == 0 && a_h > 0) return 12;
+            if (a_h > 0 && a_k == 0 && a_l == 0) return 6;
+            return 24; // Fallback for mixed cases like (h,0,l)
+        };
+
+        // --- UI Update Functions ---
+        const populateTable = (peaks) => {
+            controls.peakTableBody.innerHTML = '';
+            if (peaks.length === 0) {
+                controls.peakTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4">No diffraction peaks found.</td></tr>`;
+                return 1;
+            }
+            const maxIntensity = Math.max(...peaks.map(p => p.intensity));
+            peaks.forEach(peak => {
+                const normIntensity = (peak.intensity / maxIntensity * 100);
+                const hklString = peak.hkl_list.length > 1 ? `${peak.hkl_list[0]}...` : peak.hkl_list[0];
+                const row = `
+                    <tr>
+                        <td class="px-4 py-3 text-sm">${peak.two_theta.toFixed(4)}</td>
+                        <td class="px-4 py-3 text-sm">${peak.d.toFixed(4)}</td>
+                        <td class="px-4 py-3 text-sm" title="${peak.hkl_list.join(', ')}">${hklString}</td>
+                        <td class="px-4 py-3 text-sm text-center">${peak.multiplicity}</td>
+                        <td class="px-4 py-3 text-sm">${normIntensity.toFixed(2)}</td>
+                    </tr>
+                `;
+                controls.peakTableBody.innerHTML += row;
+            });
+            return maxIntensity || 1;
+        };
+
+        const plotDiffractogram = (peaks, maxIntensity) => {
+            if (xrdChart) {
+                xrdChart.destroy();
+            }
+            const peakWidth = 0.5;
+            const plotData = [];
+            for (let two_theta = 0; two_theta <= 160; two_theta += 0.1) {
+                let y = Math.random() * 0.5; 
+                peaks.forEach(peak => {
+                    const normIntensity = (peak.intensity / maxIntensity * 100);
+                    const stdev = peakWidth / 2.355;
+                    y += normIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * stdev * stdev));
+                });
+                // THIS IS THE CORRECTED LINE:
+                plotData.push({ x: two_theta, y: y });
+            }
+
+            xrdChart = new Chart(controls.chartCanvas, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Intensity', data: plotData,
+                        borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { type: 'linear', title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, min: 10, max: 160 },
+                        y: { title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, min: 0 }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { mode: 'index', intersect: false }
+                    }
+                }
+            });
+        };
+
+        // --- Event Listeners ---
+        Object.values(controls).forEach(control => {
+            if (control.tagName === 'SELECT' || control.tagName === 'INPUT') {
+                control.addEventListener('input', runSimulation);
+            }
+        });
+        controls.wavelengthPreset.addEventListener('change', (e) => {
+            controls.wavelength.value = e.target.value;
             runSimulation();
         });
+        
+        // --- Resizer Logic ---
+        const resizer = document.getElementById('drag-handle');
+        const leftPanel = document.getElementById('controls-panel');
+        let isResizing = false;
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault(); isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', stopResize);
+        });
+        function handleMouseMove(e) {
+            if (isResizing && e.clientX > 320 && e.clientX < 600) {
+               leftPanel.style.width = `${e.clientX}px`;
+            }
+        }
+        function stopResize() {
+            isResizing = false; document.body.style.cursor = 'default';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', stopResize);
+        }
+
+        // --- Initial Run ---
+        runSimulation();
+    });
     </script>
 </body>
 </html>
