@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Layer XRR Simulator</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #f0f0f0;
+            color: #e5e7eb; /* Default light text for dark theme */
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #controls-panel {
+            width: 420px;
+            min-width: 320px;
+            max-width: 600px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* Dark blue-gray */
+            border-right: 1px solid #374151;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6;
+        }
+        #visualization-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #ffffff;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            color: #1f2937;
+        }
+        #plot-container, #plot-container svg {
+            width: 100%;
+            height: 100%;
+        }
+        /* Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        #controls-panel input[type="number"] {
+            width: 90px;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            text-align: right;
+        }
+        #controls-panel button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+            font-weight: 500;
+            width: 100%;
+        }
+        #controls-panel button:hover {
+            background-color: #2563EB;
+        }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-row { display: flex; align-items: center; gap: 1rem; }
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; background: #4b5563;
+            border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s;
+            flex-grow: 1;
+        }
+        input[type="range"]:hover { opacity: 1; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px; height: 18px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%; border: 0;
+        }
+        footer {
+            width: 100%;
+            background-color: #ffffff;
+            padding: 8px 24px;
+            text-align: left;
+            font-size: 0.8em;
+            color: #4b5563;
+            border-top: 1px solid #e5e7eb;
+            flex-shrink: 0;
+        }
+        /* D3 Plot Styles for Light Theme */
+        .x-axis path, .y-axis path, .x-axis .tick line, .y-axis .tick line { stroke: #cccccc; }
+        .x-axis .tick text, .y-axis .tick text { fill: #4b5563; font-size: 14px; }
+        .plot-line { fill: none; stroke: #3b82f6; stroke-width: 2.5px; }
+        .axis-label { font-size: 16px; fill: #111827; font-weight: 500; }
+        
+        /* Layer specific styles */
+        .layer-container {
+            padding: 1rem;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        .layer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .layer-name-input {
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 1.1em;
+            font-weight: 600;
+            padding: 4px;
+            border-radius: 4px;
+            width: 80%;
+        }
+        .layer-name-input:focus {
+            background: #374151;
+            outline: 1px solid #3b82f6;
+        }
+        .remove-layer-btn {
+            background-color: #ef4444 !important;
+            color: white !important;
+            border: none;
+            padding: 4px 8px !important;
+            border-radius: 50% !important;
+            cursor: pointer;
+            font-weight: bold;
+            line-height: 1;
+            width: auto !important;
+        }
+        .remove-layer-btn:hover {
+            background-color: #dc2626 !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- Left Panel for Controls -->
+        <div id="controls-panel">
+            <h1>Multi-Layer XRR</h1>
+            <p>Simulate X-Ray Reflectivity for a multi-layer thin film stack on a substrate.</p>
+            
+            <div id="layers-list">
+                <!-- Layer controls will be dynamically inserted here -->
+            </div>
+
+            <div class="control-group">
+                <button id="add-layer-btn">Add Layer</button>
+            </div>
+
+            <div class="control-group">
+                <h3 class="text-lg font-semibold text-white mb-3 border-b border-gray-700 pb-2">Substrate</h3>
+                <label for="substrate-density">Substrate e⁻ density, e⁻/Å³</label>
+                <div class="control-row">
+                    <input type="range" id="substrate-density" min="0" max="5" value="0.707" step="0.001">
+                    <input type="number" id="substrate-density-value" min="0" max="5" value="0.707" step="0.001">
+                </div>
+            </div>
+
+            <div class="control-group">
+                 <button id="save-data-button">Save as .dat</button>
+            </div>
+        </div>
+
+        <!-- Draggable Resizer -->
+        <div id="drag-handle"></div>
+
+        <!-- Right Panel for Visualization -->
+        <div id="visualization-area">
+            <div id="plot-container"></div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="text-gray-600">
+        Parratt formalism with Névot-Croce roughness. Absorption is neglected. NitaD, Univ Paris-Saclay, 2025.
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Scientific Constants & Complex Math Library ---
+            const Complex={create:(re=0,im=0)=>({re,im}),add:(a,b)=>({re:a.re+b.re,im:a.im+b.im}),subtract:(a,b)=>({re:a.re-b.re,im:a.im-b.im}),multiply:(a,b)=>({re:a.re*b.re-a.im*b.im,im:a.re*b.im+a.im*b.re}),divide:(a,b)=>{const d=b.re*b.re+b.im*b.im;return d===0?{re:Infinity,im:Infinity}:{re:(a.re*b.re+a.im*b.im)/d,im:(a.im*b.re-a.re*b.im)/d}},exp:c=>{const e=Math.exp(c.re);return{re:e*Math.cos(c.im),im:e*Math.sin(c.im)}},sqrt:c=>{const r=Math.sqrt(c.re*c.re+c.im*c.im),p=Math.atan2(c.im,c.re),s=Math.sqrt(r);return{re:s*Math.cos(p/2),im:s*Math.sin(p/2)}},magnitudeSq:c=>c.re*c.re+c.im*c.im};
+            const CLASSICAL_ELECTRON_RADIUS=2.81794e-5,PI=Math.PI;
+            
+            // --- Core Calculation Engine ---
+            function calculateReflectivity(layers, subDensity) {
+                const data = [];
+                const qMax = 1;
+                const qSteps = 800;
+                
+                const allDensities = [0, ...layers.map(l => l.density), subDensity];
+                const qCritSq = allDensities.map(rho => 16 * PI * rho * CLASSICAL_ELECTRON_RADIUS);
+
+                for (let i = 1; i <= qSteps; i++) {
+                    const Q = i / qSteps * qMax;
+                    const Qsq = Q * Q;
+
+                    const kz = qCritSq.map(qc2 => Complex.multiply(Complex.create(0.5, 0), Complex.sqrt(Complex.subtract(Complex.create(Qsq, 0), Complex.create(qc2, 0)))));
+
+                    // Start recursion from the substrate
+                    let R = Complex.create(0,0);
+                    if (kz.length > 1) {
+                        const r_sub = Complex.divide(Complex.subtract(kz[kz.length-2], kz[kz.length-1]), Complex.add(kz[kz.length-2], kz[kz.length-1]));
+                        R = r_sub; // This is R_N,N+1
+                    }
+
+                    // Loop upwards from the bottom layer to the top
+                    for (let j = layers.length - 1; j >= 0; j--) {
+                        const r_j = Complex.divide(Complex.subtract(kz[j], kz[j+1]), Complex.add(kz[j], kz[j+1]));
+                        const rough_factor = Math.exp(-2 * kz[j].re * kz[j+1].re * layers[j].roughness * layers[j].roughness);
+                        const r_j_rough = Complex.multiply(r_j, Complex.create(rough_factor, 0));
+
+                        const phaseFactor = Complex.exp(Complex.multiply(Complex.create(0, 2), Complex.multiply(kz[j+1], Complex.create(layers[j].thickness, 0))));
+                        
+                        const numerator = Complex.add(r_j_rough, Complex.multiply(R, phaseFactor));
+                        const denominator = Complex.add(Complex.create(1, 0), Complex.multiply(r_j_rough, Complex.multiply(R, phaseFactor)));
+
+                        R = Complex.divide(numerator, denominator);
+                    }
+                    
+                    const reflectivity = Complex.magnitudeSq(R);
+                    data.push({ q: Q, r: reflectivity });
+                }
+                return data;
+            }
+
+            // --- D3 Plotting ---
+            const margin={top:20,right:30,bottom:60,left:70},container=d3.select("#plot-container");let svg,xScale,yScale,xAxisGroup,yAxisGroup,line,path,xAxisLabel,yAxisLabel,isPlotInitialized=!1;
+            function drawPlot(){const bounds=container.node().getBoundingClientRect();if(bounds.width<=0)return;const height=bounds.height>0?bounds.height:bounds.width*0.6,width=bounds.width;if(!isPlotInitialized){isPlotInitialized=!0;svg=container.append("svg").attr("preserveAspectRatio","xMidYMid meet");const plotArea=svg.append("g").attr("transform",`translate(${margin.left},${margin.top})`);xScale=d3.scaleLinear();yScale=d3.scaleLog().clamp(!0);xAxisGroup=plotArea.append("g").attr("class","x-axis");yAxisGroup=plotArea.append("g").attr("class","y-axis");xAxisLabel=svg.append("text").attr("class","axis-label").attr("text-anchor","middle");yAxisLabel=svg.append("text").attr("class","axis-label").attr("transform","rotate(-90)").attr("text-anchor","middle");line=d3.line().x(d=>xScale(d.q)).y(d=>yScale(d.r));path=plotArea.append("path").attr("class","plot-line")}svg.attr("viewBox",`0 0 ${width} ${height}`);const plotWidth=width-margin.left-margin.right,plotHeight=height-margin.top-margin.bottom;xScale.domain([0,1]).range([0,plotWidth]);yScale.domain([1e-10,1]).range([plotHeight,0]);xAxisGroup.attr("transform",`translate(0,${plotHeight})`).call(d3.axisBottom(xScale).ticks(5));yAxisGroup.call(d3.axisLeft(yScale).ticks(6).tickFormat(d=>{const l=Math.round(Math.log10(d));if(d>1)return null;switch(l){case 0:return"10⁰";case -2:return"10⁻²";case -4:return"10⁻⁴";case -6:return"10⁻⁶";case -8:return"10⁻⁸";case -10:return"10⁻¹⁰";default:return null}}));xAxisLabel.attr("x",margin.left+plotWidth/2).attr("y",height-15).html("Wavevector transfer Q [Å⁻¹]");yAxisLabel.attr("y",15).attr("x",0-(margin.top+plotHeight/2)).attr("dy","1em").text("Reflectivity |R|²");updateLine(!1)}
+            
+            function updateLine(useTransition = true) {
+                const layers = [];
+                document.querySelectorAll('.layer-container').forEach(layerEl => {
+                    layers.push({
+                        thickness: +layerEl.querySelector('input[id^="thickness-"]').value,
+                        density: +layerEl.querySelector('input[id^="film-density-"]').value,
+                        roughness: +layerEl.querySelector('input[id^="roughness-"]').value,
+                    });
+                });
+                const subDensity = +document.getElementById('substrate-density').value;
+                const data = calculateReflectivity(layers, subDensity);
+                
+                const pathUpdate = path.datum(data);
+                if (useTransition) pathUpdate.transition().duration(50).attr("d", line);
+                else pathUpdate.attr("d", line);
+            }
+
+            // --- UI Management ---
+            const layersList = document.getElementById('layers-list');
+
+            function updateLayerIndices() {
+                const layerDivs = layersList.querySelectorAll('.layer-container');
+                layerDivs.forEach((div, index) => {
+                    const nameInput = div.querySelector('.layer-name-input');
+                    // Only update if it's the default name, preserving user edits
+                    if (nameInput.value.startsWith('Layer ') || nameInput.value === '') {
+                        nameInput.value = `Layer ${index + 1}`;
+                    }
+                });
+            }
+
+            function createLayer(params = {}) {
+                const { thickness = 100, density = 2.0, roughness = 5.0 } = params;
+                const layerId = Date.now(); // Use a unique ID for linking controls
+
+                const layerDiv = document.createElement('div');
+                layerDiv.className = 'layer-container';
+                
+                layerDiv.innerHTML = `
+                    <div class="layer-header">
+                        <input type="text" class="layer-name-input" placeholder="Enter layer name">
+                        <button class="remove-layer-btn" title="Remove Layer">&times;</button>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="thickness-${layerId}">Thickness, Å</label>
+                            <div class="control-row">
+                                <input type="range" id="thickness-${layerId}" min="10" max="500" value="${thickness}" step="0.1">
+                                <input type="number" id="thickness-value-${layerId}" min="10" max="500" value="${thickness}" step="0.1">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="film-density-${layerId}">e⁻ density, e⁻/Å³</label>
+                            <div class="control-row">
+                                <input type="range" id="film-density-${layerId}" min="0.1" max="5" value="${density}" step="0.001">
+                                <input type="number" id="film-density-value-${layerId}" min="0.1" max="5" value="${density}" step="0.001">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="roughness-${layerId}">Interface Roughness (σ), Å</label>
+                            <div class="control-row">
+                                <input type="range" id="roughness-${layerId}" min="0" max="20" value="${roughness}" step="0.1">
+                                <input type="number" id="roughness-value-${layerId}" min="0" max="20" value="${roughness}" step="0.1">
+                            </div>
+                        </div>
+                    </div>
+                `;
+                layersList.appendChild(layerDiv);
+                setupLayerControls(layerDiv, layerId);
+                updateLayerIndices();
+            }
+
+            function setupLayerControls(layerDiv, layerId) {
+                const controls = [
+                    { slider: `thickness-${layerId}`, value: `thickness-value-${layerId}` },
+                    { slider: `film-density-${layerId}`, value: `film-density-value-${layerId}` },
+                    { slider: `roughness-${layerId}`, value: `roughness-value-${layerId}` }
+                ];
+                controls.forEach(c => linkSliderToNumber(c.slider, c.value));
+                
+                layerDiv.querySelector('.remove-layer-btn').addEventListener('click', () => {
+                    layerDiv.remove();
+                    updateLayerIndices();
+                    updateLine();
+                });
+            }
+
+            function linkSliderToNumber(sliderId, numberId) {
+                const slider = document.getElementById(sliderId);
+                const numberInput = document.getElementById(numberId);
+                if (!slider || !numberInput) return;
+                
+                const step = parseFloat(slider.step);
+                const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
+
+                slider.addEventListener('input', () => {
+                    numberInput.value = parseFloat(slider.value).toFixed(precision);
+                    updateLine();
+                });
+                numberInput.addEventListener('change', () => {
+                    const min = parseFloat(numberInput.min);
+                    const max = parseFloat(numberInput.max);
+                    let val = parseFloat(numberInput.value);
+                    if (isNaN(val)) val = min;
+                    else if (val < min) val = min;
+                    else if (val > max) val = max;
+                    numberInput.value = val.toFixed(precision);
+                    slider.value = val;
+                    updateLine();
+                });
+            }
+
+            function setupGlobalControls() {
+                linkSliderToNumber('substrate-density', 'substrate-density-value');
+                document.getElementById('add-layer-btn').addEventListener('click', () => {
+                    createLayer();
+                    updateLine();
+                });
+                document.getElementById('save-data-button').addEventListener('click', exportDataFile);
+            }
+
+            function exportDataFile(){
+                const layers = [];
+                document.querySelectorAll('.layer-container').forEach((layerEl, i) => {
+                    layers.push({
+                        name: layerEl.querySelector('.layer-name-input').value || `Layer ${i + 1}`,
+                        thickness: +layerEl.querySelector('input[id^="thickness-"]').value,
+                        density: +layerEl.querySelector('input[id^="film-density-"]').value,
+                        roughness: +layerEl.querySelector('input[id^="roughness-"]').value,
+                    });
+                });
+                const subDensity = +document.getElementById('substrate-density').value;
+                
+                let fileContent = `# Multi-Layer XRR Data\n#\n# Substrate e- density (e-/A^3): ${subDensity}\n#\n`;
+                layers.forEach(l => {
+                    fileContent += `# Layer: ${l.name}\n`;
+                    fileContent += `#   Thickness (A): ${l.thickness}\n`;
+                    fileContent += `#   e- density (e-/A^3): ${l.density}\n`;
+                    fileContent += `#   Interface Roughness (A): ${l.roughness}\n`;
+                });
+                fileContent += `# ---\nQ (A^-1)\tReflectivity\n`;
+                
+                const data = calculateReflectivity(layers, subDensity);
+                data.forEach(row => fileContent += `${row.q.toExponential(6)}\t${row.r.toExponential(6)}\n`);
+                
+                const blob=new Blob([fileContent],{type:'text/plain;charset=utf-8;'});
+                const link=document.createElement("a");
+                const url=URL.createObjectURL(blob);
+                link.setAttribute("href",url);
+                link.setAttribute("download","xrr_multilayer.dat");
+                link.style.visibility='hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+            
+            // --- Resizer Logic ---
+            const resizer=document.getElementById('drag-handle'),leftPanel=document.getElementById('controls-panel');let isResizing=!1;resizer.addEventListener('mousedown',e=>{e.preventDefault();isResizing=!0;document.body.style.cursor='col-resize';document.body.style.userSelect='none';window.addEventListener('mousemove',handleMouseMove);window.addEventListener('mouseup',stopResize)});
+            function handleMouseMove(e){if(!isResizing)return;const p=resizer.parentElement,w=e.clientX-p.getBoundingClientRect().left;if(w>300&&w<p.clientWidth-400){leftPanel.style.width=`${w}px`;drawPlot()}}
+            function stopResize(){isResizing=!1;document.body.style.cursor='default';document.body.style.userSelect='auto';window.removeEventListener('mousemove',handleMouseMove);window.removeEventListener('mouseup',stopResize);drawPlot()}
+            
+            // --- Initialization ---
+            const ro=new ResizeObserver(drawPlot),pc=container.node();if(pc)ro.observe(pc);
+            setupGlobalControls();
+            createLayer({ thickness: 62.8, density: 4.678, roughness: 3.0 }); // Start with one layer
+            drawPlot();
+        });
+    </script>
+</body>
+</html>
