@@ -50,7 +50,7 @@ WaveXplorer is a versatile tool for visualizing and understanding various fundam
     * **Phase/Group Velocity**: Simulate a single wave (phase velocity) or a wave packet (phase and group velocities) with an adjustable dispersion factor.
     * **Wave Type (Comparison)**: Animate particles to illustrate transverse and longitudinal waves.
     * **Wavefront**: Visualize plane and spherical wavefronts.
-* **Language**: HTML, JavaScript, Three.js.
+
 
 ---
 
@@ -68,7 +68,7 @@ Visualize (hkl) crystallographic planes and [uvw] crystallographic directions wi
     * Select the appropriate lattice centering (P, I, F, C, R).
     * Interactively set the [uvw] direction indices.
     * Displays the unit cell, lattice nodes, and the direction vector.
-* **Language**: HTML, JavaScript, Three.js.
+
 
 ---
 
@@ -87,16 +87,16 @@ An interactive simulation to explore the Pair Distribution Function (PDF), g(d),
     * **Disorder**: Introduce thermal-like random displacements to the particle positions.
     * **Click to Add**: Manually add particles to the distribution.
     * **Distance Highlighting**: A slider interactively highlights a specific distance on both the particle distribution and the g(d) plot.
-* **Language**: HTML, JavaScript, TailwindCSS, 2D Canvas API.
+
 
 ---
 
 ### 🌐 4. 2D Space groups
 [**Launch 2D Space groups Simulator**](https://nitad54448.github.io/Enseignement/2D_space_groups.html)
 
-A tool for visualizing symmetry and positions in the 2D space groups. Another version is listed in the Others section, named 2D Pattern generator.
+A tool for visualizing symmetry and positions in the 2D space groups. 
 
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -109,7 +109,7 @@ This tool allows for the visualization of a reciprocal lattice for all crystal s
     * Choose the crystal system and centering.
     * Shows systematic extinctions.
     * Explore hkl indices and distances between nodes.
-* **Language**: HTML, JavaScript, Three.js.
+
 
 ---
 
@@ -124,7 +124,7 @@ This viewer schematically displays atomic energy levels (K, L, M) for different 
     * Display energy levels (in eV or keV) and the selected transition.
     * Calculate and display the energy and wavelength of the photon emitted during the transition.
     * Shows the selection rules for electric dipole transitions.
-* **Language**: HTML, JavaScript, 2D Canvas API.
+
 
 ---
 
@@ -139,7 +139,7 @@ This simulator generates and displays X-ray emission spectra, including Bremsstr
     * Display the resulting emission spectrum (intensity vs. wavelength/energy).
     * Overlay multiple spectra for comparison.
     * Click near a characteristic line on the main spectrum to display a tooltip with a schematic diagram of the corresponding electron transition (K, L, M).
-* **Language**: HTML, JavaScript, 2D Canvas API, SVG.
+
 
 ---
 
@@ -155,7 +155,7 @@ This tool simulates the X-ray emission from an anode, the effect of a filter on 
     * Display the initial emission spectrum (Bremsstrahlung and characteristic K and L lines).
     * Display the mass absorption coefficient (μ/ρ) of the filter versus wavelength/energy (linear or logarithmic scale).
     * Display the spectrum after filtering.
-* **Language**: HTML, JavaScript, 2D Canvas API.
+
 
 ---
 
@@ -164,7 +164,7 @@ This tool simulates the X-ray emission from an anode, the effect of a filter on 
 
 This tool simulates the effect of a single crystal monochromator on an X-ray spectrum.
 
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -181,7 +181,7 @@ This simulator visualizes the construction of the Ewald sphere in reciprocal spa
     * Adjust a disorder level to simulate the broadening and attenuation of diffraction spots.
     * Identify points in diffraction condition (intersection with the sphere).
     * Click on a point in diffraction to calculate its 2θ angle.
-* **Language**: HTML, JavaScript, Three.js.
+
 
 ---
 
@@ -194,7 +194,7 @@ This software visualizes the reciprocal lattice for three different experimental
     * Choose between single-crystal and powder diffraction methods.
     * Shows systematic extinctions.
     * Explore hkl indices and distances between nodes.
-* **Language**: HTML, JavaScript, Three.js.
+
 
 ---
 
@@ -211,7 +211,7 @@ An advanced simulator for visualizing single-crystal X-ray diffraction. It combi
     * Interactive detector with zoom (mouse wheel/pinch) and pan (left-click drag/two-finger drag) controls.
     * Click on spots in the detector view to identify (h,k,l) indices and highlight the corresponding point in the 3D view.
     * Option to show all reciprocal lattice points or only those in a diffraction condition.
-* **Language**: HTML, JavaScript, Three.js.
+
 
 ---
 
@@ -220,7 +220,7 @@ An advanced simulator for visualizing single-crystal X-ray diffraction. It combi
 
 A visualization tool for displaying diffraction patterns of 2D structures.
 
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -229,7 +229,7 @@ A visualization tool for displaying diffraction patterns of 2D structures.
 
 This tool demonstrates the relationship between a crystal structure, its diffraction pattern, and the Patterson function.
 
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -243,7 +243,7 @@ This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single 
     * Define electron density for the film and substrate.
     * Set the roughness for the top surface (σ₀₁) and the film/substrate interface (σ₁₂).
     * Calculates and displays the reflectivity curve.
-* **Language**: HTML, JavaScript, D3.js.
+
 
 ---
 
@@ -256,7 +256,7 @@ This explorer visualizes the 2D Fourier Transform of various sources.
     * Input can be from an uploaded image, a live webcam feed, or a user-defined function.
     * The transform is calculated using a Radix-2 Fast Fourier Transform (FFT) algorithm.
     * The resulting magnitude is displayed using a logarithmic scale.
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -268,7 +268,7 @@ This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
 * **Features**:
     * Input can be from an uploaded image, a live webcam feed, or a preset phantom image.
     * Includes a variety of presets such as the Shepp-Logan phantom, circles, squares, and points.
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -284,7 +284,7 @@ An interactive explorer for the 2D Radon Transform on color images, demonstratin
     * Implements the inverse Radon Transform to reconstruct the image.
     * Includes an interactive "Filtered Back-Projection" option to demonstrate its importance in creating a clear reconstruction.
     * Features a color Venn diagram preset to test channel independence and color mixing.
-* **Language**: HTML, JavaScript.
+
 
 ---
 
@@ -300,7 +300,6 @@ An interactive explorer for visualizing the principles of computed tomography (C
     * **Preset Objects**: Includes several built-in 3D phantoms like a sphere, cube, and torus.
     * **Parallel Processing**: Utilizes Web Workers to perform the Radon transforms on multiple slices in parallel, improving performance.
     * **Filtered Back-Projection**: Implements the filtered back-projection algorithm to reconstruct the 3D object from the sinograms.
-* **Language**: HTML, JavaScript, Three.js.
 
 ---
 
@@ -316,7 +315,7 @@ An interactive explorer for visualizing the principles of the Hough Transform fo
     * **Linked Visualizations**: Interactively sweep through projection angles (θ) to see the corresponding projection axis on the source image and the profile in Hough space.
     * **Edge Detection**: Automatically applies a Sobel filter to the source image to detect edges before applying the transform.
     * **Results**: Shows the final detected lines overlaid on a black background.
-* **Language**: HTML, JavaScript.
+
 
 ---
 
