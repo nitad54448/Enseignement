@@ -49,6 +49,15 @@
                         <input type="number" id="lattice-parameter" value="3.61" step="0.01" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
                     </div>
                     <div>
+                        <label for="element-select" class="block text-sm font-medium text-gray-300 mb-2">Element (for atomic form factor)</label>
+                        <select id="element-select" class="w-full bg-transparent border border-gray-500 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
+                            <option value="Si" selected>Si</option>
+                            <option value="Cu">Cu</option>
+                            <option value="Fe">Fe</option>
+                            <option value="Al">Al</option>
+                        </select>
+                    </div>
+                    <div>
                         <label for="xray-wavelength" class="block text-sm font-medium text-gray-300 mb-2">X-Ray Wavelength (λ) in Å</label>
                         <div class="flex items-center space-x-2">
                             <input type="number" id="xray-wavelength" value="1.5406" step="0.0001" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-white">
@@ -101,6 +110,7 @@
             const structureSelect = document.getElementById('crystal-structure');
             const latticeParamInput = document.getElementById('lattice-parameter');
             const wavelengthInput = document.getElementById('xray-wavelength');
+            const elementSelect = document.getElementById('element-select');
             const wavelengthPreset = document.getElementById('wavelength-preset');
             const thermalFactorInput = document.getElementById('thermal-factor');
             const peakTableBody = document.getElementById('peak-table-body');
@@ -134,6 +144,7 @@
                     a: parseFloat(latticeParamInput.value),
                     lambda: parseFloat(wavelengthInput.value),
                     B: parseFloat(thermalFactorInput.value),
+                    element: elementSelect ? elementSelect.value : 'Si'
                 };
 
                 if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0) {
@@ -171,7 +182,7 @@
                                     const theta_rad = Math.asin(sin_theta);
                                     const two_theta_deg = 2 * theta_rad * (180 / Math.PI);
                                     const multiplicity = getMultiplicity(h, k, l);
-                                    const intensity = calculateIntensity(theta_rad, multiplicity, params);
+                                    const intensity = calculateIntensity(theta_rad, multiplicity, params, h, k, l);
 
                                     calculatedPeaks.push({
                                         two_theta: two_theta_deg,
@@ -187,18 +198,22 @@
                 }
                 
                 const uniquePeaks = {};
-                calculatedPeaks.forEach(peak => {
-                    const key = peak.d.toFixed(4); 
-                    if (!uniquePeaks[key]) {
-                        uniquePeaks[key] = peak;
-                    } else {
-                        if (peak.multiplicity > uniquePeaks[key].multiplicity) {
-                             uniquePeaks[key] = peak;
-                        }
-                    }
-                });
-
-                return Object.values(uniquePeaks).sort((a, b) => a.two_theta - b.two_theta);
+calculatedPeaks.forEach(peak => {
+    const key = peak.d.toFixed(4);
+    if (!uniquePeaks[key]) {
+        uniquePeaks[key] = {
+            two_theta: peak.two_theta,
+            d: peak.d,
+            h: peak.h, k: peak.k, l: peak.l,
+            multiplicity: peak.multiplicity,
+            intensity: peak.intensity
+        };
+    } else {
+        uniquePeaks[key].intensity += peak.intensity;
+        uniquePeaks[key].multiplicity += peak.multiplicity;
+    }
+});
+return Object.values(uniquePeaks).sort((a, b) => a.two_theta - b.two_theta);
             }
 
             function isReflectionAllowed(structure, h, k, l) {
@@ -221,26 +236,44 @@
             /**
              * Calculates peak intensity based on several physical factors.
              */
-            function calculateIntensity(theta_rad, multiplicity, params) {
-                const { lambda, B } = params;
+            function calculateIntensity(theta_rad, multiplicity, params, h, k, l) {
+                const { lambda, B, element, structure } = params;
 
-                // 1. Lorentz-polarization factor (for unpolarized incident beam)
                 const cos_theta = Math.cos(theta_rad);
                 const cos_2theta = Math.cos(2 * theta_rad);
                 const sin_theta = Math.sin(theta_rad);
-                const Lp = (1 + cos_2theta * cos_2theta) / (sin_theta * sin_theta * cos_theta);
 
-                // 2. Multiplicity factor (p) is passed in
+                const sin_safe = Math.max(sin_theta, 1e-6);
+                const cos_safe = Math.max(cos_theta, 1e-6);
+
+                // Lorentz-polarization with average polarization factor
+                const Lp_raw = (1 + cos_2theta * cos_2theta) / (sin_safe * sin_safe * cos_safe);
+                const Lp = Lp_raw / 2.0;
+
                 const p = multiplicity;
 
-                // 3. Structure factor F^2 is simplified.
-                const F_sq = 1.0; 
+                const s = sin_theta / lambda;
+                const debyeWallerFactor = Math.exp(-2 * B * (s * s));
 
-                // 4. Debye-Waller (Thermal) Factor
-                const sin_theta_over_lambda_sq = (sin_theta / lambda) ** 2;
-                const debyeWallerFactor = Math.exp(-2 * B * sin_theta_over_lambda_sq);
+                // per-element empirical atomic form-factor approx (Gaussian-like). Values tuned per element.
+                const alphaMap = { 'Si': 3.5, 'Cu': 4.0, 'Fe': 4.2, 'Al': 3.2 };
+                const Zmap = { 'Si': 14, 'Cu': 29, 'Fe': 26, 'Al': 13 };
+                const alpha = alphaMap[element] || 3.5;
+                const Z = Zmap[element] || 14;
+                const f_amp = Z * Math.exp(-alpha * s * s);
 
-                // Final intensity is a product of these factors
+                // simple structure factor handling: monoatomic lattices -> factor 1, diamond has two-atom basis
+                let structureFactorAmplitude = 1.0;
+                if (structure === 'Diamond') {
+                    const n = (h + k + l) % 4;
+                    if (n === 0) structureFactorAmplitude = 2.0;
+                    else if (n === 2) structureFactorAmplitude = 0.0;
+                    else structureFactorAmplitude = Math.SQRT2;
+                }
+
+                const amplitude = f_amp * structureFactorAmplitude;
+                const F_sq = amplitude * amplitude;
+
                 return F_sq * p * Lp * debyeWallerFactor;
             }
 
