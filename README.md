@@ -75,7 +75,7 @@ Visualize (hkl) crystallographic planes and [uvw] crystallographic directions wi
 ### 📄 3. Pair Distribution Function Explorer
 [**Launch PDF Explorer**](https://nitad54448.github.io/Enseignement/pdf.html)
 
-An interactive simulation to explore the Pair Distribution Function (PDF), g(d), for various 2D particle arrangements. The footer of the program notes it was created by NitaD, Univ Paris-Saclay, in 2025.
+An interactive simulation to explore the Pair Distribution Function (PDF), g(d), for various 2D particle arrangements. 
 
 * **Concepts Covered**:
     * **Particle Distribution**: Generate and visualize different 2D arrangements of particles, including crystalline, liquid-like, gaseous, and liquid crystal states.
