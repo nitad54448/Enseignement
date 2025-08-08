@@ -20,7 +20,7 @@
             overflow: hidden; width: 98%; max-width: 1800px; height: 92vh; margin: 2vh auto;
         }
         #controls-panel {
-            width: 280px; min-width: 200px; max-width: 600px; flex-shrink: 0; padding: 15px;
+            width: 320px; min-width: 240px; max-width: 600px; flex-shrink: 0; padding: 15px;
             background-color: #ffffff;
             border-right: 1px solid var(--border-color);
             overflow-y: auto;
@@ -113,11 +113,16 @@
                 <select id="concept-selector">
                     <option value="wavelength_amplitude">Wavelength & Amplitude</option>
                     <option value="phase">Phase (Phase Shift)</option>
+                    <option value="interference">Interference</option>
+                    <option value="standing_waves">Standing Waves</option>
+                    <option value="attenuation">Attenuation (Damping)</option>
+                    <option value="doppler_effect">Doppler Effect</option>
                     <option value="polarization">Polarization</option>
                     <option value="poynting_vector">Poynting Vector</option>
                     <option value="phase_group_velocity">Phase/Group Velocity</option>
                     <option value="wave_type_comparison">Wave Type (Comparison)</option>
                     <option value="wavefront">Wavefront</option>
+                    <option value="diffraction">Diffraction (Single Slit)</option>
                     <option value="wave_scattering">Wave Scattering</option>
                 </select>
             </div>
@@ -145,7 +150,7 @@
         let conceptSelector;
         let originalCameraState = null;
 
-        // --- Visualization objects for original concepts ---
+        // --- Visualization objects ---
         let waveLine1, waveLine2; 
         let wavelengthIndicatorViz, phaseShiftIndicatorViz;
         let animatedEVector, eVectorTracePath; 
@@ -155,13 +160,20 @@
         let groupWaveComp1, groupWaveComp2, groupWaveSuperposition, groupWaveEnvelopeUpper, groupWaveEnvelopeLower; 
         let particleSystemViz = []; 
         let wavefrontObjects = []; 
-        
-        // --- Parameters for original concepts ---
+        let interferenceSuperposition, standingWaveFwd, standingWaveBwd, standingWaveResult, dopplerSourceViz, diffractionSlit, diffractionSphericalWaves = [];
+
+        // --- Parameters for all concepts ---
         const waveParams = { 
+            // Original
             wavelength: 2.0, amplitude: 1.0, points: 500, extent: 10,  phaseShift: 0,
             polarizationType: 'linear_vertical', polarizationViewMode: 'temporal', Ey_amplitude: 1.0, Ez_amplitude: 0.5, 
             packet_delta_k_factor: 0.15, dispersionFactor: 0.1, poyntingShow: true, velocityDisplayType: 'phase', 
-            waveComparisonType: 'transverse', wavefrontType: 'plane', particleCount: 30 
+            waveComparisonType: 'transverse', wavefrontType: 'plane', particleCount: 30,
+            // New
+            interferenceSeparation: 2.0,
+            attenuationFactor: 0.2,
+            sourceVelocity: 0.5,
+            slitWidth: 1.0
         };
 
         // --- Visualization objects for Wave Scattering ---
@@ -345,7 +357,65 @@
                     <div class="param-info">Amplitude (A): ${waveParams.amplitude.toFixed(1)} (Fixed)</div>
                     <div class="param-info" style="margin-top: 8px;">Wavelength (λ): ${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
                 connectSliderAndNumberInput('phase-slider', 'phase-value', 'phaseShift', true, updateConceptVisualization);
-            } else if (concept === 'polarization') {
+            } else if (concept === 'interference') {
+                 waveParams.amplitude = 1.0; waveParams.wavelength = 2.5;
+                 parameterControlsContainer.innerHTML = `
+                    <div class="control-group">
+                        <label for="separation-slider">Source Separation</label>
+                        <div class="slider-group">
+                             <input type="range" id="separation-slider" min="0" max="5" step="0.1" value="${waveParams.interferenceSeparation}">
+                        </div>
+                        <input type="number" class="value-input" id="separation-value" min="0" max="5" step="0.1" value="${waveParams.interferenceSeparation.toFixed(2)}" style="margin-top: 8px;">
+                    </div>
+                    <div class="param-info">Resultant Wave (White) = Sum of Source Waves (Colors)</div>
+                    <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
+                connectSliderAndNumberInput('separation-slider', 'separation-value', 'interferenceSeparation', true);
+            } else if (concept === 'standing_waves') {
+                 waveParams.amplitude = 1.0; waveParams.wavelength = 4.0;
+                 parameterControlsContainer.innerHTML = `
+                    <div class="param-info">A standing wave is formed by two waves of identical frequency and amplitude traveling in opposite directions.</div>
+                    <div class="param-info" style="margin-top: 8px;">Resultant (White) = Sum of Traveling Waves (Colors)</div>
+                    <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
+            } else if (concept === 'attenuation') {
+                 waveParams.amplitude = 2.0; waveParams.wavelength = 2.0;
+                 parameterControlsContainer.innerHTML = `
+                    <div class="control-group">
+                        <label for="attenuation-slider">Attenuation Factor</label>
+                        <div class="slider-group">
+                             <input type="range" id="attenuation-slider" min="0" max="1" step="0.01" value="${waveParams.attenuationFactor}">
+                        </div>
+                        <input type="number" class="value-input" id="attenuation-value" min="0" max="1" step="0.01" value="${waveParams.attenuationFactor.toFixed(2)}" style="margin-top: 8px;">
+                    </div>
+                     <div class="param-info">Amplitude decreases exponentially with distance from the center.</div>
+                     <div class="param-info" style="margin-top: 8px;">A₀=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
+                connectSliderAndNumberInput('attenuation-slider', 'attenuation-value', 'attenuationFactor', true);
+            } else if (concept === 'doppler_effect') {
+                 waveParams.amplitude = 1.0; waveParams.wavelength = 2.0;
+                 parameterControlsContainer.innerHTML = `
+                    <div class="control-group">
+                        <label for="velocity-slider">Source Velocity (v/c)</label>
+                        <div class="slider-group">
+                             <input type="range" id="velocity-slider" min="-0.9" max="0.9" step="0.05" value="${waveParams.sourceVelocity}">
+                        </div>
+                        <input type="number" class="value-input" id="velocity-value" min="-0.9" max="0.9" step="0.05" value="${waveParams.sourceVelocity.toFixed(2)}" style="margin-top: 8px;">
+                    </div>
+                     <div class="param-info">Shows change in λ due to source motion. The source resets its position periodically.</div>
+                     <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
+                connectSliderAndNumberInput('velocity-slider', 'velocity-value', 'sourceVelocity', true);
+            } else if (concept === 'diffraction') {
+                waveParams.amplitude = 0.5; waveParams.wavelength = 1.5;
+                parameterControlsContainer.innerHTML = `
+                    <div class="control-group">
+                        <label for="slit-width-slider">Slit Width</label>
+                        <div class="slider-group">
+                             <input type="range" id="slit-width-slider" min="0.2" max="5" step="0.1" value="${waveParams.slitWidth}">
+                        </div>
+                        <input type="number" class="value-input" id="slit-width-value" min="0.2" max="5" step="0.1" value="${waveParams.slitWidth.toFixed(2)}" style="margin-top: 8px;">
+                    </div>
+                    <div class="param-info">A plane wave encounters a barrier and creates new spherical waves at the opening.</div>`;
+                connectSliderAndNumberInput('slit-width-slider', 'slit-width-value', 'slitWidth', true);
+            }
+            else if (concept === 'polarization') {
                 waveParams.amplitude = 1.0; waveParams.wavelength = 4.0;
                 parameterControlsContainer.innerHTML = `
                     <div class="control-group radio-group">
@@ -526,7 +596,74 @@
                 scene.add(phaseShiftIndicatorViz);
 
                 updateConceptVisualization(currentConcept);
-            } 
+            }
+            else if (concept === 'interference') {
+                waveLine1 = createSingleWaveObject(0x3498db, 0.6); // Source 1
+                scene.add(waveLine1);
+                waveLine2 = createSingleWaveObject(0xe67e22, 0.6); // Source 2
+                scene.add(waveLine2);
+                interferenceSuperposition = createSingleWaveObject(0xffffff, 1.0); // Result
+                scene.add(interferenceSuperposition);
+            }
+            else if (concept === 'standing_waves') {
+                standingWaveFwd = createSingleWaveObject(0x3498db, 0.6); // Forward wave
+                scene.add(standingWaveFwd);
+                standingWaveBwd = createSingleWaveObject(0xe67e22, 0.6); // Backward wave
+                scene.add(standingWaveBwd);
+                standingWaveResult = createSingleWaveObject(0xffffff, 1.0); // Resultant standing wave
+                scene.add(standingWaveResult);
+            }
+             else if (concept === 'attenuation') {
+                waveLine1 = createSingleWaveObject(0x1abc9c); 
+                scene.add(waveLine1);
+            }
+             else if (concept === 'doppler_effect') {
+                waveLine1 = createSingleWaveObject(0x1abc9c); 
+                scene.add(waveLine1);
+                const sourceGeom = new THREE.SphereGeometry(0.15, 16, 12);
+                const sourceMat = new THREE.MeshBasicMaterial({color: 0xf1c40f});
+                dopplerSourceViz = new THREE.Mesh(sourceGeom, sourceMat);
+                scene.add(dopplerSourceViz);
+                animationTime = -5; // Start animation from off-screen
+            }
+            else if (concept === 'diffraction') {
+                const wfMat = new THREE.MeshBasicMaterial({color:0x1abc9c, transparent: true, opacity: 0.4, side: THREE.DoubleSide});
+                const planeSize = waveParams.extent / aspectVerticalFix(camera) * 1.5;
+                const planeGeom = new THREE.PlaneGeometry(planeSize, planeSize);
+                const numFronts = 7;
+                for(let i=0; i < numFronts; i++) {
+                    const plane = new THREE.Mesh(planeGeom, wfMat.clone());
+                    plane.rotation.y = Math.PI/2;
+                    plane.userData.initialX = -waveParams.extent/2 - i * waveParams.wavelength;
+                    plane.position.x = plane.userData.initialX;
+                    wavefrontObjects.push(plane);
+                    scene.add(plane);
+                }
+
+                // IMPROVED SLIT CREATION
+                diffractionSlit = new THREE.Group();
+                const slitMat = new THREE.MeshBasicMaterial({color: 0x555555});
+                const barrierHeight = waveParams.extent; // Make barrier height finite
+                const barrierGeom = new THREE.BoxGeometry(0.2, barrierHeight, 0.2);
+                const barrierTop = new THREE.Mesh(barrierGeom, slitMat);
+                const barrierBottom = new THREE.Mesh(barrierGeom, slitMat.clone());
+                diffractionSlit.add(barrierTop, barrierBottom);
+                scene.add(diffractionSlit);
+                
+                const sphereGeom = new THREE.SphereGeometry(1, 32, 16, 0, Math.PI); // Hemisphere
+                const sphereMat = new THREE.MeshBasicMaterial({color: 0x1abc9c, transparent: true, opacity: 0.5, wireframe: true});
+                const numSpheres = 10;
+                for (let i = 0; i < numSpheres; i++) {
+                    const sphere = new THREE.Mesh(sphereGeom, sphereMat.clone());
+                    sphere.rotation.z = -Math.PI / 2;
+                    sphere.visible = false;
+                    sphere.userData.birthTime = -1;
+                    diffractionSphericalWaves.push(sphere);
+                    scene.add(sphere);
+                }
+                diffractionSphericalWaves.nextSphereIndex = 0;
+                if (controls) { camera.position.set(0, 0, 15); controls.target.set(0, 0, 0); controls.update(); }
+            }
             else if (concept === 'polarization') { animationTime = 0; if (waveParams.polarizationViewMode === 'temporal') { waveLine1 = createSingleWaveObject(0xaaaaaa, 0.4); scene.add(waveLine1); const E_amp_temp = waveParams.amplitude; animatedEVector = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), E_amp_temp, 0xffff00, 0.25 * E_amp_temp, 0.15 * E_amp_temp); scene.add(animatedEVector); const traceMaterial = new THREE.LineBasicMaterial({color: 0xffffff, transparent: true, opacity:0.7}); const tracePointsCount = 100; const tracePositions = new Float32Array(tracePointsCount * 3); let initialEy, initialEz; const temp_A_trace = (waveParams.polarizationType === 'elliptical' && waveParams.Ey_amplitude !== undefined) ? waveParams.Ey_amplitude : E_amp_temp; const temp_B_trace = (waveParams.polarizationType === 'elliptical' && waveParams.Ez_amplitude !== undefined) ? waveParams.Ez_amplitude : E_amp_temp; switch (waveParams.polarizationType) { case 'linear_vertical': initialEy = temp_A_trace * Math.cos(0); initialEz = 0; break; case 'linear_horizontal': initialEy = 0; initialEz = temp_A_trace * Math.cos(0); break; case 'circular_right_expected': initialEy = temp_A_trace * Math.cos(0); initialEz = -temp_A_trace * Math.sin(0); break; case 'circular_left_expected':  initialEy = temp_A_trace * Math.cos(0); initialEz =  temp_A_trace * Math.sin(0); break; case 'elliptical': initialEy = temp_A_trace * Math.cos(0); initialEz = temp_B_trace * Math.sin(0); break; case 'unpolarized': initialEy = temp_A_trace; initialEz = 0; break; default: initialEy = temp_A_trace; initialEz = 0; } for(let i=0; i < tracePointsCount; ++i) { tracePositions[i*3] = initialEy; tracePositions[i*3+1] = initialEz; tracePositions[i*3+2] = 0;} const traceGeometry = new THREE.BufferGeometry(); traceGeometry.setAttribute('position', new THREE.BufferAttribute(tracePositions, 3)); traceGeometry.setDrawRange(0, 1); eVectorTracePath = new THREE.Line(traceGeometry, traceMaterial); eVectorTracePath.userData = { pathLength: tracePointsCount,  drawnPoints: 1}; scene.add(eVectorTracePath); } else { const arrowColor = 0xffff00; const numberOfArrows = 25; const arrowSpacing = waveParams.extent / (numberOfArrows > 1 ? (numberOfArrows - 1) : 1) ; for (let i = 0; i < numberOfArrows; i++) { const xPos = -waveParams.extent / 2 + i * arrowSpacing; const origin = new THREE.Vector3(xPos, 0, 0); const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), origin, 1, arrowColor, 0.3, 0.2); if (waveParams.polarizationType === 'unpolarized') arrow.userData.randomAngleSpatial = Math.random() * 2 * Math.PI; spatialPolarizationEVectors.push(arrow); scene.add(arrow); } } updateConceptVisualization(currentConcept); } 
             else if (concept === 'poynting_vector') { waveLine1 = createSingleWaveObject(0x3498db, 0.8); scene.add(waveLine1); updateWaveGeometry(waveLine1, waveParams.wavelength, waveParams.amplitude, 0); poyntingArrowViz = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0, 0, 0), 1.5, 0xffff00, 0.3, 0.15); scene.add(poyntingArrowViz); updateConceptVisualization(currentConcept); } 
             else if (concept === 'phase_group_velocity') { const baseAmp = waveParams.amplitude; const baseLambda = waveParams.wavelength; if(waveParams.velocityDisplayType === 'phase') { waveLine1 = createSingleWaveObject(0x1abc9c); scene.add(waveLine1); updateWaveGeometry(waveLine1, baseLambda, baseAmp, 0); const markerGeom = new THREE.SphereGeometry(0.15, 12, 8); const markerMat = new THREE.MeshBasicMaterial({color: 0xf1c40f}); phaseMarkerViz = new THREE.Mesh(markerGeom, markerMat); scene.add(phaseMarkerViz); } else { groupWaveComp1 = createSingleWaveObject(0x3498db, 0.5); scene.add(groupWaveComp1); groupWaveComp2 = createSingleWaveObject(0x9b59b6, 0.5); scene.add(groupWaveComp2); groupWaveSuperposition = createSingleWaveObject(0xffffff, 0.9); scene.add(groupWaveSuperposition); groupWaveEnvelopeUpper = createSingleWaveObject(0xe74c3c, 0.8); scene.add(groupWaveEnvelopeUpper); groupWaveEnvelopeLower = createSingleWaveObject(0xe74c3c, 0.8); scene.add(groupWaveEnvelopeLower); const markerGeomPhase = new THREE.SphereGeometry(0.1, 10, 6); const markerMatPhase = new THREE.MeshBasicMaterial({color: 0xf1c40f}); phaseMarkerViz = new THREE.Mesh(markerGeomPhase, markerMatPhase); scene.add(phaseMarkerViz); const markerGeomGroup = new THREE.SphereGeometry(0.12, 10, 6); const markerMatGroup = new THREE.MeshBasicMaterial({color: 'cyan'}); groupMarkerViz = new THREE.Mesh(markerGeomGroup, markerMatGroup); scene.add(groupMarkerViz); } animationTime = 0; updateConceptVisualization(currentConcept); } 
@@ -557,11 +694,10 @@
         
         function updateConceptVisualization(concept) { 
             let A = waveParams.amplitude; let L = waveParams.wavelength; let k = (2 * Math.PI) / L; if (L <= 0.001) k = (2 * Math.PI) / 0.001; 
+            const phaseOffset = -omegaAnimation * animationTime;
             
             if (concept === 'wavelength_amplitude') {
-                const phaseOffset = -omegaAnimation * animationTime;
                 if (waveLine1) updateWaveGeometry(waveLine1, L, A, phaseOffset);
-                
                 if (wavelengthIndicatorViz) {
                     const yPos = A + 0.3;
                     const peakBaseX = (Math.PI / 2 - phaseOffset) / k;
@@ -589,8 +725,6 @@
             } 
             else if (concept === 'phase') { 
                 A = 1.0; L = 2.0; k = (2 * Math.PI) / L;
-                const phaseOffset = -omegaAnimation * animationTime;
-
                 if (waveLine1) updateWaveGeometry(waveLine1, L, A, phaseOffset); 
                 if (waveLine2) updateWaveGeometry(waveLine2, L, A, waveParams.phaseShift + phaseOffset); 
                 
@@ -607,10 +741,120 @@
                         phaseShiftIndicatorViz.setLength(length, 0.2, 0.1);
                     }
                 }
-            } 
+            }
+            else if (concept === 'interference') {
+                if (!waveLine1 || !waveLine2 || !interferenceSuperposition) return;
+                const sep = waveParams.interferenceSeparation / 2;
+                updateWaveGeometry(waveLine1, L, A, phaseOffset, {x_offset: -sep});
+                updateWaveGeometry(waveLine2, L, A, phaseOffset, {x_offset: sep});
+
+                const pos1 = waveLine1.geometry.attributes.position.array;
+                const pos2 = waveLine2.geometry.attributes.position.array;
+                const superPos = interferenceSuperposition.geometry.attributes.position.array;
+
+                for (let i = 0; i < waveParams.points; i++) {
+                    superPos[i * 3] = pos1[i * 3]; // x
+                    superPos[i * 3 + 1] = pos1[i * 3 + 1] + pos2[i * 3 + 1]; // y1 + y2
+                    superPos[i * 3 + 2] = 0; // z
+                }
+                interferenceSuperposition.geometry.attributes.position.needsUpdate = true;
+            }
+            else if (concept === 'standing_waves') {
+                if (!standingWaveFwd || !standingWaveBwd || !standingWaveResult) return;
+                A = 1.0; L = 4.0;
+                updateWaveGeometry(standingWaveFwd, L, A, phaseOffset); // forward
+                updateWaveGeometry(standingWaveBwd, L, A, -phaseOffset); // backward
+
+                const pos1 = standingWaveFwd.geometry.attributes.position.array;
+                const pos2 = standingWaveBwd.geometry.attributes.position.array;
+                const resultPos = standingWaveResult.geometry.attributes.position.array;
+
+                for (let i = 0; i < waveParams.points; i++) {
+                    resultPos[i * 3] = pos1[i * 3]; // x
+                    resultPos[i * 3 + 1] = pos1[i * 3 + 1] + pos2[i * 3 + 1]; // y1 + y2
+                    resultPos[i * 3 + 2] = 0; // z
+                }
+                standingWaveResult.geometry.attributes.position.needsUpdate = true;
+            }
+            else if (concept === 'attenuation') {
+                if (!waveLine1) return;
+                updateWaveGeometry(waveLine1, L, A, phaseOffset, {attenuation: waveParams.attenuationFactor});
+            }
+            else if (concept === 'doppler_effect') {
+                if (!waveLine1 || !dopplerSourceViz) return;
+                const waveSpeed = 3.0; // Arbitrary wave speed for visualization
+                const sourceSpeed = waveParams.sourceVelocity * waveSpeed;
+
+                // Make the source's motion periodic so it stays on screen
+                const period = (waveParams.extent * 1.5) / (Math.abs(sourceSpeed) || 1e-5);
+                const sourceX = -waveParams.extent * 0.75 + ((animationTime * sourceSpeed) % (waveParams.extent * 1.5));
+                dopplerSourceViz.position.x = sourceX;
+
+                const L_behind = L * (waveSpeed + sourceSpeed) / waveSpeed;
+                const L_ahead = L * (waveSpeed - sourceSpeed) / waveSpeed;
+                const k_behind = (2 * Math.PI) / (L_behind || 0.001);
+                const k_ahead = (2 * Math.PI) / (L_ahead || 0.001);
+                
+                const positions = waveLine1.geometry.attributes.position.array;
+                const omega_source = k * waveSpeed;
+
+                for (let i = 0; i < waveParams.points; i++) {
+                    const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
+                    let y;
+                    if (x < sourceX) { // Wave propagating away from source's past positions
+                         y = A * Math.sin(k_behind * (x - sourceX) - omega_source * animationTime);
+                    } else { // Wave propagating ahead of source's past positions
+                         y = A * Math.sin(k_ahead * (x - sourceX) - omega_source * animationTime);
+                    }
+                    positions[i * 3] = x;
+                    positions[i * 3 + 1] = y;
+                }
+                waveLine1.geometry.attributes.position.needsUpdate = true;
+            }
+            else if (concept === 'diffraction') {
+                if (!diffractionSlit) return;
+                // IMPROVED SLIT POSITIONING
+                const slitWidth = waveParams.slitWidth;
+                const barrierHeight = diffractionSlit.children[0].geometry.parameters.height;
+                diffractionSlit.children[0].position.y = (slitWidth / 2) + (barrierHeight / 2); // Top barrier
+                diffractionSlit.children[1].position.y = -(slitWidth / 2) - (barrierHeight / 2); // Bottom barrier
+                
+                const wavefrontSpeed = 0.05;
+                let lastTriggerTime = diffractionSphericalWaves.lastTriggerTime || -Infinity;
+
+                wavefrontObjects.forEach(plane => {
+                    plane.position.x += wavefrontSpeed;
+                    // Trigger a new spherical wave
+                    if(plane.position.x > -0.1 && plane.position.x < 0.1 && (animationTime - lastTriggerTime) > waveParams.wavelength / (wavefrontSpeed/0.015) / 2) {
+                         const sphere = diffractionSphericalWaves[diffractionSphericalWaves.nextSphereIndex];
+                         sphere.visible = true;
+                         sphere.userData.birthTime = animationTime;
+                         sphere.scale.setScalar(0.01);
+                         diffractionSphericalWaves.nextSphereIndex = (diffractionSphericalWaves.nextSphereIndex + 1) % diffractionSphericalWaves.length;
+                         diffractionSphericalWaves.lastTriggerTime = animationTime;
+                    }
+                    // Reset plane wave position
+                    if(plane.position.x > waveParams.extent / 2 + 2.0) {
+                        plane.position.x = plane.userData.initialX;
+                    }
+                });
+
+                diffractionSphericalWaves.forEach(sphere => {
+                    if (sphere.visible && sphere.userData.birthTime > 0) {
+                        const age = animationTime - sphere.userData.birthTime;
+                        const newScale = age * wavefrontSpeed * 10;
+                         if (newScale > waveParams.extent) {
+                            sphere.visible = false;
+                            sphere.userData.birthTime = -1;
+                        } else {
+                            sphere.scale.setScalar(newScale);
+                        }
+                    }
+                });
+            }
             else if (concept === 'polarization') { A = waveParams.amplitude; L = waveParams.wavelength; k = (2 * Math.PI) / L; if (waveParams.polarizationViewMode === 'temporal') { if (!animatedEVector || !eVectorTracePath || !waveLine1) return; const guideWavePhase = -omegaAnimation * animationTime * 0.5; updateWaveGeometry(waveLine1, L, A, guideWavePhase); let Ey, Ez; let Ay_t = (waveParams.polarizationType === 'elliptical' && waveParams.Ey_amplitude !== undefined) ? waveParams.Ey_amplitude : A; let Az_t = (waveParams.polarizationType === 'elliptical' && waveParams.Ez_amplitude !== undefined) ? waveParams.Ez_amplitude : A; if (waveParams.polarizationType === 'linear_horizontal') Ay_t = 0; if (waveParams.polarizationType === 'linear_vertical') Az_t = 0; switch (waveParams.polarizationType) { case 'linear_vertical': Ey = Ay_t * Math.cos(omegaAnimation * animationTime); Ez = 0; break; case 'linear_horizontal': Ey = 0; Ez = Az_t * Math.cos(omegaAnimation * animationTime); break; case 'circular_right_expected': Ey = Ay_t * Math.cos(omegaAnimation * animationTime); Ez = -Ay_t * Math.sin(omegaAnimation * animationTime); break; case 'circular_left_expected':  Ey = Ay_t * Math.cos(omegaAnimation * animationTime); Ez =  Ay_t * Math.sin(omegaAnimation * animationTime); break;  case 'elliptical': Ey = Ay_t * Math.cos(omegaAnimation * animationTime); Ez = Az_t * Math.sin(omegaAnimation * animationTime); break; case 'unpolarized': if (animatedEVector && (Math.floor(animationTime / 0.1) !== Math.floor((animationTime - 0.015) / 0.1) || animatedEVector.userData.randomAngle === undefined )) { animatedEVector.userData.randomAngle = Math.random() * 2 * Math.PI;} const unpolarizedMag = A * Math.cos(omegaAnimation * animationTime * 3); Ey = unpolarizedMag * Math.cos(animatedEVector ? animatedEVector.userData.randomAngle : 0); Ez = unpolarizedMag * Math.sin(animatedEVector ? animatedEVector.userData.randomAngle : 0); break; default: Ey = Ay_t; Ez = 0; } const direction = new THREE.Vector3(0, Ey, Ez); const currentLength = direction.length(); animatedEVector.position.set(0,0,0); if (currentLength < 0.001) { direction.set(0,1,0); animatedEVector.visible = false; } else { animatedEVector.visible = true; if(currentLength > 0.001) direction.normalize(); } animatedEVector.setDirection(direction); const headL = Math.max(0.05, 0.25 * currentLength); const headW = Math.max(0.025, 0.15 * currentLength); animatedEVector.setLength(currentLength, headL, headW); const tracePositions = eVectorTracePath.geometry.attributes.position.array; const pathLength = eVectorTracePath.userData.pathLength; for (let i = pathLength - 1; i > 0; i--) { tracePositions[i * 3] = tracePositions[(i - 1) * 3]; tracePositions[i * 3 + 1] = tracePositions[(i - 1) * 3 + 1]; tracePositions[i * 3 + 2] = tracePositions[(i - 1) * 3 + 2]; } tracePositions[0] = Ey; tracePositions[1] = Ez; tracePositions[2] = 0; if (eVectorTracePath.userData.drawnPoints < pathLength) eVectorTracePath.userData.drawnPoints++; eVectorTracePath.geometry.setDrawRange(0, eVectorTracePath.userData.drawnPoints); eVectorTracePath.geometry.attributes.position.needsUpdate = true; } else { if (spatialPolarizationEVectors.length === 0) return; const t_snapshot = 0; let Ay_s_val = (waveParams.polarizationType === 'elliptical' && waveParams.Ey_amplitude !==undefined) ? waveParams.Ey_amplitude : A; let Az_s_val = (waveParams.polarizationType === 'elliptical' && waveParams.Ez_amplitude !==undefined) ? waveParams.Ez_amplitude : A; if (waveParams.polarizationType === 'linear_horizontal') Ay_s_val = 0; if (waveParams.polarizationType === 'linear_vertical') Az_s_val = 0; spatialPolarizationEVectors.forEach(arrow => { const x_arrow = arrow.position.x; let Ey, Ez; switch (waveParams.polarizationType) { case 'linear_vertical': Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot); Ez = 0; break; case 'linear_horizontal': Ey = 0; Ez = Az_s_val * Math.cos(k * x_arrow - t_snapshot); break; case 'circular_right_expected': Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot); Ez = -Ay_s_val * Math.sin(k * x_arrow - t_snapshot); break; case 'circular_left_expected': Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot); Ez =  Ay_s_val * Math.sin(k * x_arrow - t_snapshot); break;  case 'elliptical': Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot); Ez = Az_s_val * Math.sin(k * x_arrow - t_snapshot); break; case 'unpolarized': if (arrow.userData.randomAngleSpatial === undefined) arrow.userData.randomAngleSpatial = Math.random() * 2 * Math.PI; const waveModulation = A * Math.cos(k * x_arrow - t_snapshot); Ey = waveModulation * Math.cos(arrow.userData.randomAngleSpatial); Ez = waveModulation * Math.sin(arrow.userData.randomAngleSpatial); break; default: Ey = Ay_s_val; Ez = 0; } const direction = new THREE.Vector3(0, Ey, Ez); let currentLength = direction.length(); if (currentLength < 0.001) { direction.set(0,1,0); arrow.visible = false; currentLength=0;} else { arrow.visible = true; direction.normalize(); } arrow.setDirection(direction); const headL = Math.max(0.05, 0.25 * currentLength); const headW = Math.max(0.025, 0.15 * currentLength); arrow.setLength(currentLength, headL, headW ); }); } } 
             else if (concept === 'poynting_vector') { const E0 = waveParams.amplitude; if (waveLine1) updateWaveGeometry(waveLine1, waveParams.wavelength, E0, 0); if (poyntingArrowViz) { const poyntingMagnitude = 0.3 + Math.min(2.5, E0 * E0 * 0.4); const headLength = Math.max(0.1, 0.25 * poyntingMagnitude); const headWidth = Math.max(0.05, 0.12 * poyntingMagnitude); poyntingArrowViz.setLength(poyntingMagnitude, headLength, headWidth); } } 
-            else if (concept === 'phase_group_velocity') { const baseAmp = waveParams.amplitude; const baseLambda = waveParams.wavelength; const k0 = (2 * Math.PI) / baseLambda; const baseOmega = omegaAnimation * 1.2; if (waveParams.velocityDisplayType === 'phase') { if (waveLine1 && phaseMarkerViz) { const phaseOffset = -baseOmega * animationTime; updateWaveGeometry(waveLine1, baseLambda, baseAmp, phaseOffset); let markerX = (Math.PI/2 - phaseOffset) / k0; while(markerX > waveParams.extent/2 + baseLambda) markerX -= baseLambda; while(markerX < -waveParams.extent/2 - baseLambda) markerX += baseLambda; if (markerX > waveParams.extent / 2) markerX -= baseLambda; else if (markerX < -waveParams.extent /2) markerX += baseLambda; phaseMarkerViz.position.set(markerX, baseAmp * Math.sin(k0*markerX + phaseOffset) , 0.01); } } else { if (!groupWaveSuperposition || !groupWaveEnvelopeUpper || !groupWaveEnvelopeLower || !phaseMarkerViz || !groupMarkerViz) return; const A_comp = baseAmp * 0.5; const delta_k_factor = waveParams.packet_delta_k_factor; const k1 = k0 * (1 - delta_k_factor); const k2 = k0 * (1 + delta_k_factor); const v0_ref = baseOmega / k0; const D = waveParams.dispersionFactor * v0_ref / k0; const omega1 = k1 * v0_ref - D * k1 * (k1-k0); const omega2 = k2 * v0_ref - D * k2 * (k2-k0); const k_mod = (k2 - k1) / 2.0; const omega_mod = (omega2 - omega1) / 2.0; const lambda_env = (k_mod === 0 || isNaN(k_mod)) ? Infinity : (2 * Math.PI) / Math.abs(k_mod); const phaseOffset_env = -omega_mod * animationTime; updateWaveGeometry(groupWaveEnvelopeUpper, lambda_env, 2*A_comp, phaseOffset_env, true); updateWaveGeometry(groupWaveEnvelopeLower, lambda_env, -2*A_comp, phaseOffset_env, true); const positions = groupWaveSuperposition.geometry.attributes.position.array; const time_factor_vg = 1.0; for (let i = 0; i < waveParams.points; i++) { const x_pos = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const y1 = calculateWavePoint(x_pos, k1, omega1, A_comp, animationTime * time_factor_vg, 0); const y2 = calculateWavePoint(x_pos, k2, omega2, A_comp, animationTime * time_factor_vg, 0); positions[i * 3 + 1] = y1 + y2; } groupWaveSuperposition.geometry.attributes.position.needsUpdate = true; if(groupWaveComp1) updateWaveGeometry(groupWaveComp1, (2*Math.PI)/k1, A_comp, -omega1 * animationTime * time_factor_vg); if(groupWaveComp2) updateWaveGeometry(groupWaveComp2, (2*Math.PI)/k2, A_comp, -omega2 * animationTime * time_factor_vg); let groupMarkerX = (k_mod === 0) ? 0 : (-phaseOffset_env) / k_mod; const lambda_env_vis = (k_mod === 0) ? waveParams.extent * 2 : Math.abs(2*Math.PI/k_mod); while(groupMarkerX > waveParams.extent/2 + lambda_env_vis) groupMarkerX -= lambda_env_vis; while(groupMarkerX < -waveParams.extent/2 - lambda_env_vis) groupMarkerX += lambda_env_vis; if (groupMarkerX > waveParams.extent / 2 && k_mod !==0) groupMarkerX -= lambda_env_vis; else if (groupMarkerX < -waveParams.extent /2 && k_mod !==0) groupMarkerX += lambda_env_vis; groupMarkerViz.position.set(groupMarkerX, 2 * A_comp * Math.cos(k_mod * groupMarkerX + phaseOffset_env), 0.1); const k_carr_avg = (k1+k2)/2; const omega_carr_avg = (omega1+omega2)/2; let phaseMarkerX_g = (k_carr_avg === 0) ? 0 : (Math.PI/2 - (-omega_carr_avg * animationTime * time_factor_vg)) / k_carr_avg; const lambda_carr_vis = (k_carr_avg === 0) ? waveParams.extent * 2 : Math.abs(2*Math.PI/k_carr_avg); while(phaseMarkerX_g > waveParams.extent/2 + lambda_carr_vis) phaseMarkerX_g -= lambda_carr_vis; while(phaseMarkerX_g < -waveParams.extent/2 - lambda_carr_vis) phaseMarkerX_g += lambda_carr_vis; const y_env_at_phase_marker = 2 * A_comp * Math.cos(k_mod * phaseMarkerX_g + phaseOffset_env); const y_carrier_at_marker = y_env_at_phase_marker * Math.sin(k_carr_avg * phaseMarkerX_g - omega_carr_avg * animationTime * time_factor_vg + Math.PI/2); phaseMarkerViz.position.set(phaseMarkerX_g, y_carrier_at_marker, 0.1); } } 
+            else if (concept === 'phase_group_velocity') { const baseAmp = waveParams.amplitude; const baseLambda = waveParams.wavelength; const k0 = (2 * Math.PI) / baseLambda; const baseOmega = omegaAnimation * 1.2; if (waveParams.velocityDisplayType === 'phase') { if (waveLine1 && phaseMarkerViz) { const phaseOffset = -baseOmega * animationTime; updateWaveGeometry(waveLine1, baseLambda, baseAmp, phaseOffset); let markerX = (Math.PI/2 - phaseOffset) / k0; while(markerX > waveParams.extent/2 + baseLambda) markerX -= baseLambda; while(markerX < -waveParams.extent/2 - baseLambda) markerX += baseLambda; if (markerX > waveParams.extent / 2) markerX -= baseLambda; else if (markerX < -waveParams.extent /2) markerX += baseLambda; phaseMarkerViz.position.set(markerX, baseAmp * Math.sin(k0*markerX + phaseOffset) , 0.01); } } else { if (!groupWaveSuperposition || !groupWaveEnvelopeUpper || !groupWaveEnvelopeLower || !phaseMarkerViz || !groupMarkerViz) return; const A_comp = baseAmp * 0.5; const delta_k_factor = waveParams.packet_delta_k_factor; const k1 = k0 * (1 - delta_k_factor); const k2 = k0 * (1 + delta_k_factor); const v0_ref = baseOmega / k0; const D = waveParams.dispersionFactor * v0_ref / k0; const omega1 = k1 * v0_ref - D * k1 * (k1-k0); const omega2 = k2 * v0_ref - D * k2 * (k2-k0); const k_mod = (k2 - k1) / 2.0; const omega_mod = (omega2 - omega1) / 2.0; const lambda_env = (k_mod === 0 || isNaN(k_mod)) ? Infinity : (2 * Math.PI) / Math.abs(k_mod); const phaseOffset_env = -omega_mod * animationTime; updateWaveGeometry(groupWaveEnvelopeUpper, lambda_env, 2*A_comp, phaseOffset_env, {isEnvelope: true}); updateWaveGeometry(groupWaveEnvelopeLower, lambda_env, -2*A_comp, phaseOffset_env, {isEnvelope: true}); const positions = groupWaveSuperposition.geometry.attributes.position.array; const time_factor_vg = 1.0; for (let i = 0; i < waveParams.points; i++) { const x_pos = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const y1 = calculateWavePoint(x_pos, k1, omega1, A_comp, animationTime * time_factor_vg, 0); const y2 = calculateWavePoint(x_pos, k2, omega2, A_comp, animationTime * time_factor_vg, 0); positions[i * 3 + 1] = y1 + y2; } groupWaveSuperposition.geometry.attributes.position.needsUpdate = true; if(groupWaveComp1) updateWaveGeometry(groupWaveComp1, (2*Math.PI)/k1, A_comp, -omega1 * animationTime * time_factor_vg); if(groupWaveComp2) updateWaveGeometry(groupWaveComp2, (2*Math.PI)/k2, A_comp, -omega2 * animationTime * time_factor_vg); let groupMarkerX = (k_mod === 0) ? 0 : (-phaseOffset_env) / k_mod; const lambda_env_vis = (k_mod === 0) ? waveParams.extent * 2 : Math.abs(2*Math.PI/k_mod); while(groupMarkerX > waveParams.extent/2 + lambda_env_vis) groupMarkerX -= lambda_env_vis; while(groupMarkerX < -waveParams.extent/2 - lambda_env_vis) groupMarkerX += lambda_env_vis; if (groupMarkerX > waveParams.extent / 2 && k_mod !==0) groupMarkerX -= lambda_env_vis; else if (groupMarkerX < -waveParams.extent /2 && k_mod !==0) groupMarkerX += lambda_env_vis; groupMarkerViz.position.set(groupMarkerX, 2 * A_comp * Math.cos(k_mod * groupMarkerX + phaseOffset_env), 0.1); const k_carr_avg = (k1+k2)/2; const omega_carr_avg = (omega1+omega2)/2; let phaseMarkerX_g = (k_carr_avg === 0) ? 0 : (Math.PI/2 - (-omega_carr_avg * animationTime * time_factor_vg)) / k_carr_avg; const lambda_carr_vis = (k_carr_avg === 0) ? waveParams.extent * 2 : Math.abs(2*Math.PI/k_carr_avg); while(phaseMarkerX_g > waveParams.extent/2 + lambda_carr_vis) phaseMarkerX_g -= lambda_carr_vis; while(phaseMarkerX_g < -waveParams.extent/2 - lambda_carr_vis) phaseMarkerX_g += lambda_carr_vis; const y_env_at_phase_marker = 2 * A_comp * Math.cos(k_mod * phaseMarkerX_g + phaseOffset_env); const y_carrier_at_marker = y_env_at_phase_marker * Math.sin(k_carr_avg * phaseMarkerX_g - omega_carr_avg * animationTime * time_factor_vg + Math.PI/2); phaseMarkerViz.position.set(phaseMarkerX_g, y_carrier_at_marker, 0.1); } } 
             else if (concept === 'wave_type_comparison') { const k_comp = (2 * Math.PI) / waveParams.wavelength; const omega_comp = omegaAnimation; particleSystemViz.forEach(particle => { const x_i = particle.userData.initialX; if(waveParams.waveComparisonType === 'transverse') { particle.position.y = waveParams.amplitude * Math.sin(k_comp * x_i - omega_comp * animationTime); particle.position.x = x_i; } else { particle.position.x = x_i + waveParams.amplitude * 0.5 * Math.sin(k_comp * x_i - omega_comp * animationTime); particle.position.y = 0; } }); } 
             else if (concept === 'wavefront') { const wavefrontSpeed = 0.02; wavefrontObjects.forEach(wf => { if(waveParams.wavefrontType === 'plane') { wf.position.x += wavefrontSpeed; if(wf.geometry.parameters && wf.position.x > waveParams.extent / 2 + wf.geometry.parameters.width/2 + 1.0) { wf.position.x = -waveParams.extent / 2 - wf.geometry.parameters.width/2 - (Math.random()*0.5); } } else { if (wf.geometry.parameters && typeof wf.geometry.parameters.radius !== 'undefined') { let newScale = wf.scale.x + wavefrontSpeed * 0.3; if (newScale * wf.geometry.parameters.radius > waveParams.extent / 1.8) { newScale = 0.1 + (Math.random()*0.2); } wf.scale.setScalar(newScale); } } }); }
             else if (concept === 'wave_scattering') {
@@ -672,17 +916,8 @@
             // Clear original concept objects
             if (waveLine1) { scene.remove(waveLine1); waveLine1.geometry.dispose(); waveLine1.material.dispose(); waveLine1 = null; } 
             if (waveLine2) { scene.remove(waveLine2); waveLine2.geometry.dispose(); waveLine2.material.dispose(); waveLine2 = null; }
-            
-            if (wavelengthIndicatorViz) { 
-                scene.remove(wavelengthIndicatorViz); 
-                wavelengthIndicatorViz.children.forEach(child => { if(child.geometry) child.geometry.dispose(); if(child.material) child.material.dispose(); }); 
-                wavelengthIndicatorViz = null;
-            }
-            if (phaseShiftIndicatorViz) {
-                scene.remove(phaseShiftIndicatorViz);
-                phaseShiftIndicatorViz = null;
-            }
-            
+            if (wavelengthIndicatorViz) { scene.remove(wavelengthIndicatorViz); wavelengthIndicatorViz.children.forEach(child => { if(child.geometry) child.geometry.dispose(); if(child.material) child.material.dispose(); }); wavelengthIndicatorViz = null;}
+            if (phaseShiftIndicatorViz) { scene.remove(phaseShiftIndicatorViz); phaseShiftIndicatorViz = null; }
             if (animatedEVector) { scene.remove(animatedEVector); animatedEVector = null; }  
             if (eVectorTracePath) { scene.remove(eVectorTracePath); eVectorTracePath.geometry.dispose(); eVectorTracePath.material.dispose(); eVectorTracePath = null;} 
             if (poyntingArrowViz) { scene.remove(poyntingArrowViz); poyntingArrowViz = null; } 
@@ -696,6 +931,15 @@
             spatialPolarizationEVectors.forEach(arrow => scene.remove(arrow)); spatialPolarizationEVectors = []; 
             particleSystemViz.forEach(p => { scene.remove(p); p.geometry.dispose(); p.material.dispose(); }); particleSystemViz = []; 
             wavefrontObjects.forEach(wf => { scene.remove(wf); wf.geometry.dispose(); wf.material.dispose(); }); wavefrontObjects = []; 
+
+            // Clear new concept objects
+            if (interferenceSuperposition) { scene.remove(interferenceSuperposition); interferenceSuperposition.geometry.dispose(); interferenceSuperposition.material.dispose(); interferenceSuperposition = null; }
+            if (standingWaveFwd) { scene.remove(standingWaveFwd); standingWaveFwd.geometry.dispose(); standingWaveFwd.material.dispose(); standingWaveFwd = null; }
+            if (standingWaveBwd) { scene.remove(standingWaveBwd); standingWaveBwd.geometry.dispose(); standingWaveBwd.material.dispose(); standingWaveBwd = null; }
+            if (standingWaveResult) { scene.remove(standingWaveResult); standingWaveResult.geometry.dispose(); standingWaveResult.material.dispose(); standingWaveResult = null; }
+            if (dopplerSourceViz) { scene.remove(dopplerSourceViz); dopplerSourceViz.geometry.dispose(); dopplerSourceViz.material.dispose(); dopplerSourceViz = null; }
+            if (diffractionSlit) { scene.remove(diffractionSlit); diffractionSlit.children.forEach(c => {c.geometry.dispose(); c.material.dispose();}); diffractionSlit = null; }
+            diffractionSphericalWaves.forEach(s => { scene.remove(s); s.geometry.dispose(); s.material.dispose(); }); diffractionSphericalWaves = [];
 
             // Clear scattering objects
             if (conceptToClear === 'wave_scattering') {
@@ -732,7 +976,7 @@
 
         // --- CORE APP LOGIC ---
         function createSingleWaveObject(color, opacity = 1) { const material = new THREE.LineBasicMaterial({ color: color, transparent: opacity < 1, opacity: opacity }); const geometry = new THREE.BufferGeometry(); const positions = new Float32Array(waveParams.points * 3); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); return new THREE.Line(geometry, material); }
-        function updateWaveGeometry(lineObject, wavelength, amplitude, phase, isEnvelopeModulation = false) { if (!lineObject) { return; } const positions = lineObject.geometry.attributes.position.array; if (wavelength <= 0.001) wavelength = 0.001; const k = (2 * Math.PI) / wavelength; for (let i = 0; i < waveParams.points; i++) { const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); let y; if (isEnvelopeModulation) { y = amplitude * Math.cos(k * x + phase); } else { y = amplitude * Math.sin(k * x + phase); } positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = 0; } lineObject.geometry.attributes.position.needsUpdate = true; }
+        function updateWaveGeometry(lineObject, wavelength, amplitude, phase, options = {}) { if (!lineObject) { return; } const positions = lineObject.geometry.attributes.position.array; if (wavelength <= 0.001) wavelength = 0.001; const k = (2 * Math.PI) / wavelength; for (let i = 0; i < waveParams.points; i++) { const x_base = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const x = x_base - (options.x_offset || 0); let currentAmplitude = amplitude; if(options.attenuation) { currentAmplitude *= Math.exp(-options.attenuation * Math.abs(x_base)); } let y; if (options.isEnvelope) { y = currentAmplitude * Math.cos(k * x + phase); } else { y = currentAmplitude * Math.sin(k * x + phase); } positions[i * 3] = x_base; positions[i * 3 + 1] = y; positions[i * 3 + 2] = 0; } lineObject.geometry.attributes.position.needsUpdate = true; }
         function calculateWavePoint(x, k_val, omega_val, amplitude_val, time_val, initial_phase = 0) { return amplitude_val * Math.sin(k_val * x - omega_val * time_val + initial_phase); }
         function aspectVerticalFix(cam) { if (!cam || cam.top === cam.bottom || cam.right === cam.left) return 1; return (cam.right - cam.left) / (cam.top - cam.bottom); }
         
@@ -804,7 +1048,7 @@
         }
 
         function worldToScreen(worldVector, camera, canvas) { const screenVector = worldVector.clone().project(camera); const x = Math.round((screenVector.x * 0.5 + 0.5) * canvas.clientWidth); const y = Math.round((-screenVector.y * 0.5 + 0.5) * canvas.clientHeight); return { x, y }; }
-        function updateScales() { if (!scaleContainerElement || !renderer || currentConcept === 'wave_scattering') { if(scaleContainerElement) scaleContainerElement.innerHTML = ''; return; } while (scaleContainerElement.firstChild) scaleContainerElement.removeChild(scaleContainerElement.firstChild); const canvas = renderer.domElement; if (!canvas || canvas.clientWidth === 0 || canvas.clientHeight === 0) return; let xAxisZeroScreenPos = null; const xAxisYOffset = 30; const numXTicks = 11; const xMin = -waveParams.extent / 2; for (let i = 0; i < numXTicks; i++) { const value = xMin + i * (waveParams.extent / (numXTicks - 1)); const worldPos = new THREE.Vector3(value, 0, 0); const currentScreenPos = worldToScreen(worldPos, camera, canvas); const projectedVecForCheck = worldPos.clone().project(camera); if (Math.abs(projectedVecForCheck.x) > 1.1 || Math.abs(projectedVecForCheck.y) > 1.1) { if (!(Math.abs(value) < 0.001 && Math.abs(projectedVecForCheck.x) <= 1.1)) continue; } const label = document.createElement('span'); label.classList.add('scale-label', 'x-axis-label'); label.textContent = value.toFixed(Math.abs(value) < 0.01 && value !==0 ? 2 : 0); label.style.left = `${currentScreenPos.x}px`; label.style.top = `${currentScreenPos.y + xAxisYOffset}px`; label.style.transform = 'translateX(-50%)'; scaleContainerElement.appendChild(label); if (Math.abs(value) < 0.001) xAxisZeroScreenPos = { x: currentScreenPos.x, y: currentScreenPos.y + xAxisYOffset }; } const yAxisXOffset = -20; let amplitudeValues = []; let displayAmplitude = waveParams.amplitude; if (Math.abs(displayAmplitude) > 0.01) amplitudeValues.push(-displayAmplitude, displayAmplitude); if (amplitudeValues.indexOf(0) === -1 || amplitudeValues.length === 0 || (amplitudeValues.length > 0 && Math.abs(displayAmplitude) > 0.01) ) amplitudeValues.push(0); else if (amplitudeValues.length === 0 && Math.abs(displayAmplitude) < 0.01) amplitudeValues.push(0);  amplitudeValues.sort((a, b) => a - b); const uniqueAmplitudeValues = [...new Set(amplitudeValues)]; for (const value of uniqueAmplitudeValues) { let skipLabel = false; if (Math.abs(value) < 0.001 && xAxisZeroScreenPos) { const yZeroWorldPos = new THREE.Vector3(0, 0, 0); const yZeroScreenPos = worldToScreen(yZeroWorldPos, camera, canvas); const distBetweenZeros = Math.hypot( (yZeroScreenPos.x + yAxisXOffset) - xAxisZeroScreenPos.x,  yZeroScreenPos.y - (xAxisZeroScreenPos.y - xAxisYOffset)); if (distBetweenZeros < 25 && Math.abs(displayAmplitude) > 0.01) skipLabel = true; } if (skipLabel) continue; const worldPos = new THREE.Vector3(0, value, 0); const currentYScreenPos = worldToScreen(worldPos, camera, canvas); const projectedVecForCheck = worldPos.clone().project(camera); if (Math.abs(projectedVecForCheck.y) > 1.1 || Math.abs(projectedVecForCheck.x) > 1.1) { if (!(Math.abs(value) < 0.001 && Math.abs(projectedVecForCheck.y) <= 1.1)) continue; } const label = document.createElement('span'); label.classList.add('scale-label', 'y-axis-label'); label.textContent = value.toFixed(1); label.style.left = `${currentYScreenPos.x + yAxisXOffset}px`; label.style.top = `${currentYScreenPos.y}px`; label.style.transform = 'translateY(-50%) translateX(-100%)'; scaleContainerElement.appendChild(label); } }
+        function updateScales() { if (!scaleContainerElement || !renderer || currentConcept === 'wave_scattering' || currentConcept === 'diffraction') { if(scaleContainerElement) scaleContainerElement.innerHTML = ''; return; } while (scaleContainerElement.firstChild) scaleContainerElement.removeChild(scaleContainerElement.firstChild); const canvas = renderer.domElement; if (!canvas || canvas.clientWidth === 0 || canvas.clientHeight === 0) return; let xAxisZeroScreenPos = null; const xAxisYOffset = 30; const numXTicks = 11; const xMin = -waveParams.extent / 2; for (let i = 0; i < numXTicks; i++) { const value = xMin + i * (waveParams.extent / (numXTicks - 1)); const worldPos = new THREE.Vector3(value, 0, 0); const currentScreenPos = worldToScreen(worldPos, camera, canvas); const projectedVecForCheck = worldPos.clone().project(camera); if (Math.abs(projectedVecForCheck.x) > 1.1 || Math.abs(projectedVecForCheck.y) > 1.1) { if (!(Math.abs(value) < 0.001 && Math.abs(projectedVecForCheck.x) <= 1.1)) continue; } const label = document.createElement('span'); label.classList.add('scale-label', 'x-axis-label'); label.textContent = value.toFixed(Math.abs(value) < 0.01 && value !==0 ? 2 : 0); label.style.left = `${currentScreenPos.x}px`; label.style.top = `${currentScreenPos.y + xAxisYOffset}px`; label.style.transform = 'translateX(-50%)'; scaleContainerElement.appendChild(label); if (Math.abs(value) < 0.001) xAxisZeroScreenPos = { x: currentScreenPos.x, y: currentScreenPos.y + xAxisYOffset }; } const yAxisXOffset = -20; let amplitudeValues = []; let displayAmplitude = waveParams.amplitude; if (Math.abs(displayAmplitude) > 0.01) amplitudeValues.push(-displayAmplitude, displayAmplitude); if (amplitudeValues.indexOf(0) === -1 || amplitudeValues.length === 0 || (amplitudeValues.length > 0 && Math.abs(displayAmplitude) > 0.01) ) amplitudeValues.push(0); else if (amplitudeValues.length === 0 && Math.abs(displayAmplitude) < 0.01) amplitudeValues.push(0);  amplitudeValues.sort((a, b) => a - b); const uniqueAmplitudeValues = [...new Set(amplitudeValues)]; for (const value of uniqueAmplitudeValues) { let skipLabel = false; if (Math.abs(value) < 0.001 && xAxisZeroScreenPos) { const yZeroWorldPos = new THREE.Vector3(0, 0, 0); const yZeroScreenPos = worldToScreen(yZeroWorldPos, camera, canvas); const distBetweenZeros = Math.hypot( (yZeroScreenPos.x + yAxisXOffset) - xAxisZeroScreenPos.x,  yZeroScreenPos.y - (xAxisZeroScreenPos.y - xAxisYOffset)); if (distBetweenZeros < 25 && Math.abs(displayAmplitude) > 0.01) skipLabel = true; } if (skipLabel) continue; const worldPos = new THREE.Vector3(0, value, 0); const currentYScreenPos = worldToScreen(worldPos, camera, canvas); const projectedVecForCheck = worldPos.clone().project(camera); if (Math.abs(projectedVecForCheck.y) > 1.1 || Math.abs(projectedVecForCheck.x) > 1.1) { if (!(Math.abs(value) < 0.001 && Math.abs(projectedVecForCheck.y) <= 1.1)) continue; } const label = document.createElement('span'); label.classList.add('scale-label', 'y-axis-label'); label.textContent = value.toFixed(1); label.style.left = `${currentYScreenPos.x + yAxisXOffset}px`; label.style.top = `${currentYScreenPos.y}px`; label.style.transform = 'translateY(-50%) translateX(-100%)'; scaleContainerElement.appendChild(label); } }
         
         function setupResizer() {
             const resizer = document.getElementById('drag-handle');
