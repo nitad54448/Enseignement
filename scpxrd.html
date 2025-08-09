@@ -21,6 +21,9 @@
         .control-input, .control-select { width: 100%; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 0.75rem; transition: all 0.2s ease; }
         .control-input:focus, .control-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
         footer { width: 100%; background-color: #ffffff; padding: 8px 24px; font-size: 0.8em; color: #4b5563; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
+        input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; background: #4b5563; border-radius: 5px; outline: none; transition: background 0.2s; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #e5e7eb; border-radius: 50%; cursor: pointer; border: 2px solid #374151;}
+        input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; background: #e5e7eb; border-radius: 50%; cursor: pointer; border: 2px solid #374151; }
     </style>
 </head>
 <body>
@@ -34,24 +37,15 @@
                 <div class="control-group">
                     <label for="crystal-structure" class="control-label">Crystal Structure</label>
                     <select id="crystal-structure" class="control-select">
-                        <option value="SC">Simple Cubic (SC)</option>
-                        <option value="FCC" selected>Face-Centered Cubic (FCC)</option>
+                        <option value="SC" selected>Simple Cubic (SC)</option>
+                        <option value="FCC">Face-Centered Cubic (FCC)</option>
                         <option value="BCC">Body-Centered Cubic (BCC)</option>
                         <option value="Diamond">Diamond Cubic</option>
                     </select>
                 </div>
                 <div class="control-group">
-                    <label for="lattice-parameter" class="control-label">Lattice Parameter (a) in Å</label>
-                    <input type="number" id="lattice-parameter" value="3.61" step="0.01" class="control-input">
-                </div>
-                <div class="control-group">
-                    <label for="element-select" class="control-label">Element (Atomic Form Factor)</label>
-                    <select id="element-select" class="control-select">
-                        <option value="Si">Si</option>
-                        <option value="Cu" selected>Cu</option>
-                        <option value="Fe">Fe</option>
-                        <option value="Al">Al</option>
-                    </select>
+                    <label for="lattice-parameter" class="control-label">Lattice Parameter (a) in Å: <span id="lattice-parameter-value" class="font-semibold text-white">5.43</span></label>
+                    <input type="range" id="lattice-parameter" min="2.0" max="10.0" value="5.43" step="0.01">
                 </div>
                 <div class="control-group">
                     <label for="xray-wavelength" class="control-label">X-Ray Wavelength (λ) in Å</label>
@@ -65,8 +59,25 @@
                     </div>
                 </div>
                  <div class="control-group">
-                    <label for="thermal-factor" class="control-label">Thermal Factor B (Å²)</label>
-                    <input type="number" id="thermal-factor" value="0.5" step="0.1" min="0" class="control-input">
+                    <label for="thermal-factor" class="control-label">Thermal Factor B (Å²): <span id="thermal-factor-value" class="font-semibold text-white">0.5</span></label>
+                    <input type="range" id="thermal-factor" min="0" max="3" value="0.5" step="0.1">
+                </div>
+                <div class="control-group">
+                    <label for="polarization-factor" class="control-label">Polarization</label>
+                    <select id="polarization-factor" class="control-select">
+                        <option value="unpolarized" selected>Unpolarized</option>
+                        <option value="linear_horizontal">Linear Horizontal</option>
+                        <option value="linear_vertical">Linear Vertical</option>
+                    </select>
+                </div>
+                 <hr class="border-gray-600">
+                <div class="control-group">
+                    <label for="two-theta-min" class="control-label">Graph 2θ Min (°): <span id="two-theta-min-value" class="font-semibold text-white">10</span></label>
+                    <input type="range" id="two-theta-min" min="5" max="160" value="10" step="1">
+                </div>
+                <div class="control-group">
+                    <label for="two-theta-max" class="control-label">Graph 2θ Max (°): <span id="two-theta-max-value" class="font-semibold text-white">100</span></label>
+                    <input type="range" id="two-theta-max" min="5" max="160" value="100" step="1">
                 </div>
             </div>
         </div>
@@ -99,20 +110,31 @@
         </div>
     </div>
 
-    <footer>
-        NitaD, Univ Paris-Saclay, Aug 2025
+    <footer id="footer-date">
     </footer>
 
     <script>
     document.addEventListener('DOMContentLoaded', () => {
+        // --- Set Date in Footer ---
+        const footer = document.getElementById('footer-date');
+        const now = new Date();
+        const options = { year: 'numeric', month: 'long', day: 'numeric' };
+        footer.textContent = `NitaD, Univ Paris-Saclay, ${now.toLocaleDateString('en-US', options)}`;
+        
         // --- DOM Element References ---
         const controls = {
             structure: document.getElementById('crystal-structure'),
             latticeParam: document.getElementById('lattice-parameter'),
+            latticeParamValue: document.getElementById('lattice-parameter-value'),
             wavelength: document.getElementById('xray-wavelength'),
-            element: document.getElementById('element-select'),
             wavelengthPreset: document.getElementById('wavelength-preset'),
             thermalFactor: document.getElementById('thermal-factor'),
+            thermalFactorValue: document.getElementById('thermal-factor-value'),
+            polarization: document.getElementById('polarization-factor'),
+            twoThetaMin: document.getElementById('two-theta-min'),
+            twoThetaMinValue: document.getElementById('two-theta-min-value'),
+            twoThetaMax: document.getElementById('two-theta-max'),
+            twoThetaMaxValue: document.getElementById('two-theta-max-value'),
             peakTableBody: document.getElementById('peak-table-body'),
             chartCanvas: document.getElementById('xrd-chart')
         };
@@ -126,7 +148,9 @@
                 a: parseFloat(controls.latticeParam.value),
                 lambda: parseFloat(controls.wavelength.value),
                 B: parseFloat(controls.thermalFactor.value),
-                element: controls.element.value
+                element: 'Si',
+                polarization: controls.polarization.value,
+                peakWidth: 0.15 
             };
 
             if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0) {
@@ -142,11 +166,11 @@
         const calculatePeaks = (params) => {
             const { structure, a, lambda } = params;
             const calculatedPeaks = [];
-            const max_hkl = 8;
+            const max_hkl = 10; 
 
             for (let h = 0; h <= max_hkl; h++) {
-                for (let k = 0; k <= max_hkl; k++) {
-                    for (let l = 0; l <= max_hkl; l++) {
+                for (let k = 0; k <= h; k++) {
+                    for (let l = 0; l <= k; l++) {
                         if (h === 0 && k === 0 && l === 0) continue;
 
                         if (isReflectionAllowed(structure, h, k, l)) {
@@ -156,11 +180,15 @@
 
                             if (sinTheta <= 1) {
                                 const thetaRad = Math.asin(sinTheta);
-                                const intensity = calculateIntensity(thetaRad, params, h, k, l);
+                                const multiplicity = getMultiplicity(h, k, l);
+                                let intensity = calculateIntensity(thetaRad, params, h, k, l);
+                                
+                                intensity *= multiplicity;
+
                                 if (intensity > 0) {
                                     calculatedPeaks.push({
                                         two_theta: 2 * thetaRad * (180 / Math.PI),
-                                        d: d, h, k, l, intensity
+                                        d: d, h, k, l, intensity, multiplicity
                                     });
                                 }
                             }
@@ -168,29 +196,31 @@
                     }
                 }
             }
-            return combineDegeneratePeaks(calculatedPeaks);
+            return calculatedPeaks.sort((a, b) => a.two_theta - b.two_theta);
         };
         
-        const combineDegeneratePeaks = (peaks) => {
-            const uniquePeaks = new Map();
-            peaks.forEach(peak => {
-                const key = peak.d.toFixed(5);
-                const multiplicity = getMultiplicity(peak.h, peak.k, peak.l);
-                if (!uniquePeaks.has(key)) {
-                    uniquePeaks.set(key, {
-                        ...peak,
-                        intensity: peak.intensity * multiplicity,
-                        multiplicity,
-                        hkl_list: [`(${peak.h},${peak.k},${peak.l})`]
-                    });
-                } else {
-                    const existing = uniquePeaks.get(key);
-                    existing.intensity += peak.intensity * multiplicity;
-                    existing.multiplicity += multiplicity;
-                    existing.hkl_list.push(`(${peak.h},${peak.k},${peak.l})`);
+        const getMultiplicity = (h, k, l) => {
+            let familyType;
+            if (l > 0) { 
+                if (h === k && k === l) { familyType = 'hhh'; } 
+                else if (h === k || k === l) { familyType = 'hhl'; } 
+                else { familyType = 'hkl'; }
+            } else { 
+                if (k === 0) { familyType = 'h00'; } 
+                else { 
+                    if (h === k) { familyType = 'hh0'; } 
+                    else { familyType = 'hk0'; }
                 }
-            });
-            return Array.from(uniquePeaks.values()).sort((a, b) => a.two_theta - b.two_theta);
+            }
+            switch (familyType) {
+                case 'hkl': return 48;
+                case 'hhl': return 24;
+                case 'hk0': return 24;
+                case 'hh0': return 12;
+                case 'hhh': return 8;
+                case 'h00': return 6;
+                default:    return 0;
+            }
         };
 
         const isReflectionAllowed = (structure, h, k, l) => {
@@ -204,56 +234,53 @@
                 case 'BCC': return sum % 2 === 0;
                 case 'FCC': return (h_even === k_even) && (k_even === l_even);
                 case 'Diamond':
-                    if (!((h_even === k_even) && (k_even === l_even))) return false; // must be all even or all odd
-                    if (h_even && k_even && l_even) return sum % 4 === 0; // if all even, sum must be multiple of 4
-                    return true; // if all odd, allowed
+                    if (!((h_even === k_even) && (k_even === l_even))) return false;
+                    if (h_even && k_even && l_even) return sum % 4 === 0;
+                    return true;
                 default: return true;
             }
         };
 
         const calculateIntensity = (thetaRad, params, h, k, l) => {
-            const { lambda, B, element, structure } = params;
+            const { lambda, B, element, structure, polarization } = params;
             const sinTheta = Math.sin(thetaRad);
             if (sinTheta < 1e-6) return 0;
 
             const cosTheta = Math.cos(thetaRad);
             if (cosTheta < 1e-6) return 0;
             
-            // Lorentz-polarization factor
             const cos2Theta = Math.cos(2 * thetaRad);
-            const Lp = (1 + cos2Theta * cos2Theta) / (sinTheta * sinTheta * cosTheta);
+            let p_factor;
+            switch (polarization) {
+                case 'linear_vertical':
+                    p_factor = cos2Theta * cos2Theta;
+                    break;
+                case 'linear_horizontal':
+                    p_factor = 1;
+                    break;
+                case 'unpolarized':
+                default:
+                    p_factor = 1 + cos2Theta * cos2Theta;
+                    break;
+            }
+            const Lp = p_factor / (sinTheta * sinTheta * cosTheta);
 
-            // Debye-Waller (thermal) factor
             const s = sinTheta / lambda;
             const debyeWaller = Math.exp(-2 * B * s * s);
 
-            // Atomic form factor squared (simplified)
-            const alphaMap = { 'Si': 3.5, 'Cu': 4.0, 'Fe': 4.2, 'Al': 3.2 };
-            const Zmap = { 'Si': 14, 'Cu': 29, 'Fe': 26, 'Al': 13 };
-            const f_amp = (Zmap[element] || 1) * Math.exp(-(alphaMap[element] || 0) * s * s);
-            let F_sq = f_amp * f_amp; // Base for SC, BCC, FCC
+            const alphaMap = { 'Si': 3.5 };
+            const Zmap = { 'Si': 14 };
+            const f_amp = (Zmap[element]) * Math.exp(-(alphaMap[element]) * s * s);
+            let F_sq = f_amp * f_amp;
 
-            // Structure factor modification for Diamond
             if (structure === 'Diamond') {
                 const sum_hkl = h + k + l;
-                if (sum_hkl % 4 === 2) F_sq = 0; // Systematically absent
-                else if (sum_hkl % 2 !== 0) F_sq *= 32; // All odd, e.g. (111)
-                else if (sum_hkl % 4 === 0) F_sq *= 64; // All even, sum mult of 4, e.g. (220)
+                if (sum_hkl % 4 === 2) F_sq = 0;
+                else if (sum_hkl % 2 !== 0) F_sq *= 32;
+                else if (sum_hkl % 4 === 0) F_sq *= 64;
             }
             
             return F_sq * Lp * debyeWaller;
-        };
-
-        const getMultiplicity = (h, k, l) => {
-            const a_h = Math.abs(h), a_k = Math.abs(k), a_l = Math.abs(l);
-            if (a_h > a_k && a_k > a_l && a_l > 0) return 48;
-            if (a_h > a_k && a_k > 0 && a_l == 0) return 24;
-            if (a_h == a_k && a_k > a_l && a_l > 0) return 24;
-            if (a_h > a_k && a_k == a_l && a_l > 0) return 24;
-            if (a_h == a_k && a_k == a_l && a_l > 0) return 8;
-            if (a_h == a_k && a_l == 0 && a_h > 0) return 12;
-            if (a_h > 0 && a_k == 0 && a_l == 0) return 6;
-            return 24; // Fallback for mixed cases like (h,0,l)
         };
 
         // --- UI Update Functions ---
@@ -266,12 +293,13 @@
             const maxIntensity = Math.max(...peaks.map(p => p.intensity));
             peaks.forEach(peak => {
                 const normIntensity = (peak.intensity / maxIntensity * 100);
-                const hklString = peak.hkl_list.length > 1 ? `${peak.hkl_list[0]}...` : peak.hkl_list[0];
+                const hklString = `(${peak.h},${peak.k},${peak.l})`;
+
                 const row = `
                     <tr>
                         <td class="px-4 py-3 text-sm">${peak.two_theta.toFixed(4)}</td>
                         <td class="px-4 py-3 text-sm">${peak.d.toFixed(4)}</td>
-                        <td class="px-4 py-3 text-sm" title="${peak.hkl_list.join(', ')}">${hklString}</td>
+                        <td class="px-4 py-3 text-sm">${hklString}</td>
                         <td class="px-4 py-3 text-sm text-center">${peak.multiplicity}</td>
                         <td class="px-4 py-3 text-sm">${normIntensity.toFixed(2)}</td>
                     </tr>
@@ -285,16 +313,19 @@
             if (xrdChart) {
                 xrdChart.destroy();
             }
-            const peakWidth = 0.5;
+            const peakWidth = 0.15; // FWHM is fixed as requested.
             const plotData = [];
-            for (let two_theta = 0; two_theta <= 160; two_theta += 0.1) {
+            
+            // Generate plot points over the specified calculation range with more points.
+            for (let two_theta = 5; two_theta <= 160; two_theta += 0.05) {
                 let y = Math.random() * 0.5; 
                 peaks.forEach(peak => {
-                    const normIntensity = (peak.intensity / maxIntensity * 100);
-                    const stdev = peakWidth / 2.355;
-                    y += normIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * stdev * stdev));
+                    if (peak.intensity > 0) {
+                        const normIntensity = (peak.intensity / maxIntensity * 100);
+                        const stdev = peakWidth / 2.355;
+                        y += normIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * stdev * stdev));
+                    }
                 });
-                // THIS IS THE CORRECTED LINE:
                 plotData.push({ x: two_theta, y: y });
             }
 
@@ -311,8 +342,16 @@
                     responsive: true, maintainAspectRatio: false,
                     animation: false,
                     scales: {
-                        x: { type: 'linear', title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, min: 10, max: 160 },
-                        y: { title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, min: 0 }
+                        x: { 
+                            type: 'linear', 
+                            title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, 
+                            min: parseFloat(controls.twoThetaMin.value), 
+                            max: parseFloat(controls.twoThetaMax.value)
+                        },
+                        y: { 
+                            title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, 
+                            min: 0 
+                        }
                     },
                     plugins: {
                         legend: { display: false },
@@ -322,12 +361,44 @@
             });
         };
 
+        const updateChartRange = () => {
+            if (!xrdChart) return;
+            let min = parseFloat(controls.twoThetaMin.value);
+            let max = parseFloat(controls.twoThetaMax.value);
+            
+            if (min >= max) {
+                 min = max - 1;
+                 controls.twoThetaMin.value = min;
+                 controls.twoThetaMinValue.textContent = min;
+            };
+
+            xrdChart.options.scales.x.min = min;
+            xrdChart.options.scales.x.max = max;
+            xrdChart.update('none');
+        };
+
+
         // --- Event Listeners ---
-        Object.values(controls).forEach(control => {
-            if (control.tagName === 'SELECT' || control.tagName === 'INPUT') {
-                control.addEventListener('input', runSimulation);
-            }
+        [controls.structure, controls.latticeParam, controls.wavelength, controls.wavelengthPreset, controls.thermalFactor, controls.polarization].forEach(control => {
+            control.addEventListener('input', runSimulation);
         });
+        
+        controls.latticeParam.addEventListener('input', () => {
+            controls.latticeParamValue.textContent = controls.latticeParam.value;
+        });
+        controls.thermalFactor.addEventListener('input', () => {
+            controls.thermalFactorValue.textContent = controls.thermalFactor.value;
+        });
+
+        controls.twoThetaMin.addEventListener('input', () => {
+            controls.twoThetaMinValue.textContent = controls.twoThetaMin.value;
+            updateChartRange();
+        });
+        controls.twoThetaMax.addEventListener('input', () => {
+            controls.twoThetaMaxValue.textContent = controls.twoThetaMax.value;
+            updateChartRange();
+        });
+        
         controls.wavelengthPreset.addEventListener('change', (e) => {
             controls.wavelength.value = e.target.value;
             runSimulation();
