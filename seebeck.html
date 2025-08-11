@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thermocouple Seebeck Coefficient Calculator</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #f0f0f0;
+            color: #e5e7eb; /* Default light text for dark theme */
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 300px;
+            max-width: 600px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* Dark blue-gray */
+            border-right: 1px solid #374151;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6;
+        }
+        #visualization-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #ffffff;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            color: #1f2937;
+        }
+        #plot-container, #plot-container svg {
+            width: 100%;
+            height: 100%;
+        }
+        /* Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        #controls-panel input[type="number"], #controls-panel select, #controls-panel button {
+            width: 100%;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+        }
+        #controls-panel button {
+            background-color: #3b82f6; /* Light Blue */
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-weight: 500;
+        }
+        #controls-panel button:hover {
+             background-color: #2563eb; /* Darker Blue on hover */
+        }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-row { display: flex; align-items: center; gap: 1rem; }
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; background: #4b5563;
+            border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s;
+            flex-grow: 1;
+        }
+        input[type="range"]:hover { opacity: 1; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px; background: #3b82f6; /* Light Blue */
+            cursor: pointer; border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px; height: 18px; background: #3b82f6; /* Light Blue */
+            cursor: pointer; border-radius: 50%; border: 0;
+        }
+        .data-display { background-color: #1f2937; padding: 1rem; border-radius: 0.5rem; margin-top: 1.5rem; }
+        .data-display h2 { font-size: 1.2rem; font-weight: 600; color: #ffffff; margin-bottom: 1rem; }
+        .data-field { display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; margin-bottom: 0.5rem; }
+        .data-field .label { color: #9ca3af; }
+        .data-field .value { color: #e5e7eb; font-weight: 500; font-family: monospace; }
+        /* D3 Plot Styles */
+        .axis path, .axis .tick line { stroke: #d1d5db; }
+        .axis .tick text { fill: #4b5563; font-size: 14px; }
+        .axis-label { font-size: 16px; fill: #111827; font-weight: 500; }
+        .plot-line { fill: none; stroke-width: 2.5px; }
+        .legend-item { cursor: pointer; }
+        .legend-item text { font-size: 14px; user-select: none; }
+        .marker-line { stroke: #3b82f6; stroke-width: 1.5px; stroke-dasharray: 4 4; pointer-events: none; } /* Light Blue */
+        .marker-handle { fill: #3b82f6; stroke: #ffffff; stroke-width: 2px; cursor: ew-resize; } /* Light Blue */
+        .event-overlay { fill: none; pointer-events: all; }
+        /* Footer */
+        footer {
+            width: 100%;
+            background-color: #ffffff;
+            padding: 8px 24px;
+            text-align: left;
+            font-size: 0.8em;
+            color: #4b5563;
+            border-top: 1px solid #e5e7eb;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- Left Panel for Controls -->
+        <div id="controls-panel">
+            <h1>Seebeck Calculator</h1>
+            <p>Seebeck coefficient for standard thermocouples based on NIST ITS-90 data.</p>
+            
+            <div class="control-group">
+                <label for="thermo-type">Thermocouple Type</label>
+                <select id="thermo-type">
+                    <option value="S">Type S (Pt-10%Rh / Pt)</option>
+                    <option value="R">Type R (Pt-13%Rh / Pt)</option>
+                    <option value="B">Type B (Pt-30%Rh / Pt-6%Rh)</option>
+                    <option value="K" selected>Type K (Chromel / Alumel)</option>
+                    <option value="J">Type J (Iron / Constantan)</option>
+                    <option value="T">Type T (Copper / Constantan)</option>
+                    <option value="E">Type E (Chromel / Constantan)</option>
+                    <option value="N">Type N (Nicrosil / Nisil)</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="temp-min-slider">Min Temperature, K</label>
+                <div class="control-row">
+                    <input type="range" id="temp-min-slider" step="1">
+                    <input type="number" id="temp-min-value" step="1" class="w-24">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="temp-max-slider">Max Temperature, K</label>
+                <div class="control-row">
+                    <input type="range" id="temp-max-slider" step="1">
+                    <input type="number" id="temp-max-value" step="1" class="w-24">
+                </div>
+            </div>
+            
+            <div class="data-display">
+          
+                <div class="data-field">
+                    <span class="label">Temperature</span>
+                    <span class="value" id="live-temp">--- K</span>
+                </div>
+                <div class="data-field">
+                    <span class="label">S (Total)</span>
+                    <span class="value" id="live-s">--- µV/K</span>
+                </div>
+                <div class="data-field">
+                    <span class="label">S+ (Pos. Leg)</span>
+                    <span class="value" id="live-s-pos">--- µV/K</span>
+                </div>
+                <div class="data-field">
+                    <span class="label">S- (Neg. Leg)</span>
+                    <span class="value" id="live-s-neg">--- µV/K</span>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 1.5rem;">
+                <button id="save-data-button">Save Data as .csv</button>
+            </div>
+
+        </div>
+
+        <!-- Draggable Resizer -->
+        <div id="drag-handle"></div>
+
+        <!-- Right Panel for Visualization -->
+        <div id="visualization-area">
+            <div id="plot-container"></div>
+        </div>
+    </div>
+    
+    <footer>
+        NitaD, Univ Paris-Saclay, 2025.
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DATA SOURCES ---
+            // Absolute Seebeck Coefficients S(T) in µV/K. T is in Kelvin.
+            // Source: Z. Zuo, et al., "A new method for calculating the Seebeck coefficient of thermocouples", 2013
+            // and other established physics literature.
+            const materialData = {
+                'Pt': { name: 'Pt', ranges: [
+                    { min: 13.8, max: 273.15, coeffs: [0.03816, 0.02381, -5.73e-5] },
+                    { min: 273.15, max: 1500, coeffs: [-4.218, 0.0388, -2.33e-5, 5.02e-9] }
+                ]},
+                'Pt10Rh': { name: 'SP', ranges: [
+                    { min: 273.15, max: 1500, coeffs: [2.74, 0.0286, -1.03e-5, 1.3e-9] }
+                ]},
+                'Pt13Rh': { name: 'RP', ranges: [
+                    { min: 273.15, max: 1500, coeffs: [2.70, 0.0315, -1.21e-5, 1.7e-9] }
+                ]},
+                'Pt30Rh': { name: 'BP', ranges: [
+                    { min: 273.15, max: 2000, coeffs: [4.49, 0.0171, -6.6e-6, 9.3e-10] }
+                ]},
+                'Pt6Rh': { name: 'BN', ranges: [
+                    { min: 273.15, max: 2000, coeffs: [4.53, 0.0123, -4.7e-6, 6.7e-10] }
+                ]},
+                'Chromel': { name: 'KP', ranges: [
+                    { min: 73.15, max: 1273.15, coeffs: [8.87, 0.046, -4.28e-5, 1.83e-8] }
+                ]},
+                'Alumel': { name: 'KN', ranges: [
+                    { min: 73.15, max: 1273.15, coeffs: [-9.03, -0.041, 3.8e-5, -1.9e-8] }
+                ]},
+                'Iron': { name: 'JP', ranges: [
+                    { min: 73.15, max: 1041, coeffs: [16.8, -0.044, 2.2e-4, -1.2e-7] },
+                    { min: 1041, max: 1473.15, coeffs: [30.1, 0, 0, 0] }
+                ]},
+                'Constantan': { name: 'JN/TN/EN', ranges: [
+                    { min: 73.15, max: 1273.15, coeffs: [-38.2, -0.08, 9.1e-5, -3.3e-8] }
+                ]},
+                'Copper': { name: 'TP', ranges: [
+                    { min: 73.15, max: 1273.15, coeffs: [1.14, 0.01, 8.8e-6, -7.6e-9] }
+                ]},
+                'Nicrosil': { name: 'NP', ranges: [
+                    { min: 73.15, max: 1573.15, coeffs: [23.1, 0.02, -2.0e-6, 0] }
+                ]},
+                'Nisil': { name: 'NN', ranges: [
+                    { min: 73.15, max: 1573.15, coeffs: [-11.1, -0.02, 1.0e-5, 0] }
+                ]}
+            };
+
+            // --- Thermocouple Type Definitions ---
+            const typeDefinitions = {
+                'S': { name: 'Type S', pos: 'Pt10Rh', neg: 'Pt', tempMinK: 273.15, tempMaxK: 2041.95 },
+                'R': { name: 'Type R', pos: 'Pt13Rh', neg: 'Pt', tempMinK: 273.15, tempMaxK: 2041.25 },
+                'B': { name: 'Type B', pos: 'Pt30Rh', neg: 'Pt6Rh', tempMinK: 273.15, tempMaxK: 2093.15 },
+                'K': { name: 'Type K', pos: 'Chromel', neg: 'Alumel', tempMinK: 73.15, tempMaxK: 1645.15 },
+                'J': { name: 'Type J', pos: 'Iron', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 1023 },
+                'T': { name: 'Type T', pos: 'Copper', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 673.15 },
+                'E': { name: 'Type E', pos: 'Chromel', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 1273.15 },
+                'N': { name: 'Type N', pos: 'Nicrosil', neg: 'Nisil', tempMinK: 73.15, tempMaxK: 1573.15 },
+            };
+
+            // --- Calculation Functions ---
+            function getAbsoluteSeebeck(tempK, material) {
+                if (!materialData[material]) return null;
+                const ranges = materialData[material].ranges;
+                let rangeData = null;
+
+                for (const range of ranges) {
+                    if (tempK >= range.min && tempK <= range.max) {
+                        rangeData = range;
+                        break;
+                    }
+                }
+                if (!rangeData) return null;
+
+                const coeffs = rangeData.coeffs;
+                let seebeck = 0;
+                for (let i = 0; i < coeffs.length; i++) {
+                    seebeck += coeffs[i] * Math.pow(tempK, i);
+                }
+                return seebeck;
+            }
+
+            function getPlotData(type, tempMinK, tempMaxK) {
+                const typeInfo = typeDefinitions[type];
+                if (!typeInfo) return { s: [], s_pos: [], s_neg: [] };
+
+                const dataS = [], dataSPos = [], dataSNeg = [];
+                const steps = 500;
+                const tempStep = (tempMaxK - tempMinK) / steps;
+
+                for (let i = 0; i <= steps; i++) {
+                    const tempK = tempMinK + i * tempStep;
+                    const s_pos = getAbsoluteSeebeck(tempK, typeInfo.pos);
+                    const s_neg = getAbsoluteSeebeck(tempK, typeInfo.neg);
+                    
+                    if (s_pos !== null && s_neg !== null) {
+                         const s_total = s_pos - s_neg;
+                         dataS.push({ temp: tempK, val: s_total });
+                         dataSPos.push({ temp: tempK, val: s_pos });
+                         dataSNeg.push({ temp: tempK, val: s_neg });
+                    }
+                }
+                return { s: dataS, s_pos: dataSPos, s_neg: dataSNeg };
+            }
+
+            // --- D3 Plot Setup ---
+            const margin = { top: 40, right: 30, bottom: 60, left: 70 };
+            const container = d3.select("#plot-container");
+            let svg, xScale, yScale, xAxisGroup, yAxisGroup;
+            let lineS, lineSPos, lineSNeg;
+            let pathS, pathSPos, pathSNeg;
+            let xAxisLabel, yAxisLabel, legend;
+            let marker, markerLine, markerHandle;
+            let eventOverlay;
+            let isPlotInitialized = false;
+            const lineColors = { s: '#3b82f6', s_pos: '#22c55e', s_neg: '#ef4444' };
+
+            function initPlot() {
+                if (isPlotInitialized) return;
+                isPlotInitialized = true;
+
+                svg = container.append("svg").attr("preserveAspectRatio", "xMidYMid meet");
+                const plotArea = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+                
+                xScale = d3.scaleLinear();
+                yScale = d3.scaleLinear();
+
+                xAxisGroup = plotArea.append("g").attr("class", "axis x-axis");
+                yAxisGroup = plotArea.append("g").attr("class", "axis y-axis");
+
+                xAxisLabel = svg.append("text").attr("class", "axis-label").attr("text-anchor", "middle");
+                yAxisLabel = svg.append("text").attr("class", "axis-label").attr("transform", "rotate(-90)").attr("text-anchor", "middle");
+                
+                plotArea.append("clipPath")
+                    .attr("id", "plot-area-clip")
+                    .append("rect");
+
+                pathSPos = plotArea.append("path").attr("class", "plot-line").style("stroke", lineColors.s_pos).attr("clip-path", "url(#plot-area-clip)");
+                pathSNeg = plotArea.append("path").attr("class", "plot-line").style("stroke", lineColors.s_neg).attr("clip-path", "url(#plot-area-clip)");
+                pathS = plotArea.append("path").attr("class", "plot-line").style("stroke", lineColors.s).attr("clip-path", "url(#plot-area-clip)");
+
+                lineS = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val));
+                lineSPos = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val));
+                lineSNeg = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val));
+                
+                legend = svg.append("g").attr("class", "legend");
+                marker = plotArea.append("g").attr("class", "marker");
+                markerLine = marker.append("line").attr("class", "marker-line").attr("y1", 0);
+                markerHandle = marker.append("circle").attr("class", "marker-handle").attr("r", 6);
+                eventOverlay = plotArea.append("rect").attr("class", "event-overlay");
+
+                eventOverlay.call(d3.drag().on("start drag", handleDrag));
+            }
+
+            function drawPlot() {
+                const bounds = container.node().getBoundingClientRect();
+                if (bounds.width <= 0) return;
+                const height = bounds.height > 0 ? bounds.height : bounds.width * 0.6;
+                const width = bounds.width;
+
+                initPlot();
+
+                svg.attr("viewBox", `0 0 ${width} ${height}`);
+                const plotWidth = width - margin.left - margin.right;
+                const plotHeight = height - margin.top - margin.bottom;
+                
+                svg.select("#plot-area-clip rect").attr("width", plotWidth).attr("height", plotHeight);
+
+                const type = document.getElementById('thermo-type').value;
+                const tempMin = +document.getElementById('temp-min-value').value;
+                const tempMax = +document.getElementById('temp-max-value').value;
+                
+                if (tempMin >= tempMax) return;
+
+                const { s, s_pos, s_neg } = getPlotData(type, tempMin, tempMax);
+
+                const allData = [...s, ...s_pos, ...s_neg];
+                const yDomain = allData.length > 0 ? d3.extent(allData, d => d.val) : [0, 1];
+                const yPadding = (yDomain[1] - yDomain[0]) * 0.1 || 1;
+
+                xScale.domain([tempMin, tempMax]).range([0, plotWidth]);
+                yScale.domain([yDomain[0] - yPadding, yDomain[1] + yPadding]).range([plotHeight, 0]);
+
+                xAxisGroup.attr("transform", `translate(0,${plotHeight})`).call(d3.axisBottom(xScale).ticks(7));
+                yAxisGroup.call(d3.axisLeft(yScale));
+
+                xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 15).text("Temperature (K)");
+                yAxisLabel.attr("y", 15).attr("x", 0 - (margin.top + plotHeight / 2)).attr("dy", "1em").text("Seebeck Coefficient (µV/K)");
+
+                pathS.datum(s).attr("d", lineS);
+                pathSPos.datum(s_pos).attr("d", lineSPos);
+                pathSNeg.datum(s_neg).attr("d", lineSNeg);
+                
+                markerLine.attr("y2", plotHeight);
+                
+                const typeInfo = typeDefinitions[type];
+                const legendData = [
+                    { label: `S (Total)`, color: lineColors.s, path: pathS },
+                    { label: `S+ (${materialData[typeInfo.pos].name})`, color: lineColors.s_pos, path: pathSPos },
+                    { label: `S- (${materialData[typeInfo.neg].name})`, color: lineColors.s_neg, path: pathSNeg },
+                ];
+                legend.selectAll("*").remove();
+                const legendItems = legend.selectAll(".legend-item").data(legendData).enter().append("g")
+                    .attr("class", "legend-item")
+                    .attr("transform", (d, i) => `translate(${margin.left + i * 120}, 20)`)
+                    .on("click", function(event, d) {
+                        const isVisible = d.path.style("opacity") !== "0.1";
+                        d.path.style("opacity", isVisible ? 0.1 : 1);
+                        d3.select(this).style("opacity", isVisible ? 0.5 : 1);
+                    });
+                
+                legendItems.append("rect").attr("width", 18).attr("height", 3).attr("y", -4).attr("fill", d => d.color);
+                legendItems.append("text").attr("x", 24).attr("y", 0).attr("dy", "0.32em").text(d => d.label);
+                
+                eventOverlay.attr("width", plotWidth).attr("height", plotHeight);
+                
+                const initialTemp = (tempMin + tempMax) / 2;
+                updateMarkerAndData(initialTemp);
+            }
+            
+            function handleDrag(event) {
+                const plotWidth = xScale.range()[1];
+                const mouseX = Math.max(0, Math.min(plotWidth, event.x));
+                const tempK = xScale.invert(mouseX);
+                updateMarkerAndData(tempK);
+            }
+
+            function updateMarkerAndData(tempK) {
+                marker.attr("transform", `translate(${xScale(tempK)},0)`);
+                
+                const type = document.getElementById('thermo-type').value;
+                const typeInfo = typeDefinitions[type];
+                const s_pos = getAbsoluteSeebeck(tempK, typeInfo.pos);
+                const s_neg = getAbsoluteSeebeck(tempK, typeInfo.neg);
+
+                document.getElementById('live-temp').textContent = `${tempK.toFixed(1)} K`;
+
+                if (s_pos !== null && s_neg !== null) {
+                    const s_total = s_pos - s_neg;
+                    markerHandle.style("display", null).attr("cy", yScale(s_total));
+                    document.getElementById('live-s').textContent = `${s_total.toFixed(2)} µV/K`;
+                    document.getElementById('live-s-pos').textContent = `${s_pos.toFixed(2)} µV/K`;
+                    document.getElementById('live-s-neg').textContent = `${s_neg.toFixed(2)} µV/K`;
+                } else {
+                    markerHandle.style("display", "none");
+                    document.getElementById('live-s').textContent = `--- µV/K`;
+                    document.getElementById('live-s-pos').textContent = `--- µV/K`;
+                    document.getElementById('live-s-neg').textContent = `--- µV/K`;
+                }
+            }
+
+            function exportDataFile() {
+                const type = document.getElementById('thermo-type').value;
+                const tempMin = +document.getElementById('temp-min-value').value;
+                const tempMax = +document.getElementById('temp-max-value').value;
+                const { s, s_pos, s_neg } = getPlotData(type, tempMin, tempMax);
+
+                let csvContent = "# Seebeck Coefficient Data\n";
+                csvContent += `# Thermocouple Type: ${typeDefinitions[type].name}\n`;
+                csvContent += `# Temperature Range: ${tempMin} K to ${tempMax} K\n`;
+                csvContent += "# ---\n";
+                csvContent += "Temperature(K),S_total(uV/K),S_pos(uV/K),S_neg(uV/K)\n";
+
+                for (let i = 0; i < s.length; i++) {
+                    const row = [
+                        s[i].temp.toFixed(2),
+                        s[i].val.toFixed(4),
+                        s_pos[i].val.toFixed(4),
+                        s_neg[i].val.toFixed(4)
+                    ].join(",");
+                    csvContent += row + "\n";
+                }
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `seebeck_data_type_${type}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            function setupControls() {
+                const typeSelector = document.getElementById('thermo-type');
+                const minSlider = document.getElementById('temp-min-slider');
+                const minValue = document.getElementById('temp-min-value');
+                const maxSlider = document.getElementById('temp-max-slider');
+                const maxValue = document.getElementById('temp-max-value');
+                const saveButton = document.getElementById('save-data-button');
+
+                function setTempControlsForType() {
+                    const type = typeSelector.value;
+                    const typeInfo = typeDefinitions[type];
+                    
+                    const newMin = Math.ceil(typeInfo.tempMinK);
+                    const newMax = Math.floor(typeInfo.tempMaxK);
+
+                    minSlider.min = newMin;
+                    minValue.min = newMin;
+                    maxSlider.min = newMin;
+                    
+                    minSlider.max = newMax;
+                    minValue.max = newMax;
+                    maxSlider.max = newMax;
+
+                    minSlider.value = newMin;
+                    minValue.value = newMin;
+                    maxSlider.value = newMax;
+                    maxValue.value = newMax;
+                    
+                    drawPlot();
+                }
+
+                typeSelector.addEventListener('change', setTempControlsForType);
+                
+                minSlider.addEventListener('input', () => { minValue.value = minSlider.value; if (+minSlider.value > +maxSlider.value) { maxSlider.value = minSlider.value; maxValue.value = minSlider.value; }; drawPlot(); });
+                minValue.addEventListener('change', () => { minSlider.value = minValue.value; if (+minValue.value > +maxValue.value) { maxValue.value = minValue.value; maxSlider.value = minValue.value; }; drawPlot(); });
+                
+                maxSlider.addEventListener('input', () => { maxValue.value = maxSlider.value; if (+maxSlider.value < +minSlider.value) { minSlider.value = maxSlider.value; minValue.value = maxSlider.value; }; drawPlot(); });
+                maxValue.addEventListener('change', () => { maxSlider.value = maxValue.value; if (+maxValue.value < +minValue.value) { minValue.value = maxValue.value; minSlider.value = maxValue.value; }; drawPlot(); });
+
+                saveButton.addEventListener('click', exportDataFile);
+
+                setTempControlsForType(); // Initial setup
+            }
+
+            // --- Resizer Logic ---
+            const resizer = document.getElementById('drag-handle');
+            const leftPanel = document.getElementById('controls-panel');
+            let isResizing = false;
+            resizer.addEventListener('mousedown', e => {
+                e.preventDefault();
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', stopResize);
+            });
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+                const p = resizer.parentElement;
+                const w = e.clientX - p.getBoundingClientRect().left;
+                if (w > 300 && w < p.clientWidth - 400) {
+                    leftPanel.style.width = `${w}px`;
+                    drawPlot();
+                }
+            }
+            function stopResize() {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', stopResize);
+                drawPlot();
+            }
+
+            // --- Initial Load ---
+            const ro = new ResizeObserver(drawPlot);
+            const pc = container.node();
+            if (pc) ro.observe(pc);
+            
+            setupControls();
+        });
+    </script>
+</body>
+</html>
