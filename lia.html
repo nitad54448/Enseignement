@@ -342,15 +342,20 @@
                 canvas.style.height = `${rect.height}px`;
             }
 
-            function drawGrid(ctx, width, height, yMax) {
-                if (width === 0 || height === 0 || !isFinite(yMax) || yMax === 0) return;
+            function drawGrid(ctx, width, height, yMin, yMax) {
+                if (width === 0 || height === 0 || !isFinite(yMin) || !isFinite(yMax) || yMax === yMin) return;
                 ctx.beginPath();
                 ctx.strokeStyle = '#e5e7eb'; // gray-200
                 ctx.lineWidth = 1;
 
-                ctx.moveTo(0, height / 2);
-                ctx.lineTo(width, height / 2);
-                
+                // Draw horizontal zero line, if visible
+                if (yMin < 0 && yMax > 0) {
+                    const zeroY = height - ((0 - yMin) / (yMax - yMin)) * height;
+                    ctx.moveTo(0, zeroY);
+                    ctx.lineTo(width, zeroY);
+                }
+
+                // Draw vertical grid lines
                 for (let i = 1; i < 5; i++) {
                     const x = (width / 5) * i;
                     ctx.moveTo(x, 0);
@@ -358,27 +363,29 @@
                 }
                 ctx.stroke();
 
+                // Draw Y-axis labels
                 ctx.fillStyle = '#9ca3af'; // gray-400
                 ctx.font = '12px Inter';
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'top';
-                ctx.fillText(`+${yMax.toFixed(2)}`, 5, 5);
+                ctx.fillText(yMax.toFixed(2), 5, 5);
                 ctx.textBaseline = 'bottom';
-                ctx.fillText(`-${yMax.toFixed(2)}`, 5, height - 5);
+                ctx.fillText(yMin.toFixed(2), 5, height - 5);
             }
 
-            function plotData(ctx, data, color, yMax) {
+            function plotData(ctx, data, color, yMin, yMax) {
                 const width = ctx.canvas.width / (window.devicePixelRatio || 1);
                 const height = ctx.canvas.height / (window.devicePixelRatio || 1);
-                if (width === 0 || height === 0 || !isFinite(yMax) || yMax === 0) return;
-                
+                if (width === 0 || height === 0 || !isFinite(yMin) || !isFinite(yMax) || yMax === yMin) return;
+
                 ctx.beginPath();
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 2;
 
+                const range = yMax - yMin;
                 data.forEach((y, i) => {
                     const x = (i / data.length) * width;
-                    const plotY = height / 2 * (1 - y / yMax);
+                    const plotY = height - ((y - yMin) / range) * height;
                     if (i === 0) ctx.moveTo(x, plotY);
                     else ctx.lineTo(x, plotY);
                 });
@@ -399,9 +406,10 @@
                 ctx.fillText(text, x, y - 12);
             }
 
-            function drawAverageLine(ctx, avgValue, color, yMax, width, height) {
-                if (width === 0 || height === 0 || !isFinite(yMax) || yMax === 0) return;
-                const plotY = height / 2 * (1 - avgValue / yMax);
+            function drawAverageLine(ctx, avgValue, color, yMin, yMax, width, height) {
+                if (width === 0 || height === 0 || !isFinite(yMin) || !isFinite(yMax) || yMax === yMin) return;
+                const range = yMax - yMin;
+                const plotY = height - ((avgValue - yMin) / range) * height;
 
                 ctx.beginPath();
                 ctx.setLineDash([4, 4]);
@@ -413,7 +421,11 @@
                 ctx.setLineDash([]); // Reset dash
 
                 const avgText = `Avg: ${avgValue.toFixed(3)}`;
-                drawTextWithBackground(ctx, avgText, width - ctx.measureText(avgText).width - 10, plotY - 10, color, 'rgba(255, 255, 255, 0.7)');
+                let textY = plotY - 10;
+                if (textY < 14) textY = plotY + 2;
+                if (textY > height - 14) textY = plotY - 16;
+                
+                drawTextWithBackground(ctx, avgText, width - ctx.measureText(avgText).width - 10, textY, color, 'rgba(255, 255, 255, 0.8)');
             }
             
             let animationFrameId = null;
@@ -491,12 +503,28 @@
                 outputs.y.textContent = `${(finalY * 2).toFixed(3)} V`;
 
                 // --- Plotting ---
-                const getAbsMax = (arr) => arr.reduce((max, v) => Math.max(max, Math.abs(v)), 0);
+                const getMinMax = (arrays) => {
+                    let min = Infinity, max = -Infinity;
+                    arrays.forEach(arr => {
+                        arr.forEach(v => {
+                            if (v < min) min = v;
+                            if (v > max) max = v;
+                        });
+                    });
+                    if (min === Infinity) return { min: -1, max: 1 };
+                    const range = max - min;
+                    if (range < 1e-9) {
+                        return { min: min - 0.5, max: max + 0.5 };
+                    }
+                    const padding = range * 0.1;
+                    return { min: min - padding, max: max + padding };
+                };
                 
-                const yMaxInput = getAbsMax(vin) * 1.1 || 1.0;
-                const yMaxMixed = getAbsMax(mixedI) * 1.1 || 1.0;
-                const yMaxOutput = getAbsMax([...outX.map(v => v*2), ...outY.map(v => v*2)]) * 1.2 || 1.0;
-                
+                const rangeInput = getMinMax([vin]);
+                const rangeRef = { min: -1.5, max: 1.5 };
+                const rangeMixed = getMinMax([mixedI]);
+                const rangeOutput = getMinMax([outX.map(v => v*2), outY.map(v => v*2)]);
+
                 Object.values(contexts).forEach(ctx => {
                     const dpr = window.devicePixelRatio || 1;
                     const w = ctx.canvas.width / dpr;
@@ -504,32 +532,33 @@
                     ctx.clearRect(0, 0, w, h);
                 });
 
-                const drawAndPlot = (ctx, canvas, data, color, yMax) => {
-                    const dpr = window.devicePixelRatio || 1;
-                    const w = canvas.width / dpr, h = canvas.height / dpr;
-                    drawGrid(ctx, w, h, yMax);
-                    plotData(ctx, data, color, yMax);
-                };
+                // Input Plot
+                const inCtx = contexts.input, inCanvas = canvases.input;
+                const inW = inCanvas.width / (window.devicePixelRatio || 1), inH = inCanvas.height / (window.devicePixelRatio || 1);
+                drawGrid(inCtx, inW, inH, rangeInput.min, rangeInput.max);
+                plotData(inCtx, vin, '#3b82f6', rangeInput.min, rangeInput.max);
 
-                drawAndPlot(contexts.input, canvases.input, vin, '#3b82f6', yMaxInput);
-                
+                // Reference Plot
                 const refCtx = contexts.ref, refCanvas = canvases.ref;
-                const refW = refCanvas.width / (window.devicePixelRatio || 1);
-                const refH = refCanvas.height / (window.devicePixelRatio || 1);
-                drawGrid(refCtx, refW, refH, 1.5);
-                plotData(refCtx, refI, '#16a34a', 1.5); // green-600
-                plotData(refCtx, refQ, '#f97316', 1.5); // orange-500
+                const refW = refCanvas.width / (window.devicePixelRatio || 1), refH = refCanvas.height / (window.devicePixelRatio || 1);
+                drawGrid(refCtx, refW, refH, rangeRef.min, rangeRef.max);
+                plotData(refCtx, refI, '#16a34a', rangeRef.min, rangeRef.max);
+                plotData(refCtx, refQ, '#f97316', rangeRef.min, rangeRef.max);
 
-                drawAndPlot(contexts.mixed, canvases.mixed, mixedI, '#ef4444', yMaxMixed);
+                // Multiplied Plot
+                const mixCtx = contexts.mixed, mixCanvas = canvases.mixed;
+                const mixW = mixCanvas.width / (window.devicePixelRatio || 1), mixH = mixCanvas.height / (window.devicePixelRatio || 1);
+                drawGrid(mixCtx, mixW, mixH, rangeMixed.min, rangeMixed.max);
+                plotData(mixCtx, mixedI, '#ef4444', rangeMixed.min, rangeMixed.max);
                 
+                // Output Plot
                 const outCtx = contexts.output, outCanvas = canvases.output;
-                const outW = outCanvas.width / (window.devicePixelRatio || 1);
-                const outH = outCanvas.height / (window.devicePixelRatio || 1);
-                drawGrid(outCtx, outW, outH, yMaxOutput);
-                plotData(outCtx, outX.map(v => v*2), '#16a34a', yMaxOutput);
-                plotData(outCtx, outY.map(v => v*2), '#f97316', yMaxOutput);
-                drawAverageLine(outCtx, finalX * 2, '#16a34a', yMaxOutput, outW, outH);
-                drawAverageLine(outCtx, finalY * 2, '#f97316', yMaxOutput, outW, outH);
+                const outW = outCanvas.width / (window.devicePixelRatio || 1), outH = outCanvas.height / (window.devicePixelRatio || 1);
+                drawGrid(outCtx, outW, outH, rangeOutput.min, rangeOutput.max);
+                plotData(outCtx, outX.map(v => v*2), '#16a34a', rangeOutput.min, rangeOutput.max);
+                plotData(outCtx, outY.map(v => v*2), '#f97316', rangeOutput.min, rangeOutput.max);
+                drawAverageLine(outCtx, finalX * 2, '#16a34a', rangeOutput.min, rangeOutput.max, outW, outH);
+                drawAverageLine(outCtx, finalY * 2, '#f97316', rangeOutput.min, rangeOutput.max, outW, outH);
                 
                 animationFrameId = null;
             }
