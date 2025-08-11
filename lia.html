@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lock-in Amplifier Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #f3f4f6; /* gray-100 */
+            color: #d1d5db; /* gray-300 */
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 300px;
+            max-width: 500px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* gray-900 */
+            border-right: 1px solid #374151; /* gray-700 */
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #1f2937; /* gray-800 */
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6; /* blue-500 */
+        }
+        #visualization-area {
+            flex-grow: 1;
+            background-color: #f9fafb; /* gray-50 */
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            color: #1f2937; /* gray-800 */
+        }
+        #plots-grid {
+            flex-grow: 1;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 1.5rem;
+            min-height: 0;
+        }
+        .plot-container {
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .plot-container canvas {
+            flex-grow: 1;
+            width: 100%;
+            height: 100%;
+        }
+        /* Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
+        #controls-panel h2 { font-size: 1.25rem; font-weight: 600; color: #e5e7eb; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; margin-bottom: 1rem;}
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-row { display: flex; align-items: center; gap: 1rem; }
+        #controls-panel input[type="number"] {
+            width: 90px;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            text-align: right;
+        }
+        /* Range Slider Styling */
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; background: #4b5563;
+            border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s;
+            flex-grow: 1;
+        }
+        input[type="range"]:hover { opacity: 1; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px; height: 18px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%; border: 0;
+        }
+        /* AC/DC Toggle Switch */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #3b82f6;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- Left Panel for Controls -->
+        <div id="controls-panel">
+            <h1>Lock-in Sim</h1>
+            <p>An interactive tool to understand the principles of phase-sensitive detection.</p>
+            
+            <div class="control-group">
+                <h2>Input Signal</h2>
+                <label for="sig1-freq-slider">Signal 1 Frequency (Hz)</label>
+                <div class="control-row">
+                    <input type="range" id="sig1-freq-slider" min="0" max="100" value="50">
+                    <input type="number" id="sig1-freq-val" min="1" max="100" value="10" step="0.1">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="sig1-amp-slider">Signal 1 Amplitude (V)</label>
+                <div class="control-row">
+                    <input type="range" id="sig1-amp-slider" min="0" max="100" value="86.5">
+                    <input type="number" id="sig1-amp-val" min="0.01" max="2" value="1.0" step="0.01">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="sig2-enable" class="flex items-center space-x-2 cursor-pointer text-gray-400">
+                    <input type="checkbox" id="sig2-enable" class="h-4 w-4 rounded bg-gray-700 border-gray-600 text-indigo-600 focus:ring-indigo-500">
+                    <span>Enable Signal 2 (Interference)</span>
+                </label>
+            </div>
+            <div id="sig2-controls" class="pl-4 border-l-2 border-gray-700 space-y-6 hidden">
+                <div class="control-group">
+                    <label for="sig2-freq-slider">Signal 2 Frequency (Hz)</label>
+                    <div class="control-row">
+                        <input type="range" id="sig2-freq-slider" min="0" max="100" value="64.7">
+                        <input type="number" id="sig2-freq-val" min="1" max="100" value="30" step="0.1">
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="sig2-amp-slider">Signal 2 Amplitude (V)</label>
+                    <div class="control-row">
+                        <input type="range" id="sig2-amp-slider" min="0" max="100" value="79.5">
+                        <input type="number" id="sig2-amp-val" min="0.01" max="2" value="0.5" step="0.01">
+                    </div>
+                </div>
+            </div>
+             <div class="control-group">
+                <label for="noise-slider">Noise Amplitude (V)</label>
+                <div class="control-row">
+                    <input type="range" id="noise-slider" min="0" max="100" value="79.5">
+                    <input type="number" id="noise-val" min="0.01" max="2" value="0.5" step="0.01">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="dc-offset-slider">DC Offset (V)</label>
+                <div class="control-row">
+                    <input type="range" id="dc-offset-slider" min="-1" max="1" value="0.2" step="0.05">
+                    <input type="number" id="dc-offset-val" min="-1" max="1" value="0.2" step="0.05">
+                </div>
+            </div>
+            <div class="control-group flex items-center justify-between pt-2">
+                <label for="ac-coupling" class="flex-grow font-medium text-gray-400">Coupling</label>
+                <span class="text-gray-400 mr-3">DC</span>
+                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                    <input type="checkbox" name="ac-coupling" id="ac-coupling" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                    <label for="ac-coupling" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-600 cursor-pointer"></label>
+                </div>
+                 <span class="text-gray-400">AC</span>
+            </div>
+
+            <div class="control-group pt-4">
+                <h2>Lock-in Parameters</h2>
+                <label for="ref-freq-slider">Reference Frequency (Hz)</label>
+                <div class="control-row">
+                    <input type="range" id="ref-freq-slider" min="0" max="100" value="50">
+                    <input type="number" id="ref-freq-val" min="1" max="100" value="10" step="0.1">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="phase-shift-slider">Reference Phase Shift (&deg;)</label>
+                <div class="control-row">
+                    <input type="range" id="phase-shift-slider" min="0" max="360" value="0" step="1">
+                    <input type="number" id="phase-shift-val" min="0" max="360" value="0" step="1">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="time-constant-slider">LPF Time Constant (ms)</label>
+                <div class="control-row">
+                    <input type="range" id="time-constant-slider" min="0" max="100" value="50.6">
+                    <input type="number" id="time-constant-val" min="1" max="200" value="20" step="1">
+                </div>
+            </div>
+        </div>
+
+        <!-- Draggable Resizer -->
+        <div id="drag-handle"></div>
+
+        <!-- Right Panel for Visualization -->
+        <div id="visualization-area">
+            <div id="plots-grid">
+                <div class="plot-container">
+                    <h3 class="text-lg font-semibold mb-2 text-center">Input Signal (V<sub>in</sub>)</h3>
+                    <canvas id="input-canvas"></canvas>
+                </div>
+                <div class="plot-container">
+                    <h3 class="text-lg font-semibold mb-2 text-center">Reference Signal (V<sub>ref</sub>)</h3>
+                    <canvas id="ref-canvas"></canvas>
+                </div>
+                <div class="plot-container">
+                    <h3 class="text-lg font-semibold mb-2 text-center">Multiplied Signal (V<sub>in</sub> &times; V<sub>ref</sub>)</h3>
+                    <canvas id="mixed-canvas"></canvas>
+                </div>
+                <div class="plot-container">
+                    <h3 class="text-lg font-semibold mb-2 text-center">Demodulated Output (LPF)</h3>
+                    <canvas id="output-canvas"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md mt-6">
+                <h3 class="text-xl font-bold mb-4 text-center">Measurement</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div class="bg-gray-100 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Amplitude (R)</p>
+                        <p id="output-r" class="text-3xl font-bold text-indigo-600">0.00 V</p>
+                    </div>
+                    <div class="bg-gray-100 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Phase (&theta;)</p>
+                        <p id="output-theta" class="text-3xl font-bold text-indigo-600">0.00 &deg;</p>
+                    </div>
+                    <div class="bg-gray-100 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">X-Component</p>
+                        <p id="output-x" class="text-3xl font-bold text-green-600">0.00 V</p>
+                    </div>
+                    <div class="bg-gray-100 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Y-Component</p>
+                        <p id="output-y" class="text-3xl font-bold text-orange-500">0.00 V</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 px-6 py-2 text-sm text-gray-600 flex-shrink-0">
+        <p>NitaD, Univ Paris-Saclay, aug 11. 2025</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- LOGARITHMIC SLIDER UTILITIES ---
+            const logSliderUtils = {
+                // Convert a linear slider position (0-100) to a logarithmic value
+                positionToValue(position, min, max) {
+                    if (position == 0) return min;
+                    const minP = 0;
+                    const maxP = 100;
+                    const minV = Math.log(min);
+                    const maxV = Math.log(max);
+                    const scale = (maxV - minV) / (maxP - minP);
+                    return Math.exp(minV + scale * (position - minP));
+                },
+                // Convert a value to a linear slider position (0-100)
+                valueToPosition(value, min, max) {
+                    if (value <= min) return 0;
+                    const minP = 0;
+                    const maxP = 100;
+                    const minV = Math.log(min);
+                    const maxV = Math.log(max);
+                    const scale = (maxV - minV) / (maxP - minP);
+                    return minP + (Math.log(value) - minV) / scale;
+                }
+            };
+
+            // --- DOM ELEMENT REFERENCES ---
+            const controls = {
+                sig1Freq: { slider: document.getElementById('sig1-freq-slider'), input: document.getElementById('sig1-freq-val'), isLog: true },
+                sig1Amp: { slider: document.getElementById('sig1-amp-slider'), input: document.getElementById('sig1-amp-val'), isLog: true },
+                sig2Enable: document.getElementById('sig2-enable'),
+                sig2Controls: document.getElementById('sig2-controls'),
+                sig2Freq: { slider: document.getElementById('sig2-freq-slider'), input: document.getElementById('sig2-freq-val'), isLog: true },
+                sig2Amp: { slider: document.getElementById('sig2-amp-slider'), input: document.getElementById('sig2-amp-val'), isLog: true },
+                noise: { slider: document.getElementById('noise-slider'), input: document.getElementById('noise-val'), isLog: true },
+                dcOffset: { slider: document.getElementById('dc-offset-slider'), input: document.getElementById('dc-offset-val'), isLog: false },
+                acCoupling: document.getElementById('ac-coupling'),
+                refFreq: { slider: document.getElementById('ref-freq-slider'), input: document.getElementById('ref-freq-val'), isLog: true },
+                phaseShift: { slider: document.getElementById('phase-shift-slider'), input: document.getElementById('phase-shift-val'), isLog: false },
+                timeConstant: { slider: document.getElementById('time-constant-slider'), input: document.getElementById('time-constant-val'), isLog: true },
+            };
+
+            const canvases = {
+                input: document.getElementById('input-canvas'),
+                ref: document.getElementById('ref-canvas'),
+                mixed: document.getElementById('mixed-canvas'),
+                output: document.getElementById('output-canvas'),
+            };
+
+            const outputs = {
+                r: document.getElementById('output-r'),
+                theta: document.getElementById('output-theta'),
+                x: document.getElementById('output-x'),
+                y: document.getElementById('output-y'),
+            };
+
+            const contexts = {
+                input: canvases.input.getContext('2d'),
+                ref: canvases.ref.getContext('2d'),
+                mixed: canvases.mixed.getContext('2d'),
+                output: canvases.output.getContext('2d'),
+            };
+
+            // --- SIMULATION PARAMETERS ---
+            const simParams = {
+                duration: 1.0, // seconds
+                samplingRate: 10000, // Hz
+            };
+            simParams.numPoints = simParams.duration * simParams.samplingRate;
+            simParams.dt = 1 / simParams.samplingRate;
+
+            // --- PLOTTING FUNCTIONS ---
+            function setupCanvas(canvas, ctx) {
+                const dpr = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                ctx.scale(dpr, dpr);
+                canvas.style.width = `${rect.width}px`;
+                canvas.style.height = `${rect.height}px`;
+            }
+
+            function drawGrid(ctx, width, height, yMax) {
+                if (width === 0 || height === 0 || !isFinite(yMax) || yMax === 0) return;
+                ctx.beginPath();
+                ctx.strokeStyle = '#e5e7eb'; // gray-200
+                ctx.lineWidth = 1;
+
+                ctx.moveTo(0, height / 2);
+                ctx.lineTo(width, height / 2);
+                
+                for (let i = 1; i < 5; i++) {
+                    const x = (width / 5) * i;
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, height);
+                }
+                ctx.stroke();
+
+                ctx.fillStyle = '#9ca3af'; // gray-400
+                ctx.font = '12px Inter';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(`+${yMax.toFixed(2)}`, 5, 5);
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(`-${yMax.toFixed(2)}`, 5, height - 5);
+            }
+
+            function plotData(ctx, data, color, yMax) {
+                const width = ctx.canvas.width / (window.devicePixelRatio || 1);
+                const height = ctx.canvas.height / (window.devicePixelRatio || 1);
+                if (width === 0 || height === 0 || !isFinite(yMax) || yMax === 0) return;
+                
+                ctx.beginPath();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+
+                data.forEach((y, i) => {
+                    const x = (i / data.length) * width;
+                    const plotY = height / 2 * (1 - y / yMax);
+                    if (i === 0) ctx.moveTo(x, plotY);
+                    else ctx.lineTo(x, plotY);
+                });
+                ctx.stroke();
+            }
+            
+            function drawTextWithBackground(ctx, text, x, y, textColor, bgColor) {
+                ctx.font = 'bold 13px Inter';
+                const textWidth = ctx.measureText(text).width;
+                const padding = 4;
+                
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x - padding, y - 14, textWidth + padding * 2, 18);
+
+                ctx.fillStyle = textColor;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(text, x, y - 12);
+            }
+
+            function drawAverageLine(ctx, avgValue, color, yMax, width, height) {
+                if (width === 0 || height === 0 || !isFinite(yMax) || yMax === 0) return;
+                const plotY = height / 2 * (1 - avgValue / yMax);
+
+                ctx.beginPath();
+                ctx.setLineDash([4, 4]);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.moveTo(0, plotY);
+                ctx.lineTo(width, plotY);
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset dash
+
+                const avgText = `Avg: ${avgValue.toFixed(3)}`;
+                drawTextWithBackground(ctx, avgText, width - ctx.measureText(avgText).width - 10, plotY - 10, color, 'rgba(255, 255, 255, 0.7)');
+            }
+            
+            let animationFrameId = null;
+            function requestUpdate() {
+                 if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                animationFrameId = requestAnimationFrame(update);
+            }
+
+            // --- CORE SIMULATION LOGIC ---
+            function getControlValues() {
+                const p = {};
+                for (const key in controls) {
+                    if (controls[key].slider) {
+                        if (controls[key].isLog) {
+                            const min = parseFloat(controls[key].input.min);
+                            const max = parseFloat(controls[key].input.max);
+                            p[key] = logSliderUtils.positionToValue(parseFloat(controls[key].slider.value), min, max);
+                        } else {
+                            p[key] = parseFloat(controls[key].slider.value);
+                        }
+                    }
+                }
+                p.useS2 = controls.sig2Enable.checked;
+                p.acCouple = controls.acCoupling.checked;
+                p.phi = p.phaseShift * (Math.PI / 180);
+                p.tau = p.timeConstant / 1000;
+                return p;
+            }
+
+            function update() {
+                const p = getControlValues();
+                
+                controls.sig2Controls.style.display = p.useS2 ? 'block' : 'none';
+
+                const t = Array.from({ length: simParams.numPoints }, (_, i) => i * simParams.dt);
+                const vin = t.map(time => {
+                    let val = p.sig1Amp * Math.sin(2 * Math.PI * p.sig1Freq * time);
+                    if (p.useS2) val += p.sig2Amp * Math.sin(2 * Math.PI * p.sig2Freq * time);
+                    val += (Math.random() - 0.5) * 2 * p.noise;
+                    val += p.dcOffset;
+                    return val;
+                });
+                
+                let processedVin = vin;
+                if (p.acCouple) {
+                    const dcComponent = vin.reduce((a, b) => a + b, 0) / vin.length;
+                    processedVin = vin.map(v => v - dcComponent);
+                }
+
+                const refI = t.map(time => Math.sin(2 * Math.PI * p.refFreq * time + p.phi));
+                const refQ = t.map(time => Math.cos(2 * Math.PI * p.refFreq * time + p.phi));
+
+                const mixedI = processedVin.map((v, i) => v * refI[i]);
+                
+                const alpha = simParams.dt / (p.tau + simParams.dt);
+                const outX = [0], outY = [0];
+                for (let i = 1; i < simParams.numPoints; i++) {
+                    outX.push(outX[i-1] + alpha * (processedVin[i] * refI[i] - outX[i-1]));
+                    outY.push(outY[i-1] + alpha * (processedVin[i] * refQ[i] - outY[i-1]));
+                }
+
+                const stableStart = Math.floor(simParams.numPoints * 0.9);
+                const numStablePoints = simParams.numPoints - stableStart;
+                const finalX = outX.slice(stableStart).reduce((a, b) => a + b, 0) / numStablePoints;
+                const finalY = outY.slice(stableStart).reduce((a, b) => a + b, 0) / numStablePoints;
+
+                const R = 2 * Math.sqrt(finalX**2 + finalY**2);
+                let theta = Math.atan2(finalY, finalX) * (180 / Math.PI);
+
+                outputs.r.textContent = `${R.toFixed(3)} V`;
+                outputs.theta.textContent = `${theta.toFixed(2)} °`;
+                outputs.x.textContent = `${(finalX * 2).toFixed(3)} V`;
+                outputs.y.textContent = `${(finalY * 2).toFixed(3)} V`;
+
+                // --- Plotting ---
+                const getAbsMax = (arr) => arr.reduce((max, v) => Math.max(max, Math.abs(v)), 0);
+                
+                const yMaxInput = getAbsMax(vin) * 1.1 || 1.0;
+                const yMaxMixed = getAbsMax(mixedI) * 1.1 || 1.0;
+                const yMaxOutput = getAbsMax([...outX.map(v => v*2), ...outY.map(v => v*2)]) * 1.2 || 1.0;
+                
+                Object.values(contexts).forEach(ctx => {
+                    const dpr = window.devicePixelRatio || 1;
+                    const w = ctx.canvas.width / dpr;
+                    const h = ctx.canvas.height / dpr;
+                    ctx.clearRect(0, 0, w, h);
+                });
+
+                const drawAndPlot = (ctx, canvas, data, color, yMax) => {
+                    const dpr = window.devicePixelRatio || 1;
+                    const w = canvas.width / dpr, h = canvas.height / dpr;
+                    drawGrid(ctx, w, h, yMax);
+                    plotData(ctx, data, color, yMax);
+                };
+
+                drawAndPlot(contexts.input, canvases.input, vin, '#3b82f6', yMaxInput);
+                
+                const refCtx = contexts.ref, refCanvas = canvases.ref;
+                const refW = refCanvas.width / (window.devicePixelRatio || 1);
+                const refH = refCanvas.height / (window.devicePixelRatio || 1);
+                drawGrid(refCtx, refW, refH, 1.5);
+                plotData(refCtx, refI, '#16a34a', 1.5); // green-600
+                plotData(refCtx, refQ, '#f97316', 1.5); // orange-500
+                drawTextWithBackground(refCtx, 'I', refW - 60, 5, '#16a34a', 'rgba(255, 255, 255, 0.7)');
+                drawTextWithBackground(refCtx, 'Q', refW - 30, 5, '#f97316', 'rgba(255, 255, 255, 0.7)');
+
+                drawAndPlot(contexts.mixed, canvases.mixed, mixedI, '#ef4444', yMaxMixed);
+                
+                const outCtx = contexts.output, outCanvas = canvases.output;
+                const outW = outCanvas.width / (window.devicePixelRatio || 1);
+                const outH = outCanvas.height / (window.devicePixelRatio || 1);
+                drawGrid(outCtx, outW, outH, yMaxOutput);
+                plotData(outCtx, outX.map(v => v*2), '#16a34a', yMaxOutput);
+                plotData(outCtx, outY.map(v => v*2), '#f97316', yMaxOutput);
+                drawAverageLine(outCtx, finalX * 2, '#16a34a', yMaxOutput, outW, outH);
+                drawAverageLine(outCtx, finalY * 2, '#f97316', yMaxOutput, outW, outH);
+                drawTextWithBackground(outCtx, 'X', outW - 60, 5, '#16a34a', 'rgba(255, 255, 255, 0.7)');
+                drawTextWithBackground(outCtx, 'Y', outW - 30, 5, '#f97316', 'rgba(255, 255, 255, 0.7)');
+                
+                animationFrameId = null;
+            }
+            
+            function setupAllCanvases() {
+                Object.values(canvases).forEach((canvas, i) => {
+                    setupCanvas(canvas, Object.values(contexts)[i]);
+                });
+                requestUpdate();
+            }
+
+            // --- EVENT LISTENERS ---
+            controls.sig2Enable.addEventListener('change', requestUpdate);
+            controls.acCoupling.addEventListener('change', requestUpdate);
+
+            Object.keys(controls).forEach(key => {
+                const control = controls[key];
+                if (!control.slider) return;
+
+                const { slider, input, isLog } = control;
+                const min = parseFloat(input.min);
+                const max = parseFloat(input.max);
+                const step = parseFloat(input.step) || 0.1;
+                const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
+
+                // Sync slider to input
+                slider.addEventListener('input', () => {
+                    let value;
+                    if (isLog) {
+                        value = logSliderUtils.positionToValue(parseFloat(slider.value), min, max);
+                    } else {
+                        value = parseFloat(slider.value);
+                    }
+                    input.value = value.toFixed(precision);
+                    requestUpdate();
+                });
+
+                // Sync input to slider
+                input.addEventListener('change', () => {
+                    let value = parseFloat(input.value);
+                    if (isNaN(value)) value = min;
+                    value = Math.max(min, Math.min(max, value));
+                    input.value = value.toFixed(precision);
+
+                    if (isLog) {
+                        slider.value = logSliderUtils.valueToPosition(value, min, max);
+                    } else {
+                        slider.value = value;
+                    }
+                    requestUpdate();
+                });
+            });
+
+            // --- Resizer Logic ---
+            const resizer = document.getElementById('drag-handle');
+            const leftPanel = document.getElementById('controls-panel');
+            let isResizing = false;
+
+            resizer.addEventListener('mousedown', e => {
+                e.preventDefault();
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', stopResize);
+            });
+
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+                const container = resizer.parentElement;
+                const newLeftWidth = e.clientX - container.getBoundingClientRect().left;
+                if (newLeftWidth > 300 && newLeftWidth < container.clientWidth - 400) {
+                    leftPanel.style.width = `${newLeftWidth}px`;
+                    setupAllCanvases();
+                }
+            }
+
+            function stopResize() {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', stopResize);
+            }
+
+            // --- INITIALIZATION ---
+            // Set initial slider positions from default input values
+             Object.values(controls).forEach(control => {
+                if (control.slider) {
+                    control.input.dispatchEvent(new Event('change'));
+                }
+            });
+            window.addEventListener('resize', setupAllCanvases);
+            setupAllCanvases();
+        });
+    </script>
+
+</body>
+</html>
