@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Powder XRD Simulator (v3)</title>
+    <title>Complete Cubic Powder XRD Simulator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,14 +12,20 @@
     <style>
         body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f0f0f0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
-        #controls-panel { width: 420px; min-width: 320px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
+        #controls-panel { width: 450px; min-width: 350px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
         #drag-handle { width: 6px; cursor: col-resize; background-color: #374151; flex-shrink: 0; transition: background-color 0.2s; }
         #drag-handle:hover { background-color: #3b82f6; }
         #results-area { flex-grow: 1; position: relative; background-color: #ffffff; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: #1f2937; }
-        .control-group { margin-bottom: 1.5rem; }
+        .control-group { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #374151;}
+        .control-group:last-child { border-bottom: none; }
         .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
         .control-input, .control-select { width: 100%; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 0.75rem; transition: all 0.2s ease; }
         .control-input:focus, .control-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
+        .btn { padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; transition: background-color 0.2s; cursor: pointer; }
+        .btn-primary { background-color: #3b82f6; color: white; }
+        .btn-primary:hover { background-color: #2563eb; }
+        .btn-secondary { background-color: #4b5563; color: #d1d5db; }
+        .btn-secondary:hover { background-color: #6b7280; }
         footer { width: 100%; background-color: #ffffff; padding: 8px 24px; font-size: 0.8em; color: #4b5563; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
         input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; background: #4b5563; border-radius: 5px; outline: none; transition: background 0.2s; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #e5e7eb; border-radius: 50%; cursor: pointer; border: 2px solid #374151;}
@@ -30,25 +36,19 @@
 
     <div id="app-container">
         <div id="controls-panel">
-            <h1 class="text-2xl font-bold text-white mb-2">Powder XRD Simulator</h1>
-            <p class="text-sm text-gray-400 mb-6">Visualize diffraction patterns for cubic crystal structures.</p>
+            <h1 class="text-2xl font-bold text-white mb-2">Complete Cubic XRD Simulator</h1>
+            <p class="text-sm text-gray-400 mb-6">Define a crystal structure using any cubic space group and atomic positions to visualize its diffraction pattern.</p>
             
-            <div class="space-y-6">
+            <div>
                 <div class="control-group">
-                    <label for="crystal-structure" class="control-label">Crystal Structure</label>
-                    <select id="crystal-structure" class="control-select">
-                        <option value="SC" selected>Simple Cubic (SC)</option>
-                        <option value="FCC">Face-Centered Cubic (FCC)</option>
-                        <option value="BCC">Body-Centered Cubic (BCC)</option>
-                        <option value="Diamond">Diamond Cubic</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <label for="lattice-parameter" class="control-label">Lattice Parameter (a) in Å: <span id="lattice-parameter-value" class="font-semibold text-white">5.43</span></label>
-                    <input type="range" id="lattice-parameter" min="2.0" max="10.0" value="5.43" step="0.01">
-                </div>
-                <div class="control-group">
-                    <label for="xray-wavelength" class="control-label">X-Ray Wavelength (λ) in Å</label>
+                    <h2 class="text-lg font-semibold text-white mb-3">General Parameters</h2>
+                    <label for="space-group" class="control-label">Cubic Space Group</label>
+                    <select id="space-group" class="control-select"></select>
+                    
+                    <label for="lattice-parameter" class="control-label mt-4">Lattice Parameter (a) in Å: <span id="lattice-parameter-value" class="font-semibold text-white">3.567</span></label>
+                    <input type="range" id="lattice-parameter" min="2.0" max="15.0" value="3.567" step="0.001">
+
+                    <label for="xray-wavelength" class="control-label mt-4">X-Ray Wavelength (λ) in Å</label>
                     <div class="flex items-center space-x-2">
                         <input type="number" id="xray-wavelength" value="1.5406" step="0.0001" class="control-input">
                         <select id="wavelength-preset" class="control-select w-auto pr-8">
@@ -58,25 +58,40 @@
                         </select>
                     </div>
                 </div>
-                 <div class="control-group">
-                    <label for="thermal-factor" class="control-label">Thermal Factor B (Å²): <span id="thermal-factor-value" class="font-semibold text-white">0.5</span></label>
+
+                <div class="control-group">
+                    <h2 class="text-lg font-semibold text-white mb-3">Atomic Positions</h2>
+                    <div id="atom1-controls" class="p-4 bg-gray-900/50 rounded-lg mb-4">
+                        <h3 class="font-bold text-base text-sky-400 mb-3">Atom 1</h3>
+                        <label class="control-label">Element</label>
+                        <select id="atom1-element" class="control-select mb-3"></select>
+                        <label class="control-label">Wyckoff Position</label>
+                        <select id="atom1-wyckoff" class="control-select"></select>
+                        <div id="atom1-coords" class="mt-3 space-y-2 hidden"></div>
+                    </div>
+                    <div id="atom2-controls" class="p-4 bg-gray-900/50 rounded-lg hidden">
+                         <h3 class="font-bold text-base text-amber-400 mb-3">Atom 2</h3>
+                        <label class="control-label">Element</label>
+                        <select id="atom2-element" class="control-select mb-3"></select>
+                        <label class="control-label">Wyckoff Position</label>
+                        <select id="atom2-wyckoff" class="control-select"></select>
+                        <div id="atom2-coords" class="mt-3 space-y-2 hidden"></div>
+                    </div>
+                    <div class="flex justify-between mt-4">
+                        <button id="add-atom-btn" class="btn btn-primary">Add Atom 2</button>
+                        <button id="remove-atom-btn" class="btn btn-secondary hidden">Remove Atom 2</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                     <h2 class="text-lg font-semibold text-white mb-3">Graphing</h2>
+                     <label for="thermal-factor" class="control-label">Global Thermal Factor B (Å²): <span id="thermal-factor-value" class="font-semibold text-white">0.5</span></label>
                     <input type="range" id="thermal-factor" min="0" max="3" value="0.5" step="0.1">
-                </div>
-                <div class="control-group">
-                    <label for="polarization-factor" class="control-label">Polarization</label>
-                    <select id="polarization-factor" class="control-select">
-                        <option value="unpolarized" selected>Unpolarized</option>
-                        <option value="linear_horizontal">Linear Horizontal</option>
-                        <option value="linear_vertical">Linear Vertical</option>
-                    </select>
-                </div>
-                 <hr class="border-gray-600">
-                <div class="control-group">
-                    <label for="two-theta-min" class="control-label">Graph 2θ Min (°): <span id="two-theta-min-value" class="font-semibold text-white">10</span></label>
+
+                    <label for="two-theta-min" class="control-label mt-4">Graph 2θ Min (°): <span id="two-theta-min-value" class="font-semibold text-white">10</span></label>
                     <input type="range" id="two-theta-min" min="5" max="160" value="10" step="1">
-                </div>
-                <div class="control-group">
-                    <label for="two-theta-max" class="control-label">Graph 2θ Max (°): <span id="two-theta-max-value" class="font-semibold text-white">100</span></label>
+
+                    <label for="two-theta-max" class="control-label mt-4">Graph 2θ Max (°): <span id="two-theta-max-value" class="font-semibold text-white">100</span></label>
                     <input type="range" id="two-theta-max" min="5" max="160" value="100" step="1">
                 </div>
             </div>
@@ -86,7 +101,10 @@
 
         <div id="results-area">
             <div id="results-container" class="w-full h-full flex flex-col">
-                <h2 class="text-2xl font-semibold mb-4 text-center text-gray-800">Diffraction Pattern</h2>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-semibold text-gray-800">Diffraction Pattern</h2>
+                    <h3 id="composition-display" class="text-xl font-mono p-2 bg-gray-100 rounded text-gray-700"></h3>
+                </div>
                 <div class="relative flex-1 min-h-0">
                     <canvas id="xrd-chart"></canvas>
                 </div>
@@ -98,7 +116,6 @@
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">2θ (°)</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">d-spacing (Å)</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">(hkl)</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Multiplicity</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Intensity</th>
                             </tr>
                         </thead>
@@ -110,324 +127,363 @@
         </div>
     </div>
 
-    <footer id="footer-date">
-    </footer>
+    <footer id="footer-date"></footer>
 
     <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        // --- Set Date in Footer ---
-        const footer = document.getElementById('footer-date');
-        const now = new Date();
-        const options = { year: 'numeric', month: 'long', day: 'numeric' };
-        footer.textContent = `NitaD, Univ Paris-Saclay, ${now.toLocaleDateString('en-US', options)}`;
-        
-        // --- DOM Element References ---
-        const controls = {
-            structure: document.getElementById('crystal-structure'),
-            latticeParam: document.getElementById('lattice-parameter'),
-            latticeParamValue: document.getElementById('lattice-parameter-value'),
-            wavelength: document.getElementById('xray-wavelength'),
-            wavelengthPreset: document.getElementById('wavelength-preset'),
-            thermalFactor: document.getElementById('thermal-factor'),
-            thermalFactorValue: document.getElementById('thermal-factor-value'),
-            polarization: document.getElementById('polarization-factor'),
-            twoThetaMin: document.getElementById('two-theta-min'),
-            twoThetaMinValue: document.getElementById('two-theta-min-value'),
-            twoThetaMax: document.getElementById('two-theta-max'),
-            twoThetaMaxValue: document.getElementById('two-theta-max-value'),
-            peakTableBody: document.getElementById('peak-table-body'),
-            chartCanvas: document.getElementById('xrd-chart')
+        // --- START OF DATA DEFINITIONS ---
+        // Data for all 36 Cubic Space Groups (195-230). All coordinates are now explicit.
+        const cubicSpaceGroups = {
+            "195":{name:"P 2 3",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"1b":{multiplicity:1,coordinates:["0.5,0.5,0.5"]},"4e":{multiplicity:4,coordinates:["x,x,x", "x,-x,-x", "-x,x,-x", "-x,-x,x"]}}},
+            "196":{name:"F 2 3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4b":{multiplicity:4,coordinates:["0.5,0.5,0.5","0.5,0,0","0,0.5,0","0,0,0.5"]}}},
+            "197":{name:"I 2 3",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"8c":{multiplicity:8,coordinates:["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x"].map(c=>[c,`0.5+${c.split(',')[0]},0.5-${c.split(',')[1]},0.5-${c.split(',')[2]}`]).flat()}}},
+            "198":{name:"P 21 3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["x,x,x", "0.5-x,0.5+x,-x", "-x,0.5-x,0.5+x", "0.5+x,-x,0.5-x"]}}},
+            "199":{name:"I 21 3",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["x,x,x","0.5-x,0.5+x,-x","-x,0.5-x,0.5+x","0.5+x,-x,0.5-x","0.5+x,0.5+x,0.5+x","x,x,-0.5+x","0.5+x,x,x","x,0.5+x,x"]}}},
+            "200":{name:"P m -3",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"1b":{multiplicity:1,coordinates:["0.5,0.5,0.5"]}}},
+            "201":{name:"P n -3",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]},"4b":{multiplicity:4,coordinates:["0,0,0","0.5,0.5,0","0.5,0,0.5","0,0.5,0.5"]}}},
+            "202":{name:"F m -3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4b":{multiplicity:4,coordinates:["0.5,0.5,0.5","0.5,0,0","0,0.5,0","0,0,0.5"]}}},
+            "203":{name:"F d -3",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125","0.125,0.625,0.625","0.625,0.125,0.625","0.625,0.625,0.125","0.875,0.875,0.875","0.875,0.375,0.375","0.375,0.875,0.375","0.375,0.375,0.875"]}}},
+            "204":{name:"I m -3",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"12e":{multiplicity:12,coordinates:["x,0,0.5","0.5+x,0.5,0","0,0.5,0.5-x","0.5,x,0","0.5-x,0,0.5","0,0.5+x,0.5"]}}},
+            "205":{name:"P a -3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"8c":{multiplicity:8,coordinates:["x,x,x","0.5-x,x,0.5+x","x,0.5+x,0.5-x","0.5+x,0.5-x,x","-x,-x,-x","0.5+x,-x,0.5-x","-x,0.5-x,0.5+x","0.5-x,0.5+x,-x"]}}},
+            "206":{name:"I a -3",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0,0,0","0.5,0.5,0","0.5,0,0.5","0,0.5,0.5","0.5,0.5,0.5","0,0,0.5","0,0.5,0","0.5,0,0"]},"16b":{multiplicity:16,coordinates:["x,x,x"]}}},
+            "207":{name:"P 4 3 2",wyckoff_positions:{"3c":{multiplicity:3,coordinates:["0.5,0,0.5","0,0.5,0.5","0.5,0.5,0"]}}},
+            "208":{name:"P 42 3 2",wyckoff_positions:{"4c":{multiplicity:4,coordinates:["x,x,0","0.5-x,0.5+x,0.5","-x,0.5-x,0","0.5+x,-x,0.5"]}}},
+            "209":{name:"F 4 3 2",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"8c":{multiplicity:8,coordinates:["0.25,0.25,0.25","0.25,0.75,0.75","0.75,0.25,0.75","0.75,0.75,0.25"]}}},
+            "210":{name:"F 41 3 2",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125","0.375,0.375,0.125","0.375,0.125,0.375","0.125,0.375,0.375"]}}},
+            "211":{name:"I 4 3 2",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]}}},
+            "212":{name:"P 43 21 2",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["x,x,x"]}}},
+            "213":{name:"P 41 21 2",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["x,x,x"]}}},
+            "214":{name:"I 41 3 2",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125"]}}},
+            "215":{name:"P -4 3 m",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"4e":{multiplicity:4,coordinates:["x,x,x"]}}},
+            "216":{name:"F -4 3 m",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4c":{multiplicity:4,coordinates:["0.25,0.25,0.25","0.25,0.75,0.75","0.75,0.25,0.75","0.75,0.75,0.25"]}}},
+            "217":{name:"I -4 3 m",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"12d":{multiplicity:12,coordinates:["x,0,0.5"]}}},
+            "218":{name:"P -4 3 n",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]}}},
+            "219":{name:"F -4 3 c",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]}}},
+            "220":{name:"I -4 3 d",wyckoff_positions:{"12a":{multiplicity:12,coordinates:["0.375,0,0.25"]},"16b":{multiplicity:16,coordinates:["x,x,x"]}}},
+            "221":{name:"P m -3 m",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"1b":{multiplicity:1,coordinates:["0.5,0.5,0.5"]}}},
+            "222":{name:"P n -3 n",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]},"4b":{multiplicity:4,coordinates:["0,0,0","0.5,0.5,0","0,0.5,0.5","0.5,0,0.5"]}}},
+            "223":{name:"P m -3 n",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"6d":{multiplicity:6,coordinates:["0.25,0.5,0","0.75,0.5,0","0,0.25,0.5","0,0.75,0.5","0.5,0,0.25","0.5,0,0.75"]}}},
+            "224":{name:"P n -3 m",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]},"4b":{multiplicity:4,coordinates:["0,0,0","0.5,0.5,0","0,0.5,0.5","0.5,0,0.5"]}}},
+            "225":{name:"F m -3 m",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4b":{multiplicity:4,coordinates:["0.5,0.5,0.5","0.5,0,0","0,0.5,0","0,0,0.5"]},"8c":{multiplicity:8,coordinates:["0.25,0.25,0.25","0.25,0.75,0.75","0.75,0.25,0.75","0.75,0.75,0.25","0.75,0.75,0.75","0.75,0.25,0.25","0.25,0.75,0.25","0.25,0.25,0.75"]}}},
+            "226":{name:"F m -3 c",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.25,0.25,0.25","0.75,0.75,0.25","0.75,0.25,0.75","0.25,0.75,0.75"]},"8b":{multiplicity:8,coordinates:["0.25,0.25,0.75","0.75,0.75,0.75","0.75,0.25,0.25","0.25,0.75,0.25"]}}},
+            "227":{name:"F d -3 m",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0,0,0","0.25,0.25,0.25","0,0.5,0.5","0.25,0.75,0.75","0.5,0,0.5","0.75,0.25,0.75","0.5,0.5,0","0.75,0.75,0.25"]},"16c":{multiplicity:16,coordinates:["0.125,0.125,0.125","0.375,0.375,0.125","0.125,0.625,0.625","0.375,0.875,0.625","0.625,0.125,0.625","0.875,0.375,0.625","0.625,0.625,0.125","0.875,0.875,0.125"]}}},
+            "228":{name:"F d -3 c",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125"]},"16b":{multiplicity:16,coordinates:["0,0,0"]}}},
+            "229":{name:"I m -3 m",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"16f":{multiplicity:16,coordinates:["x,x,x","0.5+x,0.5+x,0.5-x"]}}},
+            "230":{name:"I a -3 d",wyckoff_positions:{"16a":{multiplicity:16,coordinates:["0,0,0","0.5,0.5,0","0.5,0,0.5","0,0.5,0.5"]},"24d":{multiplicity:24,coordinates:["0.375,0,0.25","0.625,0.5,0.5","0.875,0.5,0.75"]}}}
         };
+        const atomicScatteringFactors = {
+            'Al': { a: [5.1186, 3.2326, 1.2538, 2.0125], b: [2.6322, 0.0573, 8.0838, 76.5495], c: 1.3813 },
+            'As': {a: [13.5623, 8.7042, 5.9256, 2.1265], b: [0.2483, 26.3113, 5.105, 70.3813], c: 2.6738},
+            'Br': { a: [14.1558, 7.594, 5.6192, 3.4975], b: [0.2524, 21.7374, 5.1764, 58.7478], c: 4.1275 },
+            'C':  { a: [2.31, 1.02, 1.5886, 0.865], b: [20.8439, 10.2075, 0.5687, 51.6512], c: 0.2156 },
+            'Cl': { a: [1.1343, 6.3688, 7.1856, 1.492,], b: [0.006, 1.6335, 33.684, 0.4418,], c: 0.8184 },
+            'F':  { a: [3.5392, 2.6412, 1.2525, 0.4966], b: [1.5773, 15.5422, 0.435, 38.4536], c: 1.0697 },
+            'Fe': { a: [11.233, 7.001, 4.4533, 2.4435], b: [2.5361, 0.1037, 8.8427, 43.832], c: 0.8687 },
+            'Ga': {a: [12.915, 7.8988, 5.4094, 2.003], b: [0.256, 23.906, 5.1627, 65.5295], c: 2.7667},
+            'H':  { a: [0.493, 0.3229, 0.1402, 0.0401], b: [10.5108, 26.1154, 3.1424, 57.7997], c: 0.0037 },
+            'K':  { a: [7.9899, 5.0041, 1.6346, 1.3411], b: [2.2104, 0.1119, 7.8284, 46.5424], c: 3.025 },
+            'Na': { a: [4.7626, 3.149, 1.4536, 0.9984], b: [3.285, 8.8433, 0.3136, 129.424], c: 0.625 },
+            'O':  { a: [3.0485, 2.2868, 1.5463, 0.867], b: [13.2771, 5.7011, 0.3239, 32.9089], c: 0.2508 },
+            'S':  { a: [6.9053, 4.7733, 1.5536, 1.6806], b: [1.4678, 29.2393, 0.2536, 62.5693], c: 1.0858},
+            'Si': { a: [6.2915, 3.0353, 2.1356, 1.176,], b: [2.4386, 30.3449, 0.6826, 81.6937], c: 1.3591 },
+            'Y':  { a: [16.5332, 8.358, 5.0941, 2.6235], b: [0.3582, 9.1336, 29.1736, 75.8755], c: 6.386 },
+            'Zn': {a: [12.2126, 7.1245, 5.6303, 2.1696], b: [0.2646, 21.454, 5.2289, 61.2754], c: 2.8558}
+        };
+        // --- END OF DATA DEFINITIONS ---
 
-        let xrdChart; // Will hold the chart instance
-
-        // --- Main Simulation Function ---
-        const runSimulation = () => {
-            const params = {
-                structure: controls.structure.value,
-                a: parseFloat(controls.latticeParam.value),
-                lambda: parseFloat(controls.wavelength.value),
-                B: parseFloat(controls.thermalFactor.value),
-                element: 'Si',
-                polarization: controls.polarization.value,
-                peakWidth: 0.15 
+        document.addEventListener('DOMContentLoaded', () => {
+            const footer = document.getElementById('footer-date');
+            footer.textContent = `NitaD, Univ Paris-Saclay, ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+            
+            const controls = {
+                spaceGroup: document.getElementById('space-group'),
+                latticeParam: document.getElementById('lattice-parameter'),
+                latticeParamValue: document.getElementById('lattice-parameter-value'),
+                wavelength: document.getElementById('xray-wavelength'),
+                wavelengthPreset: document.getElementById('wavelength-preset'),
+                thermalFactor: document.getElementById('thermal-factor'),
+                thermalFactorValue: document.getElementById('thermal-factor-value'),
+                twoThetaMin: document.getElementById('two-theta-min'),
+                twoThetaMinValue: document.getElementById('two-theta-min-value'),
+                twoThetaMax: document.getElementById('two-theta-max'),
+                twoThetaMaxValue: document.getElementById('two-theta-max-value'),
+                atom1: { element: document.getElementById('atom1-element'), wyckoff: document.getElementById('atom1-wyckoff'), coords: document.getElementById('atom1-coords') },
+                atom2: { container: document.getElementById('atom2-controls'), element: document.getElementById('atom2-element'), wyckoff: document.getElementById('atom2-wyckoff'), coords: document.getElementById('atom2-coords') },
+                addAtomBtn: document.getElementById('add-atom-btn'),
+                removeAtomBtn: document.getElementById('remove-atom-btn'),
+                compositionDisplay: document.getElementById('composition-display'),
+                peakTableBody: document.getElementById('peak-table-body'),
+                chartCanvas: document.getElementById('xrd-chart')
             };
 
-            if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0) {
-                return;
-            }
+            let xrdChart;
+            let atom2_active = false;
 
-            const peaks = calculatePeaks(params);
-            const maxIntensity = populateTable(peaks);
-            plotDiffractogram(peaks, maxIntensity);
-        };
+            const runSimulation = () => {
+                const sg = controls.spaceGroup.value;
+                if (!cubicSpaceGroups[sg]) return;
+                const atomDef1 = { symbol: controls.atom1.element.value, wyckoff: controls.atom1.wyckoff.value, coords: getCoordsFromInput('1') };
+                let atomList = generateAtomList(sg, atomDef1);
+                if (atom2_active) {
+                    const atomDef2 = { symbol: controls.atom2.element.value, wyckoff: controls.atom2.wyckoff.value, coords: getCoordsFromInput('2') };
+                    atomList = atomList.concat(generateAtomList(sg, atomDef2));
+                }
+                const params = { a: parseFloat(controls.latticeParam.value), lambda: parseFloat(controls.wavelength.value), B: parseFloat(controls.thermalFactor.value) };
+                if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0 || atomList.length === 0) {
+                     controls.peakTableBody.innerHTML = `<tr><td colspan="4" class="text-center py-4">Invalid parameters or no atoms defined.</td></tr>`;
+                    if (xrdChart) xrdChart.destroy();
+                    return;
+                }
+                calculateComposition();
+                const peaks = calculatePeaks(params, atomList);
+                const maxIntensity = populateTable(peaks);
+                plotDiffractogram(peaks, maxIntensity);
+            };
 
-        // --- Calculation Functions ---
-        const calculatePeaks = (params) => {
-            const { structure, a, lambda } = params;
-            const calculatedPeaks = [];
-            const max_hkl = 10; 
-
-            for (let h = 0; h <= max_hkl; h++) {
-                for (let k = 0; k <= h; k++) {
-                    for (let l = 0; l <= k; l++) {
-                        if (h === 0 && k === 0 && l === 0) continue;
-
-                        if (isReflectionAllowed(structure, h, k, l)) {
+            const calculatePeaks = (params, atomList) => {
+                const { a, lambda } = params;
+                const calculatedPeaks = [];
+                const max_hkl = 12;
+                for (let h = 0; h <= max_hkl; h++) {
+                    for (let k = 0; k <= h; k++) {
+                        for (let l = 0; l <= k; l++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
                             const hkl_sq = h*h + k*k + l*l;
                             const d = a / Math.sqrt(hkl_sq);
                             const sinTheta = lambda / (2 * d);
-
                             if (sinTheta <= 1) {
-                                const thetaRad = Math.asin(sinTheta);
-                                const multiplicity = getMultiplicity(h, k, l);
-                                let intensity = calculateIntensity(thetaRad, params, h, k, l);
-                                
-                                intensity *= multiplicity;
-
-                                if (intensity > 0) {
-                                    calculatedPeaks.push({
-                                        two_theta: 2 * thetaRad * (180 / Math.PI),
-                                        d: d, h, k, l, intensity, multiplicity
-                                    });
+                                const f_sq = calculateStructureFactor(h, k, l, atomList, sinTheta / lambda, params.B);
+                                if (f_sq > 1e-4) {
+                                    const thetaRad = Math.asin(sinTheta);
+                                    const cosTheta = Math.cos(thetaRad);
+                                    if(cosTheta < 1e-6) continue;
+                                    const cos2Theta = Math.cos(2 * thetaRad);
+                                    const Lp = (1 + cos2Theta * cos2Theta) / (sinTheta * sinTheta * cosTheta);
+                                    const intensity = f_sq * Lp;
+                                    if (intensity > 1e-3) {
+                                        const existingPeak = calculatedPeaks.find(p => Math.abs(p.d - d) < 1e-5);
+                                        if (!existingPeak) {
+                                            calculatedPeaks.push({ two_theta: 2 * thetaRad * (180 / Math.PI), d, hkl: `(${h},${k},${l})`, intensity });
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            return calculatedPeaks.sort((a, b) => a.two_theta - b.two_theta);
-        };
-        
-        const getMultiplicity = (h, k, l) => {
-            let familyType;
-            if (l > 0) { 
-                if (h === k && k === l) { familyType = 'hhh'; } 
-                else if (h === k || k === l) { familyType = 'hhl'; } 
-                else { familyType = 'hkl'; }
-            } else { 
-                if (k === 0) { familyType = 'h00'; } 
-                else { 
-                    if (h === k) { familyType = 'hh0'; } 
-                    else { familyType = 'hk0'; }
-                }
-            }
-            switch (familyType) {
-                case 'hkl': return 48;
-                case 'hhl': return 24;
-                case 'hk0': return 24;
-                case 'hh0': return 12;
-                case 'hhh': return 8;
-                case 'h00': return 6;
-                default:    return 0;
-            }
-        };
-
-        const isReflectionAllowed = (structure, h, k, l) => {
-            const sum = h + k + l;
-            const h_even = h % 2 === 0;
-            const k_even = k % 2 === 0;
-            const l_even = l % 2 === 0;
-
-            switch (structure) {
-                case 'SC': return true;
-                case 'BCC': return sum % 2 === 0;
-                case 'FCC': return (h_even === k_even) && (k_even === l_even);
-                case 'Diamond':
-                    if (!((h_even === k_even) && (k_even === l_even))) return false;
-                    if (h_even && k_even && l_even) return sum % 4 === 0;
-                    return true;
-                default: return true;
-            }
-        };
-
-        const calculateIntensity = (thetaRad, params, h, k, l) => {
-            const { lambda, B, element, structure, polarization } = params;
-            const sinTheta = Math.sin(thetaRad);
-            if (sinTheta < 1e-6) return 0;
-
-            const cosTheta = Math.cos(thetaRad);
-            if (cosTheta < 1e-6) return 0;
-            
-            const cos2Theta = Math.cos(2 * thetaRad);
-            let p_factor;
-            switch (polarization) {
-                case 'linear_vertical':
-                    p_factor = cos2Theta * cos2Theta;
-                    break;
-                case 'linear_horizontal':
-                    p_factor = 1;
-                    break;
-                case 'unpolarized':
-                default:
-                    p_factor = 1 + cos2Theta * cos2Theta;
-                    break;
-            }
-            const Lp = p_factor / (sinTheta * sinTheta * cosTheta);
-
-            const s = sinTheta / lambda;
-            const debyeWaller = Math.exp(-2 * B * s * s);
-
-            const alphaMap = { 'Si': 3.5 };
-            const Zmap = { 'Si': 14 };
-            const f_amp = (Zmap[element]) * Math.exp(-(alphaMap[element]) * s * s);
-            let F_sq = f_amp * f_amp;
-
-            if (structure === 'Diamond') {
-                const sum_hkl = h + k + l;
-                if (sum_hkl % 4 === 2) F_sq = 0;
-                else if (sum_hkl % 2 !== 0) F_sq *= 32;
-                else if (sum_hkl % 4 === 0) F_sq *= 64;
-            }
-            
-            return F_sq * Lp * debyeWaller;
-        };
-
-        // --- UI Update Functions ---
-        const populateTable = (peaks) => {
-            controls.peakTableBody.innerHTML = '';
-            if (peaks.length === 0) {
-                controls.peakTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4">No diffraction peaks found.</td></tr>`;
-                return 1;
-            }
-            const maxIntensity = Math.max(...peaks.map(p => p.intensity));
-            peaks.forEach(peak => {
-                const normIntensity = (peak.intensity / maxIntensity * 100);
-                const hklString = `(${peak.h},${peak.k},${peak.l})`;
-
-                const row = `
-                    <tr>
-                        <td class="px-4 py-3 text-sm">${peak.two_theta.toFixed(4)}</td>
-                        <td class="px-4 py-3 text-sm">${peak.d.toFixed(4)}</td>
-                        <td class="px-4 py-3 text-sm">${hklString}</td>
-                        <td class="px-4 py-3 text-sm text-center">${peak.multiplicity}</td>
-                        <td class="px-4 py-3 text-sm">${normIntensity.toFixed(2)}</td>
-                    </tr>
-                `;
-                controls.peakTableBody.innerHTML += row;
-            });
-            return maxIntensity || 1;
-        };
-
-        const plotDiffractogram = (peaks, maxIntensity) => {
-            if (xrdChart) {
-                xrdChart.destroy();
-            }
-            const peakWidth = 0.15; // FWHM is fixed as requested.
-            const plotData = [];
-            
-            // Generate plot points over the specified calculation range with more points.
-            for (let two_theta = 5; two_theta <= 160; two_theta += 0.05) {
-                let y = Math.random() * 0.5; 
-                peaks.forEach(peak => {
-                    if (peak.intensity > 0) {
-                        const normIntensity = (peak.intensity / maxIntensity * 100);
-                        const stdev = peakWidth / 2.355;
-                        y += normIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * stdev * stdev));
-                    }
-                });
-                plotData.push({ x: two_theta, y: y });
-            }
-
-            xrdChart = new Chart(controls.chartCanvas, {
-                type: 'line',
-                data: {
-                    datasets: [{
-                        label: 'Intensity', data: plotData,
-                        borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: true,
-                    }]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    animation: false,
-                    scales: {
-                        x: { 
-                            type: 'linear', 
-                            title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, 
-                            min: parseFloat(controls.twoThetaMin.value), 
-                            max: parseFloat(controls.twoThetaMax.value)
-                        },
-                        y: { 
-                            title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, 
-                            min: 0 
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { mode: 'index', intersect: false }
-                    }
-                }
-            });
-        };
-
-        const updateChartRange = () => {
-            if (!xrdChart) return;
-            let min = parseFloat(controls.twoThetaMin.value);
-            let max = parseFloat(controls.twoThetaMax.value);
-            
-            if (min >= max) {
-                 min = max - 1;
-                 controls.twoThetaMin.value = min;
-                 controls.twoThetaMinValue.textContent = min;
+                return calculatedPeaks.sort((a, b) => a.two_theta - b.two_theta);
             };
 
-            xrdChart.options.scales.x.min = min;
-            xrdChart.options.scales.x.max = max;
-            xrdChart.update('none');
-        };
+            const calculateStructureFactor = (h, k, l, atomList, s, B) => {
+                let F_real = 0;
+                let F_imag = 0;
+                atomList.forEach(atom => {
+                    const f = getAtomicScatteringFactor(atom.symbol, s) * Math.exp(-B * s * s);
+                    const phase = 2 * Math.PI * (h * atom.x + k * atom.y + l * atom.z);
+                    F_real += f * Math.cos(phase);
+                    F_imag += f * Math.sin(phase);
+                });
+                return F_real * F_real + F_imag * F_imag;
+            };
 
+            const getAtomicScatteringFactor = (symbol, s) => {
+                 const params = atomicScatteringFactors[symbol];
+                 if (!params) return 1;
+                 const s_sq = s * s;
+                 let f = params.c;
+                 for (let i = 0; i < 4; i++) { f += params.a[i] * Math.exp(-params.b[i] * s_sq); }
+                 return f;
+            };
 
-        // --- Event Listeners ---
-        [controls.structure, controls.latticeParam, controls.wavelength, controls.wavelengthPreset, controls.thermalFactor, controls.polarization].forEach(control => {
-            control.addEventListener('input', runSimulation);
-        });
-        
-        controls.latticeParam.addEventListener('input', () => {
-            controls.latticeParamValue.textContent = controls.latticeParam.value;
-        });
-        controls.thermalFactor.addEventListener('input', () => {
-            controls.thermalFactorValue.textContent = controls.thermalFactor.value;
-        });
+            const generateAtomList = (sg, atomDef) => {
+                const wyckoffInfo = cubicSpaceGroups[sg]?.wyckoff_positions[atomDef.wyckoff];
+                if (!wyckoffInfo) return [];
+                const list = wyckoffInfo.coordinates.map(coordStr => {
+                    let tempStr = coordStr;
+                    Object.entries(atomDef.coords).forEach(([key, value]) => {
+                        tempStr = tempStr.replace(new RegExp(`\\b${key}\\b`, 'g'), `(${value})`);
+                    });
+                    try {
+                        let [x, y, z] = tempStr.split(',').map(c => eval(c.trim()));
+                        return { symbol: atomDef.symbol, x:((x%1)+1)%1, y:((y%1)+1)%1, z:((z%1)+1)%1 };
+                    } catch (e) {
+                        console.error("Could not evaluate coordinate:", tempStr, e);
+                        return null;
+                    }
+                }).filter(Boolean);
+                return Array.from(new Map(list.map(item => [`${item.x.toFixed(4)},${item.y.toFixed(4)},${item.z.toFixed(4)}`, item])).values());
+            };
 
-        controls.twoThetaMin.addEventListener('input', () => {
-            controls.twoThetaMinValue.textContent = controls.twoThetaMin.value;
-            updateChartRange();
-        });
-        controls.twoThetaMax.addEventListener('input', () => {
-            controls.twoThetaMaxValue.textContent = controls.twoThetaMax.value;
-            updateChartRange();
-        });
-        
-        controls.wavelengthPreset.addEventListener('change', (e) => {
-            controls.wavelength.value = e.target.value;
-            runSimulation();
-        });
-        
-        // --- Resizer Logic ---
-        const resizer = document.getElementById('drag-handle');
-        const leftPanel = document.getElementById('controls-panel');
-        let isResizing = false;
-        resizer.addEventListener('mousedown', (e) => {
-            e.preventDefault(); isResizing = true;
-            document.body.style.cursor = 'col-resize';
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', stopResize);
-        });
-        function handleMouseMove(e) {
-            if (isResizing && e.clientX > 320 && e.clientX < 600) {
-               leftPanel.style.width = `${e.clientX}px`;
-            }
-        }
-        function stopResize() {
-            isResizing = false; document.body.style.cursor = 'default';
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', stopResize);
-        }
+            const initialize = () => {
+                const sortedSpaceGroups = Object.entries(cubicSpaceGroups).sort((a,b) => Number(a[0]) - Number(b[0]));
+                sortedSpaceGroups.forEach(([num, data]) => controls.spaceGroup.add(new Option(`${num}: ${data.name}`, num)));
+                const elements = Object.keys(atomicScatteringFactors).sort();
+                [controls.atom1.element, controls.atom2.element].forEach(sel => elements.forEach(symbol => sel.add(new Option(symbol, symbol))));
+                // Default to Diamond
+                controls.spaceGroup.value = "227";
+                controls.atom1.element.value = "C";
+                controls.latticeParam.value = 3.567;
+                controls.latticeParamValue.textContent = 3.567;
+                updateWyckoffDropdowns();
+                controls.atom1.wyckoff.value = '8a';
+                checkAllCoordinateInputs();
+                toggleAtom2(false);
+            };
 
-        // --- Initial Run ---
-        runSimulation();
-    });
+            const updateWyckoffDropdowns = () => {
+                const sg = controls.spaceGroup.value;
+                const wyckoffPositions = cubicSpaceGroups[sg]?.wyckoff_positions;
+                if (!wyckoffPositions) return;
+                [controls.atom1.wyckoff, controls.atom2.wyckoff].forEach(sel => {
+                    const currentVal = sel.value;
+                    sel.innerHTML = '';
+                    Object.keys(wyckoffPositions).forEach(key => {
+                        const info = wyckoffPositions[key];
+                        sel.add(new Option(`${key} (mult: ${info.multiplicity})`, key));
+                    });
+                    if (Array.from(sel.options).some(opt => opt.value === currentVal)) { sel.value = currentVal; }
+                });
+                checkAllCoordinateInputs();
+            };
+
+            const checkCoordinateInputs = (atomNumStr) => {
+                const sg = controls.spaceGroup.value;
+                const atomCtrl = controls[`atom${atomNumStr}`];
+                const wyckoffKey = atomCtrl.wyckoff.value;
+                const coordsDiv = atomCtrl.coords;
+                const firstCoordStr = cubicSpaceGroups[sg]?.wyckoff_positions[wyckoffKey]?.coordinates[0] || "";
+                const freeParams = new Set((firstCoordStr.match(/[xyz]/g) || []));
+                coordsDiv.innerHTML = '';
+                if (freeParams.size > 0) {
+                    coordsDiv.classList.remove('hidden');
+                    freeParams.forEach(param => {
+                        const id = `atom${atomNumStr}-coord-${param}`;
+                        const label = Object.assign(document.createElement('label'), { className: 'control-label text-sm', textContent: `Coordinate ${param}:`, htmlFor: id });
+                        const input = Object.assign(document.createElement('input'), { type: 'number', id, value: "0.25", step: "0.001", className: 'control-input text-sm' });
+                        input.addEventListener('input', runSimulation);
+                        coordsDiv.append(label, input);
+                    });
+                } else {
+                    coordsDiv.classList.add('hidden');
+                }
+            };
+            const checkAllCoordinateInputs = () => { checkCoordinateInputs('1'); checkCoordinateInputs('2'); };
+
+            const getCoordsFromInput = (atomNumStr) => {
+                const coords = {};
+                controls[`atom${atomNumStr}`].coords.querySelectorAll('input').forEach(input => {
+                    coords[input.id.split('-').pop()] = parseFloat(input.value);
+                });
+                return coords;
+            };
+            
+            const calculateComposition = () => {
+                const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+                const sgData = cubicSpaceGroups[controls.spaceGroup.value];
+                const getMult = (sel) => sgData.wyckoff_positions[sel.value]?.multiplicity || 0;
+                const sym1 = controls.atom1.element.value;
+                let mult1 = getMult(controls.atom1.wyckoff);
+                let formula = `${sym1}${mult1 > 1 ? mult1 : ''}`;
+                if (atom2_active) {
+                    const sym2 = controls.atom2.element.value;
+                    let mult2 = getMult(controls.atom2.wyckoff);
+                    if (sym1 === sym2) {
+                        const totalMult = mult1 + mult2;
+                        formula = `${sym1}${totalMult > 1 ? totalMult : ''}`;
+                    } else {
+                        const commonDivisor = gcd(mult1, mult2);
+                        formula = `${sym1}${mult1/commonDivisor > 1 ? mult1/commonDivisor : ''}${sym2}${mult2/commonDivisor > 1 ? mult2/commonDivisor : ''}`;
+                    }
+                }
+                controls.compositionDisplay.textContent = formula;
+            };
+
+            const populateTable = (peaks) => {
+                controls.peakTableBody.innerHTML = '';
+                if (peaks.length === 0) {
+                    controls.peakTableBody.innerHTML = `<tr><td colspan="4" class="text-center py-4">No diffraction peaks found.</td></tr>`;
+                    return 1;
+                }
+                const maxIntensity = Math.max(...peaks.map(p => p.intensity));
+                peaks.forEach(peak => {
+                    const normIntensity = (peak.intensity / maxIntensity * 100);
+                    controls.peakTableBody.innerHTML += `<tr><td class="px-4 py-3 text-sm">${peak.two_theta.toFixed(4)}</td><td class="px-4 py-3 text-sm">${peak.d.toFixed(4)}</td><td class="px-4 py-3 text-sm">${peak.hkl}</td><td class="px-4 py-3 text-sm">${normIntensity.toFixed(2)}</td></tr>`;
+                });
+                return maxIntensity || 1;
+            };
+
+            const plotDiffractogram = (peaks, maxIntensity) => {
+                if (xrdChart) { xrdChart.destroy(); }
+                const peakWidth = 0.15;
+                const plotData = [];
+                for (let two_theta = 5; two_theta <= 160; two_theta += 0.05) {
+                    let y = Math.random() * 0.5; 
+                    peaks.forEach(peak => {
+                        if (peak.intensity > 0) {
+                            const normIntensity = (peak.intensity / maxIntensity * 100);
+                            const stdev = peakWidth / 2.355;
+                            y += normIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * stdev * stdev));
+                        }
+                    });
+                    plotData.push({ x: two_theta, y: y });
+                }
+                xrdChart = new Chart(controls.chartCanvas, {
+                    type: 'line', data: { datasets: [{ label: 'Intensity', data: plotData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: true }] },
+                    options: { responsive: true, maintainAspectRatio: false, animation: false,
+                        scales: { x: { type: 'linear', title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, min: parseFloat(controls.twoThetaMin.value), max: parseFloat(controls.twoThetaMax.value)}, y: { title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, min: 0 } },
+                        plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                    }
+                });
+            };
+
+            const updateChartRange = () => {
+                if (!xrdChart) return;
+                let min = parseFloat(controls.twoThetaMin.value);
+                let max = parseFloat(controls.twoThetaMax.value);
+                if (min >= max) { min = max - 1; controls.twoThetaMin.value = min; controls.twoThetaMinValue.textContent = min; };
+                xrdChart.options.scales.x.min = min;
+                xrdChart.options.scales.x.max = max;
+                xrdChart.update('none');
+            };
+
+            const toggleAtom2 = (show) => {
+                atom2_active = show;
+                controls.atom2.container.classList.toggle('hidden', !show);
+                controls.addAtomBtn.classList.toggle('hidden', show);
+                controls.removeAtomBtn.classList.toggle('hidden', !show);
+                runSimulation();
+            };
+
+            // --- Event Listeners ---
+            const allSimControls = [controls.spaceGroup, controls.latticeParam, controls.wavelength, controls.thermalFactor, controls.atom1.element, controls.atom1.wyckoff, controls.atom2.element, controls.atom2.wyckoff];
+            allSimControls.forEach(control => control.addEventListener('input', runSimulation));
+            
+            // FIX: Update wavelength input when preset is changed
+            controls.wavelengthPreset.addEventListener('change', (e) => {
+                controls.wavelength.value = e.target.value;
+                runSimulation();
+            });
+
+            controls.spaceGroup.addEventListener('change', () => { updateWyckoffDropdowns(); runSimulation(); });
+            [controls.atom1.wyckoff, controls.atom2.wyckoff].forEach((sel, i) => sel.addEventListener('change', () => { checkCoordinateInputs(String(i+1)); runSimulation(); }));
+            [controls.latticeParam, controls.thermalFactor, controls.twoThetaMin, controls.twoThetaMax].forEach(el => el.addEventListener('input', () => { controls[`${el.id}Value`].textContent = el.value; }));
+            controls.twoThetaMin.addEventListener('input', updateChartRange);
+            controls.twoThetaMax.addEventListener('input', updateChartRange);
+            
+            controls.addAtomBtn.addEventListener('click', () => toggleAtom2(true));
+            controls.removeAtomBtn.addEventListener('click', () => toggleAtom2(false));
+            
+            const resizer = document.getElementById('drag-handle');
+            const leftPanel = document.getElementById('controls-panel');
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault(); document.body.style.cursor = 'col-resize';
+                const moveHandler = (e) => { if (e.clientX > 350 && e.clientX < 600) { leftPanel.style.width = `${e.clientX}px`; } };
+                const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
+                window.addEventListener('mousemove', moveHandler);
+                window.addEventListener('mouseup', upHandler);
+            });
+
+            initialize();
+        });
     </script>
 </body>
 </html>
