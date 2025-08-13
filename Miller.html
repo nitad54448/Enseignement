@@ -341,7 +341,7 @@
             if (selectedPlane && selectedPlane.material) selectedPlane.material.color.setHex(0x007bff);
             selectedPlane = (i.length > 0) ? i[0].object : null;
             if (selectedPlane) selectedPlane.material.color.setHex(0xffa500);
-            updateInfo();
+            // The call to updateInfo() is no longer needed here as info is always up-to-date
         }
 
         function updateInfo() {
@@ -350,15 +350,17 @@
                 const { u, v, w } = dom.uvw;
                 dom.info.innerHTML = `<b>Direction: [${u.value} ${v.value} ${w.value}]</b>`;
             } else { // mode === 'plane'
-                if (!selectedPlane) {
-                    const { h, k, l } = dom.hkl;
-                    dom.info.innerHTML = `<b>Plane: (${h.value} ${k.value} ${l.value})</b><br>Click plane for d-spacing.`;
-                } else {
-                    const { h, k, l, params } = selectedPlane.userData;
-                    const d = calculateDSpacing(h, k, l, params);
-                    const d_text = isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`;
-                    dom.info.innerHTML = `<b>Plane: (${h},${k},${l})</b> | d_hkl: ${d_text}`;
-                }
+                const h = parseInt(dom.hkl.h.value, 10) || 0;
+                const k = parseInt(dom.hkl.k.value, 10) || 0;
+                const l = parseInt(dom.hkl.l.value, 10) || 0;
+
+                const p = {};
+                Object.keys(dom.params).forEach(key => p[key] = parseFloat(dom.params[key].value));
+
+                const d = calculateDSpacing(h, k, l, p);
+                const d_text = isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`;
+                
+                dom.info.innerHTML = `<b>Plane: (${h} ${k} ${l})</b> | d_hkl: ${d_text}`;
             }
         }
 
@@ -380,7 +382,13 @@
                 case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break;
                 case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break;
                 case 'hexagonal': hide(['b', 'alpha', 'beta']); dom.params.gamma.value = 120; break;
-                case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break;
+                
+                case 'trigonal':
+                    hide(['b', 'c', 'beta', 'gamma']);
+                    dom.params.alpha.value = 60; // Set default alpha to 60 for trigonal
+                    break;
+
+
                 case 'monoclinic': hide(['alpha', 'gamma']); break;
                 case 'triclinic': break;
             }
