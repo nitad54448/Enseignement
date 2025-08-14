@@ -4,154 +4,159 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reciprocal Space Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; }
         body {
+            font-family: 'Inter', sans-serif;
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            overflow: hidden;
+            background-color: #f0f0f0;
+            color: #e5e7eb; /* Default light text for dark theme */
             display: flex;
             height: 100vh;
-            background-color: #f0f0f0;
-            color: #333;
+            overflow: hidden;
         }
-        #appContainer { display: flex; width: 100%; height: 100%; }
-        #controlsPanel {
-            width: 320px;
-            min-width: 200px; /* Set a minimum width */
-            padding: 10px;
-            background-color: #f7f7ff;
-            overflow-y: auto;
-            height: 100%;
+        #app-container {
             display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            border-right: 1px solid #ddd;
+            width: 100%;
+            height: calc(100vh - 32px); /* Adjust for footer */
         }
-        #resizer {
-            width: 5px;
-            cursor: col-resize;
-            background-color: #e0e0e0;
+        #controls-panel {
+            width: 350px;
+            min-width: 300px;
+            max-width: 600px;
             flex-shrink: 0;
-        }
-        #controlsContent {
-            flex-grow: 1;
+            padding: 24px;
+            background-color: #111827; /* Dark blue-gray */
+            border-right: 1px solid #374151;
             overflow-y: auto;
-            padding-right: 10px;
+            color: #d1d5db;
         }
-        #visualizationContainer {
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6; /* Blue accent */
+        }
+        #visualization-area {
             flex-grow: 1;
             position: relative;
-        }
-        .info-section {
-            margin-bottom: 12px;
-            padding: 12px;
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            background-color: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-        .block-label {
-            display: block;
-            margin-bottom: 10px;
-            font-weight: 600;
-            color: #333;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 5px;
-            font-size: 0.95em;
-        }
-        .grid-container {
-            display: grid;
-            grid-template-columns: 80px 1fr;
-            gap: 10px 8px;
+            background-color: #ffffff; /* Whitish background for the container */
+            min-width: 0;
+            display: flex; 
             align-items: center;
+            justify-content: center;
         }
-        .grid-container-3col {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 5px;
+        #visualization-area canvas {
+             border-radius: 0.5rem;
         }
-        .grid-container-hkl {
-            display: grid;
-            grid-template-columns: 20px 1fr 30px 1fr;
-            gap: 5px 8px;
-            align-items: center;
+        .control-group {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.05);
         }
-        .grid-span-full { grid-column: 1 / -1; }
 
-        label, input, select { font-size: 0.9em; }
-        input[type=number], select {
+        /* Dark Theme Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; }
+        #controls-panel h2 { font-size: 1.25em; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid #374151; padding-bottom: 8px; color: #ffffff; }
+        
+        #controls-panel label { display: block; margin-bottom: 4px; font-weight: 500; font-size: 0.9em; color: #9ca3af; }
+        
+        #controls-panel input[type=number], #controls-panel select {
             width: 100%;
-            padding: 6px;
-            box-sizing: border-box;
-            border: 1px solid #ccc; /* Reverted to standard gray border */
-            border-radius: 4px;
+            padding: 0.5rem;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            font-size: 0.9rem;
         }
-        input[type=range] {
+        #controls-panel input[type=number]:disabled {
+            opacity: 0.5;
+        }
+
+        #controls-panel input[type=range] {
             -webkit-appearance: none;
             appearance: none;
             width: 100%;
-            padding: 0;
-            background: transparent;
+            height: 6px;
+            background: #4b5563;
+            border-radius: 3px;
             cursor: pointer;
         }
-        input[type=range]::-webkit-slider-thumb {
+        #controls-panel input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
             margin-top: -5px;
             height: 16px;
             width: 16px;
-            background: #0056b3; /* Blue thumb for the slider */
+            background: #3b82f6;
             border-radius: 50%;
         }
-        input[type=range]::-moz-range-thumb {
+        #controls-panel input[type=range]::-moz-range-thumb {
             height: 16px;
             width: 16px;
-            background: #0056b3;
+            background: #3b82f6;
             border-radius: 50%;
             border: none;
         }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 6px;
-            background: #ddd;
-            border-radius: 3px;
-        }
-        input[type=range]::-moz-range-track {
-            width: 100%;
-            height: 6px;
-            background: #ddd;
-            border-radius: 3px;
-        }
-        input[type=radio] {
-            accent-color: #0056b3;
-        }
-        #info { font-size: 0.9em; line-height: 1.5; background-color: #e8f0fe; min-height: 50px;}
-        .footer-attribution { margin-top: auto; padding-top: 10px; font-size: 0.8em; text-align: center; color: #aaa; }
-
-        .recip-params { font-size: 0.85em; line-height: 1.6; }
-        .recip-params span { margin-right: 10px; }
-        .recip-params .value { font-weight: normal; color: #333; } /* Changed color to black and removed bold */
-
-        #ortho-views button { padding: 4px 8px; font-size: 0.9em; border: 1px solid #ccc; background: #fff; cursor: pointer; width:100%;}
-        #ortho-views button:hover { background: #e9e9e9; }
         
-        #click-mode-options {
-            text-align: center;
-            margin-bottom: 15px;
+        .radio-label {
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-size: 0.9em;
         }
-        #click-mode-options label { font-size: 0.9em; user-select: none; }
+        .radio-label:has(input:checked) {
+             background-color: #3b82f6;
+             border-color: #2563eb;
+             color: white;
+        }
+        .radio-label:hover { background-color: #4b5563; }
+        .radio-label input[type="radio"] { opacity: 0; width: 0; height: 0; }
+        
+        #ortho-views button {
+            background-color: #3b82f6; border: none; color: #ffffff;
+            border-radius: 0.375rem; padding: 0.5rem; width: 100%;
+            font-weight: 500; font-size: 0.9em;
+            cursor: pointer; transition: background-color 0.2s;
+        }
+        #ortho-views button:hover { background-color: #2563eb; }
+        
+        #info {
+            background-color: #1f2937;
+            border: 1px solid #374151;
+            min-height: 80px;
+        }
+
     </style>
 </head>
 <body>
-    <div id="appContainer">
-        <div id="controlsPanel">
-            <div id="controlsContent">
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Reciprocal Space</h1>
+            <p>An interactive 3D visualization of the reciprocal lattice for various crystal systems.</p>
 
-                <div class="info-section">
-                    <span class="block-label">Crystal System</span>
-                    <div class="grid-container">
-                        <label for="crystalSystem">System:</label>
+            <div class="control-group">
+                <h2>Crystal System</h2>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label for="crystalSystem">System</label>
                         <select id="crystalSystem">
                             <option value="cubic" selected>Cubic</option>
                             <option value="tetragonal">Tetragonal</option>
@@ -161,83 +166,127 @@
                             <option value="trigonal">Trigonal</option>
                             <option value="triclinic">Triclinic</option>
                         </select>
-                        <label for="centering">Centering:</label>
+                    </div>
+                    <div>
+                        <label for="centering">Centering</label>
                         <select id="centering"></select>
                     </div>
                 </div>
+            </div>
 
-                <div class="info-section">
-                     <span class="block-label">Direct Parameters (Å, °)</span>
-                     <div class="grid-container-3col">
-                        <div id="group-a"><label for="a">a:</label><input type="number" id="a" value="4.2" step="0.1" min="1"></div>
-                        <div id="group-b"><label for="b">b:</label><input type="number" id="b" value="4.2" step="0.1" min="1"></div>
-                        <div id="group-c"><label for="c">c:</label><input type="number" id="c" value="4.2" step="0.1" min="1"></div>
-                     </div>
-                     <div class="grid-container-3col" style="margin-top: 10px;">
-                        <div id="group-alpha"><label for="alpha">&alpha;:</label><input type="number" id="alpha" value="90" step="1" min="1" max="179"></div>
-                        <div id="group-beta"><label for="beta">&beta;:</label><input type="number" id="beta" value="90" step="1" min="1" max="179"></div>
-                        <div id="group-gamma"><label for="gamma">&gamma;:</label><input type="number" id="gamma" value="90" step="1" min="1" max="179"></div>
-                     </div>
-                </div>
-
-                <div class="info-section">
-                    <span class="block-label">Reciprocal Parameters (Å⁻¹, °)</span>
-                    <div class="recip-params">
-                        <span id="recip-a_star">a*: <span class="value"></span></span>
-                        <span id="recip-b_star">b*: <span class="value"></span></span>
-                        <span id="recip-c_star">c*: <span class="value"></span></span><br>
-                        <span id="recip-alpha_star">&alpha;*: <span class="value"></span></span>
-                        <span id="recip-beta_star">&beta;*: <span class="value"></span></span>
-                        <span id="recip-gamma_star">&gamma;*: <span class="value"></span></span>
+            <div class="control-group">
+                <h2>Direct Parameters (Å, °)</h2>
+                <div class="grid grid-cols-3 gap-4">
+                    <div id="group-a">
+                        <div class="grid grid-cols-[auto,1fr] items-center gap-x-2">
+                            <label for="a" class="mb-0">a</label>
+                            <input type="number" id="a" value="4.2" step="0.1" min="1">
+                        </div>
+                    </div>
+                    <div id="group-b">
+                        <div class="grid grid-cols-[auto,1fr] items-center gap-x-2">
+                            <label for="b" class="mb-0">b</label>
+                            <input type="number" id="b" value="4.2" step="0.1" min="1">
+                        </div>
+                    </div>
+                    <div id="group-c">
+                        <div class="grid grid-cols-[auto,1fr] items-center gap-x-2">
+                            <label for="c" class="mb-0">c</label>
+                            <input type="number" id="c" value="4.2" step="0.1" min="1">
+                        </div>
+                    </div>
+                    <div id="group-alpha">
+                        <div class="grid grid-cols-[auto,1fr] items-center gap-x-2">
+                            <label for="alpha" class="mb-0">&alpha;</label>
+                            <input type="number" id="alpha" value="90" step="1" min="1" max="179">
+                        </div>
+                    </div>
+                    <div id="group-beta">
+                        <div class="grid grid-cols-[auto,1fr] items-center gap-x-2">
+                            <label for="beta" class="mb-0">&beta;</label>
+                            <input type="number" id="beta" value="90" step="1" min="1" max="179">
+                        </div>
+                    </div>
+                    <div id="group-gamma">
+                        <div class="grid grid-cols-[auto,1fr] items-center gap-x-2">
+                            <label for="gamma" class="mb-0">&gamma;</label>
+                            <input type="number" id="gamma" value="90" step="1" min="1" max="179">
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="info-section">
-                    <span class="block-label">HKL Limits</span>
-                    <div class="grid-container-hkl">
-                        <label for="h_min">H:</label><input type="number" id="h_min" value="-2" step="1">
-                        <label for="h_max">to</label><input type="number" id="h_max" value="2" step="1">
-
-                        <label for="k_min">K:</label><input type="number" id="k_min" value="-2" step="1">
-                        <label for="k_max">to</label><input type="number" id="k_max" value="2" step="1">
-
-                        <label for="l_min">L:</label><input type="number" id="l_min" value="-2" step="1">
-                        <label for="l_max">to</label><input type="number" id="l_max" value="2" step="1">
-                    </div>
+            <div class="control-group">
+                <h2>Reciprocal Parameters (Å⁻¹, °)</h2>
+                <div class="grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
+                    <span id="recip-a_star">a*: <span class="value font-mono text-white"></span></span>
+                    <span id="recip-b_star">b*: <span class="value font-mono text-white"></span></span>
+                    <span id="recip-c_star">c*: <span class="value font-mono text-white"></span></span>
+                    <span id="recip-alpha_star">&alpha;*: <span class="value font-mono text-white"></span></span>
+                    <span id="recip-beta_star">&beta;*: <span class="value font-mono text-white"></span></span>
+                    <span id="recip-gamma_star">&gamma;*: <span class="value font-mono text-white"></span></span>
                 </div>
-                
-                <div class="info-section">
-                    <span class="block-label">Display Options</span>
-                    <div id="click-mode-options" class="grid-container-3col">
-                        <span><input type="radio" id="modeInfo" name="clickMode" value="info" checked> <label for="modeInfo">Info</label></span>
-                        <span><input type="radio" id="modeMeasure" name="clickMode" value="measure"> <label for="modeMeasure">Measure</label></span>
-                        <span><input type="radio" id="modeMultiplicity" name="clickMode" value="multiplicity"> <label for="modeMultiplicity">Multi</label></span>
-                    </div>
-                    <div class="grid-container" style="margin-top: 15px;">
-                        <label for="projection">Projection:</label>
+            </div>
+
+            <div class="control-group">
+                <h2>HKL Limits</h2>
+                <div class="grid grid-cols-[auto,1fr,auto,1fr] items-center gap-x-2 gap-y-3">
+                    <label class="mb-0">H</label>
+                    <input type="number" id="h_min" value="-2" step="1">
+                    <span class="text-center">to</span>
+                    <input type="number" id="h_max" value="2" step="1">
+
+                    <label class="mb-0">K</label>
+                    <input type="number" id="k_min" value="-2" step="1">
+                    <span class="text-center">to</span>
+                    <input type="number" id="k_max" value="2" step="1">
+                    
+                    <label class="mb-0">L</label>
+                    <input type="number" id="l_min" value="-2" step="1">
+                    <span class="text-center">to</span>
+                    <input type="number" id="l_max" value="2" step="1">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <h2>Display Options</h2>
+                <div class="grid grid-cols-3 gap-2">
+                    <label class="radio-label">Info<input type="radio" id="modeInfo" name="clickMode" value="info" checked></label>
+                    <label class="radio-label">Measure<input type="radio" id="modeMeasure" name="clickMode" value="measure"></label>
+                    <label class="radio-label">Multi<input type="radio" id="modeMultiplicity" name="clickMode" value="multiplicity"></label>
+                </div>
+                <div class="grid grid-cols-1 gap-4 mt-4">
+                     <div>
+                        <label for="projection">Projection</label>
                         <select id="projection">
                             <option value="perspective" selected>Perspective</option>
                             <option value="orthographic">Orthographic</option>
                         </select>
-                        <label for="nodeSize">Node Size:</label>
+                     </div>
+                     <div>
+                        <label for="nodeSize">Node Size</label>
                         <input type="range" id="nodeSize" min="0.005" max="0.05" step="0.001" value="0.015">
-                    </div>
-                     <div id="ortho-views" style="display: none; margin-top:10px;">
-                        <div class="grid-container-3col">
-                            <button class="view-btn" data-axis="a">[a*]</button>
-                            <button class="view-btn" data-axis="b">[b*]</button>
-                            <button class="view-btn" data-axis="c">[c*]</button>
-                        </div>
+                     </div>
+                </div>
+                 <div id="ortho-views" style="display: none;" class="mt-4">
+                    <div class="grid grid-cols-3 gap-2">
+                        <button class="view-btn" data-axis="a">[a*]</button>
+                        <button class="view-btn" data-axis="b">[b*]</button>
+                        <button class="view-btn" data-axis="c">[c*]</button>
                     </div>
                 </div>
-
-                <div id="info" class="info-section">Right-click a node to see its info.</div>
             </div>
-            <div id="footer" class="footer-attribution">NitaD, Univ Paris-Saclay, 2025</div>
+
+            <div id="info" class="control-group p-3 text-sm font-mono">Right-click a node to see its info.</div>
         </div>
-        <div id="resizer"></div>
-        <div id="visualizationContainer"></div>
+        <div id="drag-handle"></div>
+        <div id="visualization-area"></div>
     </div>
+
+    <footer class="fixed bottom-0 left-0 w-full bg-white shadow-md p-2 flex justify-between items-center text-xs text-gray-600 border-t z-10">
+        <div class="px-4">Right-click a node to select. Rotate with left-click drag. Pan with right-click drag. Zoom with scroll.</div>
+        <div class="px-4">NitaD, Univ Paris-Saclay, 2025</div>
+    </footer>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -271,11 +320,11 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111111);
+            scene.background = new THREE.Color(0xf7fafc); // Whitish background
             scene.add(latticePoints);
             scene.add(reciprocalAxes);
 
-            const container = document.getElementById('visualizationContainer');
+            const container = document.getElementById('visualization-area');
             const aspect = container.clientWidth / container.clientHeight;
             perspectiveCamera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
             perspectiveCamera.position.z = 5;
@@ -291,6 +340,13 @@
             container.appendChild(renderer.domElement);
             
             controls = new THREE.OrbitControls(currentCamera, renderer.domElement);
+            controls.enablePan = true;
+            controls.mouseButtons = {
+                LEFT: THREE.MOUSE.ROTATE,
+                MIDDLE: THREE.MOUSE.DOLLY,
+                RIGHT: THREE.MOUSE.PAN
+            };
+
             
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             scene.add(new THREE.DirectionalLight(0xffffff, 0.8));
@@ -349,8 +405,8 @@
         }
 
         function initResizer() {
-            const resizer = document.getElementById('resizer');
-            const panel = document.getElementById('controlsPanel');
+            const resizer = document.getElementById('drag-handle');
+            const panel = document.getElementById('controls-panel');
             let startX, startWidth;
 
             resizer.addEventListener('mousedown', function(e) {
@@ -364,7 +420,9 @@
             function handleMouseMove(e) {
                 const dx = e.clientX - startX;
                 const newWidth = startWidth + dx;
-                if (newWidth > 200 && newWidth < 800) { // Adjusted min-width check
+                const minWidth = parseInt(getComputedStyle(panel).minWidth);
+                const maxWidth = parseInt(getComputedStyle(panel).maxWidth);
+                if (newWidth > minWidth && newWidth < maxWidth) { 
                     panel.style.width = newWidth + 'px';
                     onWindowResize();
                 }
@@ -444,7 +502,7 @@
         }
         
         function onWindowResize() { 
-            const container = document.getElementById('visualizationContainer');
+            const container = document.getElementById('visualization-area');
             if (!container || container.clientWidth === 0 || container.clientHeight === 0) return;
             const aspect = container.clientWidth / container.clientHeight;
             
@@ -462,7 +520,6 @@
         }
 
         // --- All other functions (generateLattice, calculateTheoreticalMultiplicity, etc.) remain unchanged ---
-        // --- They are included here for completeness ---
         
         function updateReciprocalDisplay(p) { 
             const toRad = Math.PI / 180; 
@@ -499,9 +556,9 @@
             selectionIndicator.visible = false;
             const clickMode = getClickMode();
             if (selectedNodes.length === 0) {
-                let modeText = "Right-click a node to see its info.";
+                let modeText = "Right-click a node for info.";
                 if (clickMode === 'measure') modeText = "Right-click two nodes to measure.";
-                if (clickMode === 'multiplicity') modeText = "Right-click a node for multiplicity.";
+                if (clickMode === 'multiplicity') modeText = "Right-click a node for multiplicity info.";
                 dom.info.innerHTML = modeText;
             } else if (selectedNodes.length === 1) {
                 const { h, k, l, params } = selectedNodes[0].userData;
@@ -512,13 +569,13 @@
             } else if (selectedNodes.length === 2) {
                 const [node1, node2] = selectedNodes;
                 const reciprocalDist = node1.position.distanceTo(node2.position);
-                const delta_h = node2.userData.h - node1.userData.h, delta_k = node2.userData.k - node1.userData.l, delta_l = node2.userData.l - node1.userData.l;
+                const delta_h = node2.userData.h - node1.userData.h, delta_k = node2.userData.k - node1.userData.k, delta_l = node2.userData.l - node1.userData.l;
                 const directDist = calculateDSpacing(delta_h, delta_k, delta_l, node1.userData.params);
                 dom.info.innerHTML = `<b>Measurement</b><br>(${node1.userData.h},${node1.userData.k},${node1.userData.l}) to (${node2.userData.h},${node2.userData.k},${node2.userData.l})<br>&Delta;hkl: (${delta_h},${delta_k},${delta_l})<hr>Recip. Dist: ${reciprocalDist.toFixed(4)} Å⁻¹<br>d-spacing: ${directDist.toFixed(4)} Å`;
             }
         }
-        function updateParameterFields() { const system = dom.system.value; Object.values(dom.groups).forEach(g => { g.style.display = 'block'; }); Object.values(dom.inputs).forEach(i => { i.disabled = false; i.parentElement.style.opacity=1; }); const hide = (params) => params.forEach(p => { const elem = dom.groups[p]; elem.style.display = 'none'; }); switch (system) { case 'cubic': hide(['b', 'c', 'alpha', 'beta', 'gamma']); break; case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break; case 'hexagonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break; case 'monoclinic': hide(['alpha', 'gamma']); break; } syncLinkedParameters(); }
-        function syncLinkedParameters() { const system = dom.system.value; const setVal = (p, val) => { dom.inputs[p].value = val; dom.inputs[p].disabled = true; dom.inputs[p].parentElement.style.opacity=0.5; }; switch(system) { case 'cubic': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'tetragonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'orthorhombic': setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'hexagonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 120); break; case 'trigonal': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('beta', dom.inputs.alpha.value); setVal('gamma', dom.inputs.alpha.value); break; case 'monoclinic': setVal('alpha', 90); setVal('gamma', 90); break; } }
+        function updateParameterFields() { const system = dom.system.value; Object.values(dom.groups).forEach(g => { g.style.display = 'block'; }); Object.values(dom.inputs).forEach(i => { i.disabled = false;}); const hide = (params) => params.forEach(p => { const elem = dom.groups[p]; elem.style.display = 'none'; }); switch (system) { case 'cubic': hide(['b', 'c', 'alpha', 'beta', 'gamma']); break; case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break; case 'hexagonal': hide(['b', 'alpha', 'beta']); break; case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break; case 'monoclinic': hide(['alpha', 'gamma']); break; } syncLinkedParameters(); }
+        function syncLinkedParameters() { const system = dom.system.value; const setVal = (p, val) => { dom.inputs[p].value = val; dom.inputs[p].disabled = true; }; const enable = (p) => { dom.inputs[p].disabled = false; }; const allParams = ['b', 'c', 'alpha', 'beta', 'gamma']; allParams.forEach(enable); switch(system) { case 'cubic': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'tetragonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'orthorhombic': setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'hexagonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 120); break; case 'trigonal': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('beta', dom.inputs.alpha.value); setVal('gamma', dom.inputs.alpha.value); break; case 'monoclinic': setVal('alpha', 90); setVal('gamma', 90); break; } generateLattice(); }
         function updateCenteringOptions() { const system = dom.system.value; const options = centeringOptions[system]; const currentCentering = dom.centering.value; dom.centering.innerHTML = ''; options.forEach(opt => { const option = document.createElement('option'); option.value = opt; option.textContent = opt; dom.centering.appendChild(option); }); if (options.includes(currentCentering)) { dom.centering.value = currentCentering; } generateLattice(); }
         function getReciprocalVectors(a, b, c, alpha, beta, gamma) { const toRad = Math.PI / 180; const cos_a = Math.cos(alpha * toRad), cos_b = Math.cos(beta * toRad), cos_g = Math.cos(gamma * toRad); const V_sq = a**2 * b**2 * c**2 * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g); if (isNaN(V_sq) || V_sq < 1e-9) return {}; const V = Math.sqrt(V_sq); const a_star = (b * c * Math.sin(alpha * toRad)) / V; const b_star = (a * c * Math.sin(beta * toRad)) / V; const c_star = (a * b * Math.sin(gamma * toRad)) / V; const cos_alpha_star = (cos_b * cos_g - cos_a) / (Math.sin(beta * toRad) * Math.sin(gamma * toRad)); const cos_beta_star = (cos_g * cos_a - cos_b) / (Math.sin(gamma * toRad) * Math.sin(alpha * toRad)); const cos_gamma_star = (cos_a * cos_b - cos_g) / (Math.sin(alpha * toRad) * Math.sin(beta * toRad)); if(Math.abs(cos_gamma_star)>1.000001) return{}; const sin_gamma_star = Math.sqrt(1 - cos_gamma_star**2); if(isNaN(sin_gamma_star) || sin_gamma_star < 1e-9) return{}; const b1 = new THREE.Vector3(a_star, 0, 0); const b2 = new THREE.Vector3(b_star * cos_gamma_star, b_star * sin_gamma_star, 0); const b3_x = c_star * cos_beta_star; const b3_y = c_star * (cos_alpha_star - cos_beta_star * cos_gamma_star) / sin_gamma_star; const b3_z = Math.sqrt(Math.max(0, c_star**2 - b3_x**2 - b3_y**2)); return { b1, b2, b3: new THREE.Vector3(b3_x, b3_y, b3_z) }; }
         function isAllowed(h, k, l, centering) { switch (centering) { case 'P': return true; case 'I': return (h + k + l) % 2 === 0; case 'F': return (h % 2 === k % 2) && (k % 2 === l % 2); case 'C': return (h + k) % 2 === 0; case 'A': return (k + l) % 2 === 0; case 'B': return (h + l) % 2 === 0; case 'R': return (-h + k + l) % 3 === 0; default: return true; } }
