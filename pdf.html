@@ -5,76 +5,161 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pair Distribution Function Explorer</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-        }
-        .canvas-wrapper {
-            background-color: #f3f4f6; /* gray-100 */
+            margin: 0;
+            background-color: #f0f0f0;
+            color: #e5e7eb; /* Default light text for dark theme */
             display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 0.75rem;
+            flex-direction: column;
+            height: 100vh;
             overflow: hidden;
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 300px;
+            max-width: 600px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* Dark blue-gray */
+            border-right: 1px solid #374151;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6;
+        }
+        #visualization-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #ffffff;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            color: #1f2937;
+        }
+        .visualization-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+            width: 100%;
+            height: 100%;
+            align-items: center;
+            justify-items: center;
+        }
+        .canvas-container {
             width: 100%;
             max-width: 512px;
             aspect-ratio: 1 / 1;
-            border: 1px solid #d1d5db; /* gray-300 */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
-        canvas {
+        .canvas-wrapper {
             width: 100%;
             height: 100%;
-            object-fit: contain;
-            background-color: #ffffff;
+            position: relative;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            overflow: hidden;
         }
-        .overlay-canvas {
+        .canvas-container canvas {
             position: absolute;
             top: 0;
             left: 0;
-            pointer-events: none;
-            background-color: transparent;
-        }
-        input[type=range] {
-            -webkit-appearance: none;
             width: 100%;
-            background: transparent;
+            height: 100%;
         }
-        input[type=range]::-webkit-slider-runnable-track {
-            background: #d1d5db; /* gray-300 */
-            height: 0.5rem;
-            border-radius: 0.25rem;
+        /* Dark Theme Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        #controls-panel input[type="number"] {
+            width: 90px;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            text-align: right;
         }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 1.25rem;
-            width: 1.25rem;
-            border-radius: 9999px;
-            background: #3b82f6; /* blue-500 */
+        #controls-panel select {
+            width: 100%;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+        }
+        #controls-panel button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 0.375rem;
             cursor: pointer;
-            margin-top: -0.375rem;
-            border: 2px solid white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            transition: background-color 0.2s ease-in-out;
+            font-weight: 500;
+            width: 100%;
         }
-        input[type=range]:disabled::-webkit-slider-thumb {
-            background: #9ca3af; /* gray-400 */
+        #controls-panel button:hover { background-color: #2563EB; }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-row { display: flex; align-items: center; gap: 1rem; }
+
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 6px; background: #4b5563;
+            border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s;
+            flex-grow: 1;
+        }
+        input[type="range"]:hover { opacity: 1; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 18px; height: 18px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px; height: 18px; background: #3b82f6;
+            cursor: pointer; border-radius: 50%; border: 0;
+        }
+        footer {
+            width: 100%;
+            background-color: #ffffff;
+            padding: 8px 24px;
+            text-align: left;
+            font-size: 0.8em;
+            color: #4b5563;
+            border-top: 1px solid #e5e7eb;
+            flex-shrink: 0;
         }
     </style>
 </head>
-<body class="flex flex-col h-screen bg-gray-50 overflow-hidden">
+<body>
 
-    <header class="bg-white p-4 shadow-md w-full z-10 border-b">
-        <div class="container mx-auto flex items-center justify-between flex-wrap gap-4">
-            <div class="flex items-center gap-8">
-                <h1 class="text-2xl font-bold text-gray-800">Pair Distribution Function</h1>
-            </div>
-             <div id="status" class="text-sm text-gray-600">Select a preset or click on the left canvas.</div>
-        </div>
-        <div class="container mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 items-center gap-x-6 gap-y-4 mt-4">
-             <div class="flex items-center gap-2">
-                <label for="function-presets" class="text-sm font-medium text-gray-700">Preset:</label>
-                <select id="function-presets" class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 w-full">
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Pair Distribution</h1>
+            <p>Simulate the pair distribution function g(d) for various 2D particle arrangements, from crystalline to gas-like.</p>
+
+            <div class="control-group">
+                <label for="function-presets">Arrangement Preset</label>
+                <select id="function-presets">
                     <option value="crystal">Crystal</option>
                     <option value="crystal-hex">Compact Crystal</option>
                     <option value="liquid" selected>Liquid-like</option>
@@ -82,58 +167,68 @@
                     <option value="liquid-crystal-smectic">Liquid Crystal (Smectic)</option>
                 </select>
             </div>
-             <div class="flex items-center gap-3 w-full">
-                <label for="particle-slider" class="text-sm font-medium text-gray-700 whitespace-nowrap">Particles:</label>
-                <input type="range" id="particle-slider" min="20" max="1000" value="600" class="w-full">
-                <span id="particle-count" class="font-mono text-sm text-gray-800 w-8 text-center">600</span>
-            </div>
-            <div class="flex items-center gap-3 w-full">
-                <label for="temp-slider" class="text-sm font-medium text-gray-700 whitespace-nowrap">Disorder:</label>
-                <input type="range" id="temp-slider" min="0" max="20" value="8" class="w-full">
-                <span id="temp-value" class="font-mono text-sm text-gray-800 w-8 text-center">8</span>
-            </div>
-            <button id="reset-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 w-full md:w-auto">
-                Reset
-            </button>
-        </div>
-    </header>
-
-    <main class="flex-grow p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 items-start justify-items-center overflow-auto">
-        <div class="w-full flex flex-col items-center">
-            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Particle Distribution</h3>
-            <div class="relative w-full max-w-[512px]">
-                <div id="source-wrapper" class="canvas-wrapper cursor-crosshair">
-                    <canvas id="sourceCanvas"></canvas>
-                    <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
+            
+            <div class="control-group">
+                <label for="particle-slider">Number of Particles</label>
+                <div class="control-row">
+                    <input type="range" id="particle-slider" min="20" max="1000" value="600" step="1">
+                    <input type="number" id="particle-value" min="20" max="1000" value="600" step="1">
                 </div>
             </div>
-             <div class="w-full max-w-[512px] mt-4">
-                <div id="sweep-container" class="w-full mt-4">
-                    <input type="range" id="sweep-slider" min="0" max="10" step="0.1" value="0">
-                    <label for="sweep-slider" class="block text-center text-sm font-medium text-gray-700 mt-1">Highlight Distance (in diameters): <span id="sweep-value" class="font-mono">0.0</span></label>
+            
+            <div class="control-group">
+                <label for="temp-slider">Disorder</label>
+                <div class="control-row">
+                    <input type="range" id="temp-slider" min="0" max="20" value="8" step="1">
+                    <input type="number" id="temp-value" min="0" max="20" value="8" step="1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="sweep-slider">Highlight Distance (diameters)</label>
+                <div class="control-row">
+                    <input type="range" id="sweep-slider" min="0" max="10" value="0" step="0.1">
+                    <input type="number" id="sweep-value" min="0" max="10" value="0" step="0.1">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                 <button id="reset-btn">Reset Simulation</button>
+            </div>
+
+            <p id="status" class="text-sm text-gray-400 mt-6"></p>
+
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="visualization-area">
+            <div class="visualization-grid">
+                <div class="canvas-container">
+                    <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Particle Distribution</h3>
+                    <div class="canvas-wrapper cursor-crosshair">
+                        <canvas id="sourceCanvas"></canvas>
+                        <canvas id="sourceOverlayCanvas"></canvas>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Pair Distribution Function, g(d)</h3>
+                    <div class="canvas-wrapper">
+                         <canvas id="pdfCanvas"></canvas>
+                         <canvas id="pdfOverlayCanvas"></canvas>
+                    </div>
+                     <p class="text-sm text-center text-gray-600 mt-2">Distance, d (in particle diameters)</p>
                 </div>
             </div>
         </div>
+    </div>
 
-        <div class="w-full flex flex-col items-center">
-            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Pair Distribution Function, g(d)</h3>
-            <div class="relative w-full max-w-[512px]">
-                <div id="pdf-wrapper" class="canvas-wrapper">
-                    <canvas id="pdfCanvas"></canvas>
-                    <canvas id="pdfOverlayCanvas" class="overlay-canvas"></canvas>
-                </div>
-                 <p class="text-sm text-center text-gray-600 mt-2">Distance, d</p>
-            </div>
-        </div>
-    </main>
-
-    <footer class="w-full p-4 text-center">
-        <p class="text-sm text-gray-500">
-            A simulation for educational purposes. NitaD, Univ Paris-Saclay, 2025. nitad54448.github.io
-        </p>
+    <footer class="text-gray-600">
+        A simulation for educational purposes. NitaD, Univ Paris-Saclay, 2025.
     </footer>
 
     <script>
+    document.addEventListener('DOMContentLoaded', () => {
         // --- Elements ---
         const statusEl = document.getElementById('status');
         const sourceCanvas = document.getElementById('sourceCanvas');
@@ -146,67 +241,90 @@
         const pdfOverlayCtx = pdfOverlayCanvas.getContext('2d');
 
         const functionPresets = document.getElementById('function-presets');
-        const particleSlider = document.getElementById('particle-slider');
-        const particleCount = document.getElementById('particle-count');
-        const tempSlider = document.getElementById('temp-slider');
-        const tempValue = document.getElementById('temp-value');
         const resetBtn = document.getElementById('reset-btn');
         
-        const sweepSlider = document.getElementById('sweep-slider');
-        const sweepValue = document.getElementById('sweep-value');
-
         // --- Constants & State ---
-        const BOX_SIZE = 512;
+        const RENDER_SIZE = 512; // Internal resolution
         const PARTICLE_RADIUS = 10;
         const PARTICLE_DIAMETER = PARTICLE_RADIUS * 2;
         const R_MAX_UNITS = 10; // Max distance in plot, in units of particle diameters
         let points = [];
         let pdfData = { g_r: [], radii: [] };
-        let originalParticleCount = 200;
+        let originalParticleCount = 600;
 
         // --- Initial Setup ---
         function initialize() {
             [sourceCanvas, sourceOverlayCanvas, pdfCanvas, pdfOverlayCanvas].forEach(c => {
-                c.width = BOX_SIZE;
-                c.height = BOX_SIZE;
+                c.width = RENDER_SIZE;
+                c.height = RENDER_SIZE;
             });
-            sweepSlider.max = R_MAX_UNITS;
-            originalParticleCount = particleSlider.value;
             
+            setupControls();
             addEventListeners();
             updateVisualization();
+            handleResize(); // Initial draw
         }
+
+        function setupControls() {
+            const controls = [
+                { slider: 'particle-slider', value: 'particle-value', changeCallback: () => { points = []; updateVisualization(); } },
+                { slider: 'temp-slider', value: 'temp-value', changeCallback: () => { points = []; updateVisualization(); } },
+                { slider: 'sweep-slider', value: 'sweep-value', inputCallback: (val) => handleSliderChange(val) }
+            ];
+
+            controls.forEach(c => {
+                const slider = document.getElementById(c.slider);
+                const valueInput = document.getElementById(c.value);
+                const step = parseFloat(slider.step);
+                const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
+
+                slider.addEventListener('input', () => {
+                    const val = parseFloat(slider.value);
+                    valueInput.value = val.toFixed(precision);
+                    if (c.inputCallback) c.inputCallback(val);
+                });
+                
+                slider.addEventListener('change', () => {
+                     if (c.changeCallback) c.changeCallback();
+                });
+
+                valueInput.addEventListener('change', () => {
+                    const min = parseFloat(valueInput.min);
+                    const max = parseFloat(valueInput.max);
+                    let val = parseFloat(valueInput.value);
+                    if (isNaN(val)) val = min;
+                    val = Math.max(min, Math.min(max, val));
+                    valueInput.value = val.toFixed(precision);
+                    slider.value = val;
+                    if (c.inputCallback) c.inputCallback(val);
+                    if (c.changeCallback) c.changeCallback();
+                });
+            });
+        }
+
 
         function addEventListeners() {
             functionPresets.addEventListener('change', () => {
                 points = []; 
                 const isGas = functionPresets.value === 'gas';
+                const particleSlider = document.getElementById('particle-slider');
+                const particleValue = document.getElementById('particle-value');
+                
                 particleSlider.disabled = isGas;
                 if (isGas) {
                     originalParticleCount = particleSlider.value;
-                    particleSlider.value = 30; // faible masse volumique, pas trop intéressant... mais bon
+                    particleSlider.value = 30;
                 } else {
                     particleSlider.value = originalParticleCount;
                 }
-                particleCount.textContent = particleSlider.value;
+                particleValue.value = particleSlider.value;
                 updateVisualization();
             });
-            particleSlider.addEventListener('input', e => particleCount.textContent = e.target.value);
-            particleSlider.addEventListener('change', () => {
-                points = [];
-                originalParticleCount = particleSlider.value;
-                updateVisualization();
-            });
-            tempSlider.addEventListener('input', e => tempValue.textContent = e.target.value);
-            tempSlider.addEventListener('change', () => {
-                points = [];
-                updateVisualization();
-            });
+            
             resetBtn.addEventListener('click', () => {
                 points = [];
                 updateVisualization();
             });
-            sweepSlider.addEventListener('input', e => handleSliderChange(parseFloat(e.target.value)));
             sourceCanvas.addEventListener('click', handleCanvasClick);
         }
 
@@ -216,69 +334,58 @@
             generatePoints();
             drawPoints();
             
-            statusEl.textContent = 'Calculating g(distance)...';
-            pdfData = calculatePDF(points, BOX_SIZE, R_MAX_UNITS, 0.05);
+            statusEl.textContent = 'Calculating g(d)...';
+            pdfData = calculatePDF(points, RENDER_SIZE, R_MAX_UNITS, 0.05);
             drawPDF(pdfData);
             
-            handleSliderChange(parseFloat(sweepSlider.value));
+            handleSliderChange(parseFloat(document.getElementById('sweep-slider').value));
             statusEl.textContent = `Ready. ${points.length} particles.`;
         }
         
-        // --- Point Generation: Hard-Sphere Model
-        function tryPlaceParticle(newPoint, minDistance) {
-            for (const p of points) {
-                if (Math.hypot(p.x - newPoint.x, p.y - newPoint.y) < minDistance) {
-                    return false; // Placement failed
-                }
-            }
-            points.push(newPoint);
-            return true; // Placement 
-        }
-
         function generatePoints() {
             const mode = functionPresets.value;
-            const numPoints = parseInt(particleSlider.value);
-            const temperature = parseInt(tempSlider.value);
+            const numPoints = parseInt(document.getElementById('particle-slider').value);
+            const temperature = parseInt(document.getElementById('temp-slider').value);
             
             if (points.length > 0) return;
+
+            const tryPlaceParticle = (newPoint, minDistance) => {
+                for (const p of points) {
+                    if (Math.hypot(p.x - newPoint.x, p.y - newPoint.y) < minDistance) return false;
+                }
+                points.push(newPoint);
+                return true;
+            };
 
             if (mode === 'crystal') {
                 const spacing = PARTICLE_DIAMETER * 1.1;
                 const numPerSide = Math.ceil(Math.sqrt(numPoints));
                 const totalWidth = (numPerSide - 1) * spacing;
-                const offset = (BOX_SIZE - totalWidth) / 2;
-                let count = 0;
-                for (let i = 0; i < numPerSide && count < numPoints; i++) {
-                    for (let j = 0; j < numPerSide && count < numPoints; j++) {
+                const offset = (RENDER_SIZE - totalWidth) / 2;
+                for (let i = 0; i < numPerSide && points.length < numPoints; i++) {
+                    for (let j = 0; j < numPerSide && points.length < numPoints; j++) {
                         points.push({ x: offset + i * spacing, y: offset + j * spacing });
-                        count++;
                     }
                 }
             } else if (mode === 'crystal-hex') {
                 const spacing = PARTICLE_DIAMETER * 1.15;
                 const rowHeight = spacing * Math.sqrt(3) / 2;
-                const numCols = Math.floor(BOX_SIZE / spacing) + 1;
-                const numRows = Math.floor(BOX_SIZE / rowHeight) + 1;
+                const numCols = Math.floor(RENDER_SIZE / spacing) + 1;
+                const numRows = Math.floor(RENDER_SIZE / rowHeight) + 1;
+                const xOffset = (RENDER_SIZE - (numCols - 1) * spacing) / 2;
+                const yOffset = (RENDER_SIZE - (numRows - 1) * rowHeight) / 2;
 
-                const totalWidth = (numCols - 1) * spacing;
-                const totalHeight = (numRows - 1) * rowHeight;
-                const xOffset = (BOX_SIZE - totalWidth) / 2;
-                const yOffset = (BOX_SIZE - totalHeight) / 2;
-
-                let count = 0;
-                for (let j = 0; j < numRows && count < numPoints; j++) {
+                for (let j = 0; j < numRows && points.length < numPoints; j++) {
                     const horizontalShift = (j % 2 === 0) ? 0 : spacing / 2;
-                    for (let i = 0; i < numCols && count < numPoints; i++) {
+                    for (let i = 0; i < numCols && points.length < numPoints; i++) {
                         const x = xOffset + i * spacing + horizontalShift;
                         const y = yOffset + j * rowHeight;
-                        if (x < BOX_SIZE + PARTICLE_RADIUS && y < BOX_SIZE + PARTICLE_RADIUS) {
+                        if (x < RENDER_SIZE + PARTICLE_RADIUS && y < RENDER_SIZE + PARTICLE_RADIUS) {
                              points.push({ x, y });
-                             count++;
                         }
                     }
                 }
-
-            } else { // random
+            } else { // random modes
                 const minDistance = (mode === 'gas') ? 0 : PARTICLE_DIAMETER;
                 for (let i = 0; i < numPoints; i++) {
                     let attempts = 0;
@@ -286,17 +393,13 @@
                         let newPoint;
                         if (mode === 'liquid-crystal-smectic') {
                             const layerSpacing = PARTICLE_DIAMETER * 2.5;
-                            const layerDeviation = PARTICLE_DIAMETER / 2;
-                            const numLayers = Math.floor(BOX_SIZE / layerSpacing);
+                            const numLayers = Math.floor(RENDER_SIZE / layerSpacing);
                             const layerIndex = Math.floor(Math.random() * numLayers);
-                            newPoint = { x: Math.random() * BOX_SIZE, y: (layerIndex + 0.5) * layerSpacing + (Math.random() - 0.5) * 2 * layerDeviation };
+                            newPoint = { x: Math.random() * RENDER_SIZE, y: (layerIndex + 0.5) * layerSpacing + (Math.random() - 0.5) * PARTICLE_DIAMETER };
                         } else {
-                           newPoint = { x: Math.random() * BOX_SIZE, y: Math.random() * BOX_SIZE };
+                           newPoint = { x: Math.random() * RENDER_SIZE, y: Math.random() * RENDER_SIZE };
                         }
-                        
-                        if (tryPlaceParticle(newPoint, minDistance)) {
-                            break; // Success
-                        }
+                        if (tryPlaceParticle(newPoint, minDistance)) break;
                         attempts++;
                     }
                 }
@@ -309,12 +412,10 @@
                     let attempts = 0;
                     while(attempts < 50) {
                         const newPos = {
-                            x: (p.x + (Math.random() - 0.5) * temperature + BOX_SIZE) % BOX_SIZE,
-                            y: (p.y + (Math.random() - 0.5) * temperature + BOX_SIZE) % BOX_SIZE
+                            x: (p.x + (Math.random() - 0.5) * temperature + RENDER_SIZE) % RENDER_SIZE,
+                            y: (p.y + (Math.random() - 0.5) * temperature + RENDER_SIZE) % RENDER_SIZE
                         };
-                        if (tryPlaceParticle(newPos, PARTICLE_DIAMETER)) {
-                            break;
-                        }
+                        if (tryPlaceParticle(newPos, (mode === 'gas') ? 0 : PARTICLE_DIAMETER)) break;
                         attempts++;
                     }
                 }
@@ -323,15 +424,26 @@
 
         function handleCanvasClick(event) {
             const rect = sourceCanvas.getBoundingClientRect();
-            const x = (event.clientX - rect.left) * (BOX_SIZE / rect.width);
-            const y = (event.clientY - rect.top) * (BOX_SIZE / rect.height);
+            const x = (event.clientX - rect.left) * (RENDER_SIZE / rect.width);
+            const y = (event.clientY - rect.top) * (RENDER_SIZE / rect.height);
             
-            if (tryPlaceParticle({ x, y }, PARTICLE_DIAMETER)) {
-                particleSlider.value = points.length;
-                particleCount.textContent = points.length;
+            let canPlace = true;
+            for (const p of points) {
+                if (Math.hypot(p.x - x, p.y - y) < PARTICLE_DIAMETER) {
+                    canPlace = false;
+                    break;
+                }
+            }
+
+            if (canPlace) {
+                points.push({x,y});
+                const pSlider = document.getElementById('particle-slider');
+                const pValue = document.getElementById('particle-value');
+                pSlider.value = points.length;
+                pValue.value = points.length;
                 updateVisualization();
             } else {
-                statusEl.textContent = "Cannot place particle here: Too close to another.";
+                statusEl.textContent = "Cannot place particle: Too close to another.";
                 setTimeout(() => { statusEl.textContent = `Ready. ${points.length} particles.`}, 2000);
             }
         }
@@ -347,7 +459,6 @@
             for (let i = 0; i < N; i++) {
                 for (let j = i + 1; j < N; j++) {
                     const rPixels = Math.hypot(points[j].x - points[i].x, points[j].y - points[i].y);
-                    if (rPixels === 0) continue;
                     const rUnits = rPixels / PARTICLE_DIAMETER;
                     if (rUnits < rMaxUnits) {
                         const binIndex = Math.floor(rUnits / drUnits);
@@ -358,7 +469,6 @@
 
             const g_r = new Float32Array(nBins);
             const radii = new Float32Array(nBins);
-            
             for (let i = 0; i < nBins; i++) {
                 const rLowerUnits = i * drUnits;
                 const rUpperUnits = (i + 1) * drUnits;
@@ -369,38 +479,35 @@
                 
                 g_r[i] = (idealCountInShell > 1e-9) ? (histogram[i] / N) / idealCountInShell : 0;
             }
-
             return { g_r, radii };
         }
 
         function getColorForDistance(distanceUnits, maxDistanceUnits) {
-            const hue = (1 - Math.min(distanceUnits / maxDistanceUnits, 1)) * 240; // 240 is blue, 0 is red
+            const hue = (1 - Math.min(distanceUnits / maxDistanceUnits, 1)) * 240; // 240=blue, 0=red
             return `hsl(${hue}, 90%, 60%)`;
         }
 
         function drawPoints() {
             sourceCtx.fillStyle = '#ffffff';
-            sourceCtx.fillRect(0, 0, BOX_SIZE, BOX_SIZE);
-            
+            sourceCtx.fillRect(0, 0, RENDER_SIZE, RENDER_SIZE);
             if (points.length === 0) return;
 
-            const center = { x: BOX_SIZE / 2, y: BOX_SIZE / 2 };
+            const center = { x: RENDER_SIZE / 2, y: RENDER_SIZE / 2 };
             let centralParticle = points[0];
             let minD = Infinity;
-            for(const p of points) {
+            points.forEach(p => {
                 const d = Math.hypot(p.x - center.x, p.y - center.y);
                 if (d < minD) { minD = d; centralParticle = p; }
-            }
+            });
             
-            for (const p of points) {
-                if (p === centralParticle) continue;
-                const distPixels = Math.hypot(p.x - centralParticle.x, p.y - centralParticle.y);
-                const distUnits = distPixels / PARTICLE_DIAMETER;
+            points.forEach(p => {
+                if (p === centralParticle) return;
+                const distUnits = Math.hypot(p.x - centralParticle.x, p.y - centralParticle.y) / PARTICLE_DIAMETER;
                 sourceCtx.fillStyle = getColorForDistance(distUnits, R_MAX_UNITS);
                 sourceCtx.beginPath();
                 sourceCtx.arc(p.x, p.y, PARTICLE_RADIUS, 0, 2 * Math.PI);
                 sourceCtx.fill();
-            }
+            });
             sourceCtx.fillStyle = 'black';
             sourceCtx.beginPath();
             sourceCtx.arc(centralParticle.x, centralParticle.y, PARTICLE_RADIUS, 0, 2 * Math.PI);
@@ -409,28 +516,24 @@
 
         function drawPDF({ g_r, radii }) {
             pdfCtx.fillStyle = '#ffffff';
-            pdfCtx.fillRect(0, 0, BOX_SIZE, BOX_SIZE);
-            
+            pdfCtx.fillRect(0, 0, RENDER_SIZE, RENDER_SIZE);
             if (g_r.length === 0) return;
 
-            let max_g = 0;
-            for(let val of g_r) { if (val > max_g) max_g = val; }
-            const yAxisMax = Math.max(2.5, Math.ceil(max_g * 1.1));
-
-            const scaleX = BOX_SIZE / R_MAX_UNITS;
-            const scaleY = BOX_SIZE / yAxisMax;
+            const yAxisMax = Math.max(2.5, Math.ceil(Math.max(...g_r) * 1.1));
+            const scaleX = RENDER_SIZE / R_MAX_UNITS;
+            const scaleY = RENDER_SIZE / yAxisMax;
             
             pdfCtx.save();
             pdfCtx.strokeStyle = '#d1d5db';
             pdfCtx.fillStyle = '#6b7280';
-            pdfCtx.font = '12px Inter';
+            pdfCtx.font = '14px Inter';
             pdfCtx.lineWidth = 1;
 
             for (let i = 0; i <= yAxisMax; i++) {
-                const y = BOX_SIZE - i * scaleY;
+                const y = RENDER_SIZE - i * scaleY;
                 pdfCtx.beginPath();
                 pdfCtx.moveTo(0, y);
-                pdfCtx.lineTo(BOX_SIZE, y);
+                pdfCtx.lineTo(RENDER_SIZE, y);
                 pdfCtx.stroke();
                 if(i > 0) pdfCtx.fillText(i, 5, y - 5);
             }
@@ -438,65 +541,99 @@
                 const x = i * scaleX;
                 pdfCtx.beginPath();
                 pdfCtx.moveTo(x, 0);
-                pdfCtx.lineTo(x, BOX_SIZE);
+                pdfCtx.lineTo(x, RENDER_SIZE);
                 pdfCtx.stroke();
-                if(i > 0) pdfCtx.fillText(i, x + 5, BOX_SIZE - 5);
+                if(i > 0) pdfCtx.fillText(i, x + 5, RENDER_SIZE - 10);
             }
             pdfCtx.restore();
 
-            const gradient = pdfCtx.createLinearGradient(0, 0, BOX_SIZE, 0);
+            const gradient = pdfCtx.createLinearGradient(0, 0, RENDER_SIZE, 0);
             for(let i=0; i<1; i+=0.05) {
                 gradient.addColorStop(i, getColorForDistance(i * R_MAX_UNITS, R_MAX_UNITS));
             }
             pdfCtx.strokeStyle = gradient;
             pdfCtx.lineWidth = 3;
             pdfCtx.beginPath();
-            pdfCtx.moveTo(0, BOX_SIZE - g_r[0] * scaleY);
-
+            pdfCtx.moveTo(0, RENDER_SIZE - g_r[0] * scaleY);
             for (let i = 0; i < g_r.length; i++) {
-                const x = radii[i] * scaleX;
-                const y = BOX_SIZE - g_r[i] * scaleY;
-                pdfCtx.lineTo(x, y);
+                pdfCtx.lineTo(radii[i] * scaleX, RENDER_SIZE - g_r[i] * scaleY);
             }
             pdfCtx.stroke();
         }
 
         function handleSliderChange(rUnits) {
-            sweepValue.textContent = rUnits.toFixed(1);
-            
-            sourceOverlayCtx.clearRect(0, 0, BOX_SIZE, BOX_SIZE);
-            pdfOverlayCtx.clearRect(0, 0, BOX_SIZE, BOX_SIZE);
+            sourceOverlayCtx.clearRect(0, 0, RENDER_SIZE, RENDER_SIZE);
+            pdfOverlayCtx.clearRect(0, 0, RENDER_SIZE, RENDER_SIZE);
             
             if (rUnits > 0) {
-                const rPixels = rUnits * PARTICLE_DIAMETER;
-                sourceOverlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
-                sourceOverlayCtx.lineWidth = 2;
-
-                const center = { x: BOX_SIZE / 2, y: BOX_SIZE / 2 };
-                let centralParticle = points[0];
-                if(points.length > 0) {
+                const center = { x: RENDER_SIZE / 2, y: RENDER_SIZE / 2 };
+                let centralParticle = points.length > 0 ? points[0] : null;
+                if(centralParticle) {
                     let minD = Infinity;
-                    for(const p of points) {
+                    points.forEach(p => {
                         const d = Math.hypot(p.x - center.x, p.y - center.y);
                         if (d < minD) { minD = d; centralParticle = p; }
-                    }
+                    });
+                    sourceOverlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                    sourceOverlayCtx.lineWidth = 2;
                     sourceOverlayCtx.beginPath();
-                    sourceOverlayCtx.arc(centralParticle.x, centralParticle.y, rPixels, 0, 2 * Math.PI);
+                    sourceOverlayCtx.arc(centralParticle.x, centralParticle.y, rUnits * PARTICLE_DIAMETER, 0, 2 * Math.PI);
                     sourceOverlayCtx.stroke();
                 }
 
-
-                const x_pos = (rUnits / R_MAX_UNITS) * BOX_SIZE;
+                const x_pos = (rUnits / R_MAX_UNITS) * RENDER_SIZE;
                 pdfOverlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.9)';
                 pdfOverlayCtx.lineWidth = 2;
                 pdfOverlayCtx.beginPath();
                 pdfOverlayCtx.moveTo(x_pos, 0);
-                pdfOverlayCtx.lineTo(x_pos, BOX_SIZE);
+                pdfOverlayCtx.lineTo(x_pos, RENDER_SIZE);
                 pdfOverlayCtx.stroke();
             }
         }
+        
+        // --- Resizer Logic ---
+        const resizer = document.getElementById('drag-handle');
+        const leftPanel = document.getElementById('controls-panel');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', e => {
+            e.preventDefault();
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', stopResize);
+        });
+
+        function handleMouseMove(e) {
+            if (!isResizing) return;
+            const container = resizer.parentElement;
+            const newLeftWidth = e.clientX - container.getBoundingClientRect().left;
+            if (newLeftWidth > 300 && newLeftWidth < container.clientWidth - 400) {
+                leftPanel.style.width = `${newLeftWidth}px`;
+                handleResize();
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', stopResize);
+            handleResize();
+        }
+        
+        function handleResize() {
+            // This function can be used to make canvases responsive if needed.
+            // For now, they are fixed resolution but scale with CSS.
+        }
+
+        const ro = new ResizeObserver(handleResize);
+        ro.observe(document.getElementById('visualization-area'));
 
         initialize();
+    });
     </script>
 </body>
 </html>
