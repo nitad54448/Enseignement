@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stereographic Projection Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #f0f0f0;
+            color: #e5e7eb; /* Default light text for dark theme */
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: calc(100vh - 32px); /* Adjust for footer */
+        }
+        #controls-panel {
+            width: 400px;
+            min-width: 350px;
+            max-width: 600px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* Dark blue-gray */
+            border-right: 1px solid #374151;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6; /* Blue accent */
+        }
+        #visualization-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #ffffff;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            color: #1f2937; /* Dark text for light area */
+        }
+        .canvas-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            aspect-ratio: 1 / 1;
+            margin: auto;
+            cursor: crosshair;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+        }
+        .info-table {
+            font-family: monospace;
+            font-size: 0.9rem;
+            width: 100%;
+            text-align: left;
+            background-color: #374151; /* Dark background */
+            border-radius: 0.25rem;
+            border: 1px solid #4b5563;
+            border-collapse: collapse;
+            color: #d1d5db;
+        }
+        .info-table th, .info-table td {
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #4b5563;
+        }
+        .info-table th {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+        .control-group {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Dark Theme Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; }
+        #controls-panel h2 { font-size: 1.25em; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid #374151; padding-bottom: 8px; color: #ffffff; }
+        .control-group p { color: #9ca3af; }
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        
+        #symmetry-generators-list label {
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #symmetry-generators-list label:hover { background-color: #4b5563; }
+        #symmetry-generators-list input[type="checkbox"] { height: 1.1em; width: 1.1em; margin-right: 0.75rem; }
+        
+        #controls-panel button {
+            background-color: #3b82f6; border: none; color: #ffffff;
+            border-radius: 0.375rem; padding: 0.75rem; width: 100%;
+            font-weight: 500;
+            cursor: pointer; transition: background-color 0.2s;
+        }
+        #controls-panel button:hover { background-color: #2563eb; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Stereographic Projection</h1>
+            <p>Click on the projection to add a pole, or click an existing pole to select it.</p>
+            
+            <div class="control-group">
+                <h2>Symmetry Generators</h2>
+                <p class="text-sm mb-2">Select a pole, check operations, then click below to generate poles one-by-one.</p>
+                <div id="symmetry-generators-list" class="space-y-2 max-h-60 overflow-y-auto pr-2">
+                    <label><input type="checkbox" value="inversion"> Inversion (ī)</label>
+                    <label><input type="checkbox" value="mirror_xy"> Mirror ⊥ [001] (m)</label>
+                    <label><input type="checkbox" value="mirror_yz"> Mirror ⊥ [100]</label>
+                    <label><input type="checkbox" value="mirror_xz"> Mirror ⊥ [010]</label>
+                    <label><input type="checkbox" value="rot2_z"> 2-fold axis || [001]</label>
+                    <label><input type="checkbox" value="rot3_z"> 3-fold axis || [001]</label>
+                    <label><input type="checkbox" value="rot4_z"> 4-fold axis || [001]</label>
+                    <label><input type="checkbox" value="rot6_z"> 6-fold axis || [001]</label>
+                    <label><input type="checkbox" value="rotoinv3_z"> 3-fold rotoinversion (-3)</label>
+                    <label><input type="checkbox" value="rotoinv4_z"> 4-fold rotoinversion (-4)</label>
+                    <label><input type="checkbox" value="rotoinv6_z"> 6-fold rotoinversion (-6)</label>
+                </div>
+                <button id="generate-poles-btn" class="mt-4">Generate/Cycle Next Pole</button>
+                <button id="clear-btn" class="!bg-red-600 hover:!bg-red-700 mt-3">Clear All</button>
+            </div>
+
+            <div id="info-panel" class="mt-8 space-y-4">
+                <h2>Pole Information</h2>
+                <div id="pole-info-table-wrapper">
+                    <p class="text-sm" style="color: #9ca3af;">Click on the projection to add a pole.</p>
+                </div>
+            </div>
+        </div>
+        <div id="drag-handle"></div>
+        <div id="visualization-area">
+            <div id="canvas-wrapper" class="canvas-wrapper">
+                <canvas id="projection-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <footer class="fixed bottom-0 left-0 w-full bg-white shadow-md p-2 flex justify-between items-center text-xs text-gray-600 border-t z-10">
+        <div class="px-4">Click to add a northern hemisphere pole. Select a pole from the diagram or the list.</div>
+        <div class="px-4">NitaD, Univ Paris-Saclay, 14 Aug 2025</div>
+    </footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('projection-canvas');
+    const canvasWrapper = document.getElementById('canvas-wrapper');
+    const ctx = canvas.getContext('2d');
+    
+    const generatePolesBtn = document.getElementById('generate-poles-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const poleInfoWrapper = document.getElementById('pole-info-table-wrapper');
+    const generatorListDiv = document.getElementById('symmetry-generators-list');
+    
+    let poles = [];
+    let selectedPoleIndex = -1;
+    let radius, centerX, centerY;
+    
+    const colorPalette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+
+    // --- COORDINATE TRANSFORMATION FUNCTIONS ---
+    function sphericalToCartesian(phi, rho) {
+        const r_proj = radius * Math.tan(rho / 2);
+        const x = centerX + r_proj * Math.cos(phi);
+        const y = centerY - r_proj * Math.sin(phi);
+        return { x, y };
+    }
+
+    function cartesianToSpherical(x, y) {
+        const dx = x - centerX;
+        const dy = centerY - y;
+        const r_proj = Math.sqrt(dx*dx + dy*dy);
+        const phi = Math.atan2(dy, dx);
+        let rho = 2 * Math.atan(r_proj / radius);
+        rho = Math.min(rho, Math.PI);
+        return { phi, rho };
+    }
+
+    function sphericalToMiller(phi, rho) {
+        return {
+            h: Math.sin(rho) * Math.cos(phi),
+            k: Math.sin(rho) * Math.sin(phi),
+            l: Math.cos(rho)
+        };
+    }
+
+    function millerToSpherical(h, k, l) {
+        if (h === 0 && k === 0 && l === 0) return null;
+        const mag = Math.sqrt(h*h + k*k + l*l);
+        const h_norm = h / mag;
+        const k_norm = k / mag;
+        let l_norm = l / mag;
+        const plot_l_norm = Math.abs(l_norm);
+        
+        const phi = Math.atan2(k_norm, h_norm);
+        const rho = Math.acos(Math.max(-1, Math.min(1, plot_l_norm)));
+        return { phi, rho };
+    }
+
+    // --- POLE MANAGEMENT FUNCTIONS ---
+    function addPoleByValue(h, k, l) {
+        const mag = Math.sqrt(h*h + k*k + l*l);
+        if (mag === 0) return;
+        
+        const h_norm = h / mag;
+        const k_norm = k / mag;
+        const l_norm = l / mag;
+        
+        const spherical = millerToSpherical(h_norm, k_norm, l_norm);
+        if (!spherical) return;
+        
+        const parentPoleCount = poles.filter(p => p.parentIndex === -1).length;
+        const color = colorPalette[parentPoleCount % colorPalette.length];
+        
+        const pole = {
+            h: h_norm, k: k_norm, l: l_norm,
+            phi: spherical.phi, rho: spherical.rho,
+            color: color, parentIndex: -1, generatingOp: null,
+            isLowerHemisphere: l_norm < 0
+        };
+        
+        poles.push(pole);
+        selectedPoleIndex = poles.length - 1;
+        draw();
+        updatePoleInfoTable();
+    }
+
+    function addPoleByClick(x, y) {
+        const spherical = cartesianToSpherical(x, y);
+        if (spherical.rho > Math.PI / 2 + 1e-5) return;
+        const miller = sphericalToMiller(spherical.phi, spherical.rho);
+        addPoleByValue(miller.h, miller.k, miller.l);
+    }
+    
+    // --- SYMMETRY GENERATION LOGIC ---
+    function applySingleOperation(op, pole) {
+        const { h, k, l } = pole;
+        let newPoles = [];
+        switch(op) {
+            case 'inversion': newPoles.push({ h: -h, k: -k, l: -l }); break;
+            case 'mirror_xy': newPoles.push({ h: h, k: k, l: -l }); break;
+            case 'mirror_yz': newPoles.push({ h: -h, k: k, l: l }); break;
+            case 'mirror_xz': newPoles.push({ h: h, k: -k, l: l }); break;
+            case 'rot2_z': newPoles.push({ h: -h, k: -k, l: l }); break;
+            case 'rot3_z':
+                 newPoles.push({h: h*Math.cos(2*Math.PI/3)-k*Math.sin(2*Math.PI/3), k: h*Math.sin(2*Math.PI/3)+k*Math.cos(2*Math.PI/3), l:l});
+                 newPoles.push({h: h*Math.cos(4*Math.PI/3)-k*Math.sin(4*Math.PI/3), k: h*Math.sin(4*Math.PI/3)+k*Math.cos(4*Math.PI/3), l:l});
+                break;
+            case 'rot4_z':
+                 newPoles.push({ h: -k, k: h, l: l });
+                 newPoles.push({ h: -h, k: -k, l: l });
+                 newPoles.push({ h: k, k: -h, l: l });
+                break;
+            case 'rot6_z':
+                for (let i = 1; i < 6; i++) {
+                    const angle = i * Math.PI / 3;
+                    newPoles.push({ h: h*Math.cos(angle)-k*Math.sin(angle), k: h*Math.sin(angle)+k*Math.cos(angle), l: l });
+                }
+                break;
+            case 'rotoinv3_z':
+                // (-3)^1: 120 deg rot + inv
+                let angle120 = 2 * Math.PI / 3;
+                let rh120 = h * Math.cos(angle120) - k * Math.sin(angle120);
+                let rk120 = h * Math.sin(angle120) + k * Math.cos(angle120);
+                newPoles.push({h: -rh120, k: -rk120, l: -l});
+
+                // (-3)^2: 240 deg rot + inv
+                let angle240 = 4 * Math.PI / 3;
+                let rh240 = h * Math.cos(angle240) - k * Math.sin(angle240);
+                let rk240 = h * Math.sin(angle240) + k * Math.cos(angle240);
+                newPoles.push({h: -rh240, k: -rk240, l: -l});
+                break;
+            case 'rotoinv4_z':
+                // (-4)^1: 90 deg rot + inv. Transforms (h,k,l) to (k,-h,-l)
+                newPoles.push({ h: k, k: -h, l: -l });
+                // (-4)^3: 270 deg rot + inv. Transforms (h,k,l) to (-k,h,-l)
+                newPoles.push({ h: -k, k: h, l: -l });
+                break;
+            case 'rotoinv6_z':
+                 // (-6)^1: 60 deg rot + inv
+                 const angle60 = Math.PI / 3;
+                 const rh60 = h * Math.cos(angle60) - k * Math.sin(angle60);
+                 const rk60 = h * Math.sin(angle60) + k * Math.cos(angle60);
+                 newPoles.push({ h: -rh60, k: -rk60, l: -l });
+
+                 // (-6)^5: 300 deg rot + inv
+                 const angle300 = 5 * Math.PI / 3;
+                 const rh300 = h * Math.cos(angle300) - k * Math.sin(angle300);
+                 const rk300 = h * Math.sin(angle300) + k * Math.cos(angle300);
+                 newPoles.push({ h: -rh300, k: -rk300, l: -l });
+                break;
+        }
+        return newPoles;
+    }
+
+    function arePolesEqual(p1, p2, epsilon = 1e-4) {
+        return Math.abs(p1.h - p2.h) < epsilon &&
+               Math.abs(p1.k - p2.k) < epsilon &&
+               Math.abs(p1.l - p2.l) < epsilon;
+    }
+
+    function findPoleInList(poleList, poleToFind) {
+        return poleList.some(p => arePolesEqual(p, poleToFind));
+    }
+    
+    function calculateTargetGroup(parentPole, ops) {
+        let knownPoles = [{h: parentPole.h, k: parentPole.k, l: parentPole.l}];
+        let i = 0;
+        while (i < knownPoles.length) {
+            const currentPole = knownPoles[i];
+            for (const op of ops) {
+                const newPoles = applySingleOperation(op, currentPole);
+                for (const newPole of newPoles) {
+                    if (!findPoleInList(knownPoles, newPole)) {
+                        knownPoles.push(newPole);
+                    }
+                }
+            }
+            i++;
+        }
+        return knownPoles;
+    }
+
+function handleGenerateClick() {
+        if (selectedPoleIndex === -1) {
+            alert("Please select a pole first.");
+            return;
+        }
+        const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
+        if (checkedOps.length === 0) {
+            alert("Please select at least one symmetry operation.");
+            return;
+        }
+
+        let parentPole = poles[selectedPoleIndex];
+        let parentIndex = selectedPoleIndex;
+        if (parentPole.parentIndex !== -1) {
+            parentIndex = parentPole.parentIndex;
+            parentPole = poles[parentIndex];
+        }
+
+        let targetPoleSet;
+
+        if (checkedOps.length > 1) {
+            // --- MODE 1: GROUP GENERATION (for multiple ops like 3/m) ---
+            const targetPoleHkl = calculateTargetGroup(parentPole, checkedOps);
+            targetPoleSet = targetPoleHkl.map(p_hkl => {
+                const mag = Math.sqrt(p_hkl.h*p_hkl.h + p_hkl.k*p_hkl.k + p_hkl.l*p_hkl.l);
+                return { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag, phi: Math.atan2(p_hkl.k, p_hkl.h), isLowerHemisphere: p_hkl.l < 0 };
+            });
+
+        } else {
+            // --- MODE 2: CHAINED PATH GENERATION (for a single op) ---
+            const op = checkedOps[0];
+            const startPole = poles[selectedPoleIndex];
+            const potentialNewPoles = applySingleOperation(op, startPole);
+            
+            if (!potentialNewPoles || potentialNewPoles.length === 0) return;
+            const newPoleHkl = potentialNewPoles[0];
+
+            const mag = Math.sqrt(newPoleHkl.h**2 + newPoleHkl.k**2 + newPoleHkl.l**2);
+            if (mag > 1e-6) {
+                newPoleHkl.h /= mag; newPoleHkl.k /= mag; newPoleHkl.l /= mag;
+            }
+
+            const existingPoleIndex = poles.findIndex(p => arePolesEqual(p, newPoleHkl));
+
+            if (existingPoleIndex !== -1) {
+                selectedPoleIndex = existingPoleIndex;
+            } else {
+                const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l);
+                const newPoleObject = {
+                    h: newPoleHkl.h, k: newPoleHkl.k, l: newPoleHkl.l,
+                    phi: spherical.phi, rho: spherical.rho, color: parentPole.color,
+                    parentIndex: parentIndex, generatingOp: op, isLowerHemisphere: newPoleHkl.l < -1e-6
+                };
+                poles.push(newPoleObject);
+                selectedPoleIndex = poles.length - 1;
+            }
+            draw();
+            updatePoleInfoTable();
+            return; // End here for chained mode
+        }
+
+        // --- Logic to add next pole from the generated group (for Mode 1) ---
+        const visibleFamilyPoles = [parentPole, ...poles.filter(p => p.parentIndex === parentIndex)];
+        let nextPoleToAdd = null;
+        for (const targetPole of targetPoleSet) {
+            if (!findPoleInList(visibleFamilyPoles, targetPole)) {
+                nextPoleToAdd = targetPole;
+                break;
+            }
+        }
+        
+        if (nextPoleToAdd) {
+            const spherical = millerToSpherical(nextPoleToAdd.h, nextPoleToAdd.k, nextPoleToAdd.l);
+            const newPoleObject = { ...nextPoleToAdd, rho: spherical.rho, color: parentPole.color, parentIndex: parentIndex, generatingOp: 'group' };
+            poles.push(newPoleObject);
+            selectedPoleIndex = poles.length - 1;
+        } else {
+            const orderedVisiblePoles = targetPoleSet.map(target => visibleFamilyPoles.find(visible => arePolesEqual(target, visible))).filter(Boolean);
+            const currentSelectedInFamily = poles[selectedPoleIndex];
+            const currentIndex = orderedVisiblePoles.findIndex(p => arePolesEqual(p, currentSelectedInFamily));
+            const nextIndex = (currentIndex + 1) % orderedVisiblePoles.length;
+            selectedPoleIndex = poles.indexOf(orderedVisiblePoles[nextIndex]);
+        }
+        draw();
+        updatePoleInfoTable();
+    }
+
+
+// --- UI DRAWING AND UPDATING ---
+    function updatePoleInfoTable() {
+        if (poles.length === 0) {
+            poleInfoWrapper.innerHTML = `<p class="text-sm" style="color: #9ca3af;">Click on the projection to add a pole.</p>`;
+            return;
+        }
+        let tableHTML = `<table class="info-table"><tr><th></th><th>Pole (x,y,z)</th><th>Type</th></tr>`;
+        poles.forEach((p, index) => {
+            const xyz = `(${p.h.toFixed(3)}, ${p.k.toFixed(3)}, ${p.l.toFixed(3)})`;
+            let rowStyle = '';
+            if (index === selectedPoleIndex) {
+                rowStyle = `border-left: 4px solid #f59e0b; background-color: rgba(245, 158, 11, 0.2);`;
+            }
+            let symbolHTML;
+            if (p.isLowerHemisphere) {
+                symbolHTML = `<div style="width: 18px; height: 18px; color: ${p.color}; font-weight: bold; font-size: 22px; line-height: 18px; text-align: center; display: inline-block; vertical-align: middle;">&times;</div>`;
+            } else {
+                symbolHTML = `<div style="width: 16px; height: 16px; background-color: transparent; border: 2px solid ${p.color}; border-radius: 50%; box-sizing: border-box; display: inline-block; vertical-align: middle;"></div>`;
+            }
+            const type = p.parentIndex === -1 ? 'Parent' : 'Generated';
+            tableHTML += `<tr style="cursor: pointer; ${rowStyle}" onclick="document.dispatchEvent(new CustomEvent('selectPole', {detail: ${index}}))">
+                <td style="text-align: center;">${symbolHTML}</td>
+                <td>${xyz}</td>
+                <td style="font-size: 0.8em;">${type}</td>
+            </tr>`;
+        });
+        tableHTML += '</table>';
+        poleInfoWrapper.innerHTML = tableHTML;
+    }
+
+    function drawSymmetryElements() {
+        const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
+        if (checkedOps.length === 0) return;
+
+        const symbolSize = 14;
+        const symbolColor = '#e11d48'; // Rose color for high visibility
+        ctx.fillStyle = symbolColor;
+        ctx.strokeStyle = symbolColor;
+        ctx.lineWidth = 2.5;
+
+        checkedOps.forEach(op => {
+            ctx.beginPath();
+            switch(op) {
+                case 'inversion':
+                    ctx.arc(centerX, centerY, symbolSize / 2.5, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    break;
+                case 'mirror_xy':
+                    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    break;
+                case 'mirror_yz':
+                    ctx.moveTo(centerX, centerY - radius);
+                    ctx.lineTo(centerX, centerY + radius);
+                    ctx.stroke();
+                    break;
+                case 'mirror_xz':
+                    ctx.moveTo(centerX - radius, centerY);
+                    ctx.lineTo(centerX + radius, centerY);
+                    ctx.stroke();
+                    break;
+                case 'rot2_z':
+                    ctx.ellipse(centerX, centerY, symbolSize, symbolSize * 0.6, 0, 0, 2 * Math.PI);
+                    ctx.fill();
+                    break;
+                case 'rot3_z':
+                    ctx.moveTo(centerX, centerY - symbolSize);
+                    ctx.lineTo(centerX - symbolSize * 0.866, centerY + symbolSize * 0.5);
+                    ctx.lineTo(centerX + symbolSize * 0.866, centerY + symbolSize * 0.5);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'rot4_z':
+                    ctx.rect(centerX - symbolSize / 1.4, centerY - symbolSize / 1.4, symbolSize * 1.4, symbolSize * 1.4);
+                    ctx.fill();
+                    break;
+                case 'rot6_z':
+                    for(let i = 0; i < 6; i++) {
+                        const angle = i * Math.PI / 3;
+                        const x = centerX + symbolSize * Math.cos(angle);
+                        const y = centerY - symbolSize * Math.sin(angle);
+                        (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'rotoinv3_z':
+                    ctx.moveTo(centerX, centerY - symbolSize);
+                    ctx.lineTo(centerX - symbolSize * 0.866, centerY + symbolSize * 0.5);
+                    ctx.lineTo(centerX + symbolSize * 0.866, centerY + symbolSize * 0.5);
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+                case 'rotoinv4_z':
+                    ctx.moveTo(centerX - symbolSize, centerY);
+                    ctx.lineTo(centerX, centerY - symbolSize);
+                    ctx.lineTo(centerX + symbolSize, centerY);
+                    ctx.lineTo(centerX, centerY + symbolSize);
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+                case 'rotoinv6_z':
+                    for(let i = 0; i < 6; i++) {
+                        const angle = i * Math.PI / 3;
+                        const x = centerX + symbolSize * Math.cos(angle);
+                        const y = centerY - symbolSize * Math.sin(angle);
+                        (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+            }
+        });
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        drawGrid();
+        drawSymmetryElements();
+
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        poles.forEach((pole, index) => {
+            const { x, y } = sphericalToCartesian(pole.phi, pole.rho);
+            ctx.strokeStyle = pole.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            if (pole.isLowerHemisphere) {
+                const crossSize = 6;
+                ctx.moveTo(x - crossSize, y - crossSize);
+                ctx.lineTo(x + crossSize, y + crossSize);
+                ctx.moveTo(x + crossSize, y - crossSize);
+                ctx.lineTo(x - crossSize, y + crossSize);
+                ctx.stroke();
+            } else {
+                ctx.arc(x, y, 6, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+            if (index === selectedPoleIndex) {
+                ctx.beginPath();
+                ctx.arc(x, y, 10, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#f59e0b'; // Amber highlight color
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+        });
+    }
+
+    function drawGrid() {
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 12; i++) {
+            const angle = i * Math.PI / 6;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(centerX + radius * Math.cos(angle), centerY - radius * Math.sin(angle));
+            ctx.stroke();
+        }
+        for (let i = 1; i <= 3; i++) {
+            const rho = i * (Math.PI / 6);
+            const r_proj = radius * Math.tan(rho / 2);
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, r_proj, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
+    }
+
+    // --- EVENT HANDLING ---
+    function handleMouseDown(e) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        let clickedIndex = -1;
+        let minDistance = 15;
+        
+        poles.forEach((pole, index) => {
+            const { x, y } = sphericalToCartesian(pole.phi, pole.rho);
+            const distance = Math.sqrt((mouseX - x)**2 + (mouseY - y)**2);
+            if (distance < minDistance) {
+                minDistance = distance;
+                clickedIndex = index;
+            }
+        });
+        
+        selectedPoleIndex = clickedIndex;
+        
+        if (clickedIndex === -1) {
+            const distFromCenter = Math.sqrt((mouseX - centerX)**2 + (mouseY - centerY)**2);
+            if (distFromCenter <= radius) {
+                addPoleByClick(mouseX, mouseY);
+            }
+        }
+        
+        draw();
+        updatePoleInfoTable();
+    }
+
+    function setupEventListeners() {
+        generatePolesBtn.addEventListener('click', handleGenerateClick);
+        
+        generatorListDiv.addEventListener('change', draw);
+
+        clearBtn.addEventListener('click', () => {
+            // Clear poles state
+            poles = [];
+            selectedPoleIndex = -1;
+            
+            // Uncheck all symmetry generator checkboxes
+            const checkboxes = generatorListDiv.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+            });
+
+            // Redraw everything to reflect the cleared state
+            draw();
+            updatePoleInfoTable();
+        });
+        
+        document.addEventListener('selectPole', (e) => {
+            selectedPoleIndex = e.detail;
+            draw();
+            updatePoleInfoTable();
+        });
+        
+        canvas.addEventListener('mousedown', handleMouseDown);
+    }
+    
+    // --- LAYOUT AND RESIZING ---
+    function setupResizer() {
+        const resizer = document.getElementById('drag-handle');
+        const leftPanel = document.getElementById('controls-panel');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', e => {
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            window.addEventListener('mousemove', handleMouseMoveResize);
+            window.addEventListener('mouseup', stopResize);
+        });
+
+        function handleMouseMoveResize(e) {
+            if (!isResizing) return;
+            const newLeftWidth = e.clientX;
+            if (newLeftWidth > 350 && newLeftWidth < window.innerWidth - 400) {
+                leftPanel.style.width = `${newLeftWidth}px`;
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            document.body.style.cursor = 'default';
+            window.removeEventListener('mousemove', handleMouseMoveResize);
+            window.removeEventListener('mouseup', stopResize);
+        }
+    }
+
+    function resizeCanvas() {
+        const size = Math.min(canvasWrapper.clientWidth, canvasWrapper.clientHeight);
+        canvas.width = size;
+        canvas.height = size;
+        radius = size * 0.45;
+        centerX = size / 2;
+        centerY = size / 2;
+        draw();
+    }
+
+    // Initialize
+    const ro = new ResizeObserver(resizeCanvas);
+    ro.observe(canvasWrapper);
+    
+    setupEventListeners();
+    setupResizer();
+});
+</script>
+</body>
+</html>
