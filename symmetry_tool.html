@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Symmetry Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #1f2937;
+            color: #e5e7eb;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: calc(100vh - 32px);
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 320px;
+            max-width: 700px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827;
+            border-right: 1px solid #374151;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color: 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6;
+        }
+        #visualization-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #f0f0f0;
+            min-width: 0;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; }
+        #controls-panel h2 { font-size: 1.25em; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid #374151; padding-bottom: 8px; color: #ffffff;}
+        #controls-panel h4 { margin-top: 0.5rem; margin-bottom: 0.5rem; font-weight: 500; color: #9ca3af; }
+        .control-group, .sym-element {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        .sym-element {
+             background-color: #1f2937;
+             margin-top: 1rem;
+        }
+        .control-group label, .sym-element label {
+            display: inline-block;
+            font-weight: 500;
+            color: #9ca3af;
+            width: auto;
+        }
+        .input-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .input-row label {
+             width: 20px;
+        }
+        
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            flex-grow: 1;
+            margin: 0 1rem;
+            background: transparent;
+            cursor: pointer;
+            accent-color: #4b5563; 
+        }
+        input[type="range"]::-webkit-slider-runnable-track { height: 6px; background: #4b5563; border-radius: 3px; }
+        input[type="range"]::-moz-range-track { height: 6px; background: #4b5563; border-radius: 3px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; margin-top: -6px; width: 18px; height: 18px; background: #3b82f6; border-radius: 50%; }
+        input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: #3b82f6; border-radius: 50%; border: none; }
+
+        input[type="number"], select {
+            background-color: #374151; border: 1px solid #4b5563;
+            color: #e5e7eb; border-radius: 0.375rem; padding: 0.5rem;
+        }
+        input[type="number"] { width: 70px; }
+        select { width: 100%; }
+        input[type="checkbox"], input[type="radio"] {
+            width: 1.15rem; height: 1.15rem;
+            accent-color: #3b82f6;
+        }
+        label.radio-label {
+            margin-left: 0.5rem; text-transform: none; font-weight: 400; color: #d1d5db;
+        }
+
+        #add-sym-btn {
+            background-color: #3b82f6; color: white; border: none; padding: 10px 15px;
+            border-radius: 0.375rem; cursor: pointer; width: 100%; font-size: 1em; margin-top: 10px;
+        }
+        #add-sym-btn:hover { background-color: #2563eb; }
+        
+        .sym-element h3 {
+            margin: 0 0 10px 0; font-size: 1em; font-weight: 600;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .remove-btn {
+            background: #ef4444; color: white; border: none; border-radius: 50%;
+            width: 24px; height: 24px; cursor: pointer; font-weight: bold;
+            line-height: 24px; text-align: center;
+        }
+        #generated-coordinates-list {
+            font-family: monospace; font-size: 0.9em; background-color: #1f2937;
+            border: 1px solid #4b5563; border-radius: 0.5rem; padding: 0.75rem;
+            max-height: 200px; overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>3D Symmetry</h1>
+            <p>Combine symmetry elements and see the resulting pattern.</p>
+
+            <div id="parent-motif-controls" class="control-group">
+                <h2>Parent Motif</h2>
+                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="0" max="1" value="0.2" step="0.01"><input type="number" id="parent-x-num" min="0" max="1" value="0.2" step="0.01"></div>
+                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="0" max="1" value="0.3" step="0.01"><input type="number" id="parent-y-num" min="0" max="1" value="0.3" step="0.01"></div>
+                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="0" max="1" value="0.1" step="0.01"><input type="number" id="parent-z-num" min="0" max="1" value="0.1" step="0.01"></div>
+            </div>
+
+            <div class="control-group">
+                <h2>Display Options</h2>
+                <div class="flex items-center justify-between"><label for="unit-cell-only" class="text-gray-400 font-normal normal-case">Cell Only</label><input type="checkbox" id="unit-cell-only"></div>
+                <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
+                    <label class="text-gray-400 font-normal normal-case">View</label>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center"><input type="radio" id="view-persp" name="camera-view" value="perspective" checked><label for="view-persp" class="radio-label">Persp</label></div>
+                        <div class="flex items-center"><input type="radio" id="view-ortho" name="camera-view" value="orthographic"><label for="view-ortho" class="radio-label">Ortho</label></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h2>Add Symmetry Element</h2>
+                <select id="sym-type-select">
+                    <optgroup label="Mirrors"><option value="m_x">Mirror m_x</option><option value="m_y">Mirror m_y</option><option value="m_z">Mirror m_z</option></optgroup>
+                    <optgroup label="Glides"><option value="g_x">Glide g_x</option><option value="g_y">Glide g_y</option><option value="g_z">Glide g_z</option></optgroup>
+                    <optgroup label="Diagonal Glides"><option value="gn_x">Diagonal Glide gn_x</option><option value="gn_y">Diagonal Glide gn_y</option><option value="gn_z">Diagonal Glide gn_z</option></optgroup>
+                    <optgroup label="Rotations"><option value="2_x">2-Fold Axis (|| x)</option><option value="2_y">2-Fold Axis (|| y)</option><option value="2_z">2-Fold Axis (|| z)</option></optgroup>
+                    <optgroup label="Screw Axes">
+                        <option value="s2_1_x">Screw 2₁ (|| x)</option><option value="s2_1_y">Screw 2₁ (|| y)</option><option value="s2_1_z">Screw 2₁ (|| z)</option>
+                        <option value="s3_1_x">Screw 3₁ (|| x)</option><option value="s3_1_y">Screw 3₁ (|| y)</option><option value="s3_1_z">Screw 3₁ (|| z)</option>
+                        <option value="s3_2_x">Screw 3₂ (|| x)</option><option value="s3_2_y">Screw 3₂ (|| y)</option><option value="s3_2_z">Screw 3₂ (|| z)</option>
+                        <option value="s4_1_x">Screw 4₁ (|| x)</option><option value="s4_1_y">Screw 4₁ (|| y)</option><option value="s4_1_z">Screw 4₁ (|| z)</option>
+                        <option value="s4_2_x">Screw 4₂ (|| x)</option><option value="s4_2_y">Screw 4₂ (|| y)</option><option value="s4_2_z">Screw 4₂ (|| z)</option>
+                        <option value="s4_3_x">Screw 4₃ (|| x)</option><option value="s4_3_y">Screw 4₃ (|| y)</option><option value="s4_3_z">Screw 4₃ (|| z)</option>
+                        <option value="s6_1_x">Screw 6₁ (|| x)</option><option value="s6_1_y">Screw 6₁ (|| y)</option><option value="s6_1_z">Screw 6₁ (|| z)</option>
+                        <option value="s6_2_x">Screw 6₂ (|| x)</option><option value="s6_2_y">Screw 6₂ (|| y)</option><option value="s6_2_z">Screw 6₂ (|| z)</option>
+                        <option value="s6_3_x">Screw 6₃ (|| x)</option><option value="s6_3_y">Screw 6₃ (|| y)</option><option value="s6_3_z">Screw 6₃ (|| z)</option>
+                        <option value="s6_4_x">Screw 6₄ (|| x)</option><option value="s6_4_y">Screw 6₄ (|| y)</option><option value="s6_4_z">Screw 6₄ (|| z)</option>
+                        <option value="s6_5_x">Screw 6₅ (|| x)</option><option value="s6_5_y">Screw 6₅ (|| y)</option><option value="s6_5_z">Screw 6₅ (|| z)</option>
+                    </optgroup>
+                    <optgroup label="Inversion"><option value="inversion">Inversion Center</option></optgroup>
+                </select>
+                <button id="add-sym-btn">Add Element</button>
+            </div>
+
+            <div id="symmetry-list"></div>
+            <div id="generated-coords-container" class="mt-6" style="display: none;"><h2>Generated Coordinates</h2><div id="generated-coordinates-list"></div></div>
+        </div>
+
+        <div id="drag-handle"></div>
+        <div id="visualization-area"></div>
+    </div>
+
+    <footer class="fixed bottom-0 left-0 w-full bg-white shadow-md p-2 flex justify-between items-center text-xs text-gray-600 border-t z-10">
+        <div class="px-4">Interactive Symmetry Visualizer</div>
+        <div class="px-4">NitaD, Univ Paris-Saclay, Aug 2025</div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, perspectiveCamera, orthographicCamera, activeCamera, renderer, controls;
+        let parentMotif;
+        const symmetryElements = [];
+        const generatedMotifs = new THREE.Group();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+            scene.add(generatedMotifs);
+            const viewport = document.getElementById('visualization-area');
+            const aspect = viewport.clientWidth / viewport.clientHeight;
+            perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 1000);
+            const frustumSize = 5;
+            orthographicCamera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
+            activeCamera = perspectiveCamera;
+            activeCamera.up.set(0, 0, 1);
+            activeCamera.position.set(2.5, -4, 2.5);
+            activeCamera.lookAt(0.5, 0.5, 0.5);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+            viewport.appendChild(renderer.domElement);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(5, -7, 10);
+            scene.add(directionalLight);
+            const OrbitControls = function(camera, domElement) {
+                this.object = camera;
+                this.domElement = domElement;
+                this.target = new THREE.Vector3(0.5, 0.5, 0.5);
+                let isMouseDown = false,
+                    lastMouseX = 0,
+                    lastMouseY = 0;
+                const onMouseDown = e => {
+                    isMouseDown = true;
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                };
+                const onMouseUp = () => {
+                    isMouseDown = false;
+                };
+                const onMouseMove = e => {
+                    if (!isMouseDown) return;
+                    const deltaX = e.clientX - lastMouseX,
+                        deltaY = e.clientY - lastMouseY;
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                    const azimuth = -deltaX * 0.005,
+                        elevation = -deltaY * 0.005;
+                    this.object.position.sub(this.target);
+                    const R = new THREE.Matrix4().makeRotationY(azimuth);
+                    const axis = new THREE.Vector3().crossVectors(this.object.position, this.object.up).normalize();
+                    const R2 = new THREE.Matrix4().makeRotationAxis(axis, elevation);
+                    this.object.position.applyMatrix4(R2).applyMatrix4(R);
+                    this.object.position.add(this.target);
+                    this.object.lookAt(this.target);
+                };
+                const onWheel = e => {
+                    if (this.object.isPerspectiveCamera) {
+                        const factor = e.deltaY > 0 ? 1.1 : 0.9;
+                        this.object.position.sub(this.target).multiplyScalar(factor).add(this.target);
+                    } else {
+                        this.object.zoom *= (e.deltaY > 0 ? 0.9 : 1.1);
+                        this.object.updateProjectionMatrix();
+                    }
+                };
+                domElement.addEventListener('mousedown', onMouseDown);
+                domElement.addEventListener('mouseup', onMouseUp);
+                domElement.addEventListener('mousemove', onMouseMove);
+                domElement.addEventListener('wheel', onWheel);
+                this.update = () => {};
+            };
+            controls = new OrbitControls(activeCamera, renderer.domElement);
+            const gridHelper = new THREE.GridHelper(4, 4, 0xcccccc, 0xdddddd);
+            gridHelper.position.set(0.5, 0.5, 0);
+            gridHelper.rotation.x = Math.PI / 2;
+            scene.add(gridHelper);
+            const axesHelper = new THREE.AxesHelper(1);
+            scene.add(axesHelper);
+            const cellOutline = new THREE.Group();
+            const planeMaterial = new THREE.MeshBasicMaterial({
+                color: 0x60a5fa,
+                transparent: true,
+                opacity: 0.1,
+                side: THREE.DoubleSide
+            });
+            const planeGeom = new THREE.PlaneGeometry(1, 1);
+            const planes = [{
+                pos: [0.5, 0.5, 0],
+                rot: [0, 0, 0]
+            }, {
+                pos: [0.5, 0.5, 1],
+                rot: [Math.PI, 0, 0]
+            }, {
+                pos: [0.5, 0, 0.5],
+                rot: [Math.PI / 2, 0, 0]
+            }, {
+                pos: [0.5, 1, 0.5],
+                rot: [-Math.PI / 2, 0, 0]
+            }, {
+                pos: [0, 0.5, 0.5],
+                rot: [0, -Math.PI / 2, 0]
+            }, {
+                pos: [1, 0.5, 0.5],
+                rot: [0, Math.PI / 2, 0]
+            }];
+            planes.forEach(p => {
+                const plane = new THREE.Mesh(planeGeom, planeMaterial);
+                plane.position.set(...p.pos);
+                plane.rotation.set(...p.rot);
+                cellOutline.add(plane);
+            });
+            scene.add(cellOutline);
+            parentMotif = createHemisphere();
+            setupEventListeners();
+            updateScene();
+            animate();
+        }
+
+        function switchCameraView(event) {
+            const newView = event.target.value;
+            const oldCamera = activeCamera;
+            if (newView === 'perspective') {
+                activeCamera = perspectiveCamera;
+            } else {
+                activeCamera = orthographicCamera;
+            }
+            activeCamera.position.copy(oldCamera.position);
+            activeCamera.quaternion.copy(oldCamera.quaternion);
+            activeCamera.zoom = 1;
+            activeCamera.updateProjectionMatrix();
+            controls.object = activeCamera;
+        }
+
+        function createHemisphere() {
+            const geometry = new THREE.SphereGeometry(0.05, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+            const material = new THREE.MeshLambertMaterial({
+                side: THREE.DoubleSide
+            });
+            return new THREE.Mesh(geometry, material);
+        }
+
+        function updateScene() {
+            if (!parentMotif) return;
+            parentMotif.position.set(parseFloat(document.getElementById('parent-x-num').value), parseFloat(document.getElementById('parent-y-num').value), parseFloat(document.getElementById('parent-z-num').value));
+            generatedMotifs.clear();
+            parentMotif.material.color.set(0x3b82f6);
+            parentMotif.userData.chirality = 'right';
+            const motifList = [parentMotif];
+            let added = true;
+            while (added) {
+                added = false;
+                const currentCount = motifList.length;
+                for (let i = 0; i < currentCount; i++) {
+                    const source = motifList[i];
+                    symmetryElements.forEach(element => {
+                        const copy = source.clone();
+                        copy.material = source.material.clone();
+                        copy.userData.chirality = source.userData.chirality;
+                        const opType = getOpType(element.type);
+                        switch (opType) {
+                            case 'mirror':
+                                applyMirror(copy, element.position, element.normal);
+                                copy.userData.chirality = (source.userData.chirality === 'right') ? 'left' : 'right';
+                                break;
+                            case 'glide':
+                                applyGlide(copy, element.position, element.normal, element.glideVector);
+                                copy.userData.chirality = (source.userData.chirality === 'right') ? 'left' : 'right';
+                                break;
+                            case '2-fold':
+                                applyRotation(copy, element.position, element.axis, Math.PI);
+                                break;
+                            case 'screw':
+                                applyScrew(copy, element.position, element.axis, element.angle, element.translationFactor);
+                                break;
+                            case 'inversion':
+                                applyInversion(copy, element.position);
+                                copy.userData.chirality = (source.userData.chirality === 'right') ? 'left' : 'right';
+                                break;
+                        }
+                        
+                        // FIX 1: Always wrap coordinates back to the unit cell.
+                        copy.position.x = copy.position.x - Math.floor(copy.position.x);
+                        copy.position.y = copy.position.y - Math.floor(copy.position.y);
+                        copy.position.z = copy.position.z - Math.floor(copy.position.z);
+
+                        if (copy.userData.chirality === 'right') copy.material.color.set(0x3b82f6);
+                        else copy.material.color.set(0xef4444);
+
+                        // FIX 2: Relax the quaternion comparison tolerance to account for floating point errors.
+                        const isDuplicate = motifList.some(m => m.position.distanceTo(copy.position) < 1e-4 && m.quaternion.angleTo(copy.quaternion) < 1e-3 && m.userData.chirality === copy.userData.chirality);
+                        
+                        if (!isDuplicate) {
+                            motifList.push(copy);
+                            added = true;
+                        }
+                    });
+                }
+            }
+            const coordsContainer = document.getElementById('generated-coords-container');
+            if (motifList.length > 1) {
+                coordsContainer.style.display = 'block';
+                const coordsList = document.getElementById('generated-coordinates-list');
+                let html = '';
+                motifList.slice(1).forEach(m => {
+                    const pos = m.position;
+                    const color = m.userData.chirality === 'right' ? '#3b82f6' : '#ef4444';
+                    html += `<div style="color:${color};">(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})</div>`;
+                });
+                coordsList.innerHTML = html;
+            } else {
+                coordsContainer.style.display = 'none';
+            }
+            const showUnitCellOnly = document.getElementById('unit-cell-only').checked;
+            if (showUnitCellOnly) {
+                motifList.forEach(originalMotif => {
+                    generatedMotifs.add(originalMotif.clone());
+                });
+            } else {
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dz = -1; dz <= 1; dz++) {
+                            motifList.forEach(originalMotif => {
+                                const periodicCopy = originalMotif.clone();
+                                periodicCopy.position.add(new THREE.Vector3(dx, dy, dz));
+                                generatedMotifs.add(periodicCopy);
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        function getOpType(type) {
+            if (type.startsWith('m_')) return 'mirror';
+            if (type.startsWith('g_') || type.startsWith('gn_')) return 'glide';
+            if (type.startsWith('2_')) return '2-fold';
+            if (type.startsWith('s')) return 'screw';
+            return type;
+        }
+
+        function applyMirror(object, planePosition, planeNormal) {
+            const n = planeNormal.clone().normalize();
+            const d = -n.dot(planePosition);
+            const M = new THREE.Matrix4().set(1 - 2 * n.x * n.x, -2 * n.x * n.y, -2 * n.x * n.z, -2 * d * n.x, -2 * n.y * n.x, 1 - 2 * n.y * n.y, -2 * n.y * n.z, -2 * d * n.y, -2 * n.z * n.x, -2 * n.z * n.y, 1 - 2 * n.z * n.z, -2 * d * n.z, 0, 0, 0, 1);
+            object.applyMatrix4(M);
+        }
+
+        function applyGlide(object, planePosition, planeNormal, glideVector) {
+            applyMirror(object, planePosition, planeNormal);
+            const glideTranslation = new THREE.Vector3(glideVector.x * 0.5, glideVector.y * 0.5, glideVector.z * 0.5);
+            object.position.add(glideTranslation);
+        }
+
+        function applyRotation(object, axisPosition, axisDirection, angle) {
+            const axis = axisDirection.clone().normalize();
+            const quaternion = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+            object.position.sub(axisPosition).applyQuaternion(quaternion).add(axisPosition);
+            object.quaternion.premultiply(quaternion);
+        }
+
+        function applyScrew(object, axisPosition, axisDirection, angle, translationFactor) {
+            applyRotation(object, axisPosition, axisDirection, angle);
+            const translation = axisDirection.clone().multiplyScalar(translationFactor);
+            object.position.add(translation);
+        }
+
+        function applyInversion(object, center) {
+            const T_to_origin = new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z);
+            const S_invert = new THREE.Matrix4().makeScale(-1, -1, -1);
+            const T_back = new THREE.Matrix4().makeTranslation(center.x, center.y, center.z);
+            const tempMatrix = new THREE.Matrix4().multiplyMatrices(T_back, S_invert);
+            const M_inversion = new THREE.Matrix4().multiplyMatrices(tempMatrix, T_to_origin);
+            object.applyMatrix4(M_inversion);
+        }
+
+        function setupEventListeners() {
+            document.getElementById('add-sym-btn').addEventListener('click', addSymmetryElement);
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('unit-cell-only').addEventListener('change', updateScene);
+            document.querySelectorAll('input[name="camera-view"]').forEach(radio => {
+                radio.addEventListener('change', switchCameraView);
+            });
+            const parentControls = document.getElementById('parent-motif-controls');
+            parentControls.addEventListener('input', e => {
+                const baseId = e.target.id.replace('-range', '').replace('-num', '');
+                document.getElementById(`${baseId}-range`).value = e.target.value;
+                document.getElementById(`${baseId}-num`).value = e.target.value;
+                updateScene();
+            });
+            document.getElementById('symmetry-list').addEventListener('input', handleSymElementChange);
+        }
+
+        function addSymmetryElement() {
+            const type = document.getElementById('sym-type-select').value;
+            const id = Date.now();
+            const elementData = { id, type, position: new THREE.Vector3(0, 0, 0), visual: null };
+            const opType = getOpType(type);
+            const axis = type.split('_').pop();
+            const symbolMaterial = new THREE.LineBasicMaterial({ color: 0x22c55e });
+
+            if (opType === 'mirror') {
+                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+                elementData.normal = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
+            } else if (opType === 'glide') {
+                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0x6ee7b7, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+                elementData.normal = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
+                if (type.startsWith('g_')) {
+                    elementData.glideDirection = { g_x: 'y', g_y: 'x', g_z: 'x' }[type];
+                    const glideAxis = elementData.glideDirection;
+                    elementData.glideVector = new THREE.Vector3(Number(glideAxis === 'x'), Number(glideAxis === 'y'), Number(glideAxis === 'z'));
+                } else { // gn_
+                    const vectors = { gn_x: [0, 1, 1], gn_y: [1, 0, 1], gn_z: [1, 1, 0] };
+                    elementData.glideVector = new THREE.Vector3(...vectors[type]);
+                }
+            } else if (opType === '2-fold' || opType === 'screw') {
+                elementData.axis = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
+                const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 1)]), new THREE.LineBasicMaterial({ color: opType === '2-fold' ? 0xff00ff : 0x22c55e }));
+                const symbol = new THREE.Group();
+                elementData.visual = new THREE.Group().add(line, symbol);
+
+                if (opType === 'screw') {
+                    const parts = type.match(/^s(\d+)_(\d+)/);
+                    const fold = parseInt(parts[1]);
+                    const m = parseInt(parts[2]);
+                    elementData.angle = 2 * Math.PI / fold;
+                    elementData.translationFactor = m / fold;
+                    
+                    const r = 0.1;
+                    if (fold === 2) { const arrow = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,1), new THREE.Vector3(0,r*0.7,1-r), new THREE.Vector3(0,-r*0.7,1-r), new THREE.Vector3(0,0,1)]), symbolMaterial); symbol.add(arrow); }
+                    else if (fold === 3) { const tri = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,r,1), new THREE.Vector3(r*0.866,-r*0.5,1), new THREE.Vector3(-r*0.866,-r*0.5,1)]), symbolMaterial); const tail = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(r*0.866,-r*0.5,1), new THREE.Vector3(r*1.2,-r*0.7,1-r*0.5)]), symbolMaterial); symbol.add(tri, tail); }
+                    else if (fold === 4) { const sq = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(r,r,1),new THREE.Vector3(r,-r,1),new THREE.Vector3(-r,-r,1),new THREE.Vector3(-r,r,1)]), symbolMaterial); const tail = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(r,r,1), new THREE.Vector3(r*1.4,r*1.4,1-r*0.5)]), symbolMaterial); symbol.add(sq, tail); }
+                    else if (fold === 6) { const hexPoints = []; for(let i=0; i<7; i++) { hexPoints.push(new THREE.Vector3(r*Math.cos(Math.PI/3*i), r*Math.sin(Math.PI/3*i), 1)); } const hex = new THREE.Line(new THREE.BufferGeometry().setFromPoints(hexPoints), symbolMaterial); const tail = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(r,0,1), new THREE.Vector3(r*1.4,-r*0.4,1-r*0.5)]), symbolMaterial); symbol.add(hex, tail); }
+                }
+            } else if (opType === 'inversion') {
+                elementData.visual = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 8), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+            }
+            scene.add(elementData.visual);
+            symmetryElements.push(elementData);
+            createSymmetryElementUI(elementData);
+            updateElementVisual(elementData);
+            updateScene();
+        }
+
+        function createSymmetryElementUI(elementData) {
+            const div = document.createElement('div');
+            div.className = 'sym-element';
+            div.id = `sym-element-${elementData.id}`;
+            div.dataset.id = elementData.id;
+            let contentHtml = '<h4>Position</h4>';
+            const type = elementData.type;
+            const opType = getOpType(type);
+            let title = '';
+            const createRow = (axis) => {
+                const inputNumId = `sym-${elementData.id}-${axis}-num`;
+                const inputRangeId = `sym-${elementData.id}-${axis}-range`;
+                return `<div class="input-row"><label for="${inputNumId}">${axis}</label><input type="range" id="${inputRangeId}" class="pos" data-axis="${axis}" min="0" max="1" step="0.01" value="0"><input type="number" id="${inputNumId}" class="pos" data-axis="${axis}" min="0" max="1" step="0.01" value="0"></div>`;
+            };
+            if (opType === 'mirror' || opType === 'glide') {
+                const axis = type.split('_')[1];
+                contentHtml += createRow(axis);
+                title = `${opType.charAt(0).toUpperCase() + opType.slice(1)} ${type.substring(1)}`;
+                if (type.startsWith('g_')) {
+                    const options = { g_x: ['y', 'z'], g_y: ['x', 'z'], g_z: ['x', 'y'] }[type];
+                    contentHtml += `<h4>Glide Direction</h4><select class="glide-dir" data-id="${elementData.id}"><option value="${options[0]}" selected>${options[0]}</option><option value="${options[1]}">${options[1]}</option></select>`;
+                }
+            } else if (opType === '2-fold' || opType === 'screw') {
+                const mainAxis = type.split('_').pop();
+                const axes = { x: ['y', 'z'], y: ['x', 'z'], z: ['x', 'y'] }[mainAxis];
+                axes.forEach(axis => {
+                    contentHtml += createRow(axis);
+                });
+                if (opType === '2-fold') {
+                    title = `2-Fold Axis || ${mainAxis}`;
+                } else {
+                    const parts = type.match(/^s(\d+)_(\d+)/);
+                    const fold = parts[1];
+                    const m = parts[2];
+                    const sub = ['₀', '₁', '₂', '₃', '₄', '₅', '₆'];
+                    title = `Screw ${fold}${sub[m]} || ${mainAxis}`;
+                }
+            } else if (opType === 'inversion') {
+                ['x', 'y', 'z'].forEach(axis => {
+                    contentHtml += createRow(axis);
+                });
+                title = 'Inversion Center';
+            }
+            div.innerHTML = `<h3>${title} <button class="remove-btn" data-id="${elementData.id}">X</button></h3>${contentHtml}`;
+            document.getElementById('symmetry-list').appendChild(div);
+            div.querySelector('.remove-btn').addEventListener('click', removeSymmetryElement);
+        }
+
+        function handleSymElementChange(event) {
+            const symElementDiv = event.target.closest('.sym-element');
+            if (!symElementDiv) return;
+            const id = parseInt(symElementDiv.dataset.id),
+                element = symmetryElements.find(e => e.id === id);
+            if (!element) return;
+            if (event.target.classList.contains('glide-dir')) {
+                const newDir = event.target.value;
+                element.glideDirection = newDir;
+                element.glideVector.set(Number(newDir === 'x'), Number(newDir === 'y'), Number(newDir === 'z'));
+            } else {
+                const axis = event.target.dataset.axis,
+                    value = parseFloat(event.target.value);
+                const row = event.target.parentElement;
+                row.querySelector(`input[type="range"][data-axis="${axis}"]`).value = value;
+                row.querySelector(`input[type="number"][data-axis="${axis}"]`).value = value;
+                const type = element.type;
+                if (getOpType(type) === 'mirror' || getOpType(type) === 'glide') {
+                    const mainAxis = type.split('_')[1];
+                    element.position.set(0, 0, 0);
+                    element.position[mainAxis] = value;
+                } else {
+                    element.position[axis] = value;
+                }
+            }
+            updateElementVisual(element);
+            updateScene();
+        }
+
+        function updateElementVisual(element) {
+            element.visual.position.copy(element.position);
+            const opType = getOpType(element.type);
+            if (opType === 'mirror' || opType === 'glide') {
+                element.visual.lookAt(element.position.clone().add(element.normal));
+            } else if (opType === '2-fold' || opType === 'screw') {
+                element.visual.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), element.axis);
+            }
+        }
+
+        function removeSymmetryElement(event) {
+            const id = parseInt(event.target.dataset.id);
+            const index = symmetryElements.findIndex(e => e.id === id);
+            if (index > -1) {
+                scene.remove(symmetryElements[index].visual);
+                symmetryElements.splice(index, 1);
+                document.getElementById(`sym-element-${id}`).remove();
+                updateScene();
+            }
+        }
+
+        function onWindowResize() {
+            const viewport = document.getElementById('visualization-area');
+            const aspect = viewport.clientWidth / viewport.clientHeight;
+            perspectiveCamera.aspect = aspect;
+            perspectiveCamera.updateProjectionMatrix();
+            const frustumSize = 5;
+            orthographicCamera.left = frustumSize * aspect / -2;
+            orthographicCamera.right = frustumSize * aspect / 2;
+            orthographicCamera.top = frustumSize / 2;
+            orthographicCamera.bottom = frustumSize / -2;
+            orthographicCamera.updateProjectionMatrix();
+            renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, activeCamera);
+        }
+
+        const resizer = document.getElementById('drag-handle');
+        const leftPanel = document.getElementById('controls-panel');
+        let isResizing = false;
+        resizer.addEventListener('mousedown', e => {
+            e.preventDefault();
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', stopResize);
+        });
+
+        function handleMouseMove(e) {
+            if (!isResizing) return;
+            const newLeftWidth = e.clientX - leftPanel.parentElement.getBoundingClientRect().left;
+            if (newLeftWidth > 320 && newLeftWidth < document.body.clientWidth - 300) {
+                leftPanel.style.width = `${newLeftWidth}px`;
+                onWindowResize();
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', stopResize);
+        }
+
+        init();
+    </script>
+</body>
+</html>
