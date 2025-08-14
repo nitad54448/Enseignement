@@ -259,10 +259,11 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
     <script>
         const centeringOptions={triclinic:["P"],monoclinic:["P","C"],orthorhombic:["P","C","I","F"],tetragonal:["P","I"],trigonal:["P","R"],hexagonal:["P"],cubic:["P","I","F"]};
         let scene, camera, renderer, controls, perspectiveCamera, orthographicCamera, font, selectedPlane = null;
-        let unitCellLines = new THREE.Group(), latticeNodes = new THREE.Group(), hklPlanes = new THREE.Group(), directionVector = new THREE.Group();
+        let unitCellLines = new THREE.Group(), latticeNodes = new THREE.Group(), hklPlanes = new THREE.Group(), directionVector = new THREE.Group(), axisLabels = new THREE.Group();
         const FONT_URL = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_regular.typeface.json';
 
         const dom = {
@@ -282,7 +283,7 @@
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xffffff); // Set visualization background to white
-            scene.add(unitCellLines, latticeNodes, hklPlanes, directionVector);
+            scene.add(unitCellLines, latticeNodes, hklPlanes, directionVector, axisLabels);
 
             const container = document.getElementById('threejs-container'), aspect = container.clientWidth / container.clientHeight, frustumSize = 15;
             perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 1000);
@@ -352,7 +353,7 @@
         }
 
         function clearScene() {
-            [unitCellLines, latticeNodes, hklPlanes, directionVector].forEach(g => {
+            [unitCellLines, latticeNodes, hklPlanes, directionVector, axisLabels].forEach(g => {
                 while(g.children.length) {
                     const o = g.children[0];
                     g.remove(o);
@@ -370,6 +371,7 @@
             if (!v_a) return;
 
             drawUnitCell(v_a, v_b, v_c);
+            drawAxisLabels(v_a, v_b, v_c);
             drawLatticeNodes(v_a, v_b, v_c, dom.centering.value);
             
             const mode = dom.modeSelector.value;
@@ -417,6 +419,25 @@
             const geom = new THREE.BufferGeometry().setFromPoints(pts);
             geom.setIndex(edges);
             unitCellLines.add(new THREE.LineSegments(geom, mat));
+        }
+
+        function drawAxisLabels(v_a, v_b, v_c) {
+            if (!font) return;
+            const mat = new THREE.MeshBasicMaterial({ color: 0x1f2937 }); // Dark text color
+            const textParams = { font: font, size: 0.5, height: 0.05, curveSegments: 4 };
+            const offsetFactor = 1.15;
+
+            const createLabel = (text, position) => {
+                const geom = new THREE.TextGeometry(text, textParams);
+                const label = new THREE.Mesh(geom, mat);
+                label.position.copy(position).multiplyScalar(offsetFactor);
+                label.quaternion.copy(camera.quaternion); // Make text face camera initially
+                axisLabels.add(label);
+            };
+
+            createLabel('a', v_a);
+            createLabel('b', v_b);
+            createLabel('c', v_c);
         }
 
         function drawLatticeNodes(v_a, v_b, v_c, centering) {
