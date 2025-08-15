@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stereographic Projection Visualizer</title>
+    <title>Interactive Stereographic Projection</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -133,7 +133,7 @@
     <div id="app-container">
         <div id="controls-panel">
             <h1>Stereographic Projection</h1>
-            <p>Click on the projection to add a pole, or click an existing pole to select it.</p>
+            <p>Click to add a pole. Click and drag a parent pole to move its entire family.</p>
             
             <div class="control-group">
                 <h2>Symmetry Generators</h2>
@@ -171,8 +171,8 @@
     </div>
 
     <footer class="fixed bottom-0 left-0 w-full bg-white shadow-md p-2 flex justify-between items-center text-xs text-gray-600 border-t z-10">
-        <div class="px-4">Click to add a northern hemisphere pole. Select a pole from the diagram or the list.</div>
-        <div class="px-4">NitaD, Univ Paris-Saclay, 14 Aug 2025</div>
+        <div class="px-4">Click to add a pole. Drag a parent pole to see real-time updates.</div>
+        <div class="px-4">NitaD, Univ Paris-Saclay, 15 Aug 2025</div>
     </footer>
 
 <script>
@@ -186,9 +186,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const poleInfoWrapper = document.getElementById('pole-info-table-wrapper');
     const generatorListDiv = document.getElementById('symmetry-generators-list');
     
+    // --- STATE VARIABLES ---
     let poles = [];
     let selectedPoleIndex = -1;
     let radius, centerX, centerY;
+    let poleIdCounter = 0;
+    let isDragging = false;
+    let draggedPoleId = null;
     
     const colorPalette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 
@@ -243,13 +247,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const spherical = millerToSpherical(h_norm, k_norm, l_norm);
         if (!spherical) return;
         
-        const parentPoleCount = poles.filter(p => p.parentIndex === -1).length;
+        const parentPoleCount = poles.filter(p => p.parentId === null).length;
         const color = colorPalette[parentPoleCount % colorPalette.length];
         
         const pole = {
+            id: poleIdCounter++,
             h: h_norm, k: k_norm, l: l_norm,
             phi: spherical.phi, rho: spherical.rho,
-            color: color, parentIndex: -1, generatingOp: null,
+            color: color, parentId: null, generatingOp: null,
             isLowerHemisphere: l_norm < 0
         };
         
@@ -292,32 +297,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 break;
             case 'rotoinv3_z':
-                // (-3)^1: 120 deg rot + inv
                 let angle120 = 2 * Math.PI / 3;
                 let rh120 = h * Math.cos(angle120) - k * Math.sin(angle120);
                 let rk120 = h * Math.sin(angle120) + k * Math.cos(angle120);
                 newPoles.push({h: -rh120, k: -rk120, l: -l});
-
-                // (-3)^2: 240 deg rot + inv
                 let angle240 = 4 * Math.PI / 3;
                 let rh240 = h * Math.cos(angle240) - k * Math.sin(angle240);
                 let rk240 = h * Math.sin(angle240) + k * Math.cos(angle240);
                 newPoles.push({h: -rh240, k: -rk240, l: -l});
                 break;
             case 'rotoinv4_z':
-                // (-4)^1: 90 deg rot + inv. Transforms (h,k,l) to (k,-h,-l)
                 newPoles.push({ h: k, k: -h, l: -l });
-                // (-4)^3: 270 deg rot + inv. Transforms (h,k,l) to (-k,h,-l)
                 newPoles.push({ h: -k, k: h, l: -l });
                 break;
             case 'rotoinv6_z':
-                 // (-6)^1: 60 deg rot + inv
                  const angle60 = Math.PI / 3;
                  const rh60 = h * Math.cos(angle60) - k * Math.sin(angle60);
                  const rk60 = h * Math.sin(angle60) + k * Math.cos(angle60);
                  newPoles.push({ h: -rh60, k: -rk60, l: -l });
-
-                 // (-6)^5: 300 deg rot + inv
                  const angle300 = 5 * Math.PI / 3;
                  const rh300 = h * Math.cos(angle300) - k * Math.sin(angle300);
                  const rk300 = h * Math.sin(angle300) + k * Math.cos(angle300);
@@ -355,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return knownPoles;
     }
 
-function handleGenerateClick() {
+    function handleGenerateClick() {
         if (selectedPoleIndex === -1) {
             alert("Please select a pole first.");
             return;
@@ -366,25 +363,23 @@ function handleGenerateClick() {
             return;
         }
 
-        let parentPole = poles[selectedPoleIndex];
-        let parentIndex = selectedPoleIndex;
-        if (parentPole.parentIndex !== -1) {
-            parentIndex = parentPole.parentIndex;
-            parentPole = poles[parentIndex];
+        let selected = poles[selectedPoleIndex];
+        let parentPole = selected.parentId !== null ? poles.find(p => p.id === selected.parentId) : selected;
+        if (!parentPole) {
+             console.error("Parent pole not found!");
+             return;
         }
 
         let targetPoleSet;
 
         if (checkedOps.length > 1) {
-            // --- MODE 1: GROUP GENERATION (for multiple ops like 3/m) ---
             const targetPoleHkl = calculateTargetGroup(parentPole, checkedOps);
             targetPoleSet = targetPoleHkl.map(p_hkl => {
                 const mag = Math.sqrt(p_hkl.h*p_hkl.h + p_hkl.k*p_hkl.k + p_hkl.l*p_hkl.l);
-                return { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag, phi: Math.atan2(p_hkl.k, p_hkl.h), isLowerHemisphere: p_hkl.l < 0 };
+                return { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag };
             });
 
         } else {
-            // --- MODE 2: CHAINED PATH GENERATION (for a single op) ---
             const op = checkedOps[0];
             const startPole = poles[selectedPoleIndex];
             const potentialNewPoles = applySingleOperation(op, startPole);
@@ -404,23 +399,23 @@ function handleGenerateClick() {
             } else {
                 const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l);
                 const newPoleObject = {
+                    id: poleIdCounter++,
                     h: newPoleHkl.h, k: newPoleHkl.k, l: newPoleHkl.l,
                     phi: spherical.phi, rho: spherical.rho, color: parentPole.color,
-                    parentIndex: parentIndex, generatingOp: op, isLowerHemisphere: newPoleHkl.l < -1e-6
+                    parentId: parentPole.id, generatingOp: op, isLowerHemisphere: newPoleHkl.l < -1e-6
                 };
                 poles.push(newPoleObject);
                 selectedPoleIndex = poles.length - 1;
             }
             draw();
             updatePoleInfoTable();
-            return; // End here for chained mode
+            return;
         }
 
-        // --- Logic to add next pole from the generated group (for Mode 1) ---
-        const visibleFamilyPoles = [parentPole, ...poles.filter(p => p.parentIndex === parentIndex)];
+        const familyPoles = poles.filter(p => p.id === parentPole.id || p.parentId === parentPole.id);
         let nextPoleToAdd = null;
         for (const targetPole of targetPoleSet) {
-            if (!findPoleInList(visibleFamilyPoles, targetPole)) {
+            if (!findPoleInList(familyPoles, targetPole)) {
                 nextPoleToAdd = targetPole;
                 break;
             }
@@ -428,11 +423,19 @@ function handleGenerateClick() {
         
         if (nextPoleToAdd) {
             const spherical = millerToSpherical(nextPoleToAdd.h, nextPoleToAdd.k, nextPoleToAdd.l);
-            const newPoleObject = { ...nextPoleToAdd, rho: spherical.rho, color: parentPole.color, parentIndex: parentIndex, generatingOp: 'group' };
+            const newPoleObject = { 
+                id: poleIdCounter++,
+                ...nextPoleToAdd, 
+                rho: spherical.rho, 
+                color: parentPole.color, 
+                parentId: parentPole.id, 
+                generatingOp: 'group',
+                isLowerHemisphere: nextPoleToAdd.l < -1e-6
+            };
             poles.push(newPoleObject);
             selectedPoleIndex = poles.length - 1;
         } else {
-            const orderedVisiblePoles = targetPoleSet.map(target => visibleFamilyPoles.find(visible => arePolesEqual(target, visible))).filter(Boolean);
+            const orderedVisiblePoles = targetPoleSet.map(target => familyPoles.find(visible => arePolesEqual(target, visible))).filter(Boolean);
             const currentSelectedInFamily = poles[selectedPoleIndex];
             const currentIndex = orderedVisiblePoles.findIndex(p => arePolesEqual(p, currentSelectedInFamily));
             const nextIndex = (currentIndex + 1) % orderedVisiblePoles.length;
@@ -442,8 +445,7 @@ function handleGenerateClick() {
         updatePoleInfoTable();
     }
 
-
-// --- UI DRAWING AND UPDATING ---
+    // --- UI DRAWING AND UPDATING ---
     function updatePoleInfoTable() {
         if (poles.length === 0) {
             poleInfoWrapper.innerHTML = `<p class="text-sm" style="color: #9ca3af;">Click on the projection to add a pole.</p>`;
@@ -462,7 +464,7 @@ function handleGenerateClick() {
             } else {
                 symbolHTML = `<div style="width: 16px; height: 16px; background-color: transparent; border: 2px solid ${p.color}; border-radius: 50%; box-sizing: border-box; display: inline-block; vertical-align: middle;"></div>`;
             }
-            const type = p.parentIndex === -1 ? 'Parent' : 'Generated';
+            const type = p.parentId === null ? 'Parent' : 'Generated';
             tableHTML += `<tr style="cursor: pointer; ${rowStyle}" onclick="document.dispatchEvent(new CustomEvent('selectPole', {detail: ${index}}))">
                 <td style="text-align: center;">${symbolHTML}</td>
                 <td>${xyz}</td>
@@ -478,7 +480,7 @@ function handleGenerateClick() {
         if (checkedOps.length === 0) return;
 
         const symbolSize = 14;
-        const symbolColor = '#e11d48'; // Rose color for high visibility
+        const symbolColor = '#e11d48';
         ctx.fillStyle = symbolColor;
         ctx.strokeStyle = symbolColor;
         ctx.lineWidth = 2.5;
@@ -486,81 +488,37 @@ function handleGenerateClick() {
         checkedOps.forEach(op => {
             ctx.beginPath();
             switch(op) {
-                case 'inversion':
-                    ctx.arc(centerX, centerY, symbolSize / 2.5, 0, 2 * Math.PI);
-                    ctx.stroke();
-                    break;
-                case 'mirror_xy':
-                    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-                    ctx.stroke();
-                    break;
-                case 'mirror_yz':
-                    ctx.moveTo(centerX, centerY - radius);
-                    ctx.lineTo(centerX, centerY + radius);
-                    ctx.stroke();
-                    break;
-                case 'mirror_xz':
-                    ctx.moveTo(centerX - radius, centerY);
-                    ctx.lineTo(centerX + radius, centerY);
-                    ctx.stroke();
-                    break;
-                case 'rot2_z':
-                    ctx.ellipse(centerX, centerY, symbolSize, symbolSize * 0.6, 0, 0, 2 * Math.PI);
-                    ctx.fill();
-                    break;
+                case 'inversion': ctx.arc(centerX, centerY, symbolSize / 2.5, 0, 2 * Math.PI); ctx.stroke(); break;
+                case 'mirror_xy': ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI); ctx.stroke(); break;
+                case 'mirror_yz': ctx.moveTo(centerX, centerY - radius); ctx.lineTo(centerX, centerY + radius); ctx.stroke(); break;
+                case 'mirror_xz': ctx.moveTo(centerX - radius, centerY); ctx.lineTo(centerX + radius, centerY); ctx.stroke(); break;
+                case 'rot2_z': ctx.ellipse(centerX, centerY, symbolSize, symbolSize * 0.6, 0, 0, 2 * Math.PI); ctx.fill(); break;
                 case 'rot3_z':
                     ctx.moveTo(centerX, centerY - symbolSize);
                     ctx.lineTo(centerX - symbolSize * 0.866, centerY + symbolSize * 0.5);
                     ctx.lineTo(centerX + symbolSize * 0.866, centerY + symbolSize * 0.5);
-                    ctx.closePath();
-                    ctx.fill();
-                    break;
-                case 'rot4_z':
-                    ctx.rect(centerX - symbolSize / 1.4, centerY - symbolSize / 1.4, symbolSize * 1.4, symbolSize * 1.4);
-                    ctx.fill();
-                    break;
+                    ctx.closePath(); ctx.fill(); break;
+                case 'rot4_z': ctx.rect(centerX - symbolSize / 1.4, centerY - symbolSize / 1.4, symbolSize * 1.4, symbolSize * 1.4); ctx.fill(); break;
                 case 'rot6_z':
-                    for(let i = 0; i < 6; i++) {
-                        const angle = i * Math.PI / 3;
-                        const x = centerX + symbolSize * Math.cos(angle);
-                        const y = centerY - symbolSize * Math.sin(angle);
-                        (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                    }
-                    ctx.closePath();
-                    ctx.fill();
-                    break;
+                    for(let i = 0; i < 6; i++) { const angle = i * Math.PI / 3; const x = centerX + symbolSize * Math.cos(angle); const y = centerY - symbolSize * Math.sin(angle); (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+                    ctx.closePath(); ctx.fill(); break;
                 case 'rotoinv3_z':
                     ctx.moveTo(centerX, centerY - symbolSize);
                     ctx.lineTo(centerX - symbolSize * 0.866, centerY + symbolSize * 0.5);
                     ctx.lineTo(centerX + symbolSize * 0.866, centerY + symbolSize * 0.5);
-                    ctx.closePath();
-                    ctx.stroke();
-                    break;
+                    ctx.closePath(); ctx.stroke(); break;
                 case 'rotoinv4_z':
-                    ctx.moveTo(centerX - symbolSize, centerY);
-                    ctx.lineTo(centerX, centerY - symbolSize);
-                    ctx.lineTo(centerX + symbolSize, centerY);
-                    ctx.lineTo(centerX, centerY + symbolSize);
-                    ctx.closePath();
-                    ctx.stroke();
-                    break;
+                    ctx.moveTo(centerX - symbolSize, centerY); ctx.lineTo(centerX, centerY - symbolSize); ctx.lineTo(centerX + symbolSize, centerY); ctx.lineTo(centerX, centerY + symbolSize);
+                    ctx.closePath(); ctx.stroke(); break;
                 case 'rotoinv6_z':
-                    for(let i = 0; i < 6; i++) {
-                        const angle = i * Math.PI / 3;
-                        const x = centerX + symbolSize * Math.cos(angle);
-                        const y = centerY - symbolSize * Math.sin(angle);
-                        (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                    }
-                    ctx.closePath();
-                    ctx.stroke();
-                    break;
+                    for(let i = 0; i < 6; i++) { const angle = i * Math.PI / 3; const x = centerX + symbolSize * Math.cos(angle); const y = centerY - symbolSize * Math.sin(angle); (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+                    ctx.closePath(); ctx.stroke(); break;
             }
         });
     }
 
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
         drawGrid();
         drawSymmetryElements();
 
@@ -577,10 +535,8 @@ function handleGenerateClick() {
             ctx.beginPath();
             if (pole.isLowerHemisphere) {
                 const crossSize = 6;
-                ctx.moveTo(x - crossSize, y - crossSize);
-                ctx.lineTo(x + crossSize, y + crossSize);
-                ctx.moveTo(x + crossSize, y - crossSize);
-                ctx.lineTo(x - crossSize, y + crossSize);
+                ctx.moveTo(x - crossSize, y - crossSize); ctx.lineTo(x + crossSize, y + crossSize);
+                ctx.moveTo(x + crossSize, y - crossSize); ctx.lineTo(x - crossSize, y + crossSize);
                 ctx.stroke();
             } else {
                 ctx.arc(x, y, 6, 0, 2 * Math.PI);
@@ -589,7 +545,7 @@ function handleGenerateClick() {
             if (index === selectedPoleIndex) {
                 ctx.beginPath();
                 ctx.arc(x, y, 10, 0, 2 * Math.PI);
-                ctx.strokeStyle = '#f59e0b'; // Amber highlight color
+                ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 3;
                 ctx.stroke();
             }
@@ -635,7 +591,13 @@ function handleGenerateClick() {
         
         selectedPoleIndex = clickedIndex;
         
-        if (clickedIndex === -1) {
+        if (clickedIndex !== -1 && poles[clickedIndex].parentId === null) {
+            isDragging = true;
+            draggedPoleId = poles[clickedIndex].id;
+            canvas.style.cursor = 'grabbing';
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        } else if (clickedIndex === -1) {
             const distFromCenter = Math.sqrt((mouseX - centerX)**2 + (mouseY - centerY)**2);
             if (distFromCenter <= radius) {
                 addPoleByClick(mouseX, mouseY);
@@ -646,33 +608,132 @@ function handleGenerateClick() {
         updatePoleInfoTable();
     }
 
+    function handleMouseMove(e) {
+        if (!isDragging) return;
+        e.preventDefault(); // Prevent text selection while dragging
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const dx = mouseX - centerX;
+        const dy = mouseY - centerY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        let constrainedX = mouseX;
+        let constrainedY = mouseY;
+
+        if (dist > radius) {
+            constrainedX = centerX + (dx / dist) * radius;
+            constrainedY = centerY + (dy / dist) * radius;
+        }
+
+        const spherical = cartesianToSpherical(constrainedX, constrainedY);
+        if (spherical.rho > Math.PI / 2) {
+            spherical.rho = Math.PI / 2;
+        }
+        const miller = sphericalToMiller(spherical.phi, spherical.rho);
+
+        const parentPole = poles.find(p => p.id === draggedPoleId);
+        if (parentPole) {
+            parentPole.phi = spherical.phi;
+            parentPole.rho = spherical.rho;
+            parentPole.h = miller.h;
+            parentPole.k = miller.k;
+            parentPole.l = miller.l;
+            parentPole.isLowerHemisphere = parentPole.l < 0;
+        }
+
+        regenerateFamily(draggedPoleId);
+        
+        draw();
+        updatePoleInfoTable();
+    }
+
+    function handleMouseUp() {
+        isDragging = false;
+        draggedPoleId = null;
+        canvas.style.cursor = 'crosshair';
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    /**
+     * Wipes and recalculates all generated children for a given parent pole
+     * based on the currently selected symmetry operations.
+     */
+    function regenerateFamily(parentPoleId) {
+        const parentPole = poles.find(p => p.id === parentPoleId);
+        if (!parentPole) return;
+
+        const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
+
+        // Remove old children of the dragged pole, but keep other poles
+        poles = poles.filter(p => p.parentId !== parentPoleId);
+
+        // Ensure the parent pole remains selected
+        selectedPoleIndex = poles.findIndex(p => p.id === parentPoleId);
+
+        if (checkedOps.length === 0) {
+            return; // No ops, so no children to generate. The filter above already removed them.
+        }
+
+        const targetPoleHkl = calculateTargetGroup(parentPole, checkedOps);
+
+        targetPoleHkl.forEach(p_hkl => {
+            const mag = Math.sqrt(p_hkl.h**2 + p_hkl.k**2 + p_hkl.l**2);
+            if (mag < 1e-6) return;
+            const newPoleHkl = { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag };
+
+            // Don't re-add the parent pole itself or any other existing pole
+            if (arePolesEqual(newPoleHkl, parentPole) || findPoleInList(poles, newPoleHkl)) {
+                return;
+            }
+
+            const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l);
+            if (!spherical) return;
+
+            const newPoleObject = {
+                id: poleIdCounter++,
+                h: newPoleHkl.h, k: newPoleHkl.k, l: newPoleHkl.l,
+                phi: spherical.phi, rho: spherical.rho,
+                color: parentPole.color,
+                parentId: parentPole.id,
+                generatingOp: 'group',
+                isLowerHemisphere: newPoleHkl.l < -1e-6
+            };
+            poles.push(newPoleObject);
+        });
+    }
+
     function setupEventListeners() {
         generatePolesBtn.addEventListener('click', handleGenerateClick);
         
-        generatorListDiv.addEventListener('change', draw);
-
-        clearBtn.addEventListener('click', () => {
-            // Clear poles state
-            poles = [];
-            selectedPoleIndex = -1;
-            
-            // Uncheck all symmetry generator checkboxes
-            const checkboxes = generatorListDiv.querySelectorAll('input[type="checkbox"]');
-            checkboxes.forEach(cb => {
-                cb.checked = false;
-            });
-
-            // Redraw everything to reflect the cleared state
+        // BUG FIX: Instead of just redrawing, regenerate the poles when symmetry ops change.
+        generatorListDiv.addEventListener('change', () => {
+            if (selectedPoleIndex > -1) {
+                const selectedPole = poles[selectedPoleIndex];
+                const parentId = selectedPole.parentId === null ? selectedPole.id : selectedPole.parentId;
+                if (parentId !== null) {
+                    regenerateFamily(parentId);
+                }
+            }
             draw();
             updatePoleInfoTable();
         });
-        
+
+        clearBtn.addEventListener('click', () => {
+            poles = [];
+            selectedPoleIndex = -1;
+            const checkboxes = generatorListDiv.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => { cb.checked = false; });
+            draw();
+            updatePoleInfoTable();
+        });
         document.addEventListener('selectPole', (e) => {
             selectedPoleIndex = e.detail;
             draw();
             updatePoleInfoTable();
         });
-        
         canvas.addEventListener('mousedown', handleMouseDown);
     }
     
