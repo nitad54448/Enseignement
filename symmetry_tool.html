@@ -142,14 +142,14 @@
 
             <div id="parent-motif-controls" class="control-group">
                 <h2>Parent Motif</h2>
-                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="0" max="1" value="0.2" step="0.01"><input type="number" id="parent-x-num" min="0" max="1" value="0.2" step="0.01"></div>
-                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="0" max="1" value="0.3" step="0.01"><input type="number" id="parent-y-num" min="0" max="1" value="0.3" step="0.01"></div>
-                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="0" max="1" value="0.1" step="0.01"><input type="number" id="parent-z-num" min="0" max="1" value="0.1" step="0.01"></div>
+                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="0" max="1" value="0" step="0.01"><input type="number" id="parent-x-num" min="0" max="1" value="0" step="0.01"></div>
+                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="0" max="1" value="0.29" step="0.01"><input type="number" id="parent-y-num" min="0" max="1" value="0.29" step="0.01"></div>
+                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="0" max="1" value="0" step="0.01"><input type="number" id="parent-z-num" min="0" max="1" value="0" step="0.01"></div>
             </div>
 
             <div class="control-group">
                 <h2>Display Options</h2>
-                <div class="flex items-center justify-between"><label for="unit-cell-only" class="text-gray-400 font-normal normal-case">Cell Only</label><input type="checkbox" id="unit-cell-only"></div>
+                <div class="flex items-center justify-between"><label for="unit-cell-only" class="text-gray-400 font-normal normal-case">Cell Only</label><input type="checkbox" id="unit-cell-only" checked></div>
                 <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
                     <label class="text-gray-400 font-normal normal-case">View</label>
                     <div class="flex items-center space-x-4">
@@ -341,19 +341,54 @@
             return new THREE.Mesh(geometry, material);
         }
 
+        function expandSpecialPosition(motif) {
+            const expandedList = [];
+            const p = motif.position;
+            const isXint = (Math.abs(p.x % 1) < 1e-4 || Math.abs(p.x % 1 - 1) < 1e-4);
+            const isYint = (Math.abs(p.y % 1) < 1e-4 || Math.abs(p.y % 1 - 1) < 1e-4);
+            const isZint = (Math.abs(p.z % 1) < 1e-4 || Math.abs(p.z % 1 - 1) < 1e-4);
+            const numInts = Number(isXint) + Number(isYint) + Number(isZint);
+
+            if (numInts > 0) {
+                const xCoords = isXint ? [0, 1] : [p.x];
+                const yCoords = isYint ? [0, 1] : [p.y];
+                const zCoords = isZint ? [0, 1] : [p.z];
+
+                for (const x of xCoords) {
+                    for (const y of yCoords) {
+                        for (const z of zCoords) {
+                            const newMotif = motif.clone();
+                            newMotif.position.set(x, y, z);
+                            expandedList.push(newMotif);
+                        }
+                    }
+                }
+            } else {
+                expandedList.push(motif.clone());
+            }
+            return expandedList;
+        }
+
         function updateScene() {
             if (!parentMotif) return;
             parentMotif.position.set(parseFloat(document.getElementById('parent-x-num').value), parseFloat(document.getElementById('parent-y-num').value), parseFloat(document.getElementById('parent-z-num').value));
             generatedMotifs.clear();
             parentMotif.material.color.set(0x3b82f6);
             parentMotif.userData.chirality = 'right';
-            const motifList = [parentMotif];
+
+            const canonicalParent = parentMotif.clone();
+            canonicalParent.position.x -= Math.floor(canonicalParent.position.x);
+            canonicalParent.position.y -= Math.floor(canonicalParent.position.y);
+            canonicalParent.position.z -= Math.floor(canonicalParent.position.z);
+
+            const canonicalMotifList = [canonicalParent];
+
             let added = true;
             while (added) {
                 added = false;
-                const currentCount = motifList.length;
+                const currentCount = canonicalMotifList.length;
                 for (let i = 0; i < currentCount; i++) {
-                    const source = motifList[i];
+                    const source = canonicalMotifList[i];
                     symmetryElements.forEach(element => {
                         const copy = source.clone();
                         copy.material = source.material.clone();
@@ -379,31 +414,32 @@
                                 copy.userData.chirality = (source.userData.chirality === 'right') ? 'left' : 'right';
                                 break;
                         }
-                        
-                        // FIX 1: Always wrap coordinates back to the unit cell.
-                        copy.position.x = copy.position.x - Math.floor(copy.position.x);
-                        copy.position.y = copy.position.y - Math.floor(copy.position.y);
-                        copy.position.z = copy.position.z - Math.floor(copy.position.z);
 
+                        copy.position.x -= Math.floor(copy.position.x);
+                        copy.position.y -= Math.floor(copy.position.y);
+                        copy.position.z -= Math.floor(copy.position.z);
+                        
                         if (copy.userData.chirality === 'right') copy.material.color.set(0x3b82f6);
                         else copy.material.color.set(0xef4444);
 
-                        // FIX 2: Relax the quaternion comparison tolerance to account for floating point errors.
-                        const isDuplicate = motifList.some(m => m.position.distanceTo(copy.position) < 1e-4 && m.quaternion.angleTo(copy.quaternion) < 1e-3 && m.userData.chirality === copy.userData.chirality);
+                        const isDuplicate = canonicalMotifList.some(m => m.position.distanceTo(copy.position) < 1e-4 && m.quaternion.angleTo(copy.quaternion) < 1e-3 && m.userData.chirality === copy.userData.chirality);
                         
                         if (!isDuplicate) {
-                            motifList.push(copy);
+                            canonicalMotifList.push(copy);
                             added = true;
                         }
                     });
                 }
             }
+            
             const coordsContainer = document.getElementById('generated-coords-container');
-            if (motifList.length > 1) {
+            const motifsToShowInText = canonicalMotifList.slice(1);
+            
+            if (motifsToShowInText.length > 0) {
                 coordsContainer.style.display = 'block';
                 const coordsList = document.getElementById('generated-coordinates-list');
                 let html = '';
-                motifList.slice(1).forEach(m => {
+                motifsToShowInText.forEach(m => {
                     const pos = m.position;
                     const color = m.userData.chirality === 'right' ? '#3b82f6' : '#ef4444';
                     html += `<div style="color:${color};">(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})</div>`;
@@ -412,23 +448,36 @@
             } else {
                 coordsContainer.style.display = 'none';
             }
+            
+            let visualMotifList = [];
+            canonicalMotifList.forEach(motif => {
+                visualMotifList.push(...expandSpecialPosition(motif));
+            });
+
             const showUnitCellOnly = document.getElementById('unit-cell-only').checked;
             if (showUnitCellOnly) {
-                motifList.forEach(originalMotif => {
+                visualMotifList.forEach(originalMotif => {
                     generatedMotifs.add(originalMotif.clone());
                 });
             } else {
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dy = -1; dy <= 1; dy++) {
-                        for (let dz = -1; dz <= 1; dz++) {
-                            motifList.forEach(originalMotif => {
+                const occupiedPositions = new Set();
+                visualMotifList.forEach(originalMotif => {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dz = -1; dz <= 1; dz++) {
                                 const periodicCopy = originalMotif.clone();
                                 periodicCopy.position.add(new THREE.Vector3(dx, dy, dz));
-                                generatedMotifs.add(periodicCopy);
-                            });
+
+                                const posKey = periodicCopy.position.toArray().map(p => p.toFixed(4)).join(',');
+
+                                if (!occupiedPositions.has(posKey)) {
+                                    generatedMotifs.add(periodicCopy);
+                                    occupiedPositions.add(posKey);
+                                 }
+                            }
                         }
                     }
-                }
+                });
             }
         }
 
@@ -501,10 +550,10 @@
             const symbolMaterial = new THREE.LineBasicMaterial({ color: 0x22c55e });
 
             if (opType === 'mirror') {
-                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
                 elementData.normal = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
             } else if (opType === 'glide') {
-                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0x6ee7b7, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x6ee7b7, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
                 elementData.normal = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
                 if (type.startsWith('g_')) {
                     elementData.glideDirection = { g_x: 'y', g_y: 'x', g_z: 'x' }[type];
@@ -516,7 +565,7 @@
                 }
             } else if (opType === '2-fold' || opType === 'screw') {
                 elementData.axis = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
-                const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 1)]), new THREE.LineBasicMaterial({ color: opType === '2-fold' ? 0xff00ff : 0x22c55e }));
+                const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 1)]), new THREE.LineBasicMaterial({ color: opType === '2-fold' ? 0xff00ff : 0x22c55e }));
                 const symbol = new THREE.Group();
                 elementData.visual = new THREE.Group().add(line, symbol);
 
@@ -621,12 +670,22 @@
         }
 
         function updateElementVisual(element) {
-            element.visual.position.copy(element.position);
             const opType = getOpType(element.type);
             if (opType === 'mirror' || opType === 'glide') {
-                element.visual.lookAt(element.position.clone().add(element.normal));
+                element.visual.position.copy(element.position);
+                if (Math.abs(element.normal.x) > 0.5) {
+                    element.visual.position.set(element.position.x, 0.5, 0.5);
+                } else if (Math.abs(element.normal.y) > 0.5) {
+                    element.visual.position.set(0.5, element.position.y, 0.5);
+                } else {
+                    element.visual.position.set(0.5, 0.5, element.position.z);
+                }
+                element.visual.lookAt(element.visual.position.clone().add(element.normal));
             } else if (opType === '2-fold' || opType === 'screw') {
+                element.visual.position.copy(element.position);
                 element.visual.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), element.axis);
+            } else { 
+                 element.visual.position.copy(element.position);
             }
         }
 
