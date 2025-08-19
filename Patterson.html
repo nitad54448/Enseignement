@@ -3,202 +3,157 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Patterson Function Simulator</title>
+    <title>Patterson Function Simulator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        /* Wrapper for the canvas elements */
-        .canvas-wrapper {
-            background-color: #e5e7eb; /* gray-200 */
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
-            width: 100%;
-            overflow: hidden;
-        }
-        .canvas-wrapper.rounded {
-             border-radius: 0.75rem; /* rounded-lg */
-        }
-        canvas {
-            cursor: crosshair;
-            display: block;
-            width: 100%;
-            height: 100%;
-        }
-        .atom-list-item {
-            transition: background-color 0.2s ease-in-out;
-        }
-        input[type="radio"]:checked + label {
-            background-color: #3b82f6;
-            color: white;
-            border-color: #2563eb;
-        }
-        .coord-input {
-            width: 60px;
-            text-align: center;
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 0.375rem;
-            padding: 2px 4px;
-        }
-        .coord-input:focus {
-            outline: 2px solid #3b82f6;
-            outline-offset: 1px;
-            background-color: white;
-        }
-        /* Grid layout for plots and their axes */
-        .plot-grid {
-            display: grid;
-            grid-template-areas:
-                'y-axis plot'
-                '.      x-axis';
-            grid-template-rows: 1fr auto;
-            grid-template-columns: auto 1fr;
-            gap: 0.25rem;
-        }
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f1f5f9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        #controls-panel { width: 400px; min-width: 350px; max-width: 550px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
+        #drag-handle { width: 6px; cursor: col-resize; background-color: #374151; flex-shrink: 0; transition: background-color 0.2s; }
+        #drag-handle:hover { background-color: #3b82f6; }
+        #results-area { flex-grow: 1; background-color: #f1f5f9; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: #1f2937; overflow-y: auto; }
+        
+        .control-group { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #374151;}
+        .control-group:last-child { border-bottom: none; padding-bottom: 0; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        
+        input[type="radio"]:checked + label { background-color: #3b82f6; color: white; border-color: #2563eb; }
+        .atom-type-label { text-align: center; padding: 0.5rem; border: 1px solid #4b5563; background-color: #374151; color: #e5e7eb; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s ease; }
+        .atom-type-label:hover { background-color: #4b5563; }
+        
+        .btn-danger { display: block; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; transition: background-color 0.2s; cursor: pointer; text-align: center; background-color: #dc2626; color: white; width: 100%;}
+        .btn-danger:hover { background-color: #b91c1c; }
+
+        footer { width: 100%; background-color: #ffffff; padding: 8px 24px; font-size: 0.8em; color: #4b5563; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
+        
+        .canvas-wrapper { background-color: #e5e7eb; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05); width: 100%; overflow: hidden; aspect-ratio: 1 / 1; }
+        .canvas-wrapper.rounded { border-radius: 0.75rem; }
+        canvas { cursor: crosshair; display: block; width: 100%; height: 100%; }
+        
+        .coord-input { width: 60px; text-align: center; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 2px 4px; }
+        .coord-input:focus { outline: none; border-color: #3b82f6; }
+        
+        .plot-grid { display: grid; grid-template-areas: 'y-axis plot' '. x-axis'; grid-template-rows: 1fr auto; grid-template-columns: auto 1fr; gap: 0.25rem; }
         .y-axis-labels { grid-area: y-axis; }
         .x-axis-labels { grid-area: x-axis; }
         .plot-area { grid-area: plot; }
-        
-        /* Custom styles for the toggle switch */
-        .toggle-checkbox:checked {
-            right: 0;
-            border-color: #3b82f6; /* blue-500 */
-        }
-        .toggle-checkbox:checked + .toggle-label {
-            background-color: #3b82f6; /* blue-500 */
-        }
+
+        .toggle-checkbox:checked { right: 0; border-color: #3b82f6; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #3b82f6; }
+        body.resizing { cursor: col-resize !important; user-select: none; }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800 antialiased">
-
-    <header class="bg-white p-4 shadow-md w-full z-10">
-        <div class="container mx-auto">
-            <h1 class="text-2xl font-bold text-gray-800">Patterson Function Simulator</h1>
-            <p class="text-sm text-gray-600">A tool for teaching and learning crystallography.</p>
-        </div>
-    </header>
-
-    <main class="flex-grow p-4 md:p-6">
-        <div class="container mx-auto">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1 class="text-2xl font-bold text-white mb-4">Patterson Function Simulator</h1>
             
-                <!-- Controls Panel -->
-                <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-md h-fit">
-                    <h2 class="text-xl font-semibold mb-4 border-b pb-2">Controls & Atoms</h2>
-                    <div class="space-y-6">
-                        <div>
-                            <h3 class="font-semibold text-gray-700">Instructions</h3>
-                            <p class="text-sm text-gray-600 mt-1">
-                                1. Select atom type & click on the canvas to add.<br>
-                                2. Edit atom coordinates directly in the list below.<br>
-                                3. Hover over Patterson peaks to see the vectors.
-                            </p>
-                        </div>
-                         <div>
-                            <h3 class="font-semibold text-gray-700 mb-2">Select Atom Type to Add</h3>
-                            <div id="atom-type-selector" class="grid grid-cols-2 gap-2">
-                                <input type="radio" id="atom-type-a" name="atom-type" value="A" class="sr-only" checked>
-                                <label for="atom-type-a" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type A</label>
-                                
-                                <input type="radio" id="atom-type-b" name="atom-type" value="B" class="sr-only">
-                                <label for="atom-type-b" class="text-center p-2 border rounded-lg cursor-pointer transition-colors">Type B</label>
-                            </div>
-                        </div>
-
-                        <!-- New Diffraction Controls -->
-                        <div class="space-y-4 pt-4 border-t">
-                             <h3 class="font-semibold text-gray-700">Diffraction Controls</h3>
-                             <div>
-                                <label for="hk-range-slider" class="block mb-2 text-sm font-medium text-gray-700">Range (h,k): <span id="hk-range-value" class="font-bold">5</span></label>
-                                <input type="range" id="hk-range-slider" min="3" max="20" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                            </div>
-                            <div>
-                                <label for="spot-size-slider" class="block mb-2 text-sm font-medium text-gray-700">Spot Size Multiplier: <span id="spot-size-value" class="font-bold">5</span></label>
-                                <input type="range" id="spot-size-slider" min="1" max="15" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <label for="toggle-hk-labels" class="text-sm font-medium text-gray-700">Show h,k Labels</label>
-                                <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                                    <input type="checkbox" name="toggle" id="toggle-hk-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
-                                    <label for="toggle-hk-labels" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                                </div>
-                            </div>
-                        </div>
-
-                         <div>
-                            <h3 class="font-semibold text-gray-700 mb-2">Vector Details</h3>
-                            <div id="vector-info-box" class="bg-gray-100 p-3 rounded-lg border border-gray-200 min-h-[100px] text-sm font-mono">
-                                Hover over a Patterson peak...
-                            </div>
-                        </div>
-                        <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">
-                            Clear All Atoms
-                        </button>
-                        <div>
-                            <h3 class="font-semibold text-gray-700 mb-2">Atom List</h3>
-                            <div id="atom-list-container" class="max-h-72 overflow-y-auto bg-gray-100 p-3 rounded-lg border border-gray-200">
-                                <ul id="atom-list" class="space-y-2">
-                                    <li id="no-atoms-msg" class="text-gray-500 text-sm">No atoms added yet.</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+            <div class="control-group">
+                <label class="control-label">Instructions</label>
+                <p class="text-sm text-gray-400">
+                    1. Select atom type & click on the crystal canvas to add.<br>
+                    2. Edit atom coordinates directly in the list below.<br>
+                    3. Hover over Patterson peaks to see the vectors.
+                </p>
+            </div>
+            
+            <div class="control-group">
+                <label class="control-label">Select Atom Type to Add</label>
+                <div id="atom-type-selector" class="grid grid-cols-2 gap-2">
+                    <input type="radio" id="atom-type-a" name="atom-type" value="A" class="sr-only" checked>
+                    <label for="atom-type-a" class="atom-type-label">Type A</label>
+                    <input type="radio" id="atom-type-b" name="atom-type" value="B" class="sr-only">
+                    <label for="atom-type-b" class="atom-type-label">Type B</label>
                 </div>
+            </div>
 
-                <!-- Canvases -->
-                <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Crystal Structure Canvas (Straight Angles) -->
-                    <div class="bg-white p-4 shadow-md">
-                        <h2 class="text-lg font-semibold text-center mb-3">Crystal Structure (Real Space)</h2>
-                        <div class="plot-grid">
-                            <div id="real-y-axis" class="y-axis-labels"></div>
-                            <div id="real-x-axis" class="x-axis-labels"></div>
-                            <div class="plot-area canvas-wrapper"><canvas id="real-space-canvas"></canvas></div>
-                        </div>
+            <div class="control-group">
+                <label class="control-label">Diffraction Controls</label>
+                 <div class="space-y-4">
+                     <div>
+                        <label for="hk-range-slider" class="block mb-2 text-sm font-medium">Range (h,k): <span id="hk-range-value" class="font-bold">5</span></label>
+                        <input type="range" id="hk-range-slider" min="3" max="20" value="5" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                     </div>
-
-                    <!-- Patterson Map Canvas (Straight Angles) -->
-                    <div class="bg-white p-4 shadow-md">
-                        <h2 class="text-lg font-semibold text-center mb-3">Patterson Map (Vector Space)</h2>
-                        <div class="plot-grid">
-                            <div id="patterson-y-axis" class="y-axis-labels"></div>
-                            <div id="patterson-x-axis" class="x-axis-labels"></div>
-                            <div class="plot-area canvas-wrapper"><canvas id="patterson-canvas"></canvas></div>
-                        </div>
+                    <div>
+                        <label for="spot-size-slider" class="block mb-2 text-sm font-medium">Spot Size Multiplier: <span id="spot-size-value" class="font-bold">5</span></label>
+                        <input type="range" id="spot-size-slider" min="1" max="15" value="5" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                     </div>
-                    
-                    <!-- Diffraction Pattern Canvas (Rounded) -->
-                    <div class="bg-white p-4 rounded-xl shadow-md">
-                        <h2 class="text-lg font-semibold text-center mb-3">Diffraction Pattern (|F<sub>hkl</sub>|²)</h2>
-                        <div class="plot-grid">
-                            <div id="diffraction-y-axis" class="y-axis-labels"></div>
-                            <div id="diffraction-x-axis" class="x-axis-labels"></div>
-                            <div class="plot-area canvas-wrapper rounded"><canvas id="diffraction-canvas"></canvas></div>
-                        </div>
-                    </div>
-
-                    <!-- FT of Intensities Canvas (Rounded) -->
-                    <div class="bg-white p-4 rounded-xl shadow-md">
-                        <h2 class="text-lg font-semibold text-center mb-3">FT of Intensities (Patterson)</h2>
-                        <div class="plot-grid">
-                            <div id="ft-y-axis" class="y-axis-labels"></div>
-                            <div id="ft-x-axis" class="x-axis-labels"></div>
-                            <div class="plot-area canvas-wrapper rounded"><canvas id="ft-canvas"></canvas></div>
+                    <div class="flex items-center justify-between">
+                        <label for="toggle-hk-labels" class="text-sm font-medium">Show h,k Labels</label>
+                        <div class="relative inline-block w-10 mr-2 align-middle select-none">
+                            <input type="checkbox" name="toggle" id="toggle-hk-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
+                            <label for="toggle-hk-labels" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-600 cursor-pointer"></label>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <div class="control-group">
+                <label class="control-label">Vector Details</label>
+                <div id="vector-info-box" class="bg-gray-900/50 p-3 rounded-lg border border-gray-700 min-h-[100px] text-sm font-mono">
+                    Hover over a Patterson peak...
+                </div>
+            </div>
+
+            <div class="control-group">
+                 <label class="control-label">Atom List</label>
+                <div id="atom-list-container" class="max-h-72 overflow-y-auto bg-gray-900/50 p-2 rounded-lg border border-gray-700">
+                    <ul id="atom-list" class="space-y-2">
+                        <li id="no-atoms-msg" class="text-gray-500 text-sm text-center p-2">No atoms added yet.</li>
+                    </ul>
+                </div>
+                <button id="clear-btn" class="btn-danger mt-4">Clear All Atoms</button>
+            </div>
         </div>
-    </main>
-    <footer class="w-full p-3 bg-white border-t border-gray-200 mt-auto">
-        <div class="container mx-auto text-xs text-gray-600 flex justify-between items-center">
-            <p>This tool demonstrates the relationship between a crystal structure, its diffraction pattern, and the Patterson function.</p>
-            <p class="text-right font-medium">NitaD, Univ. Paris-Saclay, 2025</p>
+
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white p-4 shadow-md rounded-lg">
+                    <h2 class="text-lg font-semibold text-center mb-3">Crystal Structure (Real Space)</h2>
+                    <div class="plot-grid">
+                        <div id="real-y-axis" class="y-axis-labels"></div>
+                        <div id="real-x-axis" class="x-axis-labels"></div>
+                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="real-space-canvas"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 shadow-md rounded-lg">
+                    <h2 class="text-lg font-semibold text-center mb-3">Patterson Map (Vector Space)</h2>
+                    <div class="plot-grid">
+                        <div id="patterson-y-axis" class="y-axis-labels"></div>
+                        <div id="patterson-x-axis" class="x-axis-labels"></div>
+                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="patterson-canvas"></canvas></div>
+                    </div>
+                </div>
+                
+                <div class="bg-white p-4 shadow-md rounded-lg">
+                    <h2 class="text-lg font-semibold text-center mb-3">Diffraction Pattern (|F<sub>hkl</sub>|²)</h2>
+                    <div class="plot-grid">
+                        <div id="diffraction-y-axis" class="y-axis-labels"></div>
+                        <div id="diffraction-x-axis" class="x-axis-labels"></div>
+                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="diffraction-canvas"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 shadow-md rounded-lg">
+                    <h2 class="text-lg font-semibold text-center mb-3">FT of Intensities (Patterson)</h2>
+                    <div class="plot-grid">
+                        <div id="ft-y-axis" class="y-axis-labels"></div>
+                        <div id="ft-x-axis" class="x-axis-labels"></div>
+                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="ft-canvas"></canvas></div>
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
+    
+    <footer>
+        This tool demonstrates the relationship between a crystal structure, its diffraction pattern, and the Patterson function. (NitaD, Univ. Paris-Saclay, 2025)
     </footer>
 
     <script>
@@ -213,7 +168,6 @@
             const noAtomsMsg = document.getElementById('no-atoms-msg');
             const atomTypeSelector = document.getElementById('atom-type-selector');
             const vectorInfoBox = document.getElementById('vector-info-box');
-            // New controls
             const hkRangeSlider = document.getElementById('hk-range-slider');
             const hkRangeValue = document.getElementById('hk-range-value');
             const toggleHkLabels = document.getElementById('toggle-hk-labels');
@@ -232,7 +186,6 @@
             let ftOfIntensities = null;
             let highlightedVector = null;
             let currentAtomType = 'A';
-            // State for new controls
             let diffractionGridSize = 5;
             let showHkLabels = true;
             let diffractionSpotSizeFactor = 5;
@@ -252,7 +205,6 @@
             const MAX_PEAK_RADIUS = 9;
             
             // --- CALCULATION FUNCTIONS ---
-
             function calculatePattersonMap() {
                 pattersonPeaks = [];
                 if (atoms.length === 0) return;
@@ -327,53 +279,34 @@
             }
 
             // --- DRAWING FUNCTIONS ---
-
             function resizeCanvases() {
-                const size = realCanvas.parentElement.clientWidth;
-                [realCanvas, pattersonCanvas, diffractionCanvas, ftCanvas].forEach(c => {
-                    c.width = size; c.height = size;
+                [realCanvas, pattersonCanvas, diffractionCanvas, ftCanvas].forEach(canvas => {
+                    const wrapper = canvas.parentElement;
+                    if (wrapper && wrapper.clientWidth > 0) {
+                        const size = wrapper.clientWidth;
+                        canvas.width = size; canvas.height = size;
+                    }
                 });
                 redrawAll();
             }
 
             function drawAxisLabels(yId, xId, centered, isDiffraction, theme) {
-                const yEl = document.getElementById(yId);
-                const xEl = document.getElementById(xId);
-                yEl.innerHTML = '';
-                xEl.innerHTML = '';
-
+                const yEl = document.getElementById(yId), xEl = document.getElementById(xId);
+                yEl.innerHTML = ''; xEl.innerHTML = '';
                 const textColor = theme === 'dark' ? 'text-gray-400' : 'text-gray-500';
-                yEl.className = `y-axis-labels flex flex-col justify-between text-right text-xs pr-1 ${textColor}`;
-                xEl.className = `x-axis-labels flex justify-between text-center text-xs ${textColor}`;
-
-                const numLabels = 5; 
-                for (let i = 0; i <= numLabels; i++) {
-                    const ySpan = document.createElement('span');
-                    let yLabel;
-                    if (centered) {
-                        const val = 1 - (i / numLabels) * 2;
-                        yLabel = isDiffraction ? Math.round(val * diffractionGridSize) : val.toFixed(1);
-                    } else {
-                        const val = 1 - (i / numLabels);
-                        yLabel = val.toFixed(1);
-                    }
-                    ySpan.textContent = yLabel;
+                yEl.className = `w-8 flex-shrink-0 y-axis-labels flex flex-col justify-between text-right text-xs pr-1 ${textColor}`;
+                xEl.className = `x-axis-labels flex justify-between text-center text-xs pt-1 ${textColor}`;
+                for (let i = 0; i <= 5; i++) {
+                    const ySpan = document.createElement('span'), xSpan = document.createElement('span');
+                    let yVal = centered ? 1 - (i / 5) * 2 : 1.0 - (i / 5);
+                    ySpan.textContent = isDiffraction ? Math.round(yVal * diffractionGridSize) : yVal.toFixed(1);
                     yEl.appendChild(ySpan);
-
-                    const xSpan = document.createElement('span');
-                    let xLabel;
-                    if (centered) {
-                        const val = -1 + (i / numLabels) * 2;
-                        xLabel = isDiffraction ? Math.round(val * diffractionGridSize) : val.toFixed(1);
-                    } else {
-                        const val = i / numLabels;
-                        xLabel = val.toFixed(1);
-                    }
-                    xSpan.textContent = xLabel;
+                    let xVal = centered ? -1 + (i / 5) * 2 : i / 5;
+                    xSpan.textContent = isDiffraction ? Math.round(xVal * diffractionGridSize) : xVal.toFixed(1);
                     xEl.appendChild(xSpan);
                 }
             }
-
+            
             function drawGridOnCanvas(ctx, theme = 'light') {
                 const size = ctx.canvas.width;
                 const bgColor = theme === 'dark' ? 'black' : '#f8fafc';
@@ -414,14 +347,8 @@
                 
                 ctx.strokeStyle = axisColor;
                 ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(center, 0);
-                ctx.lineTo(center, size);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(0, center);
-                ctx.lineTo(size, center);
-                ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(center, 0); ctx.lineTo(center, size); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, center); ctx.lineTo(size, center); ctx.stroke();
             }
 
             function drawAtoms() {
@@ -431,9 +358,10 @@
                 atoms.forEach((atom, index) => {
                     for (let i = -1; i <= 1; i++) {
                         for (let j = -1; j <= 1; j++) {
-                            const x = atom.x + i;
-                            const y = atom.y + j;
-                            if (x >= -0.01 && x <= 1.01 && y >= -0.01 && y <= 1.01) {
+                            const x_abs = (atom.x + i) * size;
+                            const y_abs = (1-(atom.y + j)) * size;
+
+                            if (x_abs > -ATOM_RADIUS_B && x_abs < size + ATOM_RADIUS_B && y_abs > -ATOM_RADIUS_B && y_abs < size + ATOM_RADIUS_B) {
                                 realCtx.fillStyle = atom.type === 'A' ? ATOM_COLOR_A : ATOM_COLOR_B;
                                 realCtx.strokeStyle = 'white';
                                 realCtx.lineWidth = 2;
@@ -444,7 +372,7 @@
                                 }
                                 const radius = atom.type === 'A' ? ATOM_RADIUS_A : ATOM_RADIUS_B;
                                 realCtx.beginPath();
-                                realCtx.arc(x * size, y * size, radius, 0, 2 * Math.PI);
+                                realCtx.arc(atom.x * size, (1-atom.y) * size, radius, 0, 2 * Math.PI);
                                 realCtx.fill();
                                 realCtx.stroke();
                             }
@@ -460,13 +388,13 @@
                         realCtx.lineWidth = 2.5;
                         realCtx.lineCap = 'round';
                         realCtx.beginPath();
-                        realCtx.moveTo(fromAtom.x * size, fromAtom.y * size);
-                        realCtx.lineTo(toAtom.x * size, toAtom.y * size);
+                        realCtx.moveTo(fromAtom.x * size, (1-fromAtom.y) * size);
+                        realCtx.lineTo(toAtom.x * size, (1-toAtom.y) * size);
                         realCtx.stroke();
-                        const angle = Math.atan2(toAtom.y - fromAtom.y, toAtom.x - fromAtom.x);
+                        const angle = Math.atan2((1-toAtom.y) - (1-fromAtom.y), toAtom.x - fromAtom.x);
                         realCtx.fillStyle = VECTOR_COLOR;
                         realCtx.save();
-                        realCtx.translate(toAtom.x * size, toAtom.y * size);
+                        realCtx.translate(toAtom.x * size, (1-toAtom.y) * size);
                         realCtx.rotate(angle);
                         realCtx.beginPath();
                         realCtx.moveTo(0, 0); realCtx.lineTo(-10, -5); realCtx.lineTo(-10, 5);
@@ -548,28 +476,19 @@
                     
                     diffractionIntensities.forEach(spot => {
                         if (spot.h === 0 && spot.k === 0) return;
-
                         const logIntensity = Math.log(1 + spot.intensity);
                         const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
-
                         if (normalizedIntensity < 0.15) return;
-
                         const x = center + (spot.h / diffractionGridSize) * center;
                         const y = center - (spot.k / diffractionGridSize) * center;
-                        
-                        const labelOffset = 12;
-                        const labelY = y - labelOffset;
-                        
-                        diffractionCtx.fillText(`${spot.h},${spot.k}`, x, labelY);
+                        diffractionCtx.fillText(`${spot.h},${spot.k}`, x, y - 12);
                     });
                 }
-
                 diffractionCtx.fillStyle = '#ef4444';
                 diffractionCtx.fillText('0,0', center, center - 10);
             }
 
             function drawFTofIntensities() {
-                // BUG FIX: Use 'dark' theme to match the diffraction pattern canvas
                 drawGridOnCanvas(ftCtx, 'dark');
                 if (ftOfIntensities) {
                     ftCtx.putImageData(ftOfIntensities, 0, 0);
@@ -577,36 +496,28 @@
             }
             
             function updateAtomList() {
-                const activeElement = document.activeElement;
-                const activeId = activeElement ? activeElement.id : null;
+                const activeId = document.activeElement ? document.activeElement.id : null;
                 atomList.innerHTML = '';
-                if (atoms.length === 0) {
-                    noAtomsMsg.style.display = 'block';
-                } else {
-                    noAtomsMsg.style.display = 'none';
-                    atoms.forEach((atom, index) => {
-                        const li = document.createElement('li');
-                        li.className = 'atom-list-item flex justify-between items-center bg-white p-2 rounded-md border';
-                        const isHighlighted = highlightedVector && (index === highlightedVector.from || index === highlightedVector.to);
-                        if(isHighlighted) {
-                            li.style.backgroundColor = index === highlightedVector.from ? '#fbcfe8' : '#e9d5ff';
-                        }
-                        li.innerHTML = `
-                            <div class="flex items-center gap-2 font-mono text-sm">
-                                <span>Atom ${index + 1} (${atom.type}):</span>
-                                <span>(</span>
-                                <input type="number" step="0.01" min="0" max="1" value="${atom.x.toFixed(2)}" id="atom-${index}-x" data-index="${index}" data-coord="x" class="coord-input">,
-                                <input type="number" step="0.01" min="0" max="1" value="${atom.y.toFixed(2)}" id="atom-${index}-y" data-index="${index}" data-coord="y" class="coord-input">
-                                <span>)</span>
-                            </div>
-                            <button data-index="${index}" class="remove-atom-btn text-red-500 hover:text-red-700 text-xs font-semibold">REMOVE</button>
-                        `;
-                        atomList.appendChild(li);
-                    });
-                }
-                if (activeId && document.getElementById(activeId)) {
-                    document.getElementById(activeId).focus();
-                }
+                noAtomsMsg.style.display = atoms.length === 0 ? 'block' : 'none';
+                atoms.forEach((atom, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'flex justify-between items-center bg-gray-700 p-2 rounded-md border border-gray-600';
+                    const isHighlighted = highlightedVector && (index === highlightedVector.from || index === highlightedVector.to);
+                    if(isHighlighted) {
+                        li.style.backgroundColor = index === highlightedVector.from ? '#581c87' : '#5b21b6';
+                    }
+                    li.innerHTML = `
+                        <div class="flex items-center gap-2 font-mono text-sm text-gray-300">
+                            <span>${index + 1}(${atom.type}): (</span>
+                            <input type="number" step="0.01" min="0" max="1" value="${atom.x.toFixed(2)}" id="atom-${index}-x" data-index="${index}" data-coord="x" class="coord-input">,
+                            <input type="number" step="0.01" min="0" max="1" value="${atom.y.toFixed(2)}" id="atom-${index}-y" data-index="${index}" data-coord="y" class="coord-input">
+                            <span>)</span>
+                        </div>
+                        <button data-index="${index}" class="remove-atom-btn text-red-500 hover:text-red-400 text-xs font-semibold">REMOVE</button>
+                    `;
+                    atomList.appendChild(li);
+                });
+                if (activeId) document.getElementById(activeId)?.focus();
             }
 
             function updateVectorInfo() {
@@ -618,13 +529,13 @@
                 if (!fromAtom || !toAtom) return;
                 vectorInfoBox.innerHTML = `
                     <div class="space-y-1">
-                        <div><span class="text-pink-600">Atom 1 (x₁,y₁):</span> (${fromAtom.x.toFixed(2)}, ${fromAtom.y.toFixed(2)})</div>
-                        <div><span class="text-purple-600">Atom 2 (x₂,y₂):</span> (${toAtom.x.toFixed(2)}, ${toAtom.y.toFixed(2)})</div>
+                        <div><span class="text-pink-400">Atom 1 (x₁,y₁):</span> (${fromAtom.x.toFixed(2)}, ${fromAtom.y.toFixed(2)})</div>
+                        <div><span class="text-purple-400">Atom 2 (x₂,y₂):</span> (${toAtom.x.toFixed(2)}, ${toAtom.y.toFixed(2)})</div>
                         <div class="pt-2">
                            <div>u = x₂-x₁ = ${highlightedVector.u.toFixed(2)}</div>
                            <div>v = y₂-y₁ = ${highlightedVector.v.toFixed(2)}</div>
                         </div>
-                        <div class="font-bold pt-2"><span class="text-indigo-700">Vector (u,v):</span> (${highlightedVector.u.toFixed(2)}, ${highlightedVector.v.toFixed(2)})</div>
+                        <div class="font-bold pt-2"><span class="text-indigo-400">Vector (u,v):</span> (${highlightedVector.u.toFixed(2)}, ${highlightedVector.v.toFixed(2)})</div>
                     </div>
                 `;
             }
@@ -641,7 +552,6 @@
                 drawPattersonMap();
                 drawAxisLabels('diffraction-y-axis', 'diffraction-x-axis', true, true, 'dark');
                 drawDiffractionPattern();
-                // BUG FIX: Use 'dark' theme for the FT canvas axis labels to match its background
                 drawAxisLabels('ft-y-axis', 'ft-x-axis', true, false, 'dark');
                 drawFTofIntensities();
             }
@@ -653,7 +563,7 @@
             function handleAddAtom(event) {
                 const rect = realCanvas.getBoundingClientRect();
                 const x = (event.clientX - rect.left) / rect.width;
-                const y = (event.clientY - rect.top) / rect.height;
+                const y = 1 - ((event.clientY - rect.top) / rect.height);
                 if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
                     atoms.push({ x, y, type: currentAtomType });
                     redrawAll();
@@ -671,10 +581,7 @@
                 if (event.target.classList.contains('coord-input')) {
                     const index = parseInt(event.target.dataset.index, 10);
                     const coord = event.target.dataset.coord;
-                    let value = parseFloat(event.target.value);
-                    if (isNaN(value)) { redrawAll(); return; }
-                    if (value < 0) value = 0;
-                    if (value > 1) value = 1;
+                    let value = Math.max(0, Math.min(1, parseFloat(event.target.value) || 0));
                     if (atoms[index]) {
                         atoms[index][coord] = value;
                         redrawAll();
@@ -720,6 +627,19 @@
                 spotSizeValue.textContent = diffractionSpotSizeFactor;
                 redrawAll();
             }
+
+            // --- Resizer Logic ---
+            const leftPanel = document.getElementById('controls-panel'), resizer = document.getElementById('drag-handle');
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault(); document.body.classList.add('resizing');
+                const moveHandler = (e) => { if (e.clientX > 350 && e.clientX < 550) leftPanel.style.width = `${e.clientX}px`; };
+                const upHandler = () => {
+                    document.body.classList.remove('resizing');
+                    window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler);
+                    setTimeout(resizeCanvases, 50);
+                };
+                window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler);
+            });
             
             // --- INITIALIZATION AND EVENT LISTENERS ---
             atomTypeSelector.addEventListener('change', handleAtomTypeChange);
@@ -738,8 +658,8 @@
             toggleHkLabels.addEventListener('change', handleToggleHkLabels);
             spotSizeSlider.addEventListener('input', handleSpotSizeChange);
 
-            window.addEventListener('resize', resizeCanvases);
-            resizeCanvases();
+            window.addEventListener('resize', () => setTimeout(resizeCanvases, 50));
+            setTimeout(resizeCanvases, 100);
         });
     </script>
 </body>
