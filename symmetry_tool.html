@@ -138,17 +138,8 @@
     <div id="app-container">
         <div id="controls-panel">
             <h1>3D Symmetry</h1>
-            <p>Combine symmetry elements and see the resulting pattern.</p>
 
-            <div id="parent-motif-controls" class="control-group">
-                <h2>Parent Motif</h2>
-                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="0" max="1" value="0" step="0.01"><input type="number" id="parent-x-num" min="0" max="1" value="0" step="0.01"></div>
-                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="0" max="1" value="0.29" step="0.01"><input type="number" id="parent-y-num" min="0" max="1" value="0.29" step="0.01"></div>
-                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="0" max="1" value="0" step="0.01"><input type="number" id="parent-z-num" min="0" max="1" value="0" step="0.01"></div>
-            </div>
-
-            <div class="control-group">
-                <h2>Display Options</h2>
+                        <div class="control-group">
                 <div class="flex items-center justify-between"><label for="unit-cell-only" class="text-gray-400 font-normal normal-case">Cell Only</label><input type="checkbox" id="unit-cell-only" checked></div>
                 <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
                     <label class="text-gray-400 font-normal normal-case">View</label>
@@ -158,6 +149,16 @@
                     </div>
                 </div>
             </div>
+
+
+            <div id="parent-motif-controls" class="control-group">
+                <h2>Parent Motif</h2>
+                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="0" max="1" value="0" step="0.01"><input type="number" id="parent-x-num" min="0" max="1" value="0" step="0.01"></div>
+                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="0" max="1" value="0.29" step="0.01"><input type="number" id="parent-y-num" min="0" max="1" value="0.29" step="0.01"></div>
+                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="0" max="1" value="0" step="0.01"><input type="number" id="parent-z-num" min="0" max="1" value="0" step="0.01"></div>
+            </div>
+
+
 
             <div class="control-group">
                 <h2>Add Symmetry Element</h2>
@@ -215,7 +216,7 @@
             orthographicCamera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
             activeCamera = perspectiveCamera;
             activeCamera.up.set(0, 0, 1);
-            activeCamera.position.set(2.5, -4, 2.5);
+            activeCamera.position.set(1.5, -2.4, 1.5);
             activeCamera.lookAt(0.5, 0.5, 0.5);
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(viewport.clientWidth, viewport.clientHeight);
@@ -268,7 +269,9 @@
                 domElement.addEventListener('mousedown', onMouseDown);
                 domElement.addEventListener('mouseup', onMouseUp);
                 domElement.addEventListener('mousemove', onMouseMove);
-                domElement.addEventListener('wheel', onWheel);
+
+                domElement.addEventListener('wheel', onWheel, { passive: true });
+
                 this.update = () => {};
             };
             controls = new OrbitControls(activeCamera, renderer.domElement);
@@ -312,7 +315,9 @@
                 cellOutline.add(plane);
             });
             scene.add(cellOutline);
-            parentMotif = createHemisphere();
+            
+            parentMotif = createAsymmetricObject();
+
             setupEventListeners();
             updateScene();
             animate();
@@ -333,13 +338,35 @@
             controls.object = activeCamera;
         }
 
-        function createHemisphere() {
-            const geometry = new THREE.SphereGeometry(0.05, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-            const material = new THREE.MeshLambertMaterial({
-                side: THREE.DoubleSide
-            });
-            return new THREE.Mesh(geometry, material);
-        }
+function createAsymmetricObject() {
+    // A group to hold the parts of our L-shaped object
+    const group = new THREE.Group();
+    const material = new THREE.MeshLambertMaterial({
+         side: THREE.DoubleSide
+    });
+
+    // Cylinder properties
+    const radius = 0.02;
+    const height = 0.1;
+    const radialSegments = 16;
+
+    // Create the main vertical cylinder
+    const verticalCylinderGeom = new THREE.CylinderGeometry(radius, radius, height, radialSegments);
+    const verticalCylinder = new THREE.Mesh(verticalCylinderGeom, material);
+    verticalCylinder.position.y = height / 2; // Position it so the base is at y=0
+
+    // Create a horizontal cylinder
+    const horizontalCylinderGeom = new THREE.CylinderGeometry(radius, radius, height, radialSegments);
+    const horizontalCylinder = new THREE.Mesh(horizontalCylinderGeom, material);
+    horizontalCylinder.rotation.z = Math.PI / 2; // Rotate it to be horizontal
+    horizontalCylinder.position.x = height / 2; // Move it to the side
+    horizontalCylinder.position.y = radius;     // Place it near the bottom of the vertical one
+
+    group.add(verticalCylinder);
+    group.add(horizontalCylinder);
+
+    return group;
+}
 
         function expandSpecialPosition(motif) {
             const expandedList = [];
@@ -368,12 +395,17 @@
             }
             return expandedList;
         }
-
-        function updateScene() {
+function updateScene() {
             if (!parentMotif) return;
             parentMotif.position.set(parseFloat(document.getElementById('parent-x-num').value), parseFloat(document.getElementById('parent-y-num').value), parseFloat(document.getElementById('parent-z-num').value));
             generatedMotifs.clear();
-            parentMotif.material.color.set(0x3b82f6);
+
+            // FIX 1: Set the initial color by traversing the group's children
+            parentMotif.traverse(child => {
+                if (child.isMesh) {
+                    child.material.color.set(0x3b82f6);
+                }
+            });
             parentMotif.userData.chirality = 'right';
 
             const canonicalParent = parentMotif.clone();
@@ -391,7 +423,6 @@
                     const source = canonicalMotifList[i];
                     symmetryElements.forEach(element => {
                         const copy = source.clone();
-                        copy.material = source.material.clone();
                         copy.userData.chirality = source.userData.chirality;
                         const opType = getOpType(element.type);
                         switch (opType) {
@@ -419,8 +450,15 @@
                         copy.position.y -= Math.floor(copy.position.y);
                         copy.position.z -= Math.floor(copy.position.z);
                         
-                        if (copy.userData.chirality === 'right') copy.material.color.set(0x3b82f6);
-                        else copy.material.color.set(0xef4444);
+                        // Clone materials and set color for all children of the new copy.
+                        // This is crucial to ensure colors of different motifs can be set independently.
+                        const newColor = (copy.userData.chirality === 'right') ? 0x3b82f6 : 0xef4444;
+                        copy.traverse(function(child) {
+                            if (child.isMesh) {
+                                child.material = child.material.clone();
+                                child.material.color.set(newColor);
+                            }
+                        });
 
                         const isDuplicate = canonicalMotifList.some(m => m.position.distanceTo(copy.position) < 1e-4 && m.quaternion.angleTo(copy.quaternion) < 1e-3 && m.userData.chirality === copy.userData.chirality);
                         
@@ -480,7 +518,6 @@
                 });
             }
         }
-
         function getOpType(type) {
             if (type.startsWith('m_')) return 'mirror';
             if (type.startsWith('g_') || type.startsWith('gn_')) return 'glide';
