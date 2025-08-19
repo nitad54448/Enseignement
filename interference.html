@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diffraction & Interference Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #f3f4f6; /* gray-100 */
+            color: #d1d5db; /* gray-300 */
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 300px;
+            max-width: 500px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* gray-900 */
+            border-right: 1px solid #374151; /* gray-700 */
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #1f2937; /* gray-800 */
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6; /* blue-500 */
+        }
+        #visualization-area {
+            flex-grow: 1;
+            background-color: #1f2937; /* A dark background for the detector */
+            min-width: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+            color: #1f2937; /* gray-800 */
+        }
+        .simulation-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        .slits-view-container {
+            width: 100%;
+            max-width: 600px;
+            height: 80px;
+            background-color: #111827;
+            border-radius: 0.5rem;
+            padding: 8px;
+            margin-bottom: 2rem;
+        }
+        .slits-view-container canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .detector-and-scale-container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .detector-container {
+            width: calc(100% - 30px); /* Make container narrower to create padding */
+            margin: 0 15px; /* Add 15px margin on left and right */
+            height: 150px;
+            background-color: #000;
+            border-radius: 0.5rem 0.5rem 0 0; /* Rounded top corners */
+            box-shadow: 0 0 15px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.1);
+        }
+        .detector-container canvas {
+            width: 100%;
+            height: 100%;
+        }
+        .scale-container {
+            width: 100%;
+            height: 40px; /* Height for the ruler */
+        }
+        .scale-container canvas {
+            width: 100%;
+            height: 100%;
+        }
+        /* Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
+        #controls-panel h2 { font-size: 1.25rem; font-weight: 600; color: #e5e7eb; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; margin-bottom: 1rem;}
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-row { display: flex; align-items: center; gap: 1rem; }
+        #controls-panel input[type="number"] {
+            width: 90px;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            text-align: right;
+        }
+        input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: #4b5563; border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s; flex-grow: 1; }
+        input[type="range"]:hover { opacity: 1; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: #3b82f6; cursor: pointer; border-radius: 50%; }
+        input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: #3b82f6; cursor: pointer; border-radius: 50%; border: 0; }
+        
+        .scale-toggle-container { display: flex; border: 1px solid #4b5563; border-radius: 0.375rem; overflow: hidden; margin-top: 0.5rem; }
+        .scale-toggle-container input[type="radio"] { display: none; }
+        .scale-toggle-container label { flex: 1; text-align: center; padding: 0.5rem 0; cursor: pointer; color: #9ca3af; transition: background-color 0.2s, color 0.2s; margin-bottom: 0; }
+        .scale-toggle-container input[type="radio"]:checked + label { background-color: #3b82f6; color: #ffffff; font-weight: 600; }
+        .detector-width-label { font-size: 0.8rem; color: #6b7280; text-align: center; margin-top: -0.5rem; }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Diffraction Sim</h1>
+            <p>Explore how light creates patterns after passing through single or multiple slits.</p>
+            
+            <div class="control-group">
+                <h2>Detector Settings</h2>
+                <label for="scale-log">Intensity Scale</label>
+                <div class="scale-toggle-container">
+                    <input type="radio" id="scale-log" name="detector-scale" value="log" checked>
+                    <label for="scale-log">Log</label>
+                    <input type="radio" id="scale-linear" name="detector-scale" value="linear">
+                    <label for="scale-linear">Linear</label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="distance-slider">Detector Distance (L), cm</label>
+                <div class="control-row">
+                    <input type="range" id="distance-slider" min="10" max="100" value="50" step="1">
+                    <input type="number" id="distance-val" min="10" max="100" value="50" step="1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h2>Light & Slit Parameters</h2>
+                <label for="wavelength-slider">Wavelength (λ), nm</label>
+                <div class="control-row">
+                    <input type="range" id="wavelength-slider" min="400" max="700" value="550" step="1">
+                    <input type="number" id="wavelength-val" min="400" max="700" value="550" step="1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="slits-slider">Number of Slits (N)</label>
+                <div class="control-row">
+                    <input type="range" id="slits-slider" min="1" max="50" value="2" step="1">
+                    <input type="number" id="slits-val" min="1" max="50" value="2" step="1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="width-slider">Slit Width (a), μm</label>
+                <div class="control-row">
+                    <input type="range" id="width-slider" min="0.1" max="10" value="1" step="0.1">
+                    <input type="number" id="width-val" min="0.1" max="10" value="1" step="0.1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="separation-slider">Slit Separation (d), μm</label>
+                <div class="control-row">
+                    <input type="range" id="separation-slider" min="0.2" max="20" value="3" step="0.1">
+                    <input type="number" id="separation-val" min="0.2" max="20" value="3" step="0.1">
+                </div>
+                <p id="separation-warning" class="text-xs text-amber-400 mt-2 hidden">Separation (d) must be greater than width (a).</p>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="visualization-area">
+            <div class="simulation-container">
+                <div class="slits-view-container">
+                    <canvas id="slits-canvas"></canvas>
+                </div>
+                <div class="detector-and-scale-container">
+                    <div class="detector-container">
+                        <canvas id="detector-canvas"></canvas>
+                    </div>
+                    <div class="scale-container">
+                        <canvas id="scale-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-white border-t border-gray-200 px-6 py-2 text-sm text-gray-600 flex-shrink-0 text-center">
+        <p>NitaD, Univ Paris-Saclay, Aug 19, 2025</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM ELEMENT REFERENCES ---
+            const controls = {
+                distance: { slider: document.getElementById('distance-slider'), input: document.getElementById('distance-val') },
+                wavelength: { slider: document.getElementById('wavelength-slider'), input: document.getElementById('wavelength-val') },
+                slits: { slider: document.getElementById('slits-slider'), input: document.getElementById('slits-val') },
+                width: { slider: document.getElementById('width-slider'), input: document.getElementById('width-val') },
+                separation: { slider: document.getElementById('separation-slider'), input: document.getElementById('separation-val') },
+            };
+            const separationWarning = document.getElementById('separation-warning');
+            const detectorCanvas = document.getElementById('detector-canvas');
+            const detectorCtx = detectorCanvas.getContext('2d');
+            const slitsCanvas = document.getElementById('slits-canvas');
+            const slitsCtx = slitsCanvas.getContext('2d');
+            const scaleCanvas = document.getElementById('scale-canvas');
+            const scaleCtx = scaleCanvas.getContext('2d');
+            const detectorScaleRadios = document.querySelectorAll('input[name="detector-scale"]');
+            
+            const DETECTOR_WIDTH_PHYSICAL = 0.20; // 20 cm
+
+            // --- UI & SIMULATION LOGIC ---
+
+            function wavelengthToRgb(wavelength) {
+                let r, g, b;
+                if (wavelength >= 380 && wavelength <= 439) { r = -(wavelength - 440) / (440 - 380); g = 0.0; b = 1.0; } 
+                else if (wavelength >= 440 && wavelength <= 489) { r = 0.0; g = (wavelength - 440) / (490 - 440); b = 1.0; } 
+                else if (wavelength >= 490 && wavelength <= 509) { r = 0.0; g = 1.0; b = -(wavelength - 510) / (510 - 490); } 
+                else if (wavelength >= 510 && wavelength <= 579) { r = (wavelength - 510) / (580 - 510); g = 1.0; b = 0.0; } 
+                else if (wavelength >= 580 && wavelength <= 644) { r = 1.0; g = -(wavelength - 645) / (645 - 580); b = 0.0; } 
+                else if (wavelength >= 645 && wavelength <= 780) { r = 1.0; g = 0.0; b = 0.0; } 
+                else { r = 0.0; g = 0.0; b = 0.0; }
+                
+                let factor;
+                if (wavelength >= 380 && wavelength <= 419) factor = 0.3 + 0.7 * (wavelength - 380) / (420 - 380);
+                else if (wavelength >= 420 && wavelength <= 700) factor = 1.0;
+                else if (wavelength >= 701 && wavelength <= 780) factor = 0.3 + 0.7 * (780 - wavelength) / (780 - 700);
+                else factor = 0.0;
+
+                const gamma = 0.8;
+                return {
+                    r: Math.round(255 * Math.pow(r * factor, gamma)),
+                    g: Math.round(255 * Math.pow(g * factor, gamma)),
+                    b: Math.round(255 * Math.pow(b * factor, gamma))
+                };
+            }
+
+            function calculatePattern(lambda, N, a, d, L, screenWidth_pixels, detectorWidth_physical) {
+                const numPoints = Math.round(screenWidth_pixels);
+                if (numPoints <= 0) return [];
+                const intensities = new Array(numPoints).fill(0);
+                const lambda_m = lambda * 1e-9;
+                const a_m = a * 1e-6;
+                const d_m = d * 1e-6;
+
+                for (let i = 0; i < numPoints; i++) {
+                    const x = (i / numPoints - 0.5) * detectorWidth_physical;
+                    const theta = Math.atan(x / L);
+
+                    const beta = (Math.PI * a_m / lambda_m) * Math.sin(theta);
+                    let diffraction_term = Math.abs(beta) < 1e-9 ? 1.0 : Math.pow(Math.sin(beta) / beta, 2);
+                    let interference_term = 1.0;
+                    if (N > 1) {
+                        const alpha = (Math.PI * d_m / lambda_m) * Math.sin(theta);
+                        interference_term = Math.abs(Math.sin(alpha)) < 1e-9 ? 1.0 : Math.pow(Math.sin(N * alpha) / (N * Math.sin(alpha)), 2);
+                    }
+                    intensities[i] = diffraction_term * interference_term;
+                }
+                return intensities;
+            }
+            
+            function setupCanvas(canvas, ctx) {
+                const dpr = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                ctx.scale(dpr, dpr);
+            }
+
+            function drawSlits(N, a, d, { r, g, b }) {
+                setupCanvas(slitsCanvas, slitsCtx);
+                const width = slitsCanvas.width / (window.devicePixelRatio || 1);
+                const height = slitsCanvas.height / (window.devicePixelRatio || 1);
+                if (width === 0 || height === 0) return;
+
+                slitsCtx.clearRect(0, 0, width, height);
+                slitsCtx.fillStyle = '#1f2937';
+                slitsCtx.fillRect(0, 0, width, height);
+                
+                const totalSlitSystemWidth_um = (N > 1) ? (N - 1) * d + a : a;
+                const scale = (width * 0.8) / totalSlitSystemWidth_um;
+                const slitHeight_px = height * 0.8;
+                const slitY_px = height * 0.1;
+                const slitWidth_px = a * scale;
+                const totalSlitSystemWidth_px = (N > 1) ? (N - 1) * d * scale + a * scale : a * scale;
+                let currentX_px = (width - totalSlitSystemWidth_px) / 2;
+                
+                slitsCtx.fillStyle = `rgb(${r},${g},${b})`;
+                for (let i = 0; i < N; i++) {
+                    slitsCtx.fillRect(currentX_px, slitY_px, slitWidth_px, slitHeight_px);
+                    currentX_px += d * scale;
+                }
+            }
+            
+            function drawScale(detectorWidth_physical) {
+                setupCanvas(scaleCanvas, scaleCtx);
+                const width = scaleCanvas.width / (window.devicePixelRatio || 1);
+                const height = scaleCanvas.height / (window.devicePixelRatio || 1);
+                if (width === 0 || height === 0) return;
+
+                scaleCtx.clearRect(0, 0, width, height);
+                scaleCtx.fillStyle = "#d1d5db";
+                scaleCtx.strokeStyle = "#d1d5db";
+                scaleCtx.font = "12px Inter";
+                scaleCtx.textBaseline = "top";
+
+                const lineY = 15;
+                const majorTickY = 10;
+                const labelY = 22;
+
+                // Draw horizontal line
+                scaleCtx.beginPath();
+                scaleCtx.moveTo(0, lineY);
+                scaleCtx.lineTo(width, lineY);
+                scaleCtx.stroke();
+
+                const totalWidth_cm = detectorWidth_physical * 100;
+                const pixelsPerCm = width / totalWidth_cm;
+                const halfWidth_cm = totalWidth_cm / 2;
+
+                for (let cm = -halfWidth_cm; cm <= halfWidth_cm; cm++) {
+                    const x = width / 2 + cm * pixelsPerCm;
+                    const isMajorTick = (cm % 5 === 0);
+                    const tickTopY = isMajorTick ? majorTickY : lineY - 3;
+
+                    // Draw tick
+                    scaleCtx.beginPath();
+                    scaleCtx.moveTo(x, lineY);
+                    scaleCtx.lineTo(x, tickTopY);
+                    scaleCtx.stroke();
+
+                    const abs_cm = Math.abs(cm);
+                    // Draw labels for all integer values except for +/- 1 and +/- 9
+                    if (abs_cm !== 1 && abs_cm !== 9) {
+                        let label = cm.toString();
+                        if (cm === 0) {
+                            label += " (cm)";
+                        }
+                        
+                        // Adjust text alignment for edge labels
+                        if (cm === -halfWidth_cm) {
+                            scaleCtx.textAlign = "left";
+                        } else if (cm === halfWidth_cm) {
+                            scaleCtx.textAlign = "right";
+                        } else {
+                            scaleCtx.textAlign = "center";
+                        }
+                        
+                        scaleCtx.fillText(label, x, labelY);
+                    }
+                }
+            }
+
+            function update() {
+                const L_cm = parseFloat(controls.distance.input.value);
+                const L = L_cm / 100.0;
+                const lambda = parseFloat(controls.wavelength.input.value);
+                const N = parseInt(controls.slits.input.value, 10);
+                const a = parseFloat(controls.width.input.value);
+                let d = parseFloat(controls.separation.input.value);
+
+                if (N > 1 && d <= a) {
+                    d = a + 0.1;
+                    controls.separation.input.value = d.toFixed(1);
+                    controls.separation.slider.value = Math.log(d);
+                    separationWarning.classList.remove('hidden');
+                } else {
+                    separationWarning.classList.add('hidden');
+                }
+                
+                controls.separation.slider.disabled = (N === 1);
+                controls.separation.input.disabled = (N === 1);
+
+                const rgbColor = wavelengthToRgb(lambda);
+                drawSlits(N, a, d, rgbColor);
+                
+                setupCanvas(detectorCanvas, detectorCtx);
+                const detectorWidth_pixels = detectorCanvas.width / (window.devicePixelRatio || 1);
+                const detectorHeight_pixels = detectorCanvas.height / (window.devicePixelRatio || 1);
+                if (detectorWidth_pixels === 0 || detectorHeight_pixels === 0) return;
+                
+                const intensities = calculatePattern(lambda, N, a, d, L, detectorWidth_pixels, DETECTOR_WIDTH_PHYSICAL);
+                detectorCtx.clearRect(0, 0, detectorWidth_pixels, detectorHeight_pixels);
+                
+                const detectorScale = document.querySelector('input[name="detector-scale"]:checked').value;
+                const logEpsilon = 1e-6;
+                const logMin = Math.log(logEpsilon);
+
+                for (let i = 0; i < intensities.length; i++) {
+                    const intensity = intensities[i];
+                    if (typeof intensity !== 'number') continue;
+                    let displayIntensity;
+                    if (detectorScale === 'log') {
+                        displayIntensity = (Math.log(intensity + logEpsilon) - logMin) / -logMin;
+                    } else {
+                        displayIntensity = intensity;
+                    }
+                    const finalAlpha = Math.pow(displayIntensity, 0.5);
+                    detectorCtx.fillStyle = `rgba(${rgbColor.r}, ${rgbColor.g}, ${rgbColor.b}, ${finalAlpha})`;
+                    detectorCtx.fillRect(i, 0, 1, detectorHeight_pixels);
+                }
+                
+                drawScale(DETECTOR_WIDTH_PHYSICAL);
+            }
+
+            // --- EVENT LISTENERS ---
+            const sliderConfig = {
+                width: { scale: 'log' },
+                separation: { scale: 'log' },
+                wavelength: { scale: 'linear' },
+                slits: { scale: 'linear' },
+                distance: { scale: 'linear' }
+            };
+
+            Object.entries(controls).forEach(([key, { slider, input }]) => {
+                const config = sliderConfig[key];
+                const min = parseFloat(input.min);
+                const max = parseFloat(input.max);
+                const step = parseFloat(input.step);
+                const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
+
+                if (config.scale === 'log') {
+                    const logMin = Math.log(min);
+                    const logMax = Math.log(max);
+                    slider.min = logMin; slider.max = logMax;
+                    slider.step = (logMax - logMin) / 200;
+                    slider.value = Math.log(parseFloat(input.value));
+                    slider.addEventListener('input', () => {
+                        const linearValue = Math.exp(parseFloat(slider.value));
+                        const dynamicPrecision = linearValue < 1 ? 2 : (linearValue < 10 ? 1 : 0);
+                        input.value = linearValue.toFixed(dynamicPrecision);
+                        requestAnimationFrame(update);
+                    });
+                    input.addEventListener('change', () => {
+                        let value = Math.max(min, Math.min(max, parseFloat(input.value) || min));
+                        input.value = value.toFixed(precision);
+                        slider.value = Math.log(value);
+                        requestAnimationFrame(update);
+                    });
+                } else { // Linear sliders
+                    slider.addEventListener('input', () => {
+                        input.value = parseFloat(slider.value).toFixed(precision);
+                        requestAnimationFrame(update);
+                    });
+                    input.addEventListener('change', () => {
+                        let value = Math.max(min, Math.min(max, parseFloat(input.value) || min));
+                        input.value = value.toFixed(precision);
+                        slider.value = value;
+                        requestAnimationFrame(update);
+                    });
+                }
+            });
+            detectorScaleRadios.forEach(radio => radio.addEventListener('change', () => requestAnimationFrame(update)));
+
+            // --- Resizer Logic ---
+            const resizer = document.getElementById('drag-handle');
+            const leftPanel = document.getElementById('controls-panel');
+            let isResizing = false;
+            resizer.addEventListener('mousedown', e => {
+                e.preventDefault(); isResizing = true;
+                document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', stopResize);
+            });
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+                const newLeftWidth = e.clientX - resizer.parentElement.getBoundingClientRect().left;
+                if (newLeftWidth > 300 && newLeftWidth < window.innerWidth - 400) {
+                    leftPanel.style.width = `${newLeftWidth}px`;
+                    requestAnimationFrame(update);
+                }
+            }
+            function stopResize() {
+                isResizing = false;
+                document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto';
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', stopResize);
+            }
+            
+            // --- INITIALIZATION ---
+            window.addEventListener('resize', () => requestAnimationFrame(update));
+            update();
+        });
+    </script>
+
+</body>
+</html>
