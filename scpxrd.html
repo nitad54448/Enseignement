@@ -58,10 +58,19 @@
                             <option value="custom" style="display: none;">User</option>
                         </select>
                     </div>
+
+                    <label for="polarization-factor" class="control-label mt-4">Polarization Type</label>
+                    <select id="polarization-factor" class="control-select">
+                        <option value="unpolarized" selected>Unpolarized Lab Source</option>
+                        <option value="vertical">Synchrotron (Vertical Scattering)</option>
+                        <option value="horizontal">Synchrotron (Horizontal Scattering)</option>
+                    </select>
+
+                    <label for="thermal-factor" class="control-label mt-4">Global Thermal Factor B (Å²): <span id="thermal-factor-value" class="font-semibold text-white">0.5</span></label>
+                    <input type="range" id="thermal-factor" min="0" max="3" value="0.5" step="0.1">
                 </div>
 
                 <div class="control-group">
-                    <h2 class="text-lg font-semibold text-white mb-3">Atomic Positions</h2>
                     <div id="atom1-controls" class="p-4 bg-gray-900/50 rounded-lg mb-4">
                         <h3 class="font-bold text-base text-sky-400 mb-3">Atom 1</h3>
                         <div class="flex space-x-4">
@@ -98,10 +107,7 @@
 
                 <div class="control-group">
                      <h2 class="text-lg font-semibold text-white mb-3">Graphing</h2>
-                     <label for="thermal-factor" class="control-label">Global Thermal Factor B (Å²): <span id="thermal-factor-value" class="font-semibold text-white">0.5</span></label>
-                    <input type="range" id="thermal-factor" min="0" max="3" value="0.5" step="0.1">
-
-                    <label for="two-theta-min" class="control-label mt-4">Graph 2θ Min (°): <span id="two-theta-min-value" class="font-semibold text-white">10</span></label>
+                    <label for="two-theta-min" class="control-label">Graph 2θ Min (°): <span id="two-theta-min-value" class="font-semibold text-white">10</span></label>
                     <input type="range" id="two-theta-min" min="5" max="160" value="10" step="1">
 
                     <label for="two-theta-max" class="control-label mt-4">Graph 2θ Max (°): <span id="two-theta-max-value" class="font-semibold text-white">100</span></label>
@@ -212,6 +218,7 @@
                 latticeParamValue: document.getElementById('lattice-parameter-value'),
                 wavelength: document.getElementById('xray-wavelength'),
                 wavelengthPreset: document.getElementById('wavelength-preset'),
+                polarization: document.getElementById('polarization-factor'),
                 thermalFactor: document.getElementById('thermal-factor'),
                 thermalFactorValue: document.getElementById('thermal-factor-value'),
                 twoThetaMin: document.getElementById('two-theta-min'),
@@ -239,7 +246,12 @@
                     const atomDef2 = { symbol: controls.atom2.element.value, wyckoff: controls.atom2.wyckoff.value, coords: getCoordsFromInput('2') };
                     atomList = atomList.concat(generateAtomList(sg, atomDef2));
                 }
-                const params = { a: parseFloat(controls.latticeParam.value), lambda: parseFloat(controls.wavelength.value), B: parseFloat(controls.thermalFactor.value) };
+                const params = { 
+                    a: parseFloat(controls.latticeParam.value), 
+                    lambda: parseFloat(controls.wavelength.value), 
+                    B: parseFloat(controls.thermalFactor.value),
+                    polarization: controls.polarization.value
+                };
                 if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0 || atomList.length === 0) {
                      controls.peakTableBody.innerHTML = `<tr><td colspan="4" class="text-center py-4">Invalid parameters or no atoms defined.</td></tr>`;
                     if (xrdChart) xrdChart.destroy();
@@ -252,7 +264,7 @@
             };
 
             const calculatePeaks = (params, atomList) => {
-                const { a, lambda } = params;
+                const { a, lambda, polarization } = params;
                 const calculatedPeaks = [];
                 const max_hkl = 12;
                 for (let h = 0; h <= max_hkl; h++) {
@@ -269,8 +281,23 @@
                                     const cosTheta = Math.cos(thetaRad);
                                     if(cosTheta < 1e-6) continue;
                                     const cos2Theta = Math.cos(2 * thetaRad);
-                                    const Lp = (1 + cos2Theta * cos2Theta) / (sinTheta * sinTheta * cosTheta);
+                                    
+                                    let polarizationTerm;
+                                    switch (polarization) {
+                                        case 'vertical':
+                                            polarizationTerm = 1;
+                                            break;
+                                        case 'horizontal':
+                                            polarizationTerm = cos2Theta * cos2Theta;
+                                            break;
+                                        default: // 'unpolarized'
+                                            polarizationTerm = 1 + cos2Theta * cos2Theta;
+                                            break;
+                                    }
+                                    
+                                    const Lp = polarizationTerm / (sinTheta * sinTheta * cosTheta);
                                     const intensity = f_sq * Lp;
+
                                     if (intensity > 1e-3) {
                                         const existingPeak = calculatedPeaks.find(p => Math.abs(p.d - d) < 1e-5);
                                         if (!existingPeak) {
@@ -466,7 +493,7 @@
             };
 
             // --- Event Listeners ---
-            const allSimControls = [controls.spaceGroup, controls.latticeParam, controls.wavelength, controls.thermalFactor, controls.atom1.element, controls.atom1.wyckoff, controls.atom2.element, controls.atom2.wyckoff];
+            const allSimControls = [controls.spaceGroup, controls.latticeParam, controls.wavelength, controls.polarization, controls.thermalFactor, controls.atom1.element, controls.atom1.wyckoff, controls.atom2.element, controls.atom2.wyckoff];
             allSimControls.forEach(control => control.addEventListener('input', runSimulation));
             
             controls.wavelengthPreset.addEventListener('change', (e) => {
@@ -476,7 +503,6 @@
                 }
             });
 
-            // New listener to sync numeric input with the preset dropdown
             controls.wavelength.addEventListener('input', () => {
                 const currentValue = parseFloat(controls.wavelength.value);
                 let matchFound = false;
