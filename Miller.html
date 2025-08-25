@@ -172,8 +172,7 @@ footer {
             border-radius: 50%;
             cursor: pointer;
         }
-        .control-group > .control-group,
-        .control-group > #mode-specific-controls {
+        .control-group > .control-group {
             border: none;
             padding: 0;
             margin-bottom: 1.5rem;
@@ -185,14 +184,6 @@ footer {
     <div id="app-container">
         <div id="controls-panel">
             <h1>Crystallography Visualizer</h1>
-
-            <div class="control-group">
-                <label for="modeSelector">Mode</label>
-                <select id="modeSelector">
-                    <option value="plane" selected>Plane (hkl)</option>
-                    <option value="direction">Direction [uvw]</option>
-                </select>
-            </div>
         
             <div class="control-group">
         
@@ -228,22 +219,18 @@ footer {
                     </div>
                 </div>
         
-                <div id="mode-specific-controls">
-                    <div class="control-group" id="plane-controls">
-                        <label>Plane Indices (h k l)</label>
-                        <div class="indices-group">
-                             <input type="number" id="h" value="1" step="1">
-                             <input type="number" id="k" value="1" step="1">
-                             <input type="number" id="l" value="1" step="1">
-                        </div>
+                <div class="control-group">
+                    <label>Plane Indices (h k l)</label>
+                    <div class="indices-group">
+                         <input type="number" id="h" value="1" step="1">
+                         <input type="number" id="k" value="1" step="1">
+                         <input type="number" id="l" value="1" step="1">
                     </div>
-                    <div class="control-group" id="direction-controls" style="display: none;">
-                        <label>Direction Indices [u v w]</label>
-                        <div class="indices-group">
-                            <input type="number" id="u" value="1" step="1">
-                            <input type="number" id="v" value="1" step="1">
-                            <input type="number" id="w" value="1" step="1">
-                        </div>
+                    <label style="margin-top: 1rem;">Direction Indices [u v w]</label>
+                    <div class="indices-group">
+                        <input type="number" id="u" value="1" step="1">
+                        <input type="number" id="v" value="1" step="1">
+                        <input type="number" id="w" value="1" step="1">
                     </div>
                 </div>
             </div>
@@ -284,17 +271,15 @@ footer {
         let unitCellLines = new THREE.Group(), latticeNodes = new THREE.Group(), hklPlanes = new THREE.Group(), directionVector = new THREE.Group(), axisLabels = new THREE.Group();
         const FONT_URL = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_regular.typeface.json';
 
-        const dom = {
+const dom = {
             info: document.getElementById('info'),
-            modeSelector: document.getElementById('modeSelector'),
             system: document.getElementById('crystalSystem'),
             centering: document.getElementById('centering'),
             nodeSize: document.getElementById('nodeSize'),
             viewType: document.getElementById('viewType'),
-            planeControls: document.getElementById('plane-controls'),
-            directionControls: document.getElementById('direction-controls'),
             params: { a: document.getElementById('a'), b: document.getElementById('b'), c: document.getElementById('c'), alpha: document.getElementById('alpha'), beta: document.getElementById('beta'), gamma: document.getElementById('gamma') },
             hkl: { h: document.getElementById('h'), k: document.getElementById('k'), l: document.getElementById('l') },
+         
             uvw: { u: document.getElementById('u'), v: document.getElementById('v'), w: document.getElementById('w') }
         };
 
@@ -322,27 +307,23 @@ footer {
 
             new THREE.FontLoader().load(FONT_URL, f => { font = f; updateCenteringOptions(); });
 
-            dom.modeSelector.addEventListener('change', onModeChange);
             dom.system.addEventListener('change', () => { updateParameterFields(); updateCenteringOptions(); });
             dom.centering.addEventListener('change', updateScene);
             
-            // --- MODIFIED SECTION ---
             Object.values(dom.params).forEach(input => input.addEventListener('change', () => {
                 const min = parseFloat(input.min);
                 const max = parseFloat(input.max);
                 let value = parseFloat(input.value);
 
                 if (isNaN(value)) {
-                    value = min; // If invalid text is entered, reset to the minimum
+                    value = min;
                 }
 
-                // Clamp the value to the min/max range and update the input field
                 input.value = Math.max(min, Math.min(max, value));
                 
                 syncLinkedParameters();
                 updateScene();
             }));
-            // --- END MODIFIED SECTION ---
 
             Object.values(dom.hkl).forEach(i => i.addEventListener('change', () => { i.value = parseInt(i.value, 10) || 0; updateScene(); }));
             Object.values(dom.uvw).forEach(i => i.addEventListener('change', () => { i.value = parseInt(i.value, 10) || 0; updateScene(); }));
@@ -355,22 +336,13 @@ footer {
             onWindowResize();
             updateParameterFields();
             updateCenteringOptions(); 
-            onModeChange();
-            animate();
-        }
-
-        function onModeChange() {
-            const mode = dom.modeSelector.value;
-            dom.planeControls.style.display = (mode === 'plane') ? 'block' : 'none';
-            dom.directionControls.style.display = (mode === 'direction') ? 'block' : 'none';
-            selectedPlane = null;
             updateScene();
+            animate();
         }
 
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
-                        // make axis labels always face the camera
             axisLabels.children.forEach(label => {
                 label.quaternion.copy(camera.quaternion);
             });
@@ -401,7 +373,7 @@ footer {
             selectedPlane = null;
         }
 
-        function updateScene() {
+function updateScene() {
             clearScene();
             const p = {}; Object.keys(dom.params).forEach(k => p[k] = parseFloat(dom.params[k].value));
             const { v_a, v_b, v_c } = getDirectVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
@@ -411,14 +383,14 @@ footer {
             drawAxisLabels(v_a, v_b, v_c);
             drawLatticeNodes(v_a, v_b, v_c, dom.centering.value);
             
-            const mode = dom.modeSelector.value;
-            if (mode === 'plane') {
-                const hkl = {}; Object.keys(dom.hkl).forEach(k => hkl[k] = parseInt(dom.hkl[k].value) || 0);
-                if (hkl.h !== 0 || hkl.k !== 0 || hkl.l !== 0) {
-                    drawHklPlanes(v_a, v_b, v_c, p, hkl.h, hkl.k, hkl.l);
-                }
-            } else if (mode === 'direction') {
-                const uvw = {}; Object.keys(dom.uvw).forEach(k => uvw[k] = parseInt(dom.uvw[k].value) || 0);
+            const hkl = {}; Object.keys(dom.hkl).forEach(k => hkl[k] = parseInt(dom.hkl[k].value) || 0);
+            if (hkl.h !== 0 || hkl.k !== 0 || hkl.l !== 0) {
+                drawHklPlanes(v_a, v_b, v_c, p, hkl.h, hkl.k, hkl.l);
+            }
+
+            const uvw = {}; Object.keys(dom.uvw).forEach(k => uvw[k] = parseInt(dom.uvw[k].value) || 0);
+            if (uvw.u !== 0 || uvw.v !== 0 || uvw.w !== 0) {
+                // This line is the corrected part. It now uses uvw.u, uvw.v, uvw.w
                 drawDirectionVector(v_a, v_b, v_c, uvw.u, uvw.v, uvw.w);
             }
             updateInfo();
@@ -543,7 +515,6 @@ footer {
         }
         
         function onObjectClick(e) {
-            if (dom.modeSelector.value !== 'plane') return;
             e.preventDefault();
             const c = renderer.domElement, m = new THREE.Vector2(((e.clientX - c.getBoundingClientRect().left) / c.width) * 2 - 1, -((e.clientY - c.getBoundingClientRect().top) / c.height) * 2 + 1);
             const r = new THREE.Raycaster();
@@ -557,22 +528,21 @@ footer {
         }
 
         function updateInfo() {
-            const mode = dom.modeSelector.value;
-            let infoText = '';
-            if (mode === 'direction') {
-                const { u, v, w } = dom.uvw;
-                infoText = `<b>Direction: [${u.value} ${v.value} ${w.value}]</b>`;
-            } else { // mode === 'plane'
-                const h = parseInt(dom.hkl.h.value, 10) || 0;
-                const k = parseInt(dom.hkl.k.value, 10) || 0;
-                const l = parseInt(dom.hkl.l.value, 10) || 0;
-                const p = {};
-                Object.keys(dom.params).forEach(key => p[key] = parseFloat(dom.params[key].value));
-                const d = calculateDSpacing(h, k, l, p);
-                const d_text = isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`;
-                infoText = `<b>Plane: (${h} ${k} ${l})</b> | d_hkl: ${d_text}`;
-            }
-             dom.info.innerHTML = infoText;
+            // Plane Info
+            const h = parseInt(dom.hkl.h.value, 10) || 0;
+            const k = parseInt(dom.hkl.k.value, 10) || 0;
+            const l = parseInt(dom.hkl.l.value, 10) || 0;
+            const p = {};
+            Object.keys(dom.params).forEach(key => p[key] = parseFloat(dom.params[key].value));
+            const d = calculateDSpacing(h, k, l, p);
+            const d_text = isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`;
+            const planeText = `<b>Plane: (${h} ${k} ${l})</b> | d_hkl: ${d_text}`;
+
+            // Direction Info
+            const { u, v, w } = dom.uvw;
+            const directionText = `<b>Direction: [${u.value} ${v.value} ${w.value}]</b>`;
+            
+            dom.info.innerHTML = planeText + '<br>' + directionText;
         }
 
         function calculateDSpacing(h, k, l, p) {
