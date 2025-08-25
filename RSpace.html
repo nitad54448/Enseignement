@@ -108,28 +108,6 @@
             border: none;
         }
         
-        .radio-label {
-            background-color: #374151;
-            border: 1px solid #4b5563;
-            color: #e5e7eb;
-            border-radius: 0.375rem;
-            padding: 0.5rem;
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            font-size: 0.9em;
-        }
-        .radio-label:has(input:checked) {
-             background-color: #3b82f6;
-             border-color: #2563eb;
-             color: white;
-        }
-        .radio-label:hover { background-color: #4b5563; }
-        .radio-label input[type="radio"] { opacity: 0; width: 0; height: 0; }
-        
         #ortho-views button {
             background-color: #3b82f6; border: none; color: #ffffff;
             border-radius: 0.375rem; padding: 0.5rem; width: 100%;
@@ -142,6 +120,11 @@
             background-color: #1f2937;
             border: 1px solid #374151;
             min-height: 80px;
+        }
+        #info hr {
+            border-color: #4b5563;
+            margin-top: 0.25rem;
+            margin-bottom: 0.25rem;
         }
 
     </style>
@@ -250,12 +233,11 @@
             
             <div class="control-group">
                 <h2>Display Options</h2>
-                <div class="grid grid-cols-3 gap-2">
-                    <label class="radio-label">Info<input type="radio" id="modeInfo" name="clickMode" value="info" checked></label>
-                    <label class="radio-label">Measure<input type="radio" id="modeMeasure" name="clickMode" value="measure"></label>
-                    <label class="radio-label">Multi<input type="radio" id="modeMultiplicity" name="clickMode" value="multiplicity"></label>
+                 <div class="flex items-center mb-4">
+                    <input id="showDirectVectors" type="checkbox" class="h-4 w-4 rounded border-gray-500 bg-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                    <label for="showDirectVectors" class="ml-3 block text-sm font-medium text-gray-300 cursor-pointer">Show direct vectors</label>
                 </div>
-                <div class="grid grid-cols-1 gap-4 mt-4">
+                <div class="grid grid-cols-1 gap-4">
                      <div>
                         <label for="projection">Projection</label>
                         <select id="projection">
@@ -285,7 +267,7 @@
 
     <footer class="fixed bottom-0 left-0 w-full bg-white shadow-md p-2 flex justify-between items-center text-xs text-gray-600 border-t z-10">
         <div class="px-4">Right-click a node to select. Rotate with left-click drag. Pan with right-click drag. Zoom with scroll.</div>
-        <div class="px-4">NitaD, Univ Paris-Saclay, 2025</div>
+        <div class="px-4">NitaD, Univ Paris-Saclay, 6 juin 2025</div>
     </footer>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -299,8 +281,8 @@
         let perspectiveCamera, orthographicCamera, currentCamera;
         let latticePoints = new THREE.Group();
         let reciprocalAxes = new THREE.Group();
+        let directAxes = new THREE.Group();
         let selectedNodes = [];
-        let selectionIndicator;
         let reciprocalBasis = {};
 
         const dom = {
@@ -310,6 +292,7 @@
             nodeSize: document.getElementById('nodeSize'),
             projection: document.getElementById('projection'),
             orthoViews: document.getElementById('ortho-views'),
+            showDirectVectors: document.getElementById('showDirectVectors'),
             inputs: { a: document.getElementById('a'), b: document.getElementById('b'), c: document.getElementById('c'), alpha: document.getElementById('alpha'), beta: document.getElementById('beta'), gamma: document.getElementById('gamma') },
             groups: { a: document.getElementById('group-a'), b: document.getElementById('group-b'), c: document.getElementById('group-c'), alpha: document.getElementById('group-alpha'), beta: document.getElementById('group-beta'), gamma: document.getElementById('group-gamma') },
             hkl: { h_min: document.getElementById('h_min'), h_max: document.getElementById('h_max'), k_min: document.getElementById('k_min'), k_max: document.getElementById('k_max'), l_min: document.getElementById('l_min'), l_max: document.getElementById('l_max'),},
@@ -320,18 +303,19 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0xf7fafc); // Whitish background
+            scene.background = new THREE.Color(0xf7fafc);
             scene.add(latticePoints);
             scene.add(reciprocalAxes);
+            scene.add(directAxes);
 
             const container = document.getElementById('visualization-area');
             const aspect = container.clientWidth / container.clientHeight;
             perspectiveCamera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
-            perspectiveCamera.position.z = 5;
+            perspectiveCamera.position.z = 2;
 
             const frustumSize = 5;
             orthographicCamera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
-            orthographicCamera.position.z = 5;
+            orthographicCamera.position.z = 2;
 
             currentCamera = perspectiveCamera;
             
@@ -346,20 +330,12 @@
                 MIDDLE: THREE.MOUSE.DOLLY,
                 RIGHT: THREE.MOUSE.PAN
             };
-
             
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             scene.add(new THREE.DirectionalLight(0xffffff, 0.8));
-            
-            const ringGeo = new THREE.RingGeometry(0.05, 0.06, 32);
-            const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-            selectionIndicator = new THREE.Mesh(ringGeo, ringMat);
-            selectionIndicator.visible = false;
-            scene.add(selectionIndicator);
 
             initResizer();
             setupEventListeners();
-
             updateParameterFields();
             updateCenteringOptions();
             animate();
@@ -368,6 +344,7 @@
         function setupEventListeners() {
             dom.system.addEventListener('change', () => { updateParameterFields(); updateCenteringOptions(); });
             dom.centering.addEventListener('change', generateLattice);
+            dom.showDirectVectors.addEventListener('change', generateLattice);
             
             const validationRules = {
                 'a': { min: 1 }, 'b': { min: 1 }, 'c': { min: 1 },
@@ -394,12 +371,11 @@
                 });
             });
 
-            dom.nodeSize.addEventListener('input', () => { updateSelectionIndicatorSize(); generateLattice(); });
+            dom.nodeSize.addEventListener('input', generateLattice);
             dom.projection.addEventListener('change', setProjection);
             dom.orthoViews.addEventListener('click', (e) => {
                 if(e.target.matches('.view-btn')) setOrthographicView(e.target.dataset.axis);
             });
-            document.querySelectorAll('input[name="clickMode"]').forEach(radio => radio.addEventListener('change', resetSelection));
             window.addEventListener('resize', onWindowResize);
             renderer.domElement.addEventListener('contextmenu', onNodeClick);
         }
@@ -437,14 +413,7 @@
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
-            if (selectionIndicator.visible) {
-                selectionIndicator.quaternion.copy(currentCamera.quaternion);
-            }
             renderer.render(scene, currentCamera);
-        }
-
-        function getClickMode() {
-            return document.querySelector('input[name="clickMode"]:checked').value;
         }
         
         function onNodeClick(event) {
@@ -458,47 +427,26 @@
             raycaster.setFromCamera(mouse, currentCamera);
             const intersects = raycaster.intersectObject(latticePoints, true);
 
+            resetSelection();
+
             if (intersects.length > 0) {
                 const clickedNode = intersects[0].object;
-                const clickMode = getClickMode();
-
-                if (clickMode === 'measure') {
-                    if (selectedNodes.includes(clickedNode)) return; 
-                    if (selectedNodes.length === 2) {
-                        const oldNode = selectedNodes.shift();
-                        oldNode.material.color.setHex(oldNode.userData.isOrigin ? 0xff0000 : 0x007bff);
+                const { h, k, l } = clickedNode.userData;
+                const system = dom.system.value;
+                const clickedFamilyId = getFamilyId(h, k, l, system);
+                
+                latticePoints.children.forEach(node => {
+                    const { h, k, l } = node.userData;
+                    const nodeFamilyId = getFamilyId(h, k, l, system);
+                    if (nodeFamilyId === clickedFamilyId) {
+                        node.material.color.setHex(0xffa500); // Highlight color
+                        selectedNodes.push(node);
                     }
-                    selectedNodes.push(clickedNode);
-                    clickedNode.material.color.setHex(0xffa500);
-                    updateInfo();
-                } else if (clickMode === 'multiplicity') {
-                    resetSelection();
-                    const distOrigin = clickedNode.position.length();
-                    let visibleMultiplicity = 0;
-                    
-                    latticePoints.children.forEach(node => {
-                        if (Math.abs(node.position.length() - distOrigin) < 1e-5) {
-                            visibleMultiplicity++;
-                            node.material.color.setHex(0x00ff00);
-                            selectedNodes.push(node);
-                        }
-                    });
-
-                    const { h, k, l, params } = clickedNode.userData;
-                    const d = calculateDSpacing(h, k, l, params);
-                    const theoreticalMultiplicity = calculateTheoreticalMultiplicity(h, k, l, dom.system.value);
-
-                    const hkl_family = `{${Math.abs(h)}, ${Math.abs(k)}, ${Math.abs(l)}}`;
-                    dom.info.innerHTML = `<b>Multiplicity</b><br>Family: ${hkl_family}<br>d-spacing: ${d.toFixed(4)} Å<br>Visible Nodes: ${visibleMultiplicity}<br>Theoretical Multiplicity: ${theoreticalMultiplicity}`;
-                } else { // 'info' mode
-                    resetSelection();
-                    selectedNodes.push(clickedNode);
-                    clickedNode.material.color.setHex(0xffa500);
-                    updateInfo();
-                }
-            } else {
-                resetSelection();
+                });
+                // Ensure the clicked node is the first in the array for consistent info display
+                selectedNodes.sort((a, b) => (a === clickedNode) ? -1 : (b === clickedNode) ? 1 : 0);
             }
+            updateInfo();
         }
         
         function onWindowResize() { 
@@ -519,8 +467,6 @@
             renderer.setSize(container.clientWidth, container.clientHeight); 
         }
 
-        // --- All other functions (generateLattice, calculateTheoreticalMultiplicity, etc.) remain unchanged ---
-        
         function updateReciprocalDisplay(p) { 
             const toRad = Math.PI / 180; 
             const cos_a = Math.cos(p.alpha * toRad), cos_b = Math.cos(p.beta * toRad), cos_g = Math.cos(p.gamma * toRad); 
@@ -547,37 +493,144 @@
         }
 
         function calculateTheoreticalMultiplicity(h_in, k_in, l_in, system) { if (h_in === 0 && k_in === 0 && l_in === 0) return 1; const h = Math.abs(h_in), k = Math.abs(k_in), l = Math.abs(l_in); const non_zeros = [h, k, l].filter(v => v > 0); switch (system) { case 'cubic': if (non_zeros.length === 3) { return (h === k && k === l) ? 8 : ((h === k || k === l || h === l) ? 24 : 48); } if (non_zeros.length === 2) { return (non_zeros[0] === non_zeros[1]) ? 12 : 24; } if (non_zeros.length === 1) { return 6; } break; case 'hexagonal': case 'trigonal': if (h === 0 && k === 0 && l > 0) return 2; if (l === 0) { return (h > 0 && k > 0 && h === k) ? 6 : ((h > 0 && k === 0) || (h === 0 && k > 0) ? 6 : 12); } if (l > 0) { return (h > 0 && k > 0 && h === k) ? 12 : ((h > 0 && k === 0) || (h === 0 && k > 0) ? 12 : 24); } break; case 'tetragonal': if (non_zeros.length === 3) { return (h === k) ? 8 : 16; } if (non_zeros.length === 2) { if (l === 0) return (h === k) ? 4 : 8; if (h === 0 || k === 0) return 8; } if (non_zeros.length === 1) { return (l > 0) ? 2 : 4; } break; case 'orthorhombic': if (non_zeros.length === 3) return 8; if (non_zeros.length === 2) return 4; if (non_zeros.length === 1) return 2; break; case 'monoclinic': if (k_in === 0) return 2; if (h_in === 0 && l_in === 0) return 2; return 4; case 'triclinic': return 2; } return 0; }
-        function generateLattice() { resetSelection(); latticePoints.clear(); reciprocalAxes.clear(); const p = {}; Object.keys(dom.inputs).forEach(key => p[key] = parseFloat(dom.inputs[key].value)); updateReciprocalDisplay(p); const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma); if (!b1) { reciprocalBasis = {}; return; } reciprocalBasis = { b1, b2, b3 }; reciprocalAxes.add(new THREE.ArrowHelper(b1.clone().normalize(), new THREE.Vector3(0,0,0), b1.length(), 0xffff00)); reciprocalAxes.add(new THREE.ArrowHelper(b2.clone().normalize(), new THREE.Vector3(0,0,0), b2.length(), 0xff00ff)); reciprocalAxes.add(new THREE.ArrowHelper(b3.clone().normalize(), new THREE.Vector3(0,0,0), b3.length(), 0x00ffff)); const hkl = {}; hkl.h_min = parseInt(dom.hkl.h_min.value); hkl.h_max = parseInt(dom.hkl.h_max.value); hkl.k_min = parseInt(dom.hkl.k_min.value); hkl.k_max = parseInt(dom.hkl.k_max.value); hkl.l_min = parseInt(dom.hkl.l_min.value); hkl.l_max = parseInt(dom.hkl.l_max.value); const nodeRadius = parseFloat(dom.nodeSize.value); const baseGeo = new THREE.SphereGeometry(nodeRadius, 12, 12); for (let h = hkl.h_min; h <= hkl.h_max; h++) { for (let k = hkl.k_min; k <= hkl.k_max; k++) { for (let l = hkl.l_min; l <= hkl.l_max; l++) { if (!isAllowed(h, k, l, dom.centering.value)) continue; const isOrigin = (h === 0 && k === 0 && l === 0); const material = new THREE.MeshStandardMaterial({color: isOrigin ? 0xff0000 : 0x007bff, metalness: 0.2, roughness: 0.6}); const sphere = new THREE.Mesh(baseGeo, material); sphere.userData = { h, k, l, params: p, isOrigin }; sphere.position.addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l); latticePoints.add(sphere); }}}}
-        function updateSelectionIndicatorSize() { const nodeRadius = parseFloat(dom.nodeSize.value); selectionIndicator.geometry.dispose(); selectionIndicator.geometry = new THREE.RingGeometry(nodeRadius + 0.015, nodeRadius + 0.025, 32); }
+        
+        function generateLattice() {
+            resetSelection();
+            latticePoints.clear();
+            reciprocalAxes.clear();
+            directAxes.clear();
+
+            const p = {};
+            Object.keys(dom.inputs).forEach(key => p[key] = parseFloat(dom.inputs[key].value));
+            updateReciprocalDisplay(p);
+
+            const { a1, a2, a3 } = getDirectVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
+            const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma);
+            
+            if (!b1 || !a1) {
+                reciprocalBasis = {};
+                return;
+            }
+            reciprocalBasis = { b1, b2, b3 };
+
+            // --- Vector Rendering ---
+            reciprocalAxes.add(new THREE.ArrowHelper(b1.clone().normalize(), new THREE.Vector3(0,0,0), b1.length(), 0xffff00));
+            reciprocalAxes.add(new THREE.ArrowHelper(b2.clone().normalize(), new THREE.Vector3(0,0,0), b2.length(), 0xff00ff));
+            reciprocalAxes.add(new THREE.ArrowHelper(b3.clone().normalize(), new THREE.Vector3(0,0,0), b3.length(), 0x00ffff));
+            
+            if (dom.showDirectVectors.checked) {
+                const max_recip_len = Math.max(b1.length(), b2.length(), b3.length());
+                const max_direct_len = Math.max(a1.length(), a2.length(), a3.length());
+                const direct_scale = (max_direct_len > 1e-6) ? max_recip_len / max_direct_len : 0;
+
+                directAxes.add(new THREE.ArrowHelper(a1.clone().normalize(), new THREE.Vector3(0,0,0), a1.length() * direct_scale, 0xff0000));
+                directAxes.add(new THREE.ArrowHelper(a2.clone().normalize(), new THREE.Vector3(0,0,0), a2.length() * direct_scale, 0x00ff00));
+                directAxes.add(new THREE.ArrowHelper(a3.clone().normalize(), new THREE.Vector3(0,0,0), a3.length() * direct_scale, 0x0000ff));
+            }
+
+            // Generate lattice points
+            const hkl = {};
+            hkl.h_min = parseInt(dom.hkl.h_min.value); hkl.h_max = parseInt(dom.hkl.h_max.value);
+            hkl.k_min = parseInt(dom.hkl.k_min.value); hkl.k_max = parseInt(dom.hkl.k_max.value);
+            hkl.l_min = parseInt(dom.hkl.l_min.value); hkl.l_max = parseInt(dom.hkl.l_max.value);
+            const nodeRadius = parseFloat(dom.nodeSize.value);
+            const baseGeo = new THREE.SphereGeometry(nodeRadius, 12, 12);
+            for (let h = hkl.h_min; h <= hkl.h_max; h++) {
+                for (let k = hkl.k_min; k <= hkl.k_max; k++) {
+                    for (let l = hkl.l_min; l <= hkl.l_max; l++) {
+                        if (!isAllowed(h, k, l, dom.centering.value)) continue;
+                        const isOrigin = (h === 0 && k === 0 && l === 0);
+                        const material = new THREE.MeshStandardMaterial({color: isOrigin ? 0xff0000 : 0x007bff, metalness: 0.2, roughness: 0.6});
+                        const sphere = new THREE.Mesh(baseGeo, material);
+                        sphere.userData = { h, k, l, params: p, isOrigin };
+                        sphere.position.addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
+                        latticePoints.add(sphere);
+                    }
+                }
+            }
+            updateInfo(); // Update info in case a selected family disappears
+        }
+
         function setProjection() { const mode = dom.projection.value; if (mode === 'orthographic') { currentCamera = orthographicCamera; dom.orthoViews.style.display = 'block'; setOrthographicView('c'); } else { currentCamera = perspectiveCamera; dom.orthoViews.style.display = 'none'; } controls.object = currentCamera; onWindowResize(); controls.reset(); }
         function setOrthographicView(axis) { if (!reciprocalBasis.b1) return; let direction, up; if (axis === 'a') { direction = reciprocalBasis.b1.clone().normalize(); up = reciprocalBasis.b3.clone().normalize(); } else if (axis === 'b') { direction = reciprocalBasis.b2.clone().normalize(); up = reciprocalBasis.b3.clone().normalize(); } else { direction = reciprocalBasis.b3.clone().normalize(); up = reciprocalBasis.b2.clone().normalize(); } if (Math.abs(direction.dot(up)) > 0.999) { up.copy(reciprocalBasis.b1).normalize(); } currentCamera.position.copy(direction.multiplyScalar(10)); currentCamera.up.copy(up); currentCamera.lookAt(0, 0, 0); controls.target.set(0, 0, 0); controls.update(); }
-        function resetSelection() { selectedNodes.forEach(node => { if (node.material) { node.material.color.setHex(node.userData.isOrigin ? 0xff0000 : 0x007bff); } }); selectedNodes = []; selectionIndicator.visible = false; updateInfo(); }
+        
+        function resetSelection() { 
+            selectedNodes.forEach(node => { 
+                if (node.material) { 
+                    node.material.color.setHex(node.userData.isOrigin ? 0xff0000 : 0x007bff); 
+                } 
+            }); 
+            selectedNodes = []; 
+            updateInfo();
+        }
+
         function updateInfo() {
-            selectionIndicator.visible = false;
-            const clickMode = getClickMode();
             if (selectedNodes.length === 0) {
-                let modeText = "Right-click a node for info.";
-                if (clickMode === 'measure') modeText = "Right-click two nodes to measure.";
-                if (clickMode === 'multiplicity') modeText = "Right-click a node for multiplicity info.";
-                dom.info.innerHTML = modeText;
-            } else if (selectedNodes.length === 1) {
-                const { h, k, l, params } = selectedNodes[0].userData;
+                dom.info.innerHTML = "Right-click a node for info.";
+            } else {
+                const primaryNode = selectedNodes[0];
+                const { h, k, l, params } = primaryNode.userData;
+                const R_star = primaryNode.position.length();
                 const d = calculateDSpacing(h, k, l, params);
-                dom.info.innerHTML = `<b>Selected Node</b><br>hkl: (${h}, ${k}, ${l})<br>d-spacing: ${isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`}`;
-                selectionIndicator.position.copy(selectedNodes[0].position);
-                selectionIndicator.visible = true;
-            } else if (selectedNodes.length === 2) {
-                const [node1, node2] = selectedNodes;
-                const reciprocalDist = node1.position.distanceTo(node2.position);
-                const delta_h = node2.userData.h - node1.userData.h, delta_k = node2.userData.k - node1.userData.k, delta_l = node2.userData.l - node1.userData.l;
-                const directDist = calculateDSpacing(delta_h, delta_k, delta_l, node1.userData.params);
-                dom.info.innerHTML = `<b>Measurement</b><br>(${node1.userData.h},${node1.userData.k},${node1.userData.l}) to (${node2.userData.h},${node2.userData.k},${node2.userData.l})<br>&Delta;hkl: (${delta_h},${delta_k},${delta_l})<hr>Recip. Dist: ${reciprocalDist.toFixed(4)} Å⁻¹<br>d-spacing: ${directDist.toFixed(4)} Å`;
+                const theoreticalMultiplicity = calculateTheoreticalMultiplicity(h, k, l, dom.system.value);
+                const hkl_family = `{${Math.abs(h)}, ${Math.abs(k)}, ${Math.abs(l)}}`;
+                const visibleNodes = selectedNodes.length;
+
+                dom.info.innerHTML = `<b>Selected Node</b><br>
+                    hkl: (${h}, ${k}, ${l})<br>
+                    R*: ${R_star.toFixed(4)} Å⁻¹<br>
+                    d: ${isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`}<hr>
+                    <b>Multiplicity</b><br>
+                    Family: ${hkl_family}<br>
+                    Visible: ${visibleNodes}<br>
+                    Theoretical: ${theoreticalMultiplicity}`;
             }
         }
+
         function updateParameterFields() { const system = dom.system.value; Object.values(dom.groups).forEach(g => { g.style.display = 'block'; }); Object.values(dom.inputs).forEach(i => { i.disabled = false;}); const hide = (params) => params.forEach(p => { const elem = dom.groups[p]; elem.style.display = 'none'; }); switch (system) { case 'cubic': hide(['b', 'c', 'alpha', 'beta', 'gamma']); break; case 'tetragonal': hide(['b', 'alpha', 'beta', 'gamma']); break; case 'orthorhombic': hide(['alpha', 'beta', 'gamma']); break; case 'hexagonal': hide(['b', 'alpha', 'beta']); break; case 'trigonal': hide(['b', 'c', 'beta', 'gamma']); break; case 'monoclinic': hide(['alpha', 'gamma']); break; } syncLinkedParameters(); }
         function syncLinkedParameters() { const system = dom.system.value; const setVal = (p, val) => { dom.inputs[p].value = val; dom.inputs[p].disabled = true; }; const enable = (p) => { dom.inputs[p].disabled = false; }; const allParams = ['b', 'c', 'alpha', 'beta', 'gamma']; allParams.forEach(enable); switch(system) { case 'cubic': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'tetragonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'orthorhombic': setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 90); break; case 'hexagonal': setVal('b', dom.inputs.a.value); setVal('alpha', 90); setVal('beta', 90); setVal('gamma', 120); break; case 'trigonal': setVal('b', dom.inputs.a.value); setVal('c', dom.inputs.a.value); setVal('beta', dom.inputs.alpha.value); setVal('gamma', dom.inputs.alpha.value); break; case 'monoclinic': setVal('alpha', 90); setVal('gamma', 90); break; } generateLattice(); }
         function updateCenteringOptions() { const system = dom.system.value; const options = centeringOptions[system]; const currentCentering = dom.centering.value; dom.centering.innerHTML = ''; options.forEach(opt => { const option = document.createElement('option'); option.value = opt; option.textContent = opt; dom.centering.appendChild(option); }); if (options.includes(currentCentering)) { dom.centering.value = currentCentering; } generateLattice(); }
+        
+        function getDirectVectors(a, b, c, alpha, beta, gamma) {
+            const toRad = Math.PI / 180;
+            const alphaRad = alpha * toRad, betaRad = beta * toRad, gammaRad = gamma * toRad;
+            const cos_a = Math.cos(alphaRad), cos_b = Math.cos(betaRad), cos_g = Math.cos(gammaRad);
+            const sin_g = Math.sin(gammaRad);
+            if (Math.abs(sin_g) < 1e-9) return {}; 
+            const V_sq = a**2 * b**2 * c**2 * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g);
+            if (isNaN(V_sq) || V_sq < 1e-9) return {}; 
+            const V = Math.sqrt(V_sq);
+            const a1 = new THREE.Vector3(a, 0, 0);
+            const a2 = new THREE.Vector3(b * cos_g, b * sin_g, 0);
+            const a3 = new THREE.Vector3(c * cos_b, c * (cos_a - cos_b * cos_g) / sin_g, V / (a * b * sin_g));
+            return { a1, a2, a3 };
+        }
+
         function getReciprocalVectors(a, b, c, alpha, beta, gamma) { const toRad = Math.PI / 180; const cos_a = Math.cos(alpha * toRad), cos_b = Math.cos(beta * toRad), cos_g = Math.cos(gamma * toRad); const V_sq = a**2 * b**2 * c**2 * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g); if (isNaN(V_sq) || V_sq < 1e-9) return {}; const V = Math.sqrt(V_sq); const a_star = (b * c * Math.sin(alpha * toRad)) / V; const b_star = (a * c * Math.sin(beta * toRad)) / V; const c_star = (a * b * Math.sin(gamma * toRad)) / V; const cos_alpha_star = (cos_b * cos_g - cos_a) / (Math.sin(beta * toRad) * Math.sin(gamma * toRad)); const cos_beta_star = (cos_g * cos_a - cos_b) / (Math.sin(gamma * toRad) * Math.sin(alpha * toRad)); const cos_gamma_star = (cos_a * cos_b - cos_g) / (Math.sin(alpha * toRad) * Math.sin(beta * toRad)); if(Math.abs(cos_gamma_star)>1.000001) return{}; const sin_gamma_star = Math.sqrt(1 - cos_gamma_star**2); if(isNaN(sin_gamma_star) || sin_gamma_star < 1e-9) return{}; const b1 = new THREE.Vector3(a_star, 0, 0); const b2 = new THREE.Vector3(b_star * cos_gamma_star, b_star * sin_gamma_star, 0); const b3_x = c_star * cos_beta_star; const b3_y = c_star * (cos_alpha_star - cos_beta_star * cos_gamma_star) / sin_gamma_star; const b3_z = Math.sqrt(Math.max(0, c_star**2 - b3_x**2 - b3_y**2)); return { b1, b2, b3: new THREE.Vector3(b3_x, b3_y, b3_z) }; }
+        
+        function getFamilyId(h, k, l, system) {
+            const ah = Math.abs(h);
+            const ak = Math.abs(k);
+            const al = Math.abs(l);
+
+            switch (system) {
+                case 'cubic':
+                    // All axes are equivalent, sort all three
+                    return [ah, ak, al].sort((a, b) => a - b).join(',');
+                case 'hexagonal':
+                case 'trigonal':
+                case 'tetragonal':
+                    // h and k are equivalent, l is unique. Sort h and k.
+                    return [ah, ak].sort((a, b) => a - b).join(',') + `,${al}`;
+                case 'orthorhombic':
+                case 'monoclinic':
+                case 'triclinic':
+                default:
+                    // No axes are equivalent, so the family is just based on the h,k,l values.
+                    return `${ah},${ak},${al}`;
+            }
+        }
+
         function isAllowed(h, k, l, centering) { switch (centering) { case 'P': return true; case 'I': return (h + k + l) % 2 === 0; case 'F': return (h % 2 === k % 2) && (k % 2 === l % 2); case 'C': return (h + k) % 2 === 0; case 'A': return (k + l) % 2 === 0; case 'B': return (h + l) % 2 === 0; case 'R': return (-h + k + l) % 3 === 0; default: return true; } }
         function calculateDSpacing(h, k, l, p) { if (h === 0 && k === 0 && l === 0) return Infinity; const { b1, b2, b3 } = getReciprocalVectors(p.a, p.b, p.c, p.alpha, p.beta, p.gamma); if(!b1) return NaN; const G = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l); return 1 / G.length(); }
 
