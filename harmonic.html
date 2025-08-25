@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atomic Vibrations in Crystals</title>
+    <link href="./dist/output.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #f3f4f6; /* gray-100 */
+            color: #d1d5db; /* gray-300 */
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 300px;
+            max-width: 500px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827; /* gray-900 */
+            border-right: 1px solid #374151; /* gray-700 */
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #1f2937; /* gray-800 */
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6; /* blue-500 */
+        }
+        #visualization-area {
+            flex-grow: 1;
+            background-color: #1f2937; /* gray-800 */
+            min-width: 0;
+            position: relative; /* For child absolute positioning */
+        }
+        /* Controls Styling */
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
+        #controls-panel h2 { font-size: 1.25rem; font-weight: 600; color: #e5e7eb; border-bottom: 1px solid #374151; padding-bottom: 0.5rem; margin-bottom: 1rem;}
+        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-row { display: flex; align-items: center; gap: 1rem; }
+        #controls-panel input[type="number"] {
+            width: 90px;
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            text-align: center;
+        }
+        input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; background: #4b5563; border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s; flex-grow: 1; }
+        input[type="range"]:hover { opacity: 1; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: #3b82f6; cursor: pointer; border-radius: 50%; }
+        input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: #3b82f6; cursor: pointer; border-radius: 50%; border: 0; }
+        .toggle-container { display: flex; border: 1px solid #4b5563; border-radius: 0.375rem; overflow: hidden; }
+        .toggle-container input[type="radio"] { display: none; }
+        .toggle-container label { flex: 1; text-align: center; padding: 0.5rem 0; cursor: pointer; color: #9ca3af; transition: background-color 0.2s, color 0.2s; margin-bottom: 0; }
+        .toggle-container input[type="radio"]:checked + label { background-color: #3b82f6; color: #ffffff; font-weight: 600; }
+        .dispersion-plot-bg {
+            background-color: rgba(31, 41, 55, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>Atomic Vibrations</h1>
+            <p>An interactive visualization of lattice dynamics and phonon behavior in crystals.</p>
+            
+            <div class="control-group">
+                <h2>Simulation Parameters</h2>
+                <label for="latticeType">Lattice Type</label>
+                <div class="toggle-container">
+                    <input type="radio" id="latticeMono" name="lattice-type" value="monatomic" checked>
+                    <label for="latticeMono">Monatomic</label>
+                    <input type="radio" id="latticeDi" name="lattice-type" value="diatomic">
+                    <label for="latticeDi">Diatomic</label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="springConstant">Spring Constant (k)</label>
+                <div class="control-row">
+                    <input id="springConstant" type="range" min="0.1" max="5" value="1.5" step="0.1">
+                    <input type="number" id="springConstantValue" value="1.5">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="atomicMass1">Atomic Mass (m₁)</label>
+                <div class="control-row">
+                    <input id="atomicMass1" type="range" min="2" max="10" value="5" step="0.1">
+                    <input type="number" id="atomicMass1Value" value="5.0">
+                </div>
+            </div>
+             <div class="control-group hidden" id="atomicMass2Group">
+                <label for="atomicMass2">Atomic Mass (m₂)</label>
+                <div class="control-row">
+                    <input id="atomicMass2" type="range" min="2" max="10" value="8" step="0.1">
+                    <input type="number" id="atomicMass2Value" value="8.0">
+                </div>
+            </div>
+             <div class="control-group">
+                <label for="latticeSpacing">Lattice Spacing (a)</label>
+                <div class="control-row">
+                    <input id="latticeSpacing" type="range" min="30" max="100" value="60" step="1">
+                    <input type="number" id="latticeSpacingValue" value="60">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="temperature">Temperature (T)</label>
+                <div class="control-row">
+                    <input id="temperature" type="range" min="0" max="2" value="0.2" step="0.05">
+                    <input type="number" id="temperatureValue" value="0.2">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h2>Actions & Views</h2>
+                <div class="grid grid-cols-2 gap-2 mt-4">
+                    <button id="mode1D" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300">1D Chain</button>
+                    <button id="mode2D" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300">2D Lattice</button>
+                </div>
+                <button id="pulseButton" class="w-full mt-4 bg-teal-500 hover:bg-teal-400 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300">Create Pulse</button>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="visualization-area">
+            <canvas id="latticeCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+
+            <div class="absolute top-4 right-4 md:right-6 w-48 h-36 md:w-64 md:h-48 dispersion-plot-bg p-3 rounded-xl shadow-2xl border border-gray-700">
+                <h3 class="text-center text-sm font-semibold text-gray-200 mb-1">Dispersion Relation (ω vs k)</h3>
+                <canvas id="dispersionCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-white border-t border-gray-200 px-6 py-2 text-sm text-gray-600 flex-shrink-0 text-center">
+        <p>Phonon Simulator | NitaD, Univ Paris-Saclay, Aug 21, 2025</p>
+    </footer>
+
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- DOM Elements ---
+        const latticeCanvas = document.getElementById('latticeCanvas');
+        const dispersionCanvas = document.getElementById('dispersionCanvas');
+        const ctx = latticeCanvas.getContext('2d');
+        const dispersionCtx = dispersionCanvas.getContext('2d');
+
+        const controls = {
+            springConstant: { slider: document.getElementById('springConstant'), input: document.getElementById('springConstantValue') },
+            atomicMass1: { slider: document.getElementById('atomicMass1'), input: document.getElementById('atomicMass1Value') },
+            atomicMass2: { slider: document.getElementById('atomicMass2'), input: document.getElementById('atomicMass2Value') },
+            latticeSpacing: { slider: document.getElementById('latticeSpacing'), input: document.getElementById('latticeSpacingValue') },
+            temperature: { slider: document.getElementById('temperature'), input: document.getElementById('temperatureValue') }
+        };
+        
+        const latticeTypeRadios = document.querySelectorAll('input[name="lattice-type"]');
+        const atomicMass2Group = document.getElementById('atomicMass2Group');
+        const mode1DButton = document.getElementById('mode1D');
+        const mode2DButton = document.getElementById('mode2D');
+        const pulseButton = document.getElementById('pulseButton');
+
+        // --- Simulation State ---
+        let atoms = [];
+        let simMode = '1D'; // '1D' or '2D'
+        let latticeType = 'monatomic'; // 'monatomic' or 'diatomic'
+        let animationFrameId;
+        let cols = 0, rows = 0;
+
+        // --- Simulation Parameters ---
+        let params = {
+            k: parseFloat(controls.springConstant.slider.value),
+            m1: parseFloat(controls.atomicMass1.slider.value),
+            m2: parseFloat(controls.atomicMass2.slider.value),
+            a: parseInt(controls.latticeSpacing.slider.value),
+            T: parseFloat(controls.temperature.slider.value),
+            damping: 0.98
+        };
+
+        // --- Atom Class ---
+        class Atom {
+            constructor(x, y, mass, isFixed = false) {
+                this.x = x; this.y = y;
+                this.ox = x; this.oy = y;
+                this.mass = mass;
+                this.vx = (Math.random() - 0.5) * params.T;
+                this.vy = (Math.random() - 0.5) * params.T;
+                this.radius = 4 + this.mass * 0.5; // Heavier atoms are larger
+                this.isFixed = isFixed;
+            }
+            update() {
+                if (this.isFixed) return;
+                this.vx *= params.damping;
+                this.vy *= params.damping;
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+            applyForce(fx, fy) {
+                if (this.isFixed) return;
+                this.vx += fx / this.mass;
+                this.vy += fy / this.mass;
+            }
+            draw(context) {
+                context.beginPath();
+                context.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                const energy = this.vx**2 + this.vy**2;
+                const hotness = Math.min(1, energy * 2);
+                const r = 255;
+                const g = Math.floor(255 * (1 - hotness));
+                const b = Math.floor(255 * (1 - hotness));
+                context.fillStyle = `rgb(${r},${g},${b})`;
+                context.fill();
+            }
+        }
+
+        // --- Initialization ---
+        function setup() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            const vizArea = document.getElementById('visualization-area');
+            const rect = vizArea.getBoundingClientRect();
+            latticeCanvas.width = rect.width;
+            latticeCanvas.height = rect.height;
+            dispersionCanvas.width = dispersionCanvas.clientWidth;
+            dispersionCanvas.height = dispersionCanvas.clientHeight;
+            atoms = [];
+            const centerX = latticeCanvas.width / 2;
+            const centerY = latticeCanvas.height / 2;
+
+            if (simMode === '1D') {
+                const numAtoms = Math.max(3, Math.floor((latticeCanvas.width * 0.9) / params.a));
+                cols = numAtoms; rows = 1;
+                const startX = centerX - (numAtoms - 1) * params.a / 2;
+                for (let i = 0; i < numAtoms; i++) {
+                    const mass = (latticeType === 'diatomic' && i % 2 !== 0) ? params.m2 : params.m1;
+                    atoms.push(new Atom(startX + i * params.a, centerY, mass));
+                }
+                if (atoms.length > 1) {
+                    atoms[0].isFixed = true;
+                    atoms[atoms.length - 1].isFixed = true;
+                }
+            } else { // 2D mode
+                cols = Math.max(3, Math.floor((latticeCanvas.width * 0.9) / params.a));
+                rows = Math.max(3, Math.floor((latticeCanvas.height * 0.9) / params.a));
+                const startX = centerX - (cols - 1) * params.a / 2;
+                const startY = centerY - (rows - 1) * params.a / 2;
+                for (let i = 0; i < rows; i++) {
+                    for (let j = 0; j < cols; j++) {
+                        const isFixed = (i === 0 || i === rows - 1 || j === 0 || j === cols - 1);
+                        const mass = (latticeType === 'diatomic' && (i + j) % 2 !== 0) ? params.m2 : params.m1;
+                        atoms.push(new Atom(startX + j * params.a, startY + i * params.a, mass, isFixed));
+                    }
+                }
+            }
+            drawDispersionRelation();
+            animate();
+        }
+
+        // --- Physics & Drawing Loops ---
+        function updatePhysics() {
+            atoms.forEach(atom => {
+                const fxRestore = -(atom.x - atom.ox) * params.k * 0.1;
+                const fyRestore = -(atom.y - atom.oy) * params.k * 0.1;
+                atom.applyForce(fxRestore, fyRestore);
+            });
+            for (let i = 0; i < atoms.length; i++) {
+                const atom = atoms[i]; if (atom.isFixed) continue;
+                const currentRow = Math.floor(i / cols), currentCol = i % cols;
+                const neighbors = [];
+                if (currentCol < cols - 1) neighbors.push(atoms[i + 1]);
+                if (currentCol > 0) neighbors.push(atoms[i - 1]);
+                if (simMode === '2D') {
+                    if (currentRow < rows - 1) neighbors.push(atoms[i + cols]);
+                    if (currentRow > 0) neighbors.push(atoms[i - cols]);
+                }
+                neighbors.forEach(neighbor => {
+                    const dx = neighbor.x - atom.x, dy = neighbor.y - atom.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > 0) {
+                        const forceMag = params.k * (dist - params.a);
+                        atom.applyForce((dx / dist) * forceMag, (dy / dist) * forceMag);
+                    }
+                });
+            }
+            atoms.forEach(atom => atom.update());
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, latticeCanvas.width, latticeCanvas.height);
+            ctx.strokeStyle = 'rgba(107, 114, 128, 0.5)'; ctx.lineWidth = 1.5;
+            for (let i = 0; i < atoms.length; i++) {
+                const currentRow = Math.floor(i / cols), currentCol = i % cols;
+                if (currentCol < cols - 1) {
+                    ctx.beginPath(); ctx.moveTo(atoms[i].x, atoms[i].y);
+                    ctx.lineTo(atoms[i + 1].x, atoms[i + 1].y); ctx.stroke();
+                }
+                if (simMode === '2D' && currentRow < rows - 1) {
+                    ctx.beginPath(); ctx.moveTo(atoms[i].x, atoms[i].y);
+                    ctx.lineTo(atoms[i + cols].x, atoms[i + cols].y); ctx.stroke();
+                }
+            }
+            atoms.forEach(atom => atom.draw(ctx));
+        }
+        
+        function drawDispersionRelation() {
+            const w = dispersionCanvas.width, h = dispersionCanvas.height;
+            if (w === 0 || h === 0) return;
+            dispersionCtx.clearRect(0, 0, w, h);
+            const padding = { top: 20, bottom: 25, left: 15, right: 15 };
+            const plotWidth = w - padding.left - padding.right;
+            const plotHeight = h - padding.top - padding.bottom;
+            dispersionCtx.strokeStyle = '#6b7280'; dispersionCtx.lineWidth = 1;
+
+            // Draw Axes (Y-axis on the left)
+            dispersionCtx.beginPath();
+            dispersionCtx.moveTo(padding.left, padding.top + plotHeight);
+            dispersionCtx.lineTo(padding.left + plotWidth, padding.top + plotHeight); // X-axis
+            dispersionCtx.moveTo(padding.left, padding.top + plotHeight);
+            dispersionCtx.lineTo(padding.left, padding.top); // Y-axis
+            dispersionCtx.stroke();
+            
+            // Draw Labels
+            dispersionCtx.fillStyle = '#9ca3af'; dispersionCtx.font = '10px Inter';
+            dispersionCtx.textAlign = 'center';
+            dispersionCtx.fillText('k', padding.left + plotWidth / 2, h - 5);
+            dispersionCtx.fillText('0', padding.left, padding.top + plotHeight + 12);
+            dispersionCtx.save();
+            dispersionCtx.rotate(-Math.PI / 2); dispersionCtx.textAlign = 'center';
+            dispersionCtx.fillText('ω', -h/2, 8); dispersionCtx.restore();
+            
+            const kMax = Math.PI / params.a;
+            
+            if (latticeType === 'monatomic' || params.m1 === params.m2) {
+                const maxOmega = 2 * Math.sqrt(params.k / params.m1);
+                dispersionCtx.textAlign = 'left';
+                dispersionCtx.fillText(`ω_max ≈ ${maxOmega.toFixed(2)}`, padding.left + 5, padding.top - 5);
+                dispersionCtx.strokeStyle = '#34d399'; dispersionCtx.lineWidth = 2;
+                dispersionCtx.beginPath();
+                for (let i = 0; i <= plotWidth; i++) {
+                    const k_val = (i / plotWidth) * kMax;
+                    const omega = maxOmega * Math.abs(Math.sin(k_val * params.a / 2));
+                    const plotX = padding.left + i;
+                    const plotY = (padding.top + plotHeight) - (omega / maxOmega) * plotHeight;
+                    if (i === 0) dispersionCtx.moveTo(plotX, plotY);
+                    else dispersionCtx.lineTo(plotX, plotY);
+                }
+                dispersionCtx.stroke();
+            } else { // Diatomic case
+                const { k, m1, m2, a } = params;
+                const maxOmega = Math.sqrt(2 * k * (1/m1 + 1/m2));
+                 dispersionCtx.textAlign = 'left';
+                dispersionCtx.fillText(`ω_max ≈ ${maxOmega.toFixed(2)}`, padding.left + 5, padding.top - 5);
+                
+                const acousticPoints = [], opticalPoints = [];
+                for (let i = 0; i <= plotWidth; i++) {
+                    const k_val = (i / plotWidth) * kMax;
+                    const sin_sq = Math.sin(k_val * a / 2)**2;
+                    const term1 = k * (1/m1 + 1/m2);
+                    const radicand = (1/m1 + 1/m2)**2 - (4 * sin_sq) / (m1 * m2);
+                    const term2 = k * Math.sqrt(Math.max(0, radicand)); // Ensure non-negative
+                    
+                    const omega_acoustic = Math.sqrt(term1 - term2);
+                    const omega_optical = Math.sqrt(term1 + term2);
+
+                    const plotX = padding.left + i;
+                    acousticPoints.push({ x: plotX, y: (padding.top + plotHeight) - (omega_acoustic / maxOmega) * plotHeight });
+                    opticalPoints.push({ x: plotX, y: (padding.top + plotHeight) - (omega_optical / maxOmega) * plotHeight });
+                }
+
+                // Draw Optical Branch (top)
+                dispersionCtx.strokeStyle = '#f43f5e'; // Red
+                dispersionCtx.lineWidth = 2;
+                dispersionCtx.beginPath();
+                opticalPoints.forEach((p, i) => i === 0 ? dispersionCtx.moveTo(p.x, p.y) : dispersionCtx.lineTo(p.x, p.y));
+                dispersionCtx.stroke();
+
+                // Draw Acoustic Branch (bottom)
+                dispersionCtx.strokeStyle = '#34d399'; // Green
+                dispersionCtx.beginPath();
+                acousticPoints.forEach((p, i) => i === 0 ? dispersionCtx.moveTo(p.x, p.y) : dispersionCtx.lineTo(p.x, p.y));
+                dispersionCtx.stroke();
+            }
+            dispersionCtx.textAlign = 'right';
+            dispersionCtx.fillText('+π/a', w - padding.right, padding.top + plotHeight + 12);
+        }
+
+        function animate() {
+            updatePhysics();
+            draw();
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // --- Event Listeners ---
+        function updateParam(key, value) {
+            const paramMap = {
+                springConstant: 'k', atomicMass1: 'm1', atomicMass2: 'm2',
+                latticeSpacing: 'a', temperature: 'T'
+            };
+            const paramKey = paramMap[key];
+            const isInt = paramKey === 'a';
+            params[paramKey] = isInt ? parseInt(value) : parseFloat(value);
+
+            if (paramKey === 'k' || paramKey === 'm1' || paramKey === 'm2' || paramKey === 'a') {
+                drawDispersionRelation();
+                if (paramKey.includes('Mass')) setup();
+            }
+            if (paramKey === 'a') setup();
+            if (paramKey === 'T') {
+                atoms.forEach(atom => {
+                    atom.vx += (Math.random() - 0.5) * params.T;
+                    atom.vy += (Math.random() - 0.5) * params.T;
+                });
+            }
+        }
+
+        Object.entries(controls).forEach(([key, { slider, input }]) => {
+            const min = parseFloat(slider.min), max = parseFloat(slider.max);
+            const step = parseFloat(slider.step);
+            const precision = (step.toString().split('.')[1] || '').length;
+            slider.addEventListener('input', () => {
+                input.value = parseFloat(slider.value).toFixed(precision);
+                updateParam(key, slider.value);
+            });
+            input.addEventListener('change', () => {
+                let value = Math.max(min, Math.min(max, parseFloat(input.value) || min));
+                input.value = value.toFixed(precision); slider.value = value;
+                updateParam(key, value);
+            });
+        });
+        
+        latticeTypeRadios.forEach(radio => radio.addEventListener('change', (e) => {
+            latticeType = e.target.value;
+            atomicMass2Group.classList.toggle('hidden', latticeType === 'monatomic');
+            setup();
+        }));
+
+        mode1DButton.addEventListener('click', () => {
+            simMode = '1D';
+            mode1DButton.classList.replace('bg-gray-700', 'bg-indigo-600');
+            mode1DButton.classList.replace('hover:bg-gray-600', 'hover:bg-indigo-500');
+            mode2DButton.classList.replace('bg-indigo-600', 'bg-gray-700');
+            mode2DButton.classList.replace('hover:bg-indigo-500', 'hover:bg-gray-600');
+            setup();
+        });
+        mode2DButton.addEventListener('click', () => {
+            simMode = '2D';
+            mode2DButton.classList.replace('bg-gray-700', 'bg-indigo-600');
+            mode2DButton.classList.replace('hover:bg-gray-600', 'hover:bg-indigo-500');
+            mode1DButton.classList.replace('bg-indigo-600', 'bg-gray-700');
+            mode1DButton.classList.replace('hover:bg-indigo-500', 'hover:bg-gray-600');
+            setup();
+        });
+        pulseButton.addEventListener('click', () => {
+            if (simMode === '1D' && atoms.length > 2) {
+                const pulseIndex = Math.floor(atoms.length / 4);
+                if (atoms[pulseIndex]) atoms[pulseIndex].vy -= 10;
+            } else if (simMode === '2D' && cols > 0 && rows > 0) {
+                const centerIndex = Math.floor(rows / 2) * cols + Math.floor(cols / 2);
+                if (atoms[centerIndex]) atoms[centerIndex].vy -= 15;
+            }
+        });
+        
+        // --- Resizer Logic ---
+        const resizer = document.getElementById('drag-handle');
+        const leftPanel = document.getElementById('controls-panel');
+        let isResizing = false;
+        resizer.addEventListener('mousedown', e => {
+            e.preventDefault(); isResizing = true;
+            document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', stopResize);
+        });
+        function handleMouseMove(e) {
+            if (!isResizing) return;
+            const newLeftWidth = e.clientX - resizer.parentElement.getBoundingClientRect().left;
+            if (newLeftWidth > 300 && newLeftWidth < window.innerWidth - 400) {
+                leftPanel.style.width = `${newLeftWidth}px`;
+                requestAnimationFrame(setup);
+            }
+        }
+        function stopResize() {
+            isResizing = false;
+            document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', stopResize);
+        }
+
+        window.addEventListener('resize', setup);
+        setup();
+    });
+    </script>
+</body>
+</html>
