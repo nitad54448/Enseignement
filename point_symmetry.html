@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Point Group Symmetry Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            background-color: #1f2937;
+            color: #e5e7eb;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: calc(100vh - 32px);
+        }
+        #controls-panel {
+            width: 380px;
+            min-width: 320px;
+            max-width: 700px;
+            flex-shrink: 0;
+            padding: 24px;
+            background-color: #111827;
+            border-right: 1px solid #374151;
+            overflow-y: auto;
+            color: #d1d5db;
+        }
+        #drag-handle {
+            width: 6px;
+            cursor: col-resize;
+            background-color: #374151;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+        #drag-handle:hover {
+            background-color: #3b82f6;
+        }
+        #visualization-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #1a1a1a;
+            min-width: 0;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; }
+        #controls-panel h2 { font-size: 1.25em; font-weight: 600; margin-bottom: 16px; border-bottom: 1px solid #374151; padding-bottom: 8px; color: #ffffff;}
+        .control-group {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        .control-group label {
+            display: inline-block;
+            font-weight: 500;
+            color: #9ca3af;
+            width: auto;
+        }
+        .input-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .input-row label { width: 20px; }
+        input[type="range"] { -webkit-appearance: none; appearance: none; flex-grow: 1; margin: 0 1rem; background: transparent; cursor: pointer; accent-color: #4b5563; }
+        input[type="range"]::-webkit-slider-runnable-track { height: 6px; background: #4b5563; border-radius: 3px; }
+        input[type="range"]::-moz-range-track { height: 6px; background: #4b5563; border-radius: 3px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; margin-top: -6px; width: 18px; height: 18px; background: #3b82f6; border-radius: 50%; }
+        input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: #3b82f6; border-radius: 50%; border: none; }
+        input[type="number"], select { background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 0.5rem; }
+        input[type="number"] { width: 70px; }
+        select { width: 100%; }
+        #generated-coordinates-list { font-family: monospace; font-size: 0.9em; background-color: #1f2937; border: 1px solid #4b5563; border-radius: 0.5rem; padding: 0.75rem; max-height: 300px; overflow-y: auto; }
+        #info-box { font-size: 0.9em; color: #9ca3af; margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1>3D Point Group Tool</h1>
+            <p>Select a point group to visualize its symmetry elements and generated atomic positions.</p>
+            <div class="control-group">
+                <h2>Point Group Selection</h2>
+                <select id="point-group-select">
+                    <optgroup label="Triclinic">
+                        <option value="1">1 (C₁) </option>
+                        <option value="-1">-1 (Cᵢ)</option>
+                    </optgroup>
+                    <optgroup label="Monoclinic">
+                        <option value="2">2 (C₂)</option>
+                        <option value="m">m (Cₛ)</option>
+                        <option value="2/m">2/m (C₂ₕ)</option>
+                    </optgroup>
+                    <optgroup label="Orthorhombic">
+                        <option value="222">222 (D₂)</option>
+                        <option value="mm2">mm2 (C₂ᵥ)</option>
+                        <option value="mmm">mmm (D₂ₕ)</option>
+                    </optgroup>
+                    <optgroup label="Tetragonal">
+                        <option value="4">4 (C₄)</option>
+                        <option value="-4">-4 (S₄)</option>
+                        <option value="4/m">4/m (C₄ₕ)</option>
+                        <option value="422">422 (D₄)</option>
+                        <option value="4mm">4mm (C₄ᵥ)</option>
+                        <option value="-42m">-42m (D₂ₔ)</option>
+                        <option value="4/mmm">4/mmm (D₄ₕ)</option>
+                    </optgroup>
+                     <optgroup label="Trigonal">
+                        <option value="3">3 (C₃)</option>
+                        <option value="-3">-3 (S₆ or C₃ᵢ)</option>
+                        <option value="32">32 (D₃)</option>
+                        <option value="3m">3m (C₃ᵥ)</option>
+                        <option value="-3m">-3m (D₃ₔ)</option>
+                    </optgroup>
+                    <optgroup label="Hexagonal">
+                        <option value="6">6 (C₆)</option>
+                        <option value="-6">-6 (C₃ₕ)</option>
+                        <option value="6/m">6/m (C₆ₕ)</option>
+                        <option value="622">622 (D₆)</option>
+                        <option value="6mm">6mm (C₆ᵥ)</option>
+                        <option value="-6m2">-6m2 (D₃ₕ)</option>
+                        <option value="6/mmm">6/mmm (D₆ₕ)</option>
+                    </optgroup>
+                    <optgroup label="Cubic">
+                        <option value="23">23 (T)</option>
+                        <option value="m-3">m-3 (Tₕ)</option>
+                        <option value="432">432 (O)</option>
+                        <option value="-43m">-43m (Tₔ)</option>
+                        <option value="m-3m">m-3m (Oₕ)</option>
+                    </optgroup>
+                </select>
+                <div class="input-row" style="margin-top: 1rem; justify-content: start; margin-bottom: 0;">
+                    <input type="checkbox" id="show-elements-checkbox" checked>
+                    <label for="show-elements-checkbox" style="width: auto; margin-left: 0.5rem; color: #d1d5db; cursor: pointer;">Show Symmetry Elements</label>
+                </div>
+                <div id="info-box">
+                    <div>Order: <span id="group-order"></span></div>
+                    <div>Chiral: <span id="group-chiral"></span></div>
+                </div>
+            </div>
+            <div id="parent-motif-controls" class="control-group">
+                <h2>Parent Motif Position</h2>
+                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="-1" max="1" value="0.25" step="0.01"><input type="number" id="parent-x-num" min="-1" max="1" value="0.25" step="0.01"></div>
+                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="-1" max="1" value="0.15" step="0.01"><input type="number" id="parent-y-num" min="-1" max="1" value="0.15" step="0.01"></div>
+                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="-1" max="1" value="0.40" step="0.01"><input type="number" id="parent-z-num" min="-1" max="1" value="0.40" step="0.01"></div>
+            </div>
+            <div id="generated-coords-container"><h2>Generated Coordinates</h2><div id="generated-coordinates-list"></div></div>
+        </div>
+        <div id="drag-handle"></div>
+        <div id="visualization-area"></div>
+    </div>
+    <footer style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #111827; padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #9ca3af; border-top: 1px solid #374151; z-index: 10;">
+        <div style="padding: 0 1rem;">Interactive Point Group Visualizer v2.3</div>
+        <div style="padding: 0 1rem;">NitaD, Univ Paris-Saclay, 18 August 2025</div>
+    </footer>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // --- DATA: Point Group Definitions ---
+        const pointGroups = {
+            // Triclinic
+            '1':    { order: 1,  chiral: true,  generators: ['1'],       elements: [] },
+            '-1':   { order: 2,  chiral: false, generators: ['i'],       elements: ['i'] },
+            // Monoclinic
+            '2':    { order: 2,  chiral: true,  generators: ['2z'],      elements: ['2z'] },
+            'm':    { order: 2,  chiral: false, generators: ['mz'],      elements: ['mz'] },
+            '2/m':  { order: 4,  chiral: false, generators: ['2z', 'mz'], elements: ['2z', 'mz', 'i'] },
+            // Orthorhombic
+            '222':  { order: 4,  chiral: true,  generators: ['2x', '2y'], elements: ['2x', '2y', '2z'] },
+            'mm2':  { order: 4,  chiral: false, generators: ['2z', 'mx'], elements: ['2z', 'mx', 'my'] },
+            'mmm':  { order: 8,  chiral: false, generators: ['2x', '2y', 'mz'], elements: ['2x', '2y', '2z', 'mx', 'my', 'mz', 'i'] },
+            // Tetragonal
+            '4':    { order: 4,  chiral: true,  generators: ['4z'],      elements: ['4z', '2z'] },
+            '-4':   { order: 4,  chiral: false, generators: ['-4z'],     elements: ['-4z', '2z'] },
+            '4/m':  { order: 8,  chiral: false, generators: ['4z', 'mz'], elements: ['4z', '2z', 'mz', 'i', '-4z'] },
+            '422':  { order: 8,  chiral: true,  generators: ['4z', '2x'], elements: ['4z', '2z', '2x', '2y', '2xy', '2-xy'] },
+            '4mm':  { order: 8,  chiral: false, generators: ['4z', 'mx'], elements: ['4z', '2z', 'mx', 'my', 'mxy', 'm-xy'] },
+            '-42m': { order: 8,  chiral: false, generators: ['-4z', '2x'], elements: ['-4z', '2z', '2x', '2y', 'mx', 'my'] },
+            '4/mmm':{ order: 16, chiral: false, generators: ['4z', '2x', 'mz'], elements: ['4z', '-4z', '2z', '2x', '2y', '2xy', '2-xy', 'mx', 'my', 'mxy', 'm-xy', 'mz', 'i'] },
+            // Trigonal
+            '3':    { order: 3,  chiral: true,  generators: ['3z'],      elements: ['3z'] },
+            '-3':   { order: 6,  chiral: false, generators: ['-3z'],     elements: ['3z', 'i'] },
+            '32':   { order: 6,  chiral: true,  generators: ['3z', '2_100'], elements: ['3z', '2_100', '2_010', '2_1-10'] },
+            '3m':   { order: 6,  chiral: false, generators: ['3z', 'm_100'], elements: ['3z', 'm_100', 'm_010', 'm_1-10'] },
+            '-3m':  { order: 12, chiral: false, generators: ['-3z', '2_100'], elements: ['3z', 'i', '2_100', '2_010', '2_1-10', 'm_100', 'm_010', 'm-110'] },
+            // Hexagonal
+            '6':    { order: 6,  chiral: true,  generators: ['6z'],      elements: ['6z', '3z', '2z'] },
+            '-6':   { order: 6,  chiral: false, generators: ['-6z'],     elements: ['3z', 'mz'] },
+            '6/m':  { order: 12, chiral: false, generators: ['6z', 'mz'], elements: ['6z', '3z', '2z', 'mz', 'i'] },
+            '622':  { order: 12, chiral: true,  generators: ['6z', '2_100'], elements: ['6z', '3z', '2z', '2_100', '2_010', '2_1-10', '2_110', '2_120', '2_210'] },
+            '6mm':  { order: 12, chiral: false, generators: ['6z', 'm_100'], elements: ['6z', '3z', '2z', 'm_100', 'm_010', 'm_1-10', 'm_110', 'm_120', 'm_210'] },
+            '-6m2': { order: 12, chiral: false, generators: ['-6z', 'm_100'], elements: ['-6z', '3z', '2_110', '2_120', '2_210', 'mz', 'm_100', 'm_010', 'm_1-10'] },
+            '6/mmm':{ order: 24, chiral: false, generators: ['6z', '2_100', 'mz'], elements: ['6z', '3z', '2z', 'mz', 'i', '2_100', '2_010', '2_1-10', '2_110', '2_120', '2_210', 'm_100', 'm_010', 'm_1-10', 'm_110', 'm_120', 'm_210'] },
+            // Cubic
+            '23':   { order: 12, chiral: true,  generators: ['2z', '3_111'], elements: ['2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11'] },
+            'm-3':  { order: 24, chiral: false, generators: ['2z', '3_111', 'i'], elements: ['2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', 'i', 'mx', 'my', 'mz', '-3_111'] },
+            '432':  { order: 24, chiral: true,  generators: ['4z', '3_111'], elements: ['4x', '-4x', '4y', '-4y', '4z', '-4z', '2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', '2xy', '2-xy', '2xz', '2-xz', '2yz', '2-yz'] },
+            '-43m': { order: 24, chiral: false, generators: ['-4z', '3_111'], elements: ['-4x', '-4y', '-4z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', '2x', '2y', '2z', 'mxy', 'm-xy', 'mxz', 'm-xz', 'myz', 'm-yz'] },
+            'm-3m': { order: 48, chiral: false, generators: ['4z', '3_111', 'i'], elements: ['4x', '-4x', '4y', '-4y', '4z', '-4z', '2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', '2xy', '2-xy', '2xz', '2-xz', '2yz', '2-yz', 'i', 'mx', 'my', 'mz', 'mxy', 'm-xy', 'mxz', 'm-xz', 'myz', 'm-yz', '-3_111'] }
+        };
+
+        // --- DATA: Symmetry Operator Definitions (as THREE.Matrix4) ---
+        function getSymmetryOperators() {
+            const ops = { '1': new THREE.Matrix4().identity() };
+            const R = (axis, angle) => new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...axis).normalize(), angle);
+            const M = (normal) => {
+                const n = new THREE.Vector3(...normal).normalize();
+                return new THREE.Matrix4().set(
+                    1 - 2 * n.x * n.x, -2 * n.x * n.y, -2 * n.x * n.z, 0,
+                    -2 * n.y * n.x, 1 - 2 * n.y * n.y, -2 * n.y * n.z, 0,
+                    -2 * n.z * n.x, -2 * n.z * n.y, 1 - 2 * n.z * n.z, 0,
+                    0, 0, 0, 1
+                );
+            };
+            const I = new THREE.Matrix4().makeScale(-1, -1, -1);
+            const RI = (axis, angle) => new THREE.Matrix4().multiplyMatrices(I, R(axis, angle));
+
+            ops['i'] = I;
+            ['x', 'y', 'z'].forEach((ax, i) => {
+                let axis = [0, 0, 0]; axis[i] = 1;
+                ops[`m${ax}`] = M(axis);
+                ops[`2${ax}`] = R(axis, Math.PI);
+                ops[`4${ax}`] = R(axis, Math.PI / 2);
+                ops[`-4${ax}`] = RI(axis, Math.PI / 2);
+            });
+            ops['3z'] = R([0, 0, 1], 2 * Math.PI / 3);
+            ops['-3z'] = RI([0, 0, 1], 2 * Math.PI / 3);
+            ops['6z'] = R([0, 0, 1], Math.PI / 3);
+            ops['-6z'] = RI([0, 0, 1], Math.PI / 3);
+
+            ops['2xy'] = R([1, 1, 0], Math.PI); ops['2-xy'] = R([1, -1, 0], Math.PI);
+            ops['mxy'] = M([1, 1, 0]); ops['m-xy'] = M([1, -1, 0]);
+            ops['2xz'] = R([1, 0, 1], Math.PI); ops['2-xz'] = R([1, 0, -1], Math.PI);
+            ops['mxz'] = M([1, 0, 1]); ops['m-xz'] = M([1, 0, -1]);
+            ops['2yz'] = R([0, 1, 1], Math.PI); ops['2-yz'] = R([0, 1, -1], Math.PI);
+            ops['myz'] = M([0, 1, 1]); ops['m-yz'] = M([0, 1, -1]);
+
+            ops['2_100'] = R([1, 0, 0], Math.PI);
+            ops['2_010'] = R([-0.5, Math.sqrt(3)/2, 0], Math.PI);
+            ops['2_1-10'] = R([0.5, Math.sqrt(3)/2, 0], Math.PI);
+            ops['m_100'] = M([1, 0, 0]);
+            ops['m_010'] = M([-0.5, Math.sqrt(3)/2, 0]);
+            ops['m_1-10'] = M([0.5, Math.sqrt(3)/2, 0]);
+            ops['m-110'] = M([-0.5, -Math.sqrt(3)/2, 0]); 
+
+            ops['2_110'] = R([Math.sqrt(3)/2, 0.5, 0], Math.PI);
+            ops['2_120'] = R([0, 1, 0], Math.PI);
+            ops['2_210'] = R([Math.sqrt(3)/2, -0.5, 0], Math.PI);
+            ops['m_110'] = M([Math.sqrt(3)/2, 0.5, 0]);
+            ops['m_120'] = M([0, 1, 0]);
+            ops['m_210'] = M([Math.sqrt(3)/2, -0.5, 0]);
+            
+            [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]].forEach(axis => {
+                const name = `3_${axis[0]}${axis[1]}${axis[2]}`.replace(/-1/g, '-1').replace(/1/g, '1');
+                ops[name] = R(axis, 2 * Math.PI / 3);
+                ops[`-${name}`] = RI(axis, 2 * Math.PI / 3);
+            });
+            return ops;
+        }
+        
+        const elementDefinitions = {
+            'i': { type: 'inversion', color: 0x00ff00 },
+            '2x': { type: 'axis', vector: [1, 0, 0], color: 0xffaa00 },
+            '2y': { type: 'axis', vector: [0, 1, 0], color: 0xffaa00 },
+            '2z': { type: 'axis', vector: [0, 0, 1], color: 0xffaa00 },
+            '2xy': { type: 'axis', vector: [1, 1, 0], color: 0xffaa00 },
+            '2-xy': { type: 'axis', vector: [1, -1, 0], color: 0xffaa00 },
+            '2xz': { type: 'axis', vector: [1, 0, 1], color: 0xffaa00 },
+            '2-xz': { type: 'axis', vector: [1, 0, -1], color: 0xffaa00 },
+            '2yz': { type: 'axis', vector: [0, 1, 1], color: 0xffaa00 },
+            '2-yz': { type: 'axis', vector: [0, 1, -1], color: 0xffaa00 },
+            '2_100': { type: 'axis', vector: [1, 0, 0], color: 0xffaa00 },
+            '2_010': { type: 'axis', vector: [-0.5, Math.sqrt(3)/2, 0], color: 0xffaa00 },
+            '2_1-10': { type: 'axis', vector: [0.5, Math.sqrt(3)/2, 0], color: 0xffaa00 },
+            '2_110': { type: 'axis', vector: [Math.sqrt(3)/2, 0.5, 0], color: 0xffaa00 },
+            '2_120': { type: 'axis', vector: [0, 1, 0], color: 0xffaa00 },
+            '2_210': { type: 'axis', vector: [Math.sqrt(3)/2, -0.5, 0], color: 0xffaa00 },
+            '3z': { type: 'axis', vector: [0, 0, 1], color: 0xcc0000 },
+            '3_111': { type: 'axis', vector: [1, 1, 1], color: 0xcc0000 },
+            '3_1-1-1': { type: 'axis', vector: [1, -1, -1], color: 0xcc0000 },
+            '3_-11-1': { type: 'axis', vector: [-1, 1, -1], color: 0xcc0000 },
+            '3_-1-11': { type: 'axis', vector: [-1, -1, 1], color: 0xcc0000 },
+            '4x': { type: 'axis', vector: [1, 0, 0], color: 0x00cc00 },
+            '4y': { type: 'axis', vector: [0, 1, 0], color: 0x00cc00 },
+            '4z': { type: 'axis', vector: [0, 0, 1], color: 0x00cc00 },
+            '6z': { type: 'axis', vector: [0, 0, 1], color: 0x0000cc },
+            'mx': { type: 'plane', vector: [1, 0, 0], color: 0x00aaff },
+            'my': { type: 'plane', vector: [0, 1, 0], color: 0x00aaff },
+            'mz': { type: 'plane', vector: [0, 0, 1], color: 0x00aaff },
+            'mxy': { type: 'plane', vector: [1, 1, 0], color: 0x00aaff },
+            'm-xy': { type: 'plane', vector: [1, -1, 0], color: 0x00aaff },
+            'mxz': { type: 'plane', vector: [1, 0, 1], color: 0x00aaff },
+            'm-xz': { type: 'plane', vector: [1, 0, -1], color: 0x00aaff },
+            'myz': { type: 'plane', vector: [0, 1, 1], color: 0x00aaff },
+            'm-yz': { type: 'plane', vector: [0, 1, -1], color: 0x00aaff },
+            'm_100': { type: 'plane', vector: [1, 0, 0], color: 0x00aaff },
+            'm_010': { type: 'plane', vector: [-0.5, Math.sqrt(3)/2, 0], color: 0x00aaff },
+            'm_1-10': { type: 'plane', vector: [0.5, Math.sqrt(3)/2, 0], color: 0x00aaff },
+            'm-110': { type: 'plane', vector: [-0.5, -Math.sqrt(3)/2, 0], color: 0x00aaff },
+            'm_110': { type: 'plane', vector: [Math.sqrt(3)/2, 0.5, 0], color: 0x00aaff },
+            'm_120': { type: 'plane', vector: [0, 1, 0], color: 0x00aaff },
+            'm_210': { type: 'plane', vector: [Math.sqrt(3)/2, -0.5, 0], color: 0x00aaff },
+        };
+        ['i','2x','2y','2z','3z','4z','6z', '3_111'].forEach(el => elementDefinitions[`-${el}`] = elementDefinitions[el]);
+
+        const operators = getSymmetryOperators();
+        let scene, camera, renderer, controls, parentMotif;
+        const generatedMotifs = new THREE.Group();
+        const symmetryVisuals = new THREE.Group();
+        const EPSILON = 1e-4;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+            scene.add(generatedMotifs);
+            scene.add(symmetryVisuals);
+            const viewport = document.getElementById('visualization-area');
+            const aspect = viewport.clientWidth / viewport.clientHeight;
+            camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 100);
+            camera.position.set(2.5, -3.5, 2.5);
+            camera.up.set(0, 0, 1);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+            viewport.appendChild(renderer.domElement);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            dirLight.position.set(5, -7, 10);
+            scene.add(dirLight);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 0, 0);
+            parentMotif = createAsymmetricObject();
+            setupEventListeners();
+            updatePointGroup();
+            animate();
+        }
+
+        function createAsymmetricObject() {
+			const group = new THREE.Group();
+			const material = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+            const radius = 0.03, height = 0.12;
+			const cylinder1 = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 16), material);
+            cylinder1.rotation.x = Math.PI / 2;
+			cylinder1.position.z = height / 2;
+			const cylinder2 = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height * 0.75, 16), material);
+			cylinder2.rotation.z = Math.PI / 2;
+			cylinder2.position.x = height / 2;
+			cylinder2.position.z = radius;
+            const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.2, 16, 16), material);
+            sphere.position.set(height * 0.1, height * 0.3, height * 0.8);
+			group.add(cylinder1, cylinder2, sphere);
+			return group;
+		}
+
+        const getMatrixKey = (matrix) => Array.from(matrix.elements).map(n => n.toFixed(4)).join(',');
+
+        function getFullOperatorSet(generators) {
+            const identity = new THREE.Matrix4().identity();
+            const opMatrices = [identity];
+            const genMatrices = generators.map(g => operators[g]);
+            const queue = [identity];
+            const matrixKeysInSet = new Set();
+            matrixKeysInSet.add(getMatrixKey(identity));
+
+            while (queue.length > 0) {
+                const currentOp = queue.shift();
+                for (const gen of genMatrices) {
+                    const newOp = new THREE.Matrix4().multiplyMatrices(gen, currentOp);
+                    const newOpKey = getMatrixKey(newOp);
+                    if (!matrixKeysInSet.has(newOpKey)) {
+                        matrixKeysInSet.add(newOpKey);
+                        opMatrices.push(newOp);
+                        queue.push(newOp);
+                    }
+                }
+            }
+            return opMatrices;
+        }
+
+		function updateScene() {
+            if (!parentMotif) return;
+            const groupKey = document.getElementById('point-group-select').value;
+            const operatorSet = getFullOperatorSet(pointGroups[groupKey].generators);
+            generatedMotifs.clear();
+            const parentPos = new THREE.Vector3(
+                parseFloat(document.getElementById('parent-x-num').value),
+                parseFloat(document.getElementById('parent-y-num').value),
+                parseFloat(document.getElementById('parent-z-num').value)
+            );
+            const uniquePositionsData = [];
+            operatorSet.forEach(opMatrix => {
+                const newPos = parentPos.clone().applyMatrix4(opMatrix);
+                if (!uniquePositionsData.some(p => p.pos.distanceTo(newPos) < EPSILON)) {
+                    uniquePositionsData.push({pos: newPos, chiralFlip: opMatrix.determinant() < 0, matrix: opMatrix});
+                }
+            });
+
+            uniquePositionsData.forEach(({ chiralFlip, matrix }) => {
+                const motif = parentMotif.clone();
+                motif.position.copy(parentPos);
+                motif.applyMatrix4(matrix);
+                const color = chiralFlip ? 0xef4444 : 0x3b82f6;
+                motif.traverse(child => {
+                    if (child.isMesh) {
+                        child.material = child.material.clone();
+                        child.material.color.set(color);
+                    }
+                });
+                generatedMotifs.add(motif);
+            });
+            updateCoordinateList(uniquePositionsData);
+        }
+
+        function updateCoordinateList(positionsData) {
+            const coordsList = document.getElementById('generated-coordinates-list');
+            let html = '';
+            positionsData.forEach(({pos, chiralFlip}) => {
+                const color = chiralFlip ? '#ef4444' : '#3b82f6';
+                html += `<div style="color:${color};">(${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)})</div>`;
+            });
+            coordsList.innerHTML = html;
+        }
+
+        function updatePointGroup() {
+            try {
+                const groupKey = document.getElementById('point-group-select').value;
+                const groupInfo = pointGroups[groupKey];
+
+                document.getElementById('group-order').textContent = groupInfo.order;
+                document.getElementById('group-chiral').textContent = groupInfo.chiral ? "Yes" : "No";
+                
+                drawSymmetryElements(groupInfo.elements);
+                updateSymmetryElementsVisibility();
+                updateScene();
+            } catch (error) {
+                console.error("A critical error occurred:", error);
+            }
+        }
+
+        function updateSymmetryElementsVisibility() {
+            const isVisible = document.getElementById('show-elements-checkbox').checked;
+            symmetryVisuals.visible = isVisible;
+        }
+        
+        function drawSymmetryElements(elements) {
+            symmetryVisuals.clear();
+            symmetryVisuals.add(new THREE.AxesHelper(1.5));
+            const createAxis = (axisArray, color) => {
+                const length = 2.8;
+                const geom = new THREE.CylinderGeometry(0.015, 0.015, length, 8);
+                const mat = new THREE.MeshBasicMaterial({color});
+                const cyl = new THREE.Mesh(geom, mat);
+                
+                const vFrom = new THREE.Vector3(0, 1, 0); 
+                const vTo = new THREE.Vector3(...axisArray).normalize();
+
+                if (vFrom.dot(vTo) > 0.99999) { // Aligned with Y
+                    // No rotation needed as cylinder is along Y
+                } else if (vFrom.dot(vTo) < -0.99999) { // Anti-aligned with Y
+                    cyl.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+                } else {
+                    const rotationAxis = new THREE.Vector3().crossVectors(vFrom, vTo).normalize();
+                    const angle = vFrom.angleTo(vTo);
+                    cyl.quaternion.setFromAxisAngle(rotationAxis, angle);
+                }
+                // Correction because CylinderGeometry is along Y-axis by default
+                cyl.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+                return cyl;
+            };
+
+            const createPlane = (normalArray, color) => {
+                const plane = new THREE.Mesh(
+                    new THREE.PlaneGeometry(2.5, 2.5),
+                    new THREE.MeshBasicMaterial({color, transparent: true, opacity: 0.3, side: THREE.DoubleSide})
+                );
+                const normal = new THREE.Vector3(...normalArray).normalize();
+                plane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+                return plane;
+            };
+
+            const drawnKeys = new Set();
+            (elements || []).forEach(el => {
+                const def = elementDefinitions[el];
+                if (!def) return;
+                let key;
+                if (def.type === 'inversion') {
+                    key = 'inversion';
+                } else if (def.vector) {
+                    key = `${def.type}_${def.vector.map(c => c.toFixed(2)).join('_')}`;
+                } else { return; }
+                if (drawnKeys.has(key)) return;
+                drawnKeys.add(key);
+                if (def.type === 'axis') {
+                    symmetryVisuals.add(createAxis(def.vector, def.color));
+                } else if (def.type === 'plane') {
+                    symmetryVisuals.add(createPlane(def.vector, def.color));
+                } else if (def.type === 'inversion') {
+                    symmetryVisuals.add(new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color: def.color})));
+                }
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('point-group-select').addEventListener('change', updatePointGroup);
+            document.getElementById('show-elements-checkbox').addEventListener('change', updateSymmetryElementsVisibility);
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('parent-motif-controls').addEventListener('input', e => {
+                const baseId = e.target.id.replace('-range', '').replace('-num', '');
+                document.getElementById(`${baseId}-range`).value = e.target.value;
+                document.getElementById(`${baseId}-num`).value = e.target.value;
+                updateScene();
+            });
+        }
+        function onWindowResize() {
+            const viewport = document.getElementById('visualization-area');
+            camera.aspect = viewport.clientWidth / viewport.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+        }
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        const resizer = document.getElementById('drag-handle');
+        const leftPanel = document.getElementById('controls-panel');
+        let isResizing = false;
+        resizer.addEventListener('mousedown', e => { e.preventDefault(); isResizing = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', stopResize); });
+        function handleMouseMove(e) { if (!isResizing) return; const newLeftWidth = e.clientX - leftPanel.parentElement.getBoundingClientRect().left; if (newLeftWidth > 320 && newLeftWidth < document.body.clientWidth - 300) { leftPanel.style.width = `${newLeftWidth}px`; onWindowResize(); } }
+        function stopResize() { isResizing = false; document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', stopResize); }
+        init();
+    </script>
+</body>
+</html>
