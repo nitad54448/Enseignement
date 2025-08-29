@@ -334,7 +334,7 @@
             function setCellTransform(ctx, params) {
                 const { a, b, gamma } = params;
                 const size = ctx.canvas.width;
-                const margin = 0.1 * size;
+                const margin = 0.15 * size; // Increased margin for labels
                 const availableSize = size - 2 * margin;
 
                 const p0 = { x: 0, y: 0 };
@@ -354,15 +354,73 @@
 
                 const translateX = margin - minX * scale + (availableSize - bboxWidth * scale) / 2;
                 const translateY = margin - minY * scale + (availableSize - bboxHeight * scale) / 2;
+                
+                const translation = { x: translateX, y: translateY + bboxHeight * scale };
 
                 ctx.resetTransform();
-                ctx.translate(translateX, translateY + bboxHeight * scale);
+                ctx.translate(translation.x, translation.y);
                 ctx.scale(1, -1);
 
                 return {
                     transform: [scale * a, 0, scale * b * Math.cos(gamma), scale * b * Math.sin(gamma), 0, 0],
-                    scale: scale
+                    scale: scale,
+                    translation: translation
                 };
+            }
+            
+            function fractionalToCanvas(fx, fy, transformInfo) {
+                const cell_m = transformInfo.transform;
+                const T = transformInfo.translation;
+
+                // Apply cell transform (vectors)
+                let cx = cell_m[0] * fx + cell_m[2] * fy;
+                let cy = cell_m[1] * fx + cell_m[3] * fy;
+
+                // Apply y-flip
+                cy = -cy;
+
+                // Apply translation
+                cx += T.x;
+                cy += T.y;
+
+                return { x: cx, y: cy };
+            }
+
+            function drawAxes(ctx, transformInfo) {
+                const origin = fractionalToCanvas(0, 0, transformInfo);
+                const x_end = fractionalToCanvas(1, 0, transformInfo);
+                const y_end = fractionalToCanvas(0, 1, transformInfo);
+
+                ctx.save();
+                ctx.resetTransform(); // Work in raw canvas coordinates
+                const fontSize = 14;
+                ctx.font = `italic ${fontSize}px sans-serif`;
+                ctx.fillStyle = '#1e293b'; // A dark slate color
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Direction vectors for offsetting labels
+                const x_vec = { x: x_end.x - origin.x, y: x_end.y - origin.y };
+                const y_vec = { x: y_end.x - origin.x, y: y_end.y - origin.y };
+                const x_mag = Math.sqrt(x_vec.x**2 + x_vec.y**2);
+                const y_mag = Math.sqrt(y_vec.x**2 + y_vec.y**2);
+                const x_unit = x_mag > 0 ? { x: x_vec.x / x_mag, y: x_vec.y / x_mag } : {x:0, y:0};
+                const y_unit = y_mag > 0 ? { x: y_vec.x / y_mag, y: y_vec.y / y_mag } : {x:0, y:0};
+
+                const offset = fontSize;
+
+                // Offset for '0' is away from the corner interior
+                const o_offset_x = (-x_unit.x - y_unit.x) * offset * 0.6;
+                const o_offset_y = (-x_unit.y - y_unit.y) * offset * 0.6;
+                ctx.fillText('0', origin.x + o_offset_x, origin.y + o_offset_y);
+
+                // Offset for 'x' is along the x-axis direction
+                ctx.fillText('x', x_end.x + x_unit.x * offset, x_end.y + x_unit.y * offset);
+
+                // Offset for 'y' is along the y-axis direction
+                ctx.fillText('y', y_end.x + y_unit.x * offset, y_end.y + y_unit.y * offset);
+
+                ctx.restore();
             }
 
             function applyCellTransform(ctx, transform) {
@@ -666,16 +724,18 @@
                 });
 
                 const symTransform = setCellTransform(symCtx, params);
-                setCellTransform(motifCtx, params);
+                const motifViewTransform = setCellTransform(motifCtx, params);
 
+                // Draw Symmetry Canvas Content
                 drawUnitCell(symCtx, symTransform);
-                const motifViewTransform = setCellTransform(motifCanvas.getContext('2d'), params);
+                drawSymmetryElements(symCtx, symTransform);
+                drawAxes(symCtx, symTransform);
+
+                // Draw Motif Canvas Content
                 drawUnitCell(motifCtx, motifViewTransform);
                 if (info.system !== 'oblique') {
                     drawCellGrid(motifCtx, motifViewTransform);
                 }
-
-                drawSymmetryElements(symCtx, symTransform);
 
                 const opFunc = getSymmetryOperations(state.spaceGroup);
                 if (!opFunc) return;
@@ -740,6 +800,9 @@
 
                 motifCtx.restore();
                 generatedPositionsDiv.innerHTML = generatedPositionsHTML;
+                
+                // Draw axes on top of the generated pattern
+                drawAxes(motifCtx, motifViewTransform);
             }
 
             // --- Event Handlers ---
