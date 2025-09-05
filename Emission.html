@@ -214,8 +214,9 @@
             const c = 2.99792458e8;
             const e_charge = 1.602176634e-19;
             const hc_keV_A = (h * c / e_charge) * 1e7;
-            const CHAR_LINE_INTENSITY_SCALAR = 45;
+            const CHAR_LINE_INTENSITY_SCALAR = 4.5; // Adjusted scalar 
             const L_LINE_INTENSITY_FACTOR = 0.04;
+            const LINE_EXPONENT_N = 1.45; // Exponent 'n' for the intensity formula I ∝ i * (V - Vk)^n
             const AXIS_FONT_FAMILY = "'Inter', sans-serif";
             const elementData = {
                 "Mn": { Z: 25, Ka1_energy: 5.8987, Ka2_energy: 5.8876, Kb_energy: 6.4904, K_edge: 6.539, La1_energy: 0.637, L_III_edge: 0.639, color: "#1f77b4" },
@@ -277,25 +278,43 @@
                          spectrumPoints.push({ lambda: lambda_A, intensity: 0});
                          continue;
                     }
+                    // Bremsstrahlung Intensity Calculation
                     let intensity_brems = 0;
                     if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity && lambda_A !== 0) {
                         intensity_brems = current * Z * ( (1 / lambda_min_A) - (1 / lambda_A) ) / (lambda_A * lambda_A);
                         intensity_brems = Math.max(0, intensity_brems);
                     }
+
+                    // Characteristic Line Intensity Calculation
                     let intensity_lines = 0;
-                    const line_current_factor = current / 10.0;
+                    
+                    // K-lines calculation based on I ∝ i * (V - Vk)^n
                     if (voltage > data.K_edge) {
-                        const overvoltage_K_factor = Math.pow(Math.max(0, voltage - data.K_edge), 1.65);
-                        const base_K_char_peak_intensity = line_current_factor * overvoltage_K_factor * CHAR_LINE_INTENSITY_SCALAR;
-                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka1_energy), base_K_char_peak_intensity * 2.0, 0.0005);
-                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka2_energy), base_K_char_peak_intensity * 1.0, 0.0005);
-                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Kb_energy), base_K_char_peak_intensity * 0.5, 0.0007);
+                        const overvoltage_K = voltage - data.K_edge;
+                        // The base intensity is proportional to current (i) and the overvoltage factor.
+                        const base_K_intensity = current * Math.pow(overvoltage_K, LINE_EXPONENT_N);
+                        
+                        // A proportionality constant scales the characteristic lines relative to the Bremsstrahlung.
+                        const final_K_intensity_factor = base_K_intensity * CHAR_LINE_INTENSITY_SCALAR;
+
+                        // Relative intensities of Ka1:Ka2:Kb are approximately 2:1:0.5
+                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka1_energy), final_K_intensity_factor * 2.0, 0.0005);
+                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka2_energy), final_K_intensity_factor * 1.0, 0.0005);
+                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Kb_energy), final_K_intensity_factor * 0.5, 0.0007);
                     }
+                    
+                    // L-lines calculation based on I ∝ i * (V - Vl)^n
                     if (data.La1_energy && data.L_III_edge && voltage > data.L_III_edge) {
-                        const overvoltage_L_factor = Math.pow(Math.max(0, voltage - data.L_III_edge), 1.65);
-                        const base_L_char_peak_intensity = line_current_factor * overvoltage_L_factor * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
-                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.La1_energy), base_L_char_peak_intensity, 0.015);
+                        const overvoltage_L = voltage - data.L_III_edge;
+                        // The base intensity is proportional to current (i) and the overvoltage factor.
+                        const base_L_intensity = current * Math.pow(overvoltage_L, LINE_EXPONENT_N);
+                        
+                        // A different proportionality constant is used for L lines, scaled by L_LINE_INTENSITY_FACTOR.
+                        const final_L_intensity_factor = base_L_intensity * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
+                        
+                        intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.La1_energy), final_L_intensity_factor, 0.015);
                     }
+
                     const total_intensity = intensity_brems + intensity_lines;
                     spectrumPoints.push({ lambda: lambda_A, intensity: total_intensity });
                     if (total_intensity > max_intensity_calc) max_intensity_calc = total_intensity;
@@ -377,6 +396,8 @@
                     right: 30
                 };
                 
+             //   if (plotHeight <=0 || plotWidth <= 0) return;
+
                 const plotWidth = canvasWidth - p.left - p.right;
                 const plotHeight = canvasHeight - p.top - p.bottom;
                 
