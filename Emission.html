@@ -156,13 +156,84 @@
         .legend-item { display: flex; align-items: center; }
         .legend-color { width: 18px; height: 10px; margin-right: 8px; border: 1px solid #ccc; flex-shrink: 0;}
     </style>
-</head>
+    <style>
+        #controls-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        #controls-panel h1 {
+            margin-bottom: 0;
+        }
+        #toggleControlsButton {
+            display: none;
+            background: #4b5563;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            padding: 6px;
+            color: white;
+        }
+        #toggleControlsButton svg {
+             transition: transform 0.3s ease-in-out;
+        }
+
+        /* --- MEDIA QUERY FOR MOBILE DEVICES --- */
+        @media (max-width: 768px) {
+            #app-container {
+                flex-direction: column;
+                height: 100%;
+            }
+
+            #controls-panel {
+                width: 100%;
+                max-width: none;
+                border-right: none;
+                border-bottom: 1px solid #374151;
+                flex-shrink: 0;
+                max-height: 80vh;
+                transition: max-height 0.4s ease-in-out;
+                overflow-y: auto;
+            }
+
+            #controls-panel.collapsed {
+                max-height: 75px; /* Adjust to fit just the header */
+                overflow-y: hidden;
+            }
+            #controls-panel.collapsed #toggleControlsButton svg {
+                transform: rotate(-180deg);
+            }
+
+            #drag-handle {
+                display: none;
+            }
+            
+            #visualization-area {
+                padding: 0.75rem;
+                flex-grow: 1;
+            }
+
+            #toggleControlsButton {
+                display: block;
+            }
+        }
+    </style>
+    </head>
 <body>
 
     <div id="app-container">
         <div id="controls-panel">
-            <h1>X-Ray Emission</h1>
-
+            <div id="controls-header">
+                <h1>X-Ray Emission</h1>
+                <button id="toggleControlsButton" aria-label="Toggle controls panel">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+            </div>
             <div class="control-group">
                 <h3 class="font-semibold text-lg text-white mb-3">Source Parameters</h3>
                 <label for="elementSelect">Anode Element</label>
@@ -245,6 +316,11 @@
             let superposedSpectra = [];
             const superposedColors = ["#1abc9c", "#e74c3c", "#f1c40f", "#8e44ad", "#34495e", "#3498db", "#2ecc71"];
 
+            // START: Added JS for mobile controls
+            const toggleControlsButton = document.getElementById('toggleControlsButton');
+            const controlsPanel = document.getElementById('controls-panel');
+            // END: Added JS for mobile controls
+
             function energyToWavelength_A(energy_keV) {
                 if (energy_keV <= 0) return Infinity;
                 return hc_keV_A / energy_keV;
@@ -278,40 +354,25 @@
                          spectrumPoints.push({ lambda: lambda_A, intensity: 0});
                          continue;
                     }
-                    // Bremsstrahlung Intensity Calculation
                     let intensity_brems = 0;
                     if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity && lambda_A !== 0) {
                         intensity_brems = current * Z * ( (1 / lambda_min_A) - (1 / lambda_A) ) / (lambda_A * lambda_A);
                         intensity_brems = Math.max(0, intensity_brems);
                     }
 
-                    // Characteristic Line Intensity Calculation
                     let intensity_lines = 0;
-                    
-                    // K-lines calculation based on I ∝ i * (V - Vk)^n
                     if (voltage > data.K_edge) {
                         const overvoltage_K = voltage - data.K_edge;
-                        // The base intensity is proportional to current (i) and the overvoltage factor.
                         const base_K_intensity = current * Math.pow(overvoltage_K, LINE_EXPONENT_N);
-                        
-                        // A proportionality constant scales the characteristic lines relative to the Bremsstrahlung.
                         const final_K_intensity_factor = base_K_intensity * CHAR_LINE_INTENSITY_SCALAR;
-
-                        // Relative intensities of Ka1:Ka2:Kb are approximately 2:1:0.5
                         intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka1_energy), final_K_intensity_factor * 2.0, 0.0005);
                         intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Ka2_energy), final_K_intensity_factor * 1.0, 0.0005);
                         intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.Kb_energy), final_K_intensity_factor * 0.5, 0.0007);
                     }
-                    
-                    // L-lines calculation based on I ∝ i * (V - Vl)^n
                     if (data.La1_energy && data.L_III_edge && voltage > data.L_III_edge) {
                         const overvoltage_L = voltage - data.L_III_edge;
-                        // The base intensity is proportional to current (i) and the overvoltage factor.
                         const base_L_intensity = current * Math.pow(overvoltage_L, LINE_EXPONENT_N);
-                        
-                        // A different proportionality constant is used for L lines, scaled by L_LINE_INTENSITY_FACTOR.
                         const final_L_intensity_factor = base_L_intensity * CHAR_LINE_INTENSITY_SCALAR * L_LINE_INTENSITY_FACTOR;
-                        
                         intensity_lines += gaussianPeak(lambda_A, energyToWavelength_A(data.La1_energy), final_L_intensity_factor, 0.015);
                     }
 
@@ -396,8 +457,6 @@
                     right: 30
                 };
                 
-             //   if (plotHeight <=0 || plotWidth <= 0) return;
-
                 const plotWidth = canvasWidth - p.left - p.right;
                 const plotHeight = canvasHeight - p.top - p.bottom;
                 
@@ -414,7 +473,6 @@
                 ctx.stroke();
 
                 ctx.save();
-                // This is the corrected line
                 ctx.translate(yTitleSpace / 2, p.top + plotHeight / 2);
                 ctx.rotate(-Math.PI / 2);
                 ctx.textAlign = "center";
@@ -547,6 +605,19 @@
                 superposedSpectra = [];
                 handleUpdate();
             });
+
+            // START: Added event listener for mobile toggle button
+            toggleControlsButton.addEventListener('click', () => {
+                controlsPanel.classList.toggle('collapsed');
+                
+                // After the animation finishes, resize the canvas
+                // The timeout should match the CSS transition duration
+                setTimeout(() => {
+                    setCanvasSize();
+                    requestAnimationFrame(drawSpectra);
+                }, 400); // 400ms matches our CSS transition duration
+            });
+            // END: Added event listener for mobile toggle button
 
             // --- Resizer Logic ---
             const resizer = document.getElementById('drag-handle');
