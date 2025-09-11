@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kiessig Fringes Simulator</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <link href="./dist/output.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -48,14 +47,14 @@
         #visualization-area {
             flex-grow: 1;
             position: relative;
-            background-color: #ffffff; /* CHANGED to white */
+            background-color: #ffffff;
             min-width: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: 1.5rem;
-            color: #1f2937; /* CHANGED to dark text */
+            color: #1f2937;
         }
         #plot-container, #plot-container svg {
             width: 100%;
@@ -65,15 +64,16 @@
         #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
         #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
         #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
-        #controls-panel input[type="number"] {
+        #controls-panel input[type="number"], #controls-panel select {
             width: 90px;
             background-color: #374151;
             border: 1px solid #4b5563;
             color: #e5e7eb;
             border-radius: 0.375rem;
             padding: 0.5rem;
-            text-align: right;
         }
+        #controls-panel input[type="number"] { text-align: right; }
+        #controls-panel select { width: 100%; }
         #controls-panel button {
             background-color: #3b82f6;
             color: white;
@@ -115,12 +115,12 @@
         }
         footer {
             width: 100%;
-            background-color: #ffffff; /* CHANGED to white */
+            background-color: #ffffff;
             padding: 8px 24px;
             text-align: left;
             font-size: 0.8em;
-            color: #4b5563; /* CHANGED to dark gray */
-            border-top: 1px solid #e5e7eb; /* CHANGED to light gray */
+            color: #4b5563;
+            border-top: 1px solid #e5e7eb;
             flex-shrink: 0;
         }
         /* D3 Plot Styles for Light Theme */
@@ -128,15 +128,34 @@
         .x-axis .tick text, .y-axis .tick text { fill: #4b5563; font-size: 14px; }
         .plot-line { fill: none; stroke: #3b82f6; stroke-width: 2.5px; }
         .axis-label { font-size: 16px; fill: #111827; font-weight: 500; }
+        .axis-label .super { font-size: 0.6em; baseline-shift: super; }
     </style>
 </head>
 <body>
 
     <div id="app-container">
-        <!-- Left Panel for Controls -->
         <div id="controls-panel">
             <h1>Kiessig Fringes</h1>
             <p>Simulate X-Ray Reflectivity (XRR) for a single thin film on a substrate, including the effect of interface roughness.</p>
+            
+            <div class="control-group">
+                <label for="plot-type">Plot</label>
+                <select id="plot-type">
+                    <option value="r2_vs_q" selected>|R|² vs Q</option>
+                    <option value="r_vs_q">|R| vs Q</option>
+                    <option value="r_vs_theta">|R| vs theta</option>
+                    <option value="r_vs_2theta">|R| vs 2theta</option>
+                    <option value="porod">Porod</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="wavelength">Wavelength (λ), Å</label>
+                <div class="control-row">
+                    <input type="range" id="wavelength" min="0.1" max="3" value="1.79" step="0.01">
+                    <input type="number" id="wavelength-value" min="0.1" max="3" value="1.54056" step="0.0001">
+                </div>
+            </div>
             
             <div class="control-group">
                 <label for="thickness">Film Thickness, Å</label>
@@ -156,15 +175,15 @@
             <div class="control-group">
                 <label for="roughness01">Roughness (σ₀₁), Å</label>
                 <div class="control-row">
-                    <input type="range" id="roughness01" min="0" max="20" value="3" step="0.1">
-                    <input type="number" id="roughness01-value" min="0" max="20" value="3" step="0.1">
+                    <input type="range" id="roughness01" min="0" max="20" value="0.0" step="0.1">
+                    <input type="number" id="roughness01-value" min="0" max="20" value="0.0" step="0.1">
                 </div>
             </div>
             <div class="control-group">
                 <label for="roughness12">Interface roughness (σ₁₂), Å</label>
                 <div class="control-row">
-                    <input type="range" id="roughness12" min="0" max="20" value="5" step="0.1">
-                    <input type="number" id="roughness12-value" min="0" max="20" value="5" step="0.1">
+                    <input type="range" id="roughness12" min="0" max="20" value="10.1" step="0.1">
+                    <input type="number" id="roughness12-value" min="0" max="20" value="10.1" step="0.1">
                 </div>
             </div>
             <div class="control-group">
@@ -179,18 +198,15 @@
             </div>
         </div>
 
-        <!-- Draggable Resizer -->
         <div id="drag-handle"></div>
 
-        <!-- Right Panel for Visualization -->
         <div id="visualization-area">
             <div id="plot-container"></div>
         </div>
     </div>
 
-    <!-- Footer -->
     <footer class="text-gray-600">
-        Parratt formalism with Névot-Croce roughness. Absorption is neglected. NitaD, Univ Paris-Saclay, 2025.
+        Parratt formalism with Névot-Croce roughness. Absorption is neglected. NitaD, Univ Paris-Saclay, 11 Sept 2025.
     </footer>
 
     <script>
@@ -198,10 +214,15 @@
             const Complex={create:(re=0,im=0)=>({re,im}),add:(a,b)=>({re:a.re+b.re,im:a.im+b.im}),subtract:(a,b)=>({re:a.re-b.re,im:a.im-b.im}),multiply:(a,b)=>({re:a.re*b.re-a.im*b.im,im:a.re*b.im+a.im*b.re}),divide:(a,b)=>{const d=b.re*b.re+b.im*b.im;return d===0?{re:Infinity,im:Infinity}:{re:(a.re*b.re+a.im*b.im)/d,im:(a.im*b.re-a.re*b.im)/d}},exp:c=>{const e=Math.exp(c.re);return{re:e*Math.cos(c.im),im:e*Math.sin(c.im)}},sqrt:c=>{const r=Math.sqrt(c.re*c.re+c.im*c.im),p=Math.atan2(c.im,c.re),s=Math.sqrt(r);return{re:s*Math.cos(p/2),im:s*Math.sin(p/2)}},magnitudeSq:c=>c.re*c.re+c.im*c.im};
             const CLASSICAL_ELECTRON_RADIUS=2.81794e-5,PI=Math.PI;
             
+            const margin={top:20,right:30,bottom:60,left:100};
+            const container=d3.select("#plot-container");
+            let svg, xScale, yScale, xAxisGroup, yAxisGroup, path, xAxisLabel, yAxisLabel;
+            let calculatedData = []; 
+
             function calculateReflectivity(thickness, filmDensity, subDensity, sigma01, sigma12) {
                 const data = [];
-                const qMax = 1;
-                const qSteps = 800;
+                const qMax = 2;
+                const qSteps = 2000;
                 const qCritSq_film = 16 * PI * filmDensity * CLASSICAL_ELECTRON_RADIUS;
                 const qCritSq_sub = 16 * PI * subDensity * CLASSICAL_ELECTRON_RADIUS;
                 const half = Complex.create(0.5, 0);
@@ -223,24 +244,207 @@
                     const denominator = Complex.add(Complex.create(1, 0), Complex.multiply(r_01, Complex.multiply(r_12, phaseFactor)));
                     const r_total = Complex.divide(numerator, denominator);
                     const reflectivity = Complex.magnitudeSq(r_total);
-                    data.push({ q: Q, r: reflectivity });
+                    data.push({ q: Q, r_sq: reflectivity });
                 }
                 return data;
             }
+            
+            function transformDataForPlotting(data) {
+                const plotType = document.getElementById('plot-type').value;
+                const lambda = +document.getElementById('wavelength').value;
 
-            const margin={top:20,right:30,bottom:60,left:70},container=d3.select("#plot-container");let svg,xScale,yScale,xAxisGroup,yAxisGroup,line,path,xAxisLabel,yAxisLabel,isPlotInitialized=!1;
-            function drawPlot(){const bounds=container.node().getBoundingClientRect();if(bounds.width<=0)return;const height=bounds.height>0?bounds.height:bounds.width*0.6,width=bounds.width;if(!isPlotInitialized){isPlotInitialized=!0;svg=container.append("svg").attr("preserveAspectRatio","xMidYMid meet");const plotArea=svg.append("g").attr("transform",`translate(${margin.left},${margin.top})`);xScale=d3.scaleLinear();yScale=d3.scaleLog().clamp(!0);xAxisGroup=plotArea.append("g").attr("class","x-axis");yAxisGroup=plotArea.append("g").attr("class","y-axis");xAxisLabel=svg.append("text").attr("class","axis-label").attr("text-anchor","middle");yAxisLabel=svg.append("text").attr("class","axis-label").attr("transform","rotate(-90)").attr("text-anchor","middle");line=d3.line().x(d=>xScale(d.q)).y(d=>yScale(d.r));path=plotArea.append("path").attr("class","plot-line")}svg.attr("viewBox",`0 0 ${width} ${height}`);const plotWidth=width-margin.left-margin.right,plotHeight=height-margin.top-margin.bottom;xScale.domain([0,1]).range([0,plotWidth]);yScale.domain([1e-10,1]).range([plotHeight,0]);xAxisGroup.attr("transform",`translate(0,${plotHeight})`).call(d3.axisBottom(xScale).ticks(5));yAxisGroup.call(d3.axisLeft(yScale).ticks(6).tickFormat(d=>{const l=Math.round(Math.log10(d));if(d>1)return null;switch(l){case 0:return"10⁰";case -2:return"10⁻²";case -4:return"10⁻⁴";case -6:return"10⁻⁶";case -8:return"10⁻⁸";case -10:return"10⁻¹⁰";default:return null}}));xAxisLabel.attr("x",margin.left+plotWidth/2).attr("y",height-15).html("Wavevector transfer Q [Å⁻¹]");yAxisLabel.attr("y",15).attr("x",0-(margin.top+plotHeight/2)).attr("dy","1em").text("Reflectivity |R|²");updateLine(!1)}
-            function updateLine(useTransition=!0){const t=+document.getElementById('thickness').value,fd=+document.getElementById('film-density').value,sd=+document.getElementById('substrate-density').value,s01=+document.getElementById('roughness01').value,s12=+document.getElementById('roughness12').value,data=calculateReflectivity(t,fd,sd,s01,s12),pathUpdate=path.datum(data);if(useTransition)pathUpdate.transition().duration(50).attr("d",line);else pathUpdate.attr("d",line)}
-            function setupControls(){const c=[{slider:'thickness',value:'thickness-value'},{slider:'film-density',value:'film-density-value'},{slider:'substrate-density',value:'substrate-density-value'},{slider:'roughness01',value:'roughness01-value'},{slider:'roughness12',value:'roughness12-value'}];c.forEach(i=>{const s=document.getElementById(i.slider),v=document.getElementById(i.value),step=parseFloat(s.step),precision=step<1?(step.toString().split('.')[1]||'').length:0;s.addEventListener('input',()=>{v.value=parseFloat(s.value).toFixed(precision);updateLine()});v.addEventListener('change',()=>{const min=parseFloat(v.min),max=parseFloat(v.max);let val=parseFloat(v.value);if(isNaN(val))val=min;else if(val<min)val=min;else if(val>max)val=max;v.value=val.toFixed(precision);s.value=val;updateLine()})});document.getElementById('save-data-button').addEventListener('click',exportDataFile)}
-            function exportDataFile(){const params={t:+document.getElementById('thickness').value,fd:+document.getElementById('film-density').value,sd:+document.getElementById('substrate-density').value,s01:+document.getElementById('roughness01').value,s12:+document.getElementById('roughness12').value};const data=calculateReflectivity(params.t,params.fd,params.sd,params.s01,params.s12);let fileContent=`# Kiessig Fringe Data\n# Parameters Used:\n#   Film Thickness (A): ${params.t}\n#   Film e- density (e-/A^3): ${params.fd}\n#   Substrate e- density (e-/A^3): ${params.sd}\n#   Roughness s01 (A): ${params.s01}\n#   Interface Roughness s12 (A): ${params.s12}\n# ---\nQ (A^-1)\tReflectivity\n`;data.forEach(row=>fileContent+=`${row.q}\t${row.r}\n`);const blob=new Blob([fileContent],{type:'text/plain;charset=utf-8;'});const link=document.createElement("a");const url=URL.createObjectURL(blob);link.setAttribute("href",url);link.setAttribute("download","kiessig_fringes.dat");link.style.visibility='hidden';document.body.appendChild(link);link.click();document.body.removeChild(link)}
+                switch (plotType) {
+                    case 'r_vs_q':
+                        return data.map(d => ({ x: d.q, y: Math.sqrt(d.r_sq) }));
+                    case 'r_vs_theta':
+                        return data.map(d => {
+                            const arg = d.q * lambda / (4 * PI);
+                            const theta = arg <= 1 ? Math.asin(arg) * 180 / PI : null;
+                            return { x: theta, y: Math.sqrt(d.r_sq) };
+                        }).filter(d => d.x !== null);
+                    case 'r_vs_2theta':
+                         return data.map(d => {
+                            const arg = d.q * lambda / (4 * PI);
+                            const theta = arg <= 1 ? Math.asin(arg) * 180 / PI : null;
+                            return { x: theta !== null ? 2 * theta : null, y: Math.sqrt(d.r_sq) };
+                        }).filter(d => d.x !== null);
+                    case 'porod': {
+                        const filmDensity = +document.getElementById('film-density').value;
+                        const sigma01 = +document.getElementById('roughness01').value;
+                        const qCritSq_film = 16 * PI * filmDensity * CLASSICAL_ELECTRON_RADIUS;
+                        const porod_ideal_plateau = Math.pow(qCritSq_film, 2) / 16.0;
+
+                        return data.map(d => {
+                            if (d.q*d.q < qCritSq_film * 1.5) return {x: d.q, y: NaN}; 
+                            const kz_vac_re = d.q / 2.0;
+                            const kz_film_re = 0.5 * Math.sqrt(d.q*d.q - qCritSq_film);
+                            const rough_exponent = -2.0 * kz_vac_re * kz_film_re * sigma01 * sigma01;
+                            const rough_factor_sq = Math.pow(Math.exp(rough_exponent), 2);
+                            const y_val = porod_ideal_plateau * rough_factor_sq;
+                            return { x: d.q, y: y_val };
+                        }).filter(d => !isNaN(d.y));
+                    }
+                    case 'r2_vs_q':
+                    default:
+                        return data.map(d => ({ x: d.q, y: d.r_sq }));
+                }
+            }
+
+            function initializePlot() {
+                svg=container.append("svg").attr("preserveAspectRatio","xMidYMid meet");
+                const plotArea=svg.append("g").attr("transform",`translate(${margin.left},${margin.top})`);
+                xScale=d3.scaleLinear();
+                yScale=d3.scaleLog().clamp(true);
+                xAxisGroup=plotArea.append("g").attr("class","x-axis");
+                yAxisGroup=plotArea.append("g").attr("class","y-axis");
+                xAxisLabel=svg.append("text").attr("class","axis-label").attr("text-anchor","middle");
+                yAxisLabel=svg.append("text").attr("class","axis-label").attr("transform","rotate(-90)").attr("text-anchor","middle");
+                path=plotArea.append("path").attr("class","plot-line");
+            }
+
+            function updatePlot({recalculateData = false, useTransition = false} = {}) {
+                if (recalculateData) {
+                    const t = +document.getElementById('thickness').value;
+                    const fd = +document.getElementById('film-density').value;
+                    const sd = +document.getElementById('substrate-density').value;
+                    const s01 = +document.getElementById('roughness01').value;
+                    const s12 = +document.getElementById('roughness12').value;
+                    calculatedData = calculateReflectivity(t, fd, sd, s01, s12);
+                }
+
+                const bounds = container.node().getBoundingClientRect();
+                if (bounds.width <= 0) return;
+                const height = bounds.height > 0 ? bounds.height : bounds.width * 0.6;
+                const width = bounds.width;
+                svg.attr("viewBox", `0 0 ${width} ${height}`);
+                
+                const plotWidth = width - margin.left - margin.right;
+                const plotHeight = height - margin.top - margin.bottom;
+
+                const plotType = document.getElementById('plot-type').value;
+                const plotData = transformDataForPlotting(calculatedData);
+
+                yScale = plotType === 'porod' ? d3.scaleLinear() : d3.scaleLog().clamp(true);
+
+                const xDomain = d3.extent(plotData, d => d.x);
+                let yDomain;
+
+                if (plotType === 'porod') {
+                    const maxVal = d3.max(plotData, d => d.y);
+                    yDomain = [0, maxVal > 0 ? maxVal * 1.1 : 1e-10]; 
+                } else {
+                    yDomain = [1e-10, 1];
+                }
+
+                xScale.domain(xDomain).range([0, plotWidth]);
+                yScale.domain(yDomain).range([plotHeight, 0]);
+                
+                const axisTransition = useTransition ? d3.transition().duration(50) : d3;
+                xAxisGroup.attr("transform", `translate(0,${plotHeight})`).transition(axisTransition).call(d3.axisBottom(xScale).ticks(5));
+                
+                if (yScale.name === 'log') {
+                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(6).tickFormat(d => { const l = Math.round(Math.log10(d)); if (d > 1) return null; if (l % 2 === 0) return `10^${l}`; return null; }));
+                } else {
+                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(5).tickFormat(d3.format(".2e")));
+                }
+
+                let xLabelText = "Wavevector transfer Q [Å⁻¹]";
+                let yLabelTextHTML = "Reflectivity |R|<tspan class='super'>2</tspan>";
+
+                switch (plotType) {
+                    case 'r_vs_q': yLabelTextHTML = "Reflectivity |R|"; break;
+                    case 'r_vs_theta': xLabelText = "θ [degrees]"; yLabelTextHTML = "Reflectivity |R|"; break;
+                    case 'r_vs_2theta': xLabelText = "2θ [degrees]"; yLabelTextHTML = "Reflectivity |R|"; break;
+                    case 'porod': yLabelTextHTML = "|R|<tspan class='super'>2</tspan>·Q<tspan class='super'>4</tspan> [Å<tspan class='super'>-4</tspan>]"; break;
+                }
+                
+                xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 15).html(xLabelText);
+                yAxisLabel.attr("y", 15).attr("x", 0 - (margin.top + plotHeight / 2)).attr("dy", "1em").html(yLabelTextHTML);
+                
+                const lineGenerator = d3.line()
+                    .x(d => xScale(d.x))
+                    .y(d => yScale(d.y));
+                
+                const pathUpdate = path.datum(plotData);
+                if (useTransition) {
+                    pathUpdate.transition().duration(50).attr("d", lineGenerator);
+                } else {
+                    pathUpdate.attr("d", lineGenerator);
+                }
+            }
+            
+            function setupControls(){
+                const controls = [
+                    {slider: 'wavelength', value: 'wavelength-value'},
+                    {slider: 'thickness', value: 'thickness-value'},
+                    {slider: 'film-density', value: 'film-density-value'},
+                    {slider: 'substrate-density', value: 'substrate-density-value'},
+                    {slider: 'roughness01', value: 'roughness01-value'},
+                    {slider: 'roughness12', value: 'roughness12-value'}
+                ];
+
+                controls.forEach(item => {
+                    const slider = document.getElementById(item.slider);
+                    const valueInput = document.getElementById(item.value);
+                    const step = parseFloat(slider.step);
+                    const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
+                    
+                    const eventHandler = (event) => {
+                        const isSlider = event.currentTarget.type === 'range';
+                        if (isSlider) {
+                           valueInput.value = parseFloat(slider.value).toFixed(precision);
+                        } else {
+                            const min = parseFloat(valueInput.min), max = parseFloat(valueInput.max);
+                            let val = parseFloat(valueInput.value);
+                            if(isNaN(val)) val = min; else if(val < min) val = min; else if(val > max) val = max;
+                            valueInput.value = val.toFixed(precision); slider.value = val;
+                        }
+                        updatePlot({recalculateData: true, useTransition: isSlider});
+                    };
+
+                    slider.addEventListener('input', eventHandler);
+                    valueInput.addEventListener('change', eventHandler);
+                });
+                
+                document.getElementById('plot-type').addEventListener('change', () => updatePlot({recalculateData: false, useTransition: false}));
+                document.getElementById('save-data-button').addEventListener('click', exportDataFile);
+            }
+
+            function exportDataFile() {
+                const params = {
+                    t: +document.getElementById('thickness').value,
+                    fd: +document.getElementById('film-density').value,
+                    sd: +document.getElementById('substrate-density').value,
+                    s01: +document.getElementById('roughness01').value,
+                    s12: +document.getElementById('roughness12').value,
+                    lambda: +document.getElementById('wavelength').value
+                };
+                let fileContent = `# Kiessig Fringe Data\n# Parameters Used:\n#   Wavelength (A): ${params.lambda}\n#   Film Thickness (A): ${params.t}\n#   Film e- density (e-/A^3): ${params.fd}\n#   Substrate e- density (e-/A^3): ${params.sd}\n#   Roughness s01 (A): ${params.s01}\n#   Interface Roughness s12 (A): ${params.s12}\n# ---\nQ (A^-1)\tReflectivity_R2\n`;
+                calculatedData.forEach(row => { fileContent += `${row.q}\t${row.r_sq}\n`; });
+                const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "kiessig_fringes.dat");
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
             
             const resizer=document.getElementById('drag-handle'),leftPanel=document.getElementById('controls-panel');let isResizing=!1;resizer.addEventListener('mousedown',e=>{e.preventDefault();isResizing=!0;document.body.style.cursor='col-resize';document.body.style.userSelect='none';window.addEventListener('mousemove',handleMouseMove);window.addEventListener('mouseup',stopResize)});
-            function handleMouseMove(e){if(!isResizing)return;const p=resizer.parentElement,w=e.clientX-p.getBoundingClientRect().left;if(w>300&&w<p.clientWidth-400){leftPanel.style.width=`${w}px`;drawPlot()}}
-            function stopResize(){isResizing=!1;document.body.style.cursor='default';document.body.style.userSelect='auto';window.removeEventListener('mousemove',handleMouseMove);window.removeEventListener('mouseup',stopResize);drawPlot()}
+            function handleMouseMove(e){if(!isResizing)return;const p=resizer.parentElement,w=e.clientX-p.getBoundingClientRect().left;if(w>300&&w<p.clientWidth-400){leftPanel.style.width=`${w}px`; updatePlot();}}
+            function stopResize(){isResizing=!1;document.body.style.cursor='default';document.body.style.userSelect='auto';window.removeEventListener('mousemove',handleMouseMove);window.removeEventListener('mouseup',stopResize); updatePlot();}
             
-            const ro=new ResizeObserver(drawPlot),pc=container.node();if(pc)ro.observe(pc);
+            // --- INITIALIZATION ---
+            initializePlot();
             setupControls();
-            drawPlot();
+            
+            const ro = new ResizeObserver(() => updatePlot());
+            const pc = container.node();
+            if(pc) ro.observe(pc);
+            
+            updatePlot({recalculateData: true});
         });
     </script>
 </body>
