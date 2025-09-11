@@ -7,8 +7,6 @@
     
     <script src="https://d3js.org/d3.v7.min.js"></script>
     
-    <link href="./dist/output.css" rel="stylesheet">
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -68,15 +66,17 @@
         #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
         #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
         #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
-        #controls-panel input[type="number"] {
+        #controls-panel input[type="number"], #controls-panel select {
             width: 90px;
             background-color: #374151;
             border: 1px solid #4b5563;
             color: #e5e7eb;
             border-radius: 0.375rem;
             padding: 0.5rem;
-            text-align: right;
         }
+        #controls-panel select { width: 100%; }
+        #controls-panel input[type="number"] { text-align: right; }
+
         #controls-panel button {
             background-color: #3b82f6;
             color: white;
@@ -124,6 +124,7 @@
         .x-axis .tick text, .y-axis .tick text { fill: #4b5563; font-size: 14px; }
         .plot-line { fill: none; stroke: #3b82f6; stroke-width: 2.5px; }
         .axis-label { font-size: 16px; fill: #111827; font-weight: 500; }
+        .axis-label .super { font-size: 0.6em; baseline-shift: super; }
         
         /* Layer specific styles */
         .layer-container {
@@ -172,23 +173,34 @@
 <body>
 
     <div id="app-container">
-        <!-- Left Panel for Controls -->
         <div id="controls-panel">
             <h1>Multi-Layer XRR</h1>
             <p>Simulate X-Ray Reflectivity for a multi-layer thin film stack on a substrate.</p>
             
             <div class="control-group">
-                <h3 class="text-lg font-semibold text-white mb-3 border-b border-gray-700 pb-2">X-Ray Parameters</h3>
-                <label for="xray-energy">Energy, keV</label>
+                <h3 class="text-lg font-semibold text-white mb-3 border-b border-gray-700 pb-2">Plot & X-Ray Parameters</h3>
+                
+                                <label for="wavelength" class="mt-4">Wavelength (λ), Å</label>
                 <div class="control-row">
-                    <input type="range" id="xray-energy" min="5" max="25" value="8.048" step="0.001">
-                    <input type="number" id="xray-energy-value" min="5" max="25" value="8.048" step="0.001">
+                    <input type="range" id="wavelength" min="0.1" max="3" value="1.54" step="0.01">
+                    <input type="number" id="wavelength-value" min="0.1" max="3" value="1.54" step="0.01">
                 </div>
+                
+                <label for="plot-type" class="mt-2">Plot Type</label>
+                <select id="plot-type">
+                    <option value="r2_vs_q" selected>|R|² vs Q</option>
+                    <option value="r_vs_q">|R| vs Q</option>
+                    <option value="r_vs_theta">|R| vs theta</option>
+                    <option value="r_vs_2theta">|R| vs 2theta</option>
+                    <option value="porod">Porod (|R|² vs Q⁻⁴)</option>
+               
+                </select>
+
+
             </div>
 
             <div id="layers-list">
-                <!-- Layer controls will be dynamically inserted here -->
-            </div>
+                </div>
 
             <div class="control-group">
                 <button id="add-layer-btn">Add Layer</button>
@@ -196,15 +208,15 @@
 
             <div class="control-group">
                 <h3 class="text-lg font-semibold text-white mb-3 border-b border-gray-700 pb-2">Substrate</h3>
-                <label for="substrate-density">e⁻ density (δ), e⁻/Å³</label>
+                <label for="substrate-density">e⁻ density (δ related), e⁻/Å³</label>
                 <div class="control-row">
                     <input type="range" id="substrate-density" min="0" max="5" value="0.707" step="0.001">
                     <input type="number" id="substrate-density-value" min="0" max="5" value="0.707" step="0.001">
                 </div>
                 <label for="substrate-beta" class="mt-4">Absorption (β), x 10⁻⁷</label>
                 <div class="control-row">
-                    <input type="range" id="substrate-beta" min="0" max="100" value="0.17" step="0.01">
-                    <input type="number" id="substrate-beta-value" min="0" max="100" value="0.17" step="0.01">
+                    <input type="range" id="substrate-beta" min="0" max="100" value="0.00" step="0.01">
+                    <input type="number" id="substrate-beta-value" min="0" max="100" value="0.00" step="0.01">
                 </div>
             </div>
 
@@ -213,18 +225,15 @@
             </div>
         </div>
 
-        <!-- Draggable Resizer -->
         <div id="drag-handle"></div>
 
-        <!-- Right Panel for Visualization -->
         <div id="visualization-area">
             <div id="plot-container"></div>
         </div>
     </div>
 
-    <!-- Footer -->
     <footer class="text-gray-600">
-        Parratt formalism with Névot-Croce roughness. NitaD, Univ Paris-Saclay, 2025.
+        Parratt formalism with Névot-Croce roughness. NitaD, Univ Paris-Saclay, 11 sept 2025.
     </footer>
 
     <script>
@@ -232,97 +241,211 @@
             // --- Scientific Constants & Complex Math Library ---
             const Complex={create:(re=0,im=0)=>({re,im}),add:(a,b)=>({re:a.re+b.re,im:a.im+b.im}),subtract:(a,b)=>({re:a.re-b.re,im:a.im-b.im}),multiply:(a,b)=>({re:a.re*b.re-a.im*b.im,im:a.re*b.im+a.im*b.re}),divide:(a,b)=>{const d=b.re*b.re+b.im*b.im;return d===0?{re:Infinity,im:Infinity}:{re:(a.re*b.re+a.im*b.im)/d,im:(a.im*b.re-a.re*b.im)/d}},exp:c=>{const e=Math.exp(c.re);return{re:e*Math.cos(c.im),im:e*Math.sin(c.im)}},sqrt:c=>{const r=Math.sqrt(c.re*c.re+c.im*c.im),p=Math.atan2(c.im,c.re),s=Math.sqrt(r);return{re:s*Math.cos(p/2),im:s*Math.sin(p/2)}},magnitudeSq:c=>c.re*c.re+c.im*c.im};
             const CLASSICAL_ELECTRON_RADIUS=2.81794e-5,PI=Math.PI;
-            const HC_EV_A = 12398.4198;
 
-            // --- Core Calculation Engine ---
-            function calculateReflectivity(layers, subParams, xrayEnergy) {
-                const lambda = HC_EV_A / (xrayEnergy * 1000); // Wavelength in Angstrom
+            // --- Globals for D3 Plot ---
+            const margin={top:20,right:30,bottom:60,left:100},container=d3.select("#plot-container");
+            let svg, xScale, yScale, xAxisGroup, yAxisGroup, path, xAxisLabel, yAxisLabel;
+            let calculatedData = [];
+
+            // --- Core Calculation Engine (Corrected Implementation) ---
+            function calculateReflectivity(layers, subParams, lambda) {
                 const k0 = 2 * PI / lambda;
-
-                const allLayers = [
-                    { density: 0, beta: 0 }, // Vacuum
-                    ...layers.map(l => ({ density: l.density, beta: l.beta })),
-                    { density: subParams.density, beta: subParams.beta }
-                ];
-
-                const layerProps = allLayers.map(l => ({
-                    // Refractive index n = 1 - delta + i*beta
-                    delta: (CLASSICAL_ELECTRON_RADIUS * lambda * lambda / (2 * PI)) * l.density,
-                    beta: l.beta
+                // allMaterials: [0] Vac, [1..N] Layers, [N+1] Substrate
+                const allMaterials = [ { density: 0, beta: 0 }, ...layers.map(l => ({ density: l.density, beta: l.beta })), { density: subParams.density, beta: subParams.beta } ];
+                const materialProps = allMaterials.map(m => ({
+                    delta: (CLASSICAL_ELECTRON_RADIUS * lambda * lambda / (2 * PI)) * m.density,
+                    beta: m.beta
                 }));
 
                 const data = [];
-                const qMax = 1;
-                const qSteps = 800;
-
+                const qMax = 2.0;
+                const qSteps = 2000;
                 for (let i = 1; i <= qSteps; i++) {
                     const Q = i / qSteps * qMax;
-                    const theta_sq = (Q / (2 * k0)) * (Q / (2 * k0)); // sin^2(theta) approx theta^2 for small angles
-                    
-                    // Calculate kz for each layer
-                    // kz_j^2 = k0^2 * (n_j^2 - cos^2(theta)) approx k0^2 * (theta^2 - 2*delta_j + 2*i*beta_j)
-                    const kz = layerProps.map(p => {
+                    const theta_sq = (Q / (2 * k0)) * (Q / (2 * k0));
+                    // kz: [0] Vac, [1..N] Layers, [N+1] Substrate
+                    const kz = materialProps.map(p => {
                         const term_re = theta_sq - 2 * p.delta;
                         const term_im = 2 * p.beta;
-                        const kz_sq_over_k0_sq = Complex.create(term_re, term_im);
-                        const kz_sq = Complex.multiply(kz_sq_over_k0_sq, Complex.create(k0 * k0, 0));
-                        return Complex.sqrt(kz_sq);
+                        return Complex.sqrt(Complex.multiply(Complex.create(term_re, term_im), Complex.create(k0 * k0, 0)));
                     });
+                    
+                    // N is the number of layers.
+                    const N = layers.length;
 
-                    // Start recursion from the substrate
-                    let R = Complex.create(0,0);
-                    if (kz.length > 1) {
-                        // Interface between last layer and substrate
-                        const r_sub = Complex.divide(Complex.subtract(kz[kz.length-2], kz[kz.length-1]), Complex.add(kz[kz.length-2], kz[kz.length-1]));
-                        R = r_sub;
+                    // Start recursion from the substrate interface (interface N, N+1).
+                    // r_{N, N+1}
+                    let R = Complex.divide(
+                        Complex.subtract(kz[N], kz[N + 1]), 
+                        Complex.add(kz[N], kz[N + 1])
+                    );
+
+                    // Apply roughness to substrate interface.
+                    // Assumption: The "roughness" parameter of the last layer applies to the interface below it.
+                    if (N > 0) {
+                        const sigma_sub = layers[N - 1].roughness;
+                        const rough_factor_sub = Math.exp(-2 * kz[N].re * kz[N + 1].re * sigma_sub * sigma_sub);
+                        R = Complex.multiply(R, Complex.create(rough_factor_sub, 0));
                     }
 
-                    // Loop upwards from the bottom layer to the top
-                    for (let j = layers.length - 1; j >= 0; j--) {
-                        // j is the index in the 'layers' array.
-                        // The corresponding index in kz is j+1. The layer above is j.
-                        const r_j = Complex.divide(Complex.subtract(kz[j], kz[j+1]), Complex.add(kz[j], kz[j+1]));
-                        const rough_factor = Math.exp(-2 * kz[j].re * kz[j+1].re * layers[j].roughness * layers[j].roughness);
-                        const r_j_rough = Complex.multiply(r_j, Complex.create(rough_factor, 0));
+                    // Loop upwards from the interface above the substrate to the surface.
+                    // j is the layer index in the 'layers' array, from N-1 down to 0.
+                    for (let j = N - 1; j >= 0; j--) {
+                        // Current task: Calculate reflectivity from interface j, j+1.
+                        // `R` currently holds the reflectivity from the interface below, R_{j+1, j+2}.
+                        // We propagate R through layer j+1, which is layers[j].
+                        const k_z_layer = kz[j+1];
+                        const d_layer = layers[j].thickness;
+                        const phaseFactor = Complex.exp(Complex.multiply(Complex.create(0, 2), Complex.multiply(k_z_layer, Complex.create(d_layer, 0))));
 
-                        const phaseFactor = Complex.exp(Complex.multiply(Complex.create(0, 2), Complex.multiply(kz[j+1], Complex.create(layers[j].thickness, 0))));
-                        
+                        // Fresnel reflectivity at interface j, j+1.
+                        const k_z_above = kz[j];
+                        const r_j_ideal = Complex.divide(Complex.subtract(k_z_above, k_z_layer), Complex.add(k_z_above, k_z_layer));
+
+                        // Roughness at interface j, j+1. 
+                        // Assumption: `layers[j].roughness` refers to the interface on top of that layer.
+                        const sigma_j = layers[j].roughness;
+                        const rough_factor = Math.exp(-2 * k_z_above.re * k_z_layer.re * sigma_j * sigma_j);
+                        const r_j_rough = Complex.multiply(r_j_ideal, Complex.create(rough_factor, 0));
+
+                        // Combine using Parratt formula
                         const numerator = Complex.add(r_j_rough, Complex.multiply(R, phaseFactor));
                         const denominator = Complex.add(Complex.create(1, 0), Complex.multiply(r_j_rough, Complex.multiply(R, phaseFactor)));
-
                         R = Complex.divide(numerator, denominator);
                     }
                     
-                    const reflectivity = Complex.magnitudeSq(R);
-                    data.push({ q: Q, r: reflectivity });
+                    data.push({ q: Q, r_sq: Complex.magnitudeSq(R) });
                 }
                 return data;
             }
+            
+            function transformDataForPlotting(data) {
+                const plotType = document.getElementById('plot-type').value;
+                const lambda = +document.getElementById('wavelength').value;
+
+                switch (plotType) {
+                    case 'r_vs_q':
+                        return data.map(d => ({ x: d.q, y: Math.sqrt(d.r_sq) }));
+                    case 'r_vs_theta':
+                        return data.map(d => {
+                            const arg = d.q * lambda / (4 * PI);
+                            const theta = arg <= 1 ? Math.asin(arg) * 180 / PI : null;
+                            return { x: theta, y: Math.sqrt(d.r_sq) };
+                        }).filter(d => d.x !== null);
+                    case 'r_vs_2theta':
+                         return data.map(d => {
+                            const arg = d.q * lambda / (4 * PI);
+                            const theta = arg <= 1 ? Math.asin(arg) * 180 / PI : null;
+                            return { x: theta !== null ? 2 * theta : null, y: Math.sqrt(d.r_sq) };
+                        }).filter(d => d.x !== null);
+                    case 'porod': {
+                        if (data.length === 0) return [];
+                        const filteredData = data.filter(d => d.q > 0.2); 
+                        if (filteredData.length === 0) return [];
+                        return filteredData.map(d => ({ x: Math.pow(d.q, -4), y: d.r_sq }));
+                    }
+                    case 'r2_vs_q':
+                    default:
+                        return data.map(d => ({ x: d.q, y: d.r_sq }));
+                }
+            }
 
             // --- D3 Plotting ---
-            const margin={top:20,right:30,bottom:60,left:70},container=d3.select("#plot-container");let svg,xScale,yScale,xAxisGroup,yAxisGroup,line,path,xAxisLabel,yAxisLabel,isPlotInitialized=!1;
-            function drawPlot(){const bounds=container.node().getBoundingClientRect();if(bounds.width<=0)return;const height=bounds.height>0?bounds.height:bounds.width*0.6,width=bounds.width;if(!isPlotInitialized){isPlotInitialized=!0;svg=container.append("svg").attr("preserveAspectRatio","xMidYMid meet");const plotArea=svg.append("g").attr("transform",`translate(${margin.left},${margin.top})`);xScale=d3.scaleLinear();yScale=d3.scaleLog().clamp(!0);xAxisGroup=plotArea.append("g").attr("class","x-axis");yAxisGroup=plotArea.append("g").attr("class","y-axis");xAxisLabel=svg.append("text").attr("class","axis-label").attr("text-anchor","middle");yAxisLabel=svg.append("text").attr("class","axis-label").attr("transform","rotate(-90)").attr("text-anchor","middle");line=d3.line().x(d=>xScale(d.q)).y(d=>yScale(d.r));path=plotArea.append("path").attr("class","plot-line")}svg.attr("viewBox",`0 0 ${width} ${height}`);const plotWidth=width-margin.left-margin.right,plotHeight=height-margin.top-margin.bottom;xScale.domain([0,1]).range([0,plotWidth]);yScale.domain([1e-10,1]).range([plotHeight,0]);xAxisGroup.attr("transform",`translate(0,${plotHeight})`).call(d3.axisBottom(xScale).ticks(5));yAxisGroup.call(d3.axisLeft(yScale).ticks(6).tickFormat(d=>{const l=Math.round(Math.log10(d));if(d>1)return null;switch(l){case 0:return"10⁰";case -2:return"10⁻²";case -4:return"10⁻⁴";case -6:return"10⁻⁶";case -8:return"10⁻⁸";case -10:return"10⁻¹⁰";default:return null}}));xAxisLabel.attr("x",margin.left+plotWidth/2).attr("y",height-15).html("Wavevector transfer Q [Å⁻¹]");yAxisLabel.attr("y",15).attr("x",0-(margin.top+plotHeight/2)).attr("dy","1em").text("Reflectivity |R|²");updateLine(!1)}
-            
-            function updateLine(useTransition = true) {
-                const layers = [];
-                document.querySelectorAll('.layer-container').forEach(layerEl => {
-                    layers.push({
-                        thickness: +layerEl.querySelector('input[id^="thickness-"]').value,
-                        density: +layerEl.querySelector('input[id^="film-density-"]').value,
-                        roughness: +layerEl.querySelector('input[id^="roughness-"]').value,
-                        beta: +layerEl.querySelector('input[id^="beta-"]').value / 1e7,
+            function initializePlot() {
+                svg=container.append("svg").attr("preserveAspectRatio","xMidYMid meet");
+                const plotArea=svg.append("g").attr("transform",`translate(${margin.left},${margin.top})`);
+                xScale=d3.scaleLinear();
+                yScale=d3.scaleLog(); // Initialize with a default
+                xAxisGroup=plotArea.append("g").attr("class","x-axis");
+                yAxisGroup=plotArea.append("g").attr("class","y-axis");
+                xAxisLabel=svg.append("text").attr("class","axis-label").attr("text-anchor","middle");
+                yAxisLabel=svg.append("text").attr("class","axis-label").attr("transform","rotate(-90)").attr("text-anchor","middle");
+                path=plotArea.append("path").attr("class","plot-line");
+            }
+
+            function updatePlot({recalculateData = false, useTransition = false} = {}) {
+                if (recalculateData) {
+                    const layers = [];
+                    document.querySelectorAll('.layer-container').forEach(layerEl => {
+                        layers.push({
+                            thickness: +layerEl.querySelector('input[id^="thickness-"]').value,
+                            density: +layerEl.querySelector('input[id^="film-density-"]').value,
+                            roughness: +layerEl.querySelector('input[id^="roughness-"]').value,
+                            beta: +layerEl.querySelector('input[id^="beta-"]').value / 1e7,
+                        });
                     });
-                });
-                const subParams = {
-                    density: +document.getElementById('substrate-density').value,
-                    beta: +document.getElementById('substrate-beta').value / 1e7,
-                };
-                const xrayEnergy = +document.getElementById('xray-energy').value;
-                const data = calculateReflectivity(layers, subParams, xrayEnergy);
+                    const subParams = {
+                        density: +document.getElementById('substrate-density').value,
+                        beta: +document.getElementById('substrate-beta').value / 1e7,
+                    };
+                    const lambda = +document.getElementById('wavelength').value;
+                    calculatedData = calculateReflectivity(layers, subParams, lambda);
+                }
+
+                const bounds = container.node().getBoundingClientRect();
+                if (bounds.width <= 0) return;
+                const height = bounds.height > 0 ? bounds.height : bounds.width * 0.6;
+                const width = bounds.width;
+                svg.attr("viewBox", `0 0 ${width} ${height}`);
                 
-                const pathUpdate = path.datum(data);
-                if (useTransition) pathUpdate.transition().duration(50).attr("d", line);
-                else pathUpdate.attr("d", line);
+                const plotWidth = width - margin.left - margin.right;
+                const plotHeight = height - margin.top - margin.bottom;
+
+                const plotData = transformDataForPlotting(calculatedData);
+                const plotType = document.getElementById('plot-type').value;
+                const axisTransition = useTransition ? d3.transition().duration(50) : d3;
+
+                // Set X-axis scale and domain
+                xScale=d3.scaleLinear();
+                const xDomain = plotData.length > 0 ? d3.extent(plotData, d => d.x) : [0, 1];
+                xScale.domain(xDomain).range([0, plotWidth]);
+                xAxisGroup.attr("transform", `translate(0,${plotHeight})`).transition(axisTransition).call(d3.axisBottom(xScale).ticks(5));
+
+                // --- CHANGED: Conditional Y-axis setup ---
+                if (plotType === 'porod') {
+                    // Use a LINEAR scale for the Porod plot
+                    yScale = d3.scaleLinear();
+                    const yMax = plotData.length > 0 ? d3.max(plotData, d => d.y) : 0;
+                    const yDomain = [0, yMax > 0 ? yMax * 1.1 : 1];
+                    yScale.domain(yDomain).range([plotHeight, 0]);
+                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(5).tickFormat(d3.format(".2e"))); // Scientific notation for small numbers
+                } else {
+                    // Use a LOG scale for all other plots
+                    yScale = d3.scaleLog().clamp(true);
+                    const yDomain = [1e-10, 1.1]; // from a tiny value up to a little above 1
+                    yScale.domain(yDomain).range([plotHeight, 0]);
+                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(6).tickFormat(d => { const l = Math.round(Math.log10(d)); if (d > 1) return null; if (l % 2 === 0) return `10^${l}`; return null; }));
+                }
+
+                // Set axis labels
+                let xLabelTextHTML = "Wavevector transfer Q [Å⁻¹]";
+                let yLabelTextHTML = "|R|<tspan class='super'>2</tspan>";
+
+                switch (plotType) {
+                    case 'r2_vs_q': yLabelTextHTML = "Reflectivity |R|<tspan class='super'>2</tspan>"; break;
+                    case 'r_vs_q': yLabelTextHTML = "Reflectivity |R|"; break;
+                    case 'r_vs_theta': xLabelTextHTML = "θ [degrees]"; yLabelTextHTML = "Reflectivity |R|"; break;
+                    case 'r_vs_2theta': xLabelTextHTML = "2θ [degrees]"; yLabelTextHTML = "Reflectivity |R|"; break;
+                    case 'porod':
+                        xLabelTextHTML = "Q<tspan class='super'>-4</tspan> [Å<tspan class='super'>4</tspan>]"; 
+                        yLabelTextHTML = "Reflectivity |R|<tspan class='super'>2</tspan>"; 
+                        break;
+                }
+                
+                xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 15).html(xLabelTextHTML);
+                yAxisLabel.attr("y", 15).attr("x", 0 - (margin.top + plotHeight / 2)).attr("dy", "1em").html(yLabelTextHTML);
+                
+                // Draw the line
+                const lineGenerator = d3.line()
+                    .x(d => xScale(d.x))
+                    .y(d => yScale(d.y));
+                
+                const pathUpdate = path.datum(plotData);
+                if (useTransition) {
+                    pathUpdate.transition().duration(50).attr("d", lineGenerator);
+                } else {
+                    pathUpdate.attr("d", lineGenerator);
+                }
             }
 
             // --- UI Management ---
@@ -339,15 +462,13 @@
             }
 
             function createLayer(params = {}) {
-                const { thickness = 100, density = 2.0, roughness = 5.0, beta = 2.5 } = params;
+                const { name = '', thickness = 100, density = 2.0, roughness = 5.0, beta = 2.5 } = params;
                 const layerId = Date.now();
-
                 const layerDiv = document.createElement('div');
                 layerDiv.className = 'layer-container';
-                
                 layerDiv.innerHTML = `
                     <div class="layer-header">
-                        <input type="text" class="layer-name-input" placeholder="Enter layer name">
+                        <input type="text" class="layer-name-input" placeholder="Enter layer name" value="${name}">
                         <button class="remove-layer-btn" title="Remove Layer">&times;</button>
                     </div>
                     <div class="space-y-4">
@@ -359,7 +480,7 @@
                             </div>
                         </div>
                         <div>
-                            <label for="film-density-${layerId}">e⁻ density (δ), e⁻/Å³</label>
+                            <label for="film-density-${layerId}">e⁻ density (δ related), e⁻/Å³</label>
                             <div class="control-row">
                                 <input type="range" id="film-density-${layerId}" min="0.1" max="5" value="${density}" step="0.001">
                                 <input type="number" id="film-density-value-${layerId}" min="0.1" max="5" value="${density}" step="0.001">
@@ -394,11 +515,10 @@
                     { slider: `roughness-${layerId}`, value: `roughness-value-${layerId}` }
                 ];
                 controls.forEach(c => linkSliderToNumber(c.slider, c.value));
-                
                 layerDiv.querySelector('.remove-layer-btn').addEventListener('click', () => {
                     layerDiv.remove();
                     updateLayerIndices();
-                    updateLine();
+                    updatePlot({recalculateData: true});
                 });
             }
 
@@ -406,35 +526,33 @@
                 const slider = document.getElementById(sliderId);
                 const numberInput = document.getElementById(numberId);
                 if (!slider || !numberInput) return;
-                
                 const step = parseFloat(slider.step);
                 const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
-
-                slider.addEventListener('input', () => {
-                    numberInput.value = parseFloat(slider.value).toFixed(precision);
-                    updateLine();
-                });
-                numberInput.addEventListener('change', () => {
-                    const min = parseFloat(numberInput.min);
-                    const max = parseFloat(numberInput.max);
-                    let val = parseFloat(numberInput.value);
-                    if (isNaN(val)) val = min;
-                    else if (val < min) val = min;
-                    else if (val > max) val = max;
-                    numberInput.value = val.toFixed(precision);
-                    slider.value = val;
-                    updateLine();
-                });
+                const eventHandler = (event) => {
+                    const isSlider = event.currentTarget.type === 'range';
+                    if (isSlider) {
+                        numberInput.value = parseFloat(slider.value).toFixed(precision);
+                    } else {
+                        const min = parseFloat(numberInput.min), max = parseFloat(numberInput.max);
+                        let val = parseFloat(numberInput.value);
+                        if(isNaN(val)) val = min; else if(val < min) val = min; else if(val > max) val = max;
+                        numberInput.value = val.toFixed(precision); slider.value = val;
+                    }
+                    updatePlot({recalculateData: true, useTransition: isSlider});
+                };
+                slider.addEventListener('input', eventHandler);
+                numberInput.addEventListener('change', eventHandler);
             }
 
             function setupGlobalControls() {
                 linkSliderToNumber('substrate-density', 'substrate-density-value');
                 linkSliderToNumber('substrate-beta', 'substrate-beta-value');
-                linkSliderToNumber('xray-energy', 'xray-energy-value');
+                linkSliderToNumber('wavelength', 'wavelength-value');
                 document.getElementById('add-layer-btn').addEventListener('click', () => {
                     createLayer();
-                    updateLine();
+                    updatePlot({recalculateData: true});
                 });
+                document.getElementById('plot-type').addEventListener('change', () => updatePlot({recalculateData: false}));
                 document.getElementById('save-data-button').addEventListener('click', exportDataFile);
             }
 
@@ -445,20 +563,15 @@
                         name: layerEl.querySelector('.layer-name-input').value || `Layer ${i + 1}`,
                         thickness: +layerEl.querySelector('input[id^="thickness-"]').value,
                         density: +layerEl.querySelector('input[id^="film-density-"]').value,
-                        beta: +layerEl.querySelector('input[id^="beta-"]').value, // Storing the value before dividing by 1e7
+                        beta: +layerEl.querySelector('input[id^="beta-"]').value, 
                         roughness: +layerEl.querySelector('input[id^="roughness-"]').value,
                     });
                 });
-                const subParams = {
-                    density: +document.getElementById('substrate-density').value,
-                    beta: +document.getElementById('substrate-beta').value,
-                };
-                const xrayEnergy = +document.getElementById('xray-energy').value;
-                
-                let fileContent = `# Multi-Layer XRR Data\n#\n# X-Ray Energy (keV): ${xrayEnergy}\n`;
+                const subParams = { density: +document.getElementById('substrate-density').value, beta: +document.getElementById('substrate-beta').value };
+                const lambda = +document.getElementById('wavelength').value;
+                let fileContent = `# Multi-Layer XRR Data\n#\n# Wavelength (A): ${lambda}\n`;
                 fileContent += `# Substrate e- density (e-/A^3): ${subParams.density}\n`;
                 fileContent += `# Substrate beta (x 10^-7): ${subParams.beta}\n#\n`;
-
                 layers.forEach(l => {
                     fileContent += `# Layer: ${l.name}\n`;
                     fileContent += `#   Thickness (A): ${l.thickness}\n`;
@@ -467,19 +580,13 @@
                     fileContent += `#   Interface Roughness (A): ${l.roughness}\n`;
                 });
                 fileContent += `# ---\nQ (A^-1)\tReflectivity\n`;
-                
-                const data = calculateReflectivity(
-                    layers.map(l => ({...l, beta: l.beta / 1e7})), 
-                    {...subParams, beta: subParams.beta / 1e7}, 
-                    xrayEnergy
-                );
-                data.forEach(row => fileContent += `${row.q.toExponential(6)}\t${row.r.toExponential(6)}\n`);
-                
+                const data = calculatedData;
+                data.forEach(row => fileContent += `${row.q.toExponential(6)}\t${row.r_sq.toExponential(6)}\n`);
                 const blob=new Blob([fileContent],{type:'text/plain;charset=utf-8;'});
                 const link=document.createElement("a");
                 const url=URL.createObjectURL(blob);
                 link.setAttribute("href",url);
-                link.setAttribute("download","xrr_multilayer_absorption.dat");
+                link.setAttribute("download","xrr_multilayer.dat");
                 link.style.visibility='hidden';
                 document.body.appendChild(link);
                 link.click();
@@ -488,14 +595,17 @@
             
             // --- Resizer Logic ---
             const resizer=document.getElementById('drag-handle'),leftPanel=document.getElementById('controls-panel');let isResizing=!1;resizer.addEventListener('mousedown',e=>{e.preventDefault();isResizing=!0;document.body.style.cursor='col-resize';document.body.style.userSelect='none';window.addEventListener('mousemove',handleMouseMove);window.addEventListener('mouseup',stopResize)});
-            function handleMouseMove(e){if(!isResizing)return;const p=resizer.parentElement,w=e.clientX-p.getBoundingClientRect().left;if(w>300&&w<p.clientWidth-400){leftPanel.style.width=`${w}px`;drawPlot()}}
-            function stopResize(){isResizing=!1;document.body.style.cursor='default';document.body.style.userSelect='auto';window.removeEventListener('mousemove',handleMouseMove);window.removeEventListener('mouseup',stopResize);drawPlot()}
+            function handleMouseMove(e){if(!isResizing)return;const p=resizer.parentElement,w=e.clientX-p.getBoundingClientRect().left;if(w>300&&w<p.clientWidth-400){leftPanel.style.width=`${w}px`;updatePlot()}}
+            function stopResize(){isResizing=!1;document.body.style.cursor='default';document.body.style.userSelect='auto';window.removeEventListener('mousemove',handleMouseMove);window.removeEventListener('mouseup',stopResize);updatePlot()}
             
             // --- Initialization ---
-            const ro=new ResizeObserver(drawPlot),pc=container.node();if(pc)ro.observe(pc);
+            initializePlot();
             setupGlobalControls();
-            createLayer({ thickness: 62.8, density: 4.678, roughness: 3.0, beta: 2.5 }); // Start with one layer
-            drawPlot();
+            const ro = new ResizeObserver(() => updatePlot());
+            const pc = container.node();
+            if(pc) ro.observe(pc);
+            createLayer({ name: 'Layer 1', thickness: 62.8, density: 4.678, roughness: 0.0, beta: 0.0 }); 
+            updatePlot({recalculateData: true});
         });
     </script>
 </body>
