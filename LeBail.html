@@ -883,30 +883,30 @@
             function getParameterMapping(fitFlags) {
                 const paramMapping = [];
                 const paramDefs = [
-                    { flag: fitFlags.a, name: 'a', get: p => p.a, set: (p, v) => p.a = v, step: 1e-3 },
-                    { flag: fitFlags.b, name: 'b', get: p => p.b, set: (p, v) => p.b = v, step: 1e-4 },
-                    { flag: fitFlags.c, name: 'c', get: p => p.c, set: (p, v) => p.c = v, step: 1e-4 },
-                    { flag: fitFlags.alpha, name: 'alpha', get: p => p.alpha, set: (p, v) => p.alpha = v, step: 1e-3 },
-                    { flag: fitFlags.beta, name: 'beta', get: p => p.beta, set: (p, v) => p.beta = v, step: 1e-3 },
-                    { flag: fitFlags.gamma, name: 'gamma', get: p => p.gamma, set: (p, v) => p.gamma = v, step: 1e-3 },
-                    { flag: fitFlags.zeroShift, name: 'zeroShift', get: p => p.zeroShift, set: (p, v) => p.zeroShift = v, step: 1e-3 },
-                    { flag: fitFlags.GU, name: 'GU', get: p => p.GU, set: (p, v) => p.GU = v, step: 0.5 },
-                    { flag: fitFlags.GV, name: 'GV', get: p => p.GV, set: (p, v) => p.GV = v, step: 0.5 },
-                    { flag: fitFlags.GW, name: 'GW', get: p => p.GW, set: (p, v) => p.GW = v, step: 0.5 },
-                    { flag: fitFlags.GP, name: 'GP', get: p => p.GP, set: (p, v) => p.GP = v, step: 0.1 },
-                    { flag: fitFlags.LX, name: 'LX', get: p => p.LX, set: (p, v) => p.LX = v, step: 0.1 },
-                    { flag: fitFlags.eta, name: 'eta', get: p => p.eta, set: (p, v) => p.eta = v, step: 0.01 },
-                    { flag: fitFlags.shft, name: 'shft', get: p => p.shft, set: (p, v) => p.shft = v, step: 0.01 },
-                    { flag: fitFlags.trns, name: 'trns', get: p => p.trns, set: (p, v) => p.trns = v, step: 0.01 },
-                    // MODIFICATION: Increased step size for the inverse background term
-                    { flag: fitFlags.bg_inv, name: 'B-1', get: p => p.bg_inv, set: (p, v) => p.bg_inv = v, step: 5.0 },
+                    { flag: fitFlags.a, name: 'a', get: p => p.a, set: (p, v) => p.a = v, step: 1e-2 },
+                    { flag: fitFlags.b, name: 'b', get: p => p.b, set: (p, v) => p.b = v, step: 1e-2 },
+                    { flag: fitFlags.c, name: 'c', get: p => p.c, set: (p, v) => p.c = v, step: 1e-2 },
+                    { flag: fitFlags.alpha, name: 'alpha', get: p => p.alpha, set: (p, v) => p.alpha = v, step: 1e-1 },
+                    { flag: fitFlags.beta, name: 'beta', get: p => p.beta, set: (p, v) => p.beta = v, step: 1e-1 },
+                    { flag: fitFlags.gamma, name: 'gamma', get: p => p.gamma, set: (p, v) => p.gamma = v, step: 1e-1 },
+                    { flag: fitFlags.zeroShift, name: 'zeroShift', get: p => p.zeroShift, set: (p, v) => p.zeroShift = v, step: 1e-2 },
+                    { flag: fitFlags.GU, name: 'GU', get: p => p.GU, set: (p, v) => p.GU = v, step: 1. },
+                    { flag: fitFlags.GV, name: 'GV', get: p => p.GV, set: (p, v) => p.GV = v, step: 1. },
+                    { flag: fitFlags.GW, name: 'GW', get: p => p.GW, set: (p, v) => p.GW = Math.max(0, v), step: 1.0 },
+
+                    { flag: fitFlags.GP, name: 'GP', get: p => p.GP, set: (p, v) => p.GP = v, step: 0.5 },
+        { flag: fitFlags.LX, name: 'LX', get: p => p.LX, set: (p, v) => p.LX = Math.max(0, v), step: 0.2 },
+        { flag: fitFlags.eta, name: 'eta', get: p => p.eta, set: (p, v) => p.eta = Math.max(0, Math.min(1, v)), step: 0.05 },
+        { flag: fitFlags.shft, name: 'shft', get: p => p.shft, set: (p, v) => p.shft = v, step: 0.1 },
+        { flag: fitFlags.trns, name: 'trns', get: p => p.trns, set: (p, v) => p.trns = v, step: 0.05 },
+        { flag: fitFlags.bg_inv, name: 'B-1', get: p => p.bg_inv, set: (p, v) => p.bg_inv = v, step: 10.0 },
                 ];
                 paramDefs.forEach(def => { if (def.flag) paramMapping.push(def); });
                 
                 fitFlags.background.forEach((fit, i) => {
                     if (fit) { 
-                        // MODIFICATION: Greatly increased step size for all Chebyshev background terms
-                        const step = 20.0;
+                        // Greatly increased step size for all Chebyshev background terms
+                        const step = 50.0;
                         paramMapping.push({ name: `B${i}`, get: p => p.bg[i], set: (p, v) => p.bg[i] = v, step: step }); 
                     }
                 });
@@ -957,56 +957,113 @@
                 return { x: best_x, fx: best_cost };
             }
 
-            // Fixed Simulated Annealing refinement
+            //  Simulated Annealing refinement
+
+            // BETTER: More aggressive SA with proper exploration
 async function refineParametersSA(initialParams, fitFlags, maxIter, system, centering, progressCallback) {
     const { paramMapping } = getParameterMapping(fitFlags);
     if (paramMapping.length === 0) return initialParams;
 
     const workingData = getWorkingData();
     let p_initial_vec = paramMapping.map(m => m.get(initialParams));
+    
+    // Pre-extract reference intensities
+    let referenceHklList = generateHKL(Math.max(...workingData.tth), initialParams, system, centering);
+    leBailIntensityExtraction(workingData, referenceHklList, initialParams);
+    const referenceIntensities = referenceHklList.map(hkl => ({ ...hkl }));
 
-    let finalParamsFromCallback = null; 
-
-    // FIXED: Proper objective function that regenerates HKL and does Le Bail extraction
     const objective = (p_vec) => {
         let tempParams = JSON.parse(JSON.stringify(initialParams));
         paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
         if (tempParams.a <= 0) return 1e12;
         
-        // CRITICAL FIX: Regenerate HKL list with new lattice parameters
         let hklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering);
         
-        // CRITICAL FIX: Do Le Bail intensity extraction with current parameters
-        leBailIntensityExtraction(workingData, hklList, tempParams);
+        // Use reference intensities
+        const maxRefIntensity = Math.max(...referenceIntensities.map(h => h.intensity));
+        hklList.forEach(hkl => {
+            const matchingRef = referenceIntensities.find(ref => 
+                Math.abs(ref.d - hkl.d) < 0.01 * ref.d
+            );
+            hkl.intensity = matchingRef ? matchingRef.intensity : maxRefIntensity * 0.1;
+        });
 
         const { pattern } = calculatePattern(workingData.tth, hklList, tempParams);
         const diff = subtract(workingData.intensity, pattern);
         return dot(diff, diff);
     };
+
+    // More aggressive SA parameters
+    let T = 1000.0;  // Higher initial temperature
+    const coolingRate = 0.999;  // Slower cooling
+    const maxSteps = maxIter * 50;  // More steps
     
-    const saProgressCallback = async (progress, best_p_vec) => {
-        let tempParams = JSON.parse(JSON.stringify(initialParams));
-        paramMapping.forEach((m, i) => m.set(tempParams, best_p_vec[i]));
+    let current_x = [...p_initial_vec];
+    let current_cost = objective(current_x);
+    let best_x = [...current_x];
+    let best_cost = current_cost;
+    
+    console.log(`SA Initial: Cost = ${current_cost.toExponential(3)}, a = ${initialParams.a}, T = ${T}`);
+
+    for (let i = 0; i < maxSteps; i++) {
+        // More aggressive exploration
+        let neighbor_x = current_x.map((val, idx) => {
+            const baseStep = paramMapping[idx].step;
+            const tempFactor = Math.max(0.1, T / 1000.0);  // Temperature-dependent step size
+            const stepSize = baseStep * tempFactor * 5.0;  // Larger base multiplier
+            
+            let newVal = val + (Math.random() - 0.5) * stepSize;
+            
+            // Apply constraints
+            if (paramMapping[idx].name === 'eta') {
+                newVal = Math.max(0, Math.min(1, newVal));
+            } else if (['a', 'b', 'c'].includes(paramMapping[idx].name)) {
+                newVal = Math.max(0.1, newVal);
+            }
+            
+            return newVal;
+        });
         
-        const hklList = generateHKL(Math.max(...fullExperimentalData.tth), tempParams, system, centering);
-        leBailIntensityExtraction(getWorkingData(), hklList, tempParams);
-        
-        const { pattern, background } = calculatePattern(fullExperimentalData.tth, hklList, tempParams);
-        const { pattern: workingPattern } = calculatePattern(workingData.tth, hklList, tempParams);
-        const rwp = calculateRwp(workingData.intensity, workingPattern);
-        
-        if (progress === 1) {
-            finalParamsFromCallback = JSON.parse(JSON.stringify(tempParams));
+        let neighbor_cost = objective(neighbor_x);
+        let cost_diff = neighbor_cost - current_cost;
+
+        // Accept/reject
+        if (cost_diff < 0 || Math.exp(-cost_diff / T) > Math.random()) {
+            current_x = [...neighbor_x];
+            current_cost = neighbor_cost;
         }
 
-        if (progressCallback) progressCallback(progress, tempParams, rwp, pattern, background);
+        if (current_cost < best_cost) {
+            best_x = [...current_x];
+            best_cost = current_cost;
+            console.log(`SA Improvement at step ${i}: Cost = ${best_cost.toExponential(3)}, T = ${T.toFixed(1)}`);
+        }
 
-        await new Promise(resolve => setTimeout(resolve, 0)); 
-    };
+        T *= coolingRate;
 
-    await simulatedAnnealing(objective, p_initial_vec, paramMapping, maxIter, saProgressCallback);
+        // Progress callback
+        if (i % 100 === 0) {
+            let tempParams = JSON.parse(JSON.stringify(initialParams));
+            paramMapping.forEach((m, j) => m.set(tempParams, best_x[j]));
+            
+            const hklList = generateHKL(Math.max(...fullExperimentalData.tth), tempParams, system, centering);
+            leBailIntensityExtraction(workingData, hklList, tempParams);
+            
+            const { pattern, background } = calculatePattern(fullExperimentalData.tth, hklList, tempParams);
+            const rwp = calculateRwp(workingData.intensity, calculatePattern(workingData.tth, hklList, tempParams).pattern);
+            
+            if (progressCallback) {
+                await progressCallback(i / maxSteps, tempParams, rwp, pattern, background);
+            }
+        }
+    }
 
-    const finalParams = finalParamsFromCallback;
+    // Final result
+    let finalParams = JSON.parse(JSON.stringify(initialParams));
+    paramMapping.forEach((m, i) => m.set(finalParams, best_x[i]));
+    
+    console.log(`SA Final: Cost = ${best_cost.toExponential(3)}, a = ${finalParams.a.toFixed(6)}`);
+    
     fitResults = { params: finalParams, algorithm: 'sa', paramMapping, fitFlags };
     return finalParams;
 }
