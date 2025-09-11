@@ -269,20 +269,12 @@
                             return { x: theta !== null ? 2 * theta : null, y: Math.sqrt(d.r_sq) };
                         }).filter(d => d.x !== null);
                     case 'porod': {
-                        const filmDensity = +document.getElementById('film-density').value;
-                        const sigma01 = +document.getElementById('roughness01').value;
-                        const qCritSq_film = 16 * PI * filmDensity * CLASSICAL_ELECTRON_RADIUS;
-                        const porod_ideal_plateau = Math.pow(qCritSq_film, 2) / 16.0;
-
-                        return data.map(d => {
-                            if (d.q*d.q < qCritSq_film * 1.5) return {x: d.q, y: NaN}; 
-                            const kz_vac_re = d.q / 2.0;
-                            const kz_film_re = 0.5 * Math.sqrt(d.q*d.q - qCritSq_film);
-                            const rough_exponent = -2.0 * kz_vac_re * kz_film_re * sigma01 * sigma01;
-                            const rough_factor_sq = Math.pow(Math.exp(rough_exponent), 2);
-                            const y_val = porod_ideal_plateau * rough_factor_sq;
-                            return { x: d.q, y: y_val };
-                        }).filter(d => !isNaN(d.y));
+                        return data
+                          .filter(d => d.q > 0.1) // clean cutoff for Porod regime
+                          .map(d => ({
+                              x: Math.pow(d.q, -4), // Q^-4
+                              y: d.r_sq             // |R|^2
+                          }));
                     }
                     case 'r2_vs_q':
                     default:
@@ -324,14 +316,15 @@
                 const plotType = document.getElementById('plot-type').value;
                 const plotData = transformDataForPlotting(calculatedData);
 
-                yScale = plotType === 'porod' ? d3.scaleLinear() : d3.scaleLog().clamp(true);
+                // scale: log for reflectivity plots, linear y for Porod
+                yScale = (plotType === 'porod')
+                    ? d3.scaleLinear()
+                    : d3.scaleLog().clamp(true);
 
                 const xDomain = d3.extent(plotData, d => d.x);
                 let yDomain;
-
                 if (plotType === 'porod') {
-                    const maxVal = d3.max(plotData, d => d.y);
-                    yDomain = [0, maxVal > 0 ? maxVal * 1.1 : 1e-10]; 
+                    yDomain = d3.extent(plotData, d => d.y);
                 } else {
                     yDomain = [1e-10, 1];
                 }
@@ -342,10 +335,15 @@
                 const axisTransition = useTransition ? d3.transition().duration(50) : d3;
                 xAxisGroup.attr("transform", `translate(0,${plotHeight})`).transition(axisTransition).call(d3.axisBottom(xScale).ticks(5));
                 
-                if (yScale.name === 'log') {
-                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(6).tickFormat(d => { const l = Math.round(Math.log10(d)); if (d > 1) return null; if (l % 2 === 0) return `10^${l}`; return null; }));
+                if (plotType === 'porod') {
+                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(6));
                 } else {
-                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(5).tickFormat(d3.format(".2e")));
+                    yAxisGroup.transition(axisTransition).call(d3.axisLeft(yScale).ticks(6).tickFormat(d => { 
+                        const l = Math.round(Math.log10(d)); 
+                        if (d > 1) return null; 
+                        if (l % 2 === 0) return `10^${l}`; 
+                        return null; 
+                    }));
                 }
 
                 let xLabelText = "Wavevector transfer Q [Å⁻¹]";
@@ -355,7 +353,10 @@
                     case 'r_vs_q': yLabelTextHTML = "Reflectivity |R|"; break;
                     case 'r_vs_theta': xLabelText = "θ [degrees]"; yLabelTextHTML = "Reflectivity |R|"; break;
                     case 'r_vs_2theta': xLabelText = "2θ [degrees]"; yLabelTextHTML = "Reflectivity |R|"; break;
-                    case 'porod': yLabelTextHTML = "|R|<tspan class='super'>2</tspan>·Q<tspan class='super'>4</tspan> [Å<tspan class='super'>-4</tspan>]"; break;
+                    case 'porod':
+                        xLabelText = "Q<tspan class='super'>-4</tspan> [Å<tspan class='super'>-4</tspan>]";
+                        yLabelTextHTML = "Reflectivity |R|<tspan class='super'>2</tspan>";
+                        break;
                 }
                 
                 xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 15).html(xLabelText);
@@ -447,5 +448,8 @@
             updatePlot({recalculateData: true});
         });
     </script>
+
+
+
 </body>
 </html>
