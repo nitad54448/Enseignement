@@ -582,14 +582,34 @@
                 const blob = new Blob([workerScript], { type: 'application/javascript' });
                 worker = new Worker(URL.createObjectURL(blob));
 
-                worker.onmessage = (e) => {
+worker.onmessage = (e) => {
                     const { type, payload } = e.data;
                     if (type === 'progress') {
                         ui.progressBar.style.width = `${payload * 100}%`;
                     } else if (type === 'solution') {
-                        solutions.push(payload);
+                        const newSolution = payload;
+                        
+                        // Find if a near-duplicate solution already exists
+                        const duplicateIndex = solutions.findIndex(existingSol => 
+                            existingSol.system === newSolution.system && 
+                            Math.abs(existingSol.volume - newSolution.volume) < 0.1
+                        );
+
+                        if (duplicateIndex !== -1) {
+                            // A near-duplicate exists. Keep the one with the higher M(20).
+                            if (newSolution.m20 > solutions[duplicateIndex].m20) {
+                                solutions[duplicateIndex] = newSolution; // Replace the old, worse solution
+                            }
+                            // If the new solution's M(20) is not higher, we do nothing, effectively discarding it.
+                        } else {
+                            // No duplicate found, so add the new solution to the list.
+                            solutions.push(newSolution);
+                        }
+
+                        // After adding or potentially replacing, re-sort the entire list and update the table
                         solutions.sort((a,b) => b.m20 - a.m20);
                         updateSolutionsTable();
+
                     } else if (type === 'done') {
                         setUIState(false);
                         worker.terminate();
@@ -598,7 +618,7 @@
                         }
                     }
                 };
-                
+
                 worker.postMessage(params);
             };
             
