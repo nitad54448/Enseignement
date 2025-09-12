@@ -22,6 +22,8 @@
             --text-light: #e5e7eb;
             --text-medium: #d1d5db;
             --text-dark: #9ca3af;
+            --success-green: #16a34a;
+            --error-red: #dc2626;
         }
 
         body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f9fafb; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -58,6 +60,31 @@
         .solutions-table tbody tr { cursor: pointer; transition: background-color: 0.2s; }
         .solutions-table tbody tr:hover { background-color: var(--light-bg); }
         .solutions-table tbody tr.selected { background-color: var(--primary-accent); color: white;}
+
+        #status-box {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            font-size: 0.9rem;
+            font-weight: 500;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(20px);
+            transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        #status-box.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        #status-box.success { background-color: var(--success-green); }
+        #status-box.error { background-color: var(--error-red); }
+        #status-box.info { background-color: var(--border-color); }
     </style>
 </head>
 <body>
@@ -72,7 +99,7 @@
                 <label for="file-input" class="file-input-label">
                     <span id="file-name">Select .xy, .csv or .xrdml File</span>
                 </label>
-                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml">
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml" style="display:none;">
             </div>
 
             <div class="control-group">
@@ -179,10 +206,11 @@
             </div>
         </div>
     </div>
+    
+    <div id="status-box"></div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- UI Elements ---
             const ui = {
                 fileInput: document.getElementById('file-input'),
                 fileName: document.getElementById('file-name'),
@@ -211,18 +239,27 @@
                 tthMaxSlider: document.getElementById('tth-max-slider'),
                 tthMinInput: document.getElementById('tth-min-input'),
                 tthMaxInput: document.getElementById('tth-max-input'),
+                statusBar: document.getElementById('status-box'),
             };
 
-            // --- Global State ---
+            let statusTimeout;
+            const showStatus = (message, type = 'info', duration = 4000) => {
+                if (statusTimeout) clearTimeout(statusTimeout);
+                ui.statusBar.textContent = message;
+                ui.statusBar.className = `show ${type}`;
+                statusTimeout = setTimeout(() => {
+                    ui.statusBar.classList.remove('show');
+                }, duration);
+            };
+
             let fullExperimentalData = { tth: [], intensity: [] };
-            let pickedPeaks = []; // [{tth, d, q}]
+            let pickedPeaks = [];
             let solutions = [];
             let selectedSolution = null;
             let xrdChart;
             let isIndexing = false;
             let worker;
 
-            // --- Input Validation ---
             const inputsToValidate = [
                 { el: ui.wavelength, default: 1.54056 },
                 { el: ui.maxVolume, default: 2000 },
@@ -257,7 +294,6 @@
             });
 
 
-            // --- Data Loading and Parsing ---
             const parseDataFile = (text) => {
                 const lines = text.trim().split(/\r?\n/);
                 const tth = [], intensity = [];
@@ -309,12 +345,11 @@
                     }
 
                     if (!parsedData || parsedData.tth.length === 0) {
-                        alert('No valid data could be parsed.');
+                        showStatus('Error: No valid data could be parsed from the file.', 'error');
                         return;
                     }
 
                     fullExperimentalData = parsedData;
-                    // Normalize intensity
                     const maxIntensity = Math.max(...fullExperimentalData.intensity);
                     if (maxIntensity > 0) {
                          fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => y / maxIntensity * 1000);
@@ -332,11 +367,11 @@
                     ui.indexingControls.classList.remove('hidden');
                     initializeChart();
                     setupTthSliders();
+                    showStatus(`File "${file.name}" loaded successfully.`, 'success');
                 };
                 reader.readAsText(file);
             });
 
-            // --- Peak Picking and Filtering ---
             const setupTthSliders = () => {
                 if (fullExperimentalData.tth.length === 0) return;
                 const min = fullExperimentalData.tth[0];
@@ -406,20 +441,17 @@
             ui.tthMinInput.addEventListener('change', () => { if(!ui.tthMinSlider.disabled) {ui.tthMinSlider.value = ui.tthMinInput.value; updatePlotRange(); findPeaks();} });
             ui.tthMaxInput.addEventListener('change', () => { if(!ui.tthMaxSlider.disabled) {ui.tthMaxSlider.value = ui.tthMaxInput.value; updatePlotRange(); findPeaks();} });
 
-            // --- SAVITZKY-GOLAY IMPLEMENTATION ---
             const savitzkyGolay = (data, windowSize, polyOrder, derivative = 0) => {
                 const halfWindow = Math.floor(windowSize / 2);
                 const numPoints = data.length;
                 const result = new Array(numPoints).fill(0);
 
-                // Precompute coefficients
                 const coeffs = getSGCoefficients(windowSize, polyOrder, derivative);
 
                 for (let i = 0; i < numPoints; i++) {
                     let sum = 0;
                     for (let j = -halfWindow; j <= halfWindow; j++) {
                         const dataIndex = i + j;
-                        // Use reflection for edge handling
                         let reflectedIndex = dataIndex;
                         if (dataIndex < 0) reflectedIndex = -dataIndex;
                         if (dataIndex >= numPoints) reflectedIndex = numPoints - 1 - (dataIndex - (numPoints - 1));
@@ -432,17 +464,14 @@
             };
 
             const getSGCoefficients = (windowSize, polyOrder, derivative) => {
-                const halfWindow = Math.floor(windowSize / 2);
-                // Simple precomputed values for common cases to avoid matrix math in JS
-                // Coeffs for derivative=2
                 if (windowSize === 5 && polyOrder === 2) return [0.142857, -0.0714286, -0.142857, -0.0714286, 0.142857];
                 if (windowSize === 7 && polyOrder === 2) return [0.0714286, 0, -0.047619, -0.0714286, -0.047619, 0, 0.0714286];
                 if (windowSize === 9 && polyOrder === 2) return [0.0384615, 0.0128205, -0.00769231, -0.0230769, -0.0333333, -0.0230769, -0.00769231, 0.0128205, 0.0384615];
-                if (windowSize === 9 && polyOrder === 3) return [0.0384615, 0.0128205, -0.00769231, -0.0230769, -0.0333333, -0.0230769, -0.00769231, 0.0128205, 0.0384615]; // Same as order 2
-                // Fallback to a simple smoother if specific coefficients aren't precomputed
+                if (windowSize === 9 && polyOrder === 3) return [0.0384615, 0.0128205, -0.00769231, -0.0230769, -0.0333333, -0.0230769, -0.00769231, 0.0128205, 0.0384615];
                  console.warn(`No precomputed SG coefficients for window=${windowSize}, order=${polyOrder}, derivative=${derivative}. Using a simplified calculation.`);
                 let a = new Array(polyOrder+1).fill(0); a[derivative] = 1;
                 let b = new Array(windowSize).fill(0);
+                const halfWindow = Math.floor(windowSize / 2);
                 for(let k=0; k<windowSize; k++){
                     let s = 1.0;
                     for(let i=0; i<polyOrder+1; i++){
@@ -458,12 +487,11 @@
                 const intensity = fullExperimentalData.intensity;
                 if (intensity.length < 5) return;
 
-                // --- NEW: Get and validate SG parameters ---
                 let sgWindow = parseInt(ui.sgWindowInput.value, 10);
-                let sgOrder = parseInt(ui.sgPolyInput.value, 10);
                 if (isNaN(sgWindow) || sgWindow < 3 || sgWindow % 2 === 0) {
                     sgWindow = 9; ui.sgWindowInput.value = 9;
                 }
+                let sgOrder = parseInt(ui.sgPolyInput.value, 10);
                 if (isNaN(sgOrder) || sgOrder < 1 || sgOrder >= sgWindow) {
                     sgOrder = 2; ui.sgPolyInput.value = 2;
                 }
@@ -477,21 +505,17 @@
                 }
                 const threshold = (thresholdPercent / 100) * Math.max(...intensity);
 
-                // --- NEW: Calculate 2nd derivative ---
                 const secondDerivative = savitzkyGolay(intensity, sgWindow, sgOrder, 2);
 
                 pickedPeaks = [];
-                // --- NEW: Find local minima in the 2nd derivative ---
                 for (let i = 1; i < secondDerivative.length - 1; i++) {
                     const tth = fullExperimentalData.tth[i];
                     if (tth < minTth || tth > maxTth) continue;
 
-                    // Condition: is it a local minimum in the 2nd derivative AND is the derivative negative?
                     if (secondDerivative[i] < secondDerivative[i-1] && 
                         secondDerivative[i] < secondDerivative[i+1] &&
                         secondDerivative[i] < 0) {
                         
-                        // Condition: is the original intensity above the threshold?
                         if(intensity[i] > threshold) {
                             const lambda = parseFloat(ui.wavelength.value);
                             const d = lambda / (2 * Math.sin(tth * Math.PI / 360));
@@ -523,11 +547,14 @@
                     `;
                     ui.peakListBody.appendChild(row);
                 });
-                ui.peakTableContainer.classList.remove('hidden');
+                ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
                 updateAllMarkers();
             };
 
-            ui.findPeaksButton.addEventListener('click', findPeaks);
+            ui.findPeaksButton.addEventListener('click', () => {
+                findPeaks();
+                showStatus(`${pickedPeaks.length} peaks found in the specified range.`, 'info');
+            });
             ui.peakThresholdInput.addEventListener('change', findPeaks);
             ui.sgWindowInput.addEventListener('change', findPeaks);
             ui.sgPolyInput.addEventListener('change', findPeaks);
@@ -551,16 +578,9 @@
                 }
             });
 
-
-            // --- Indexing Logic (in a Web Worker) ---
             const startIndexing = () => {
-                if (isIndexing) {
-                    worker.terminate();
-                    setUIState(false);
-                    return;
-                }
                 if (pickedPeaks.length < 4) {
-                    alert("Please find at least 4 peaks before starting indexing.");
+                    showStatus("Please find at least 4 peaks before starting indexing.", 'error');
                     return;
                 }
                 
@@ -568,6 +588,7 @@
                 solutions = [];
                 selectedSolution = null;
                 updateSolutionsTable();
+                showStatus('Indexing process started...', 'info');
 
                 const params = {
                     peaks: pickedPeaks,
@@ -582,39 +603,36 @@
                 const blob = new Blob([workerScript], { type: 'application/javascript' });
                 worker = new Worker(URL.createObjectURL(blob));
 
-worker.onmessage = (e) => {
+                worker.onmessage = (e) => {
                     const { type, payload } = e.data;
                     if (type === 'progress') {
                         ui.progressBar.style.width = `${payload * 100}%`;
                     } else if (type === 'solution') {
                         const newSolution = payload;
                         
-                        // Find if a near-duplicate solution already exists
                         const duplicateIndex = solutions.findIndex(existingSol => 
                             existingSol.system === newSolution.system && 
                             Math.abs(existingSol.volume - newSolution.volume) < 0.1
                         );
 
                         if (duplicateIndex !== -1) {
-                            // A near-duplicate exists. Keep the one with the higher M(20).
                             if (newSolution.m20 > solutions[duplicateIndex].m20) {
-                                solutions[duplicateIndex] = newSolution; // Replace the old, worse solution
+                                solutions[duplicateIndex] = newSolution;
                             }
-                            // If the new solution's M(20) is not higher, we do nothing, effectively discarding it.
                         } else {
-                            // No duplicate found, so add the new solution to the list.
                             solutions.push(newSolution);
                         }
 
-                        // After adding or potentially replacing, re-sort the entire list and update the table
                         solutions.sort((a,b) => b.m20 - a.m20);
                         updateSolutionsTable();
 
                     } else if (type === 'done') {
-                        setUIState(false);
                         worker.terminate();
+                        setUIState(false);
                         if (solutions.length > 0) {
-                            ui.reportButton.disabled = false;
+                            showStatus(`Indexing complete. Found ${solutions.length} potential solution(s).`, 'success');
+                        } else {
+                            showStatus('Indexing finished, but no valid solutions were found.', 'info');
                         }
                     }
                 };
@@ -623,14 +641,21 @@ worker.onmessage = (e) => {
             };
             
             ui.startIndexingButton.addEventListener('click', startIndexing);
+
+            ui.reportButton.addEventListener('click', () => {
+                if (isIndexing) {
+                    worker.terminate();
+                    setUIState(false);
+                    showStatus('Indexing stopped by user.', 'info');
+                } else {
+                    generatePDFReport();
+                }
+            });
             
-            // --- UI Updates ---
             const setUIState = (indexing) => {
                 isIndexing = indexing;
                 document.body.style.cursor = indexing ? 'wait' : 'default';
-                ui.startIndexingButton.textContent = indexing ? 'Stop Indexing' : 'Start Indexing';
-                ui.reportButton.disabled = true; // Always disable report button when starting/stopping
-
+                
                 const controlsToDisable = [
                     ui.fileInput,
                     ui.findPeaksButton,
@@ -652,7 +677,6 @@ worker.onmessage = (e) => {
                     if (el) el.disabled = indexing;
                 });
 
-                // Disable peak table inputs and buttons
                 ui.peakListBody.querySelectorAll('input, button').forEach(el => {
                     el.disabled = indexing;
                 });
@@ -664,11 +688,18 @@ worker.onmessage = (e) => {
                 }
 
                 if (indexing) {
+                    ui.startIndexingButton.disabled = true;
+                    ui.startIndexingButton.textContent = 'Indexing...';
+                    ui.reportButton.textContent = 'Stop';
+                    ui.reportButton.disabled = false; 
                     ui.progressBarContainer.classList.remove('hidden');
                 } else {
+                    ui.startIndexingButton.disabled = (pickedPeaks.length === 0);
+                    ui.startIndexingButton.textContent = 'Start Indexing';
+                    ui.reportButton.textContent = 'Generate PDF Report';
+                    ui.reportButton.disabled = (solutions.length === 0);
                     ui.progressBarContainer.classList.add('hidden');
                     ui.progressBar.style.width = '0%';
-                    // Special handling to re-enable sliders only if data is loaded
                     if (fullExperimentalData.tth.length > 0) {
                         ui.tthMinSlider.disabled = false;
                         ui.tthMaxSlider.disabled = false;
@@ -685,17 +716,11 @@ worker.onmessage = (e) => {
                     const row = document.createElement('tr');
                     row.dataset.index = originalIndex;
                     
-                    const params_a = sol.a.toFixed(4);
-                    const params_b = sol.b ? sol.b.toFixed(4) : '';
-                    const params_c = sol.c ? sol.c.toFixed(4) : '';
-                    let cell_params1 = `${params_a}`;
-                    if(params_b) cell_params1 += `, ${params_b}`;
-                    if(params_c) cell_params1 += `, ${params_c}`;
+                    let cell_params1 = `${sol.a.toFixed(4)}`;
+                    if(sol.b) cell_params1 += `, ${sol.b.toFixed(4)}`;
+                    if(sol.c) cell_params1 += `, ${sol.c.toFixed(4)}`;
 
-                    const params_alpha = sol.alpha ? sol.alpha.toFixed(2) : '90';
-                    const params_beta = sol.beta ? sol.beta.toFixed(2) : '90';
-                    const params_gamma = sol.gamma ? sol.gamma.toFixed(2) : '90';
-                    let cell_params2 = `${params_alpha}, ${params_beta}, ${params_gamma}`;
+                    const cell_params2 = `${sol.alpha ? sol.alpha.toFixed(2) : '90'}, ${sol.beta ? sol.beta.toFixed(2) : '90'}, ${sol.gamma ? sol.gamma.toFixed(2) : '90'}`;
                     
                     row.innerHTML = `
                         <td>${sol.system.substring(0,4)}</td>
@@ -720,7 +745,6 @@ worker.onmessage = (e) => {
                 updateAllMarkers();
             });
 
-            // --- Charting ---
             const initializeChart = () => {
                 if (xrdChart) xrdChart.destroy();
                 const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({ x: t, y: fullExperimentalData.intensity[i] }));
@@ -742,7 +766,7 @@ worker.onmessage = (e) => {
                                 label: 'Observed Peaks', 
                                 data: [], 
                                 backgroundColor: 'rgba(239, 68, 68, 0.7)', 
-                                barThickness: 2 
+                                barThickness: 1 
                             },
                             { 
                                 type: 'bar', 
@@ -766,11 +790,7 @@ worker.onmessage = (e) => {
                         plugins: { 
                             legend: { position: 'top' },
                             tooltip: {
-                                // Corrected tooltip behavior
-                                filter: function (tooltipItem) {
-                                    // Only show tooltips for the first dataset (experimental line)
-                                    return tooltipItem.datasetIndex === 0;
-                                }
+                                filter: (item) => item.datasetIndex === 0
                             }
                         }
                     }
@@ -780,7 +800,6 @@ worker.onmessage = (e) => {
             const updateAllMarkers = () => {
                 if (!xrdChart) return;
 
-                // Get visible range and calculate yMax for scaling
                 const minX = xrdChart.options.scales.x.min;
                 const maxX = xrdChart.options.scales.x.max;
                 const visibleIntensities = fullExperimentalData.intensity.filter((_, index) => {
@@ -788,23 +807,16 @@ worker.onmessage = (e) => {
                     return tth >= minX && tth <= maxX;
                 });
                 const yMax = visibleIntensities.length > 0 ? Math.max(...visibleIntensities) : (Math.max(...fullExperimentalData.intensity) || 1000);
-
                 const markerHeight = yMax * 0.04;
 
-                // Update Observed Peaks (red)
-                const obsMarkers = pickedPeaks.map(p => ({ x: p.tth, y: [-markerHeight * 0.25, -markerHeight * 1.25] }));
-                xrdChart.data.datasets[1].data = obsMarkers;
+                xrdChart.data.datasets[1].data = pickedPeaks.map(p => ({ x: p.tth, y: [-markerHeight * 0.25, -markerHeight * 1.25] }));
 
-                // Update Calculated Peaks (blue)
                 if (selectedSolution) {
-                    const { a, b, c, alpha, beta, gamma, system } = selectedSolution;
                     const lambda = parseFloat(ui.wavelength.value);
-                    const maxVisibleTth = xrdChart.options.scales.x.max || Math.max(...pickedPeaks.map(p => p.tth));
-                    const hklList = generateHKL(maxVisibleTth, {a,b,c,alpha,beta,gamma,lambda}, system);
-                    const hklMarkers = hklList.map(hkl => ({ x: hkl.tth, y: [-markerHeight * 1.5, -markerHeight * 2.5] }));
-                    xrdChart.data.datasets[2].data = hklMarkers;
+                    const maxTth = xrdChart.options.scales.x.max || Math.max(...pickedPeaks.map(p => p.tth));
+                    const hklList = generateHKL(maxTth, {...selectedSolution, lambda}, selectedSolution.system);
+                    xrdChart.data.datasets[2].data = hklList.map(hkl => ({ x: hkl.tth, y: [-markerHeight * 1.5, -markerHeight * 2.5] }));
                 } else {
-                    // Clear blue markers if no solution is selected
                     xrdChart.data.datasets[2].data = [];
                 }
                 
@@ -812,7 +824,7 @@ worker.onmessage = (e) => {
             }
             
              const generateHKL = (maxTth, params, system) => {
-                 const { a, b, c, alpha, beta, gamma, lambda } = params;
+                 const { a, b, c, lambda } = params;
                  if (!a || !lambda) return [];
                  const reflections = [];
                  const maxIndex = 10;
@@ -822,7 +834,6 @@ worker.onmessage = (e) => {
                          for (let l = 0; l <= maxIndex; l++) {
                              if (system === 'cubic' && (k > h || l > k)) continue;
                              if ((system === 'tetragonal' || system === 'hexagonal') && k > h) continue;
-
                             if (h === 0 && k === 0 && l === 0) continue;
                              let inv_d_sq = 0;
                              switch (system) {
@@ -835,8 +846,9 @@ worker.onmessage = (e) => {
                              const sinThetaSq = (lambda*lambda / 4) * inv_d_sq;
                              if (sinThetaSq <= 1) {
                                  const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-                                 if (tth > maxTth * 1.05) continue;
-                                reflections.push({tth, h, k, l, d: 1/Math.sqrt(inv_d_sq)});
+                                 if (tth <= maxTth * 1.05) {
+                                     reflections.push({tth, h, k, l, d: 1/Math.sqrt(inv_d_sq)});
+                                 }
                              }
                          }
                      }
@@ -845,21 +857,28 @@ worker.onmessage = (e) => {
              };
 
 
-            // --- Resizer ---
             const resizer = document.getElementById('drag-handle');
             const leftPanel = document.getElementById('controls-panel');
             resizer.addEventListener('mousedown', (e) => {
-                e.preventDefault(); document.body.style.cursor = 'col-resize';
-                const moveHandler = (moveEvent) => { if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) { leftPanel.style.width = `${moveEvent.clientX}px`; } };
-                const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
+                e.preventDefault();
+                document.body.style.cursor = 'col-resize';
+                const moveHandler = (moveEvent) => {
+                    if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) {
+                        leftPanel.style.width = `${moveEvent.clientX}px`;
+                    }
+                };
+                const upHandler = () => {
+                    document.body.style.cursor = 'default';
+                    window.removeEventListener('mousemove', moveHandler);
+                    window.removeEventListener('mouseup', upHandler);
+                };
                 window.addEventListener('mousemove', moveHandler);
                 window.addEventListener('mouseup', upHandler);
             });
 
-            // --- PDF Report Generation ---
             const generatePDFReport = async () => {
                 if (solutions.length === 0) {
-                    alert("No solutions found to generate a report.");
+                    showStatus("No solutions found to generate a report.", 'info');
                     return;
                 }
 
@@ -873,7 +892,6 @@ worker.onmessage = (e) => {
                     const margin = 15;
                     let yPos = 20;
 
-                    // 1. Title and Info
                     const now = new Date();
                     const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
                     doc.setFontSize(18);
@@ -885,7 +903,6 @@ worker.onmessage = (e) => {
                     doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
                     yPos += 10;
 
-                    // 2. Graph Image
                     const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff' });
                     const imgData = canvas.toDataURL('image/png');
                     const imgProps = doc.getImageProperties(imgData);
@@ -895,7 +912,6 @@ worker.onmessage = (e) => {
                     doc.addImage(imgData, 'PNG', margin, yPos, imgWidth, imgHeight);
                     yPos += imgHeight + 10;
 
-                    // 3. Solutions Summary (unchanged)
                     doc.addPage();
                     yPos = 20;
                     doc.setFontSize(14);
@@ -920,7 +936,6 @@ worker.onmessage = (e) => {
                         yPos += 5;
                     });
 
-                    // 4. Pdetail (now with both 2theta obs and calc)
                     const lambda = parseFloat(ui.wavelength.value);
                     solutions.slice(0, 20).forEach(sol => {
                         doc.addPage();
@@ -942,14 +957,13 @@ worker.onmessage = (e) => {
                         doc.text(paramsLine, margin, yPos);
                         yPos += 7;
 
-                        // Centering and space group (unchanged)
                         doc.setFont('helvetica', 'bold');
                         doc.text(`Suggested Centering:`, margin, yPos);
                         doc.setFont('courier', 'normal');
                         doc.text(sol.analysis.centering, margin + 45, yPos);
                         yPos += 5;
 
-                        if (sol.analysis.conditions && sol.analysis.conditions.length > 0) {
+                        if (sol.analysis.conditions.length > 0) {
                             doc.setFont('helvetica', 'bold');
                             doc.text(`Reflection Conditions:`, margin, yPos);
                             doc.setFont('courier', 'normal');
@@ -957,7 +971,7 @@ worker.onmessage = (e) => {
                             yPos += 5;
                         }
 
-                        if (sol.analysis.possibleSpaceGroups && sol.analysis.possibleSpaceGroups.length > 0) {
+                        if (sol.analysis.possibleSpaceGroups.length > 0) {
                             doc.setFont('helvetica', 'bold');
                             doc.text(`Space Groups:`, margin, yPos);
                             let currentX = margin + 45;
@@ -966,8 +980,7 @@ worker.onmessage = (e) => {
                             const pageRightMargin = doc.internal.pageSize.getWidth() - margin;
 
                             allGroups.forEach((sg, index) => {
-                                const isProbable = probableSet.has(sg);
-                                doc.setFont('courier', isProbable ? 'bold' : 'normal');
+                                doc.setFont('courier', probableSet.has(sg) ? 'bold' : 'normal');
                                 const text = sg + (index < allGroups.length - 1 ? ', ' : '');
                                 if (currentX + doc.getTextWidth(text) > pageRightMargin && currentX > margin + 45) {
                                     yPos += 4;
@@ -980,7 +993,6 @@ worker.onmessage = (e) => {
                         }
                         yPos += 3;
 
-                        // Modified table header with d_calc, 2θ_calc, d_obs, 2θ_obs
                         doc.setFont('courier', 'normal');
                         doc.text(' h  k  l |   d_cal(A) 2t_calc   d_obs(A)  2t_obs', margin, yPos);
                         yPos += 5;
@@ -992,7 +1004,6 @@ worker.onmessage = (e) => {
                         hklList.slice(0, 30).forEach(hkl => {
                             if (yPos > 280) { doc.addPage(); yPos = 20; }
 
-                            // Find best matching observed peak
                             let bestMatch = null;
                             let minDiff = Infinity;
                             pickedPeaks.forEach((peak, index) => {
@@ -1007,18 +1018,15 @@ worker.onmessage = (e) => {
                             let d_obs_str = '-';
                             let tth_obs_str = '-';
                             if (bestMatch) {
-                                // d matching logic same as before
                                 const d_err_plus = lambda / (2 * Math.sin((bestMatch.peak.tth - tth_err) * Math.PI / 360));
                                 const d_err_minus = lambda / (2 * Math.sin((bestMatch.peak.tth + tth_err) * Math.PI / 360));
-                                const d_tolerance = Math.abs(d_err_plus - d_err_minus) / 2;
-                                if (minDiff < d_tolerance * 2) {
+                                if (minDiff < Math.abs(d_err_plus - d_err_minus)) {
                                     d_obs_str = bestMatch.peak.d.toFixed(5);
                                     tth_obs_str = bestMatch.peak.tth.toFixed(3);
                                     usedObsPeaks.add(bestMatch.index);
                                 }
                             }
 
-                            // Compute 2theta_calc
                             let tth_calc = '-';
                             if (hkl.d > 0 && lambda/(2*hkl.d) < 1) {
                                 tth_calc = (2 * Math.asin(lambda / (2 * hkl.d)) * 180 / Math.PI).toFixed(3);
@@ -1034,32 +1042,36 @@ worker.onmessage = (e) => {
                         });
                     });
 
-                    // Save the PDF
                     const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
                     doc.save(filename);
+                    showStatus('PDF report generated and saved.', 'success');
 
                 } catch (error) {
                     console.error("Failed to generate PDF:", error);
-                    alert("An error occurred while generating the PDF report.");
+                    showStatus("An error occurred during PDF generation.", 'error');
                 } finally {
                     ui.reportButton.textContent = 'Generate PDF Report';
-                    ui.reportButton.disabled = false;
+                    ui.reportButton.disabled = (solutions.length === 0);
                     document.body.style.cursor = 'default';
                 }
             };
-
-            ui.reportButton.addEventListener('click', generatePDFReport);
         });
     </script>
     
     <script id="indexing-worker" type="text/javascript">
-        // This script block will not be executed directly. Its content is read and used to create the Web Worker.
         self.onmessage = function(e) {
             const { peaks, wavelength, tth_error, max_volume, systems, impurity_peaks } = e.data;
             
-            const max_hkl_indexing = 5;
+            // Search depth parameters have been increased for a more exhaustive search,
+            // closer to the original DICVOL procedure. This will be slower but more likely to find solutions.
+            const max_hkl_indexing = 7; // Max h,k,l to test for initial peak assignments (was 6)
+            const cubic_search_depth = 12; // How many initial peaks to test for cubic (was 8)
+            const tetra_hexa_i_depth = 12; // How many peaks for the first line in T/H (was 10)
+            const tetra_hexa_j_depth = 15; // How many peaks for the second line in T/H (was 12)
+            const ortho_search_depth = 15; // How many initial peaks to combine for orthorhombic (was 12)
+
             const max_hkl_analysis = 7;
-            const min_m20 = 5.0;
+            const min_m20 = 2.0;
             const N_FOR_M20 = Math.min(20, peaks.length);
             const q_obs = peaks.map(p => p.q);
             const tth_obs = peaks.map(p => p.tth);
@@ -1091,7 +1103,6 @@ worker.onmessage = (e) => {
                 }
             };
             
-            // --- CORE FUNCTIONS (M(20) and Error calculation corrected) ---
             const q_from_tth = (tth) => {
                 const d = wavelength / (2 * Math.sin(tth * Math.PI / 360));
                 return 1 / (d * d);
@@ -1171,7 +1182,6 @@ worker.onmessage = (e) => {
                 }
             };
             
-            // --- SYMMETRY ANALYSIS ---
             const analyzeSystematicAbsences = (solution, obs_peaks) => {
                 const { system } = solution;
                 const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p=>p.tth)));
@@ -1257,9 +1267,8 @@ worker.onmessage = (e) => {
                  return reflections.sort((a, b) => a.tth - b.tth);
             };
 
-            // --- INDEXING ALGORITHMS ---
             const indexCubic = () => {
-                for (let i = 0; i < Math.min(4, q_obs.length); i++) {
+                for (let i = 0; i < Math.min(cubic_search_depth, q_obs.length); i++) {
                     for (let h = 1; h <= max_hkl_indexing; h++) {
                         for (let k = 0; k <= h; k++) {
                             for (let l = 0; l <= k; l++) {
@@ -1272,8 +1281,8 @@ worker.onmessage = (e) => {
                 }
             };
             const indexTetragonal = () => {
-                for (let i = 0; i < Math.min(6, q_obs.length); i++) {
-                    for (let j = i + 1; j < Math.min(7, q_obs.length); j++) {
+                for (let i = 0; i < Math.min(tetra_hexa_i_depth, q_obs.length); i++) {
+                    for (let j = i + 1; j < Math.min(tetra_hexa_j_depth, q_obs.length); j++) {
                         for (let h1 = 0; h1 <= max_hkl_indexing; h1++) {
                             for (let k1 = 0; k1 <= h1; k1++) {
                                 for (let l1 = 0; l1 <= max_hkl_indexing; l1++) {
@@ -1301,8 +1310,8 @@ worker.onmessage = (e) => {
                 }
             };
             const indexHexagonal = () => {
-                for (let i = 0; i < Math.min(6, q_obs.length); i++) {
-                    for (let j = i + 1; j < Math.min(7, q_obs.length); j++) {
+                for (let i = 0; i < Math.min(tetra_hexa_i_depth, q_obs.length); i++) {
+                    for (let j = i + 1; j < Math.min(tetra_hexa_j_depth, q_obs.length); j++) {
                         for (let h1 = 0; h1 <= max_hkl_indexing; h1++) {
                             for (let k1 = 0; k1 <= h1; k1++) {
                                 for (let l1 = 0; l1 <= max_hkl_indexing; l1++) {
@@ -1330,14 +1339,42 @@ worker.onmessage = (e) => {
                 }
             };
             const indexOrthorhombic = () => {
-                for(let i=0; i < Math.min(4, q_obs.length); i++) {
-                    for(let j=i+1; j < Math.min(5, q_obs.length); j++) {
-                        for(let k=j+1; k < Math.min(6, q_obs.length); k++) {
-                            const perms = [[i,j,k],[i,k,j],[j,i,k],[j,k,i],[k,i,j],[k,j,i]];
+                // This is a much more thorough search than the previous version.
+                // It iterates through combinations of the first N peaks, and for each combination,
+                // it tests the hypothesis that these peaks correspond to (h,0,0), (0,k,0), and (0,0,l)
+                // for small integer values of h, k, and l. This is closer to the spirit
+                // of a true powder indexing program and will be slower but more robust.
+                const max_peaks_to_try = Math.min(ortho_search_depth, q_obs.length);
+                const max_hkl_to_assign = 3; // Test assignments for (100), (200), (300), etc.
+
+                for (let i = 0; i < max_peaks_to_try; i++) {
+                    for (let j = i + 1; j < max_peaks_to_try; j++) {
+                        for (let k = j + 1; k < max_peaks_to_try; k++) {
+                            
+                            const q_values = [q_obs[i], q_obs[j], q_obs[k]];
+                            
+                            // Test permutations of which q-value is assigned to which axis basis
+                            const perms = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+                            
                             perms.forEach(p => {
-                                const [a_inv, b_inv, c_inv] = [q_obs[p[0]], q_obs[p[1]], q_obs[p[2]]];
-                                if(a_inv > 0 && b_inv > 0 && c_inv > 0) {
-                                    testSolution({a:1/Math.sqrt(a_inv), b:1/Math.sqrt(b_inv), c:1/Math.sqrt(c_inv), system:'orthorhombic'});
+                                const q_a_base = q_values[p[0]];
+                                const q_b_base = q_values[p[1]];
+                                const q_c_base = q_values[p[2]];
+
+                                // And for each permutation, test assigning low h, k, l Miller indices
+                                for (let h = 1; h <= max_hkl_to_assign; h++) {
+                                    const a = h / Math.sqrt(q_a_base);
+                                    for (let kk = 1; kk <= max_hkl_to_assign; kk++) {
+                                        const b = kk / Math.sqrt(q_b_base);
+                                        for (let l = 1; l <= max_hkl_to_assign; l++) {
+                                            const c = l / Math.sqrt(q_c_base);
+                                            
+                                            // By convention, sort parameters to avoid redundant checks of the same cell
+                                            const params = [a, b, c].sort((x, y) => y - x);
+
+                                            testSolution({ a: params[0], b: params[1], c: params[2], system: 'orthorhombic' });
+                                        }
+                                    }
                                 }
                             });
                         }
@@ -1345,7 +1382,6 @@ worker.onmessage = (e) => {
                 }
             };
 
-            // --- Main execution ---
             systems.forEach((system, i) => {
                 if (system === 'cubic') indexCubic();
                 if (system === 'tetragonal') indexTetragonal();
@@ -1358,3 +1394,6 @@ worker.onmessage = (e) => {
     </script>
 </body>
 </html>
+
+
+
