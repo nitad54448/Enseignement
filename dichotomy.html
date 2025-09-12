@@ -78,10 +78,16 @@
             <div class="control-group">
                 <h2 style="font-size: 1.125rem; font-weight: 600; color: white; margin-bottom: 0.75rem;">2. Find Peaks</h2>
                 <div id="peak-controls" class="hidden">
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                         <button id="find-peaks-button" class="btn btn-secondary" style="flex-grow: 1;">Find Peaks</button>
                         <label for="peak-threshold-input" class="control-label" style="margin-bottom: 0; white-space: nowrap;">Min %:</label>
                         <input type="number" id="peak-threshold-input" class="control-input" value="2" min="0.1" max="50" step="0.1" style="width: 6rem;">
+                    </div>
+                     <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.75rem;">
+                        <label for="sg-window-input" class="control-label" style="margin-bottom: 0; white-space: nowrap;">SG Window:</label>
+                        <input type="number" id="sg-window-input" class="control-input" value="9" min="3" max="51" step="2" style="width: 5rem;">
+                        <label for="sg-poly-input" class="control-label" style="margin-bottom: 0; white-space: nowrap;">SG Order:</label>
+                        <input type="number" id="sg-poly-input" class="control-input" value="2" min="1" max="6" step="1" style="width: 5rem;">
                     </div>
                     <div style="margin-top: 1rem;">
                         <label class="control-label">2θ Range for Peak Finding</label>
@@ -169,7 +175,7 @@
                 <canvas id="xrd-chart"></canvas>
             </div>
             <div style="position: absolute; bottom: 0.5rem; right: 1rem; font-size: 0.75rem; color: #9ca3af;">
-                NitaD, Univ Paris-Saclay, 10 Sept 2025
+                NitaD, Univ Paris-Saclay, 12 Sept 2025
             </div>
         </div>
     </div>
@@ -182,6 +188,8 @@
                 fileName: document.getElementById('file-name'),
                 peakControls: document.getElementById('peak-controls'),
                 peakThresholdInput: document.getElementById('peak-threshold-input'),
+                sgWindowInput: document.getElementById('sg-window-input'),
+                sgPolyInput: document.getElementById('sg-poly-input'),
                 findPeaksButton: document.getElementById('find-peaks-button'),
                 peakTableContainer: document.getElementById('peak-table-container'),
                 peakListBody: document.getElementById('peak-list-body'),
@@ -220,7 +228,9 @@
                 { el: ui.maxVolume, default: 2000 },
                 { el: ui.tthError, default: 0.05 },
                 { el: ui.impurityPeaksInput, default: 0 },
-                { el: ui.peakThresholdInput, default: 2 }
+                { el: ui.peakThresholdInput, default: 2 },
+                { el: ui.sgWindowInput, default: 9 },
+                { el: ui.sgPolyInput, default: 2 }
             ];
 
             inputsToValidate.forEach(({ el, default: defaultValue }) => {
@@ -232,6 +242,9 @@
                     if (isNaN(value)) {
                         el.value = defaultValue;
                         return;
+                    }
+                    if (el.step == 2 && value % 2 === 0) { // Ensure window is odd
+                        value += 1;
                     }
 
                     if (!isNaN(min) && value < min) {
@@ -360,7 +373,6 @@
                     xrdChart.options.scales.y.min = -yMaxInRange * 0.25;
                     xrdChart.options.scales.y.max = yMaxInRange * 1.1;
                 } else {
-                    // Fallback if no data is in range (e.g., invalid input)
                     const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
                     xrdChart.options.scales.y.min = -yMax * 0.25;
                     xrdChart.options.scales.y.max = yMax * 1.1;
@@ -394,31 +406,101 @@
             ui.tthMinInput.addEventListener('change', () => { if(!ui.tthMinSlider.disabled) {ui.tthMinSlider.value = ui.tthMinInput.value; updatePlotRange(); findPeaks();} });
             ui.tthMaxInput.addEventListener('change', () => { if(!ui.tthMaxSlider.disabled) {ui.tthMaxSlider.value = ui.tthMaxInput.value; updatePlotRange(); findPeaks();} });
 
+            // --- SAVITZKY-GOLAY IMPLEMENTATION ---
+            const savitzkyGolay = (data, windowSize, polyOrder, derivative = 0) => {
+                const halfWindow = Math.floor(windowSize / 2);
+                const numPoints = data.length;
+                const result = new Array(numPoints).fill(0);
+
+                // Precompute coefficients
+                const coeffs = getSGCoefficients(windowSize, polyOrder, derivative);
+
+                for (let i = 0; i < numPoints; i++) {
+                    let sum = 0;
+                    for (let j = -halfWindow; j <= halfWindow; j++) {
+                        const dataIndex = i + j;
+                        // Use reflection for edge handling
+                        let reflectedIndex = dataIndex;
+                        if (dataIndex < 0) reflectedIndex = -dataIndex;
+                        if (dataIndex >= numPoints) reflectedIndex = numPoints - 1 - (dataIndex - (numPoints - 1));
+                        
+                        sum += data[reflectedIndex] * coeffs[j + halfWindow];
+                    }
+                    result[i] = sum;
+                }
+                return result;
+            };
+
+            const getSGCoefficients = (windowSize, polyOrder, derivative) => {
+                const halfWindow = Math.floor(windowSize / 2);
+                // Simple precomputed values for common cases to avoid matrix math in JS
+                // Coeffs for derivative=2
+                if (windowSize === 5 && polyOrder === 2) return [0.142857, -0.0714286, -0.142857, -0.0714286, 0.142857];
+                if (windowSize === 7 && polyOrder === 2) return [0.0714286, 0, -0.047619, -0.0714286, -0.047619, 0, 0.0714286];
+                if (windowSize === 9 && polyOrder === 2) return [0.0384615, 0.0128205, -0.00769231, -0.0230769, -0.0333333, -0.0230769, -0.00769231, 0.0128205, 0.0384615];
+                if (windowSize === 9 && polyOrder === 3) return [0.0384615, 0.0128205, -0.00769231, -0.0230769, -0.0333333, -0.0230769, -0.00769231, 0.0128205, 0.0384615]; // Same as order 2
+                // Fallback to a simple smoother if specific coefficients aren't precomputed
+                 console.warn(`No precomputed SG coefficients for window=${windowSize}, order=${polyOrder}, derivative=${derivative}. Using a simplified calculation.`);
+                let a = new Array(polyOrder+1).fill(0); a[derivative] = 1;
+                let b = new Array(windowSize).fill(0);
+                for(let k=0; k<windowSize; k++){
+                    let s = 1.0;
+                    for(let i=0; i<polyOrder+1; i++){
+                        b[k] += s*a[i];
+                        s *= (k-halfWindow);
+                    }
+                }
+                return b;
+            };
+
+
             const findPeaks = () => {
                 const intensity = fullExperimentalData.intensity;
-                if (intensity.length < 3) return;
+                if (intensity.length < 5) return;
+
+                // --- NEW: Get and validate SG parameters ---
+                let sgWindow = parseInt(ui.sgWindowInput.value, 10);
+                let sgOrder = parseInt(ui.sgPolyInput.value, 10);
+                if (isNaN(sgWindow) || sgWindow < 3 || sgWindow % 2 === 0) {
+                    sgWindow = 9; ui.sgWindowInput.value = 9;
+                }
+                if (isNaN(sgOrder) || sgOrder < 1 || sgOrder >= sgWindow) {
+                    sgOrder = 2; ui.sgPolyInput.value = 2;
+                }
 
                 const minTth = parseFloat(ui.tthMinInput.value);
                 const maxTth = parseFloat(ui.tthMaxInput.value);
                 
                 let thresholdPercent = parseFloat(ui.peakThresholdInput.value);
                 if (isNaN(thresholdPercent) || thresholdPercent < 0.1 || thresholdPercent > 50) {
-                    thresholdPercent = 2;
-                    ui.peakThresholdInput.value = 2;
+                    thresholdPercent = 2; ui.peakThresholdInput.value = 2;
                 }
                 const threshold = (thresholdPercent / 100) * Math.max(...intensity);
+
+                // --- NEW: Calculate 2nd derivative ---
+                const secondDerivative = savitzkyGolay(intensity, sgWindow, sgOrder, 2);
+
                 pickedPeaks = [];
-                for (let i = 1; i < intensity.length - 1; i++) {
+                // --- NEW: Find local minima in the 2nd derivative ---
+                for (let i = 1; i < secondDerivative.length - 1; i++) {
                     const tth = fullExperimentalData.tth[i];
                     if (tth < minTth || tth > maxTth) continue;
 
-                    if (intensity[i] > intensity[i - 1] && intensity[i] > intensity[i + 1] && intensity[i] > threshold) {
-                        const lambda = parseFloat(ui.wavelength.value);
-                        const d = lambda / (2 * Math.sin(tth * Math.PI / 360));
-                        const q = 1 / (d * d);
-                        pickedPeaks.push({ tth, d, q });
+                    // Condition: is it a local minimum in the 2nd derivative AND is the derivative negative?
+                    if (secondDerivative[i] < secondDerivative[i-1] && 
+                        secondDerivative[i] < secondDerivative[i+1] &&
+                        secondDerivative[i] < 0) {
+                        
+                        // Condition: is the original intensity above the threshold?
+                        if(intensity[i] > threshold) {
+                            const lambda = parseFloat(ui.wavelength.value);
+                            const d = lambda / (2 * Math.sin(tth * Math.PI / 360));
+                            const q = 1 / (d * d);
+                            pickedPeaks.push({ tth, d, q });
+                        }
                     }
                 }
+                
                 updatePeakTable();
                 if (pickedPeaks.length > 0) {
                     ui.startIndexingButton.disabled = false;
@@ -447,6 +529,8 @@
 
             ui.findPeaksButton.addEventListener('click', findPeaks);
             ui.peakThresholdInput.addEventListener('change', findPeaks);
+            ui.sgWindowInput.addEventListener('change', findPeaks);
+            ui.sgPolyInput.addEventListener('change', findPeaks);
 
             ui.peakListBody.addEventListener('change', (e) => {
                 if (e.target.classList.contains('peak-tth-input')) {
@@ -531,6 +615,8 @@
                     ui.fileInput,
                     ui.findPeaksButton,
                     ui.peakThresholdInput,
+                    ui.sgWindowInput,
+                    ui.sgPolyInput,
                     ui.tthMinSlider,
                     ui.tthMaxSlider,
                     ui.tthMinInput,
@@ -751,198 +837,196 @@
             });
 
             // --- PDF Report Generation ---
-
-const generatePDFReport = async () => {
-    if (solutions.length === 0) {
-        alert("No solutions found to generate a report.");
-        return;
-    }
-
-    ui.reportButton.textContent = 'Generating...';
-    ui.reportButton.disabled = true;
-    document.body.style.cursor = 'wait';
-
-    try {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-        const margin = 15;
-        let yPos = 20;
-
-        // 1. Title and Info
-        const now = new Date();
-        const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        doc.setFontSize(18);
-        doc.text('Powder Indexing Report', 105, yPos, { align: 'center' });
-        yPos += 10;
-        doc.setFontSize(10);
-        doc.text(`Generated: ${timestamp}`, margin, yPos);
-        yPos += 5;
-        doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
-        yPos += 10;
-
-        // 2. Graph Image
-        const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff' });
-        const imgData = canvas.toDataURL('image/png');
-        const imgProps = doc.getImageProperties(imgData);
-        const pdfWidth = doc.internal.pageSize.getWidth();
-        const imgWidth = pdfWidth - 2 * margin;
-        const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-        doc.addImage(imgData, 'PNG', margin, yPos, imgWidth, imgHeight);
-        yPos += imgHeight + 10;
-
-        // 3. Solutions Summary (unchanged)
-        doc.addPage();
-        yPos = 20;
-        doc.setFontSize(14);
-        doc.text('Indexing Solutions Summary', margin, yPos);
-        yPos += 8;
-        doc.setFont('courier', 'normal');
-        doc.setFontSize(9);
-        doc.text('Sys  M(20)   Volume(A^3)  a(A)      b(A)      c(A)      alpha  beta   gamma', margin, yPos);
-        yPos += 5;
-        solutions.slice(0, 20).forEach(sol => {
-            if (yPos > 280) { doc.addPage(); yPos = 20; }
-            const line = `${sol.system.substring(0,4).padEnd(5)}` +
-                        `${sol.m20.toFixed(2).padStart(6)}  ` +
-                        `${sol.volume.toFixed(2).padStart(10)}  ` +
-                        `${sol.a.toFixed(4).padStart(8)}  ` +
-                        `${(sol.b ? sol.b.toFixed(4) : '-').padStart(8)}  ` +
-                        `${(sol.c ? sol.c.toFixed(4) : '-').padStart(8)}  ` +
-                        `${(sol.alpha ? sol.alpha.toFixed(2) : '90.00').padStart(6)} ` +
-                        `${(sol.beta ? sol.beta.toFixed(2) : '90.00').padStart(6)} ` +
-                        `${(sol.gamma ? sol.gamma.toFixed(2) : '90.00').padStart(6)}`;
-            doc.text(line, margin, yPos);
-            yPos += 5;
-        });
-
-        // 4. Pdetail (now with both 2theta obs and calc)
-        const lambda = parseFloat(ui.wavelength.value);
-        solutions.slice(0, 20).forEach(sol => {
-            doc.addPage();
-            yPos = 20;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(12);
-            doc.text(`Details for Solution: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos);
-            yPos += 7;
-
-            doc.setFont('courier', 'normal');
-            doc.setFontSize(9);
-            let paramsLine = `a=${sol.a.toFixed(4)}`;
-            if(sol.b) paramsLine += `, b=${sol.b.toFixed(4)}`;
-            if(sol.c) paramsLine += `, c=${sol.c.toFixed(4)}`;
-            paramsLine += ` (A)`;
-            if(sol.alpha) paramsLine += `, a=${sol.alpha.toFixed(2)}`;
-            if(sol.beta) paramsLine += `, b=${sol.beta.toFixed(2)}`;
-            if(sol.gamma) paramsLine += `, g=${sol.gamma.toFixed(2)}`;
-            doc.text(paramsLine, margin, yPos);
-            yPos += 7;
-
-            // Centering and space group (unchanged)
-            doc.setFont('helvetica', 'bold');
-            doc.text(`Suggested Centering:`, margin, yPos);
-            doc.setFont('courier', 'normal');
-            doc.text(sol.analysis.centering, margin + 45, yPos);
-            yPos += 5;
-
-            if (sol.analysis.conditions && sol.analysis.conditions.length > 0) {
-                doc.setFont('helvetica', 'bold');
-                doc.text(`Reflection Conditions:`, margin, yPos);
-                doc.setFont('courier', 'normal');
-                doc.text(sol.analysis.conditions.join(', '), margin + 45, yPos);
-                yPos += 5;
-            }
-
-            if (sol.analysis.possibleSpaceGroups && sol.analysis.possibleSpaceGroups.length > 0) {
-                doc.setFont('helvetica', 'bold');
-                doc.text(`Space Groups:`, margin, yPos);
-                let currentX = margin + 45;
-                const probableSet = new Set(sol.analysis.probableSpaceGroups);
-                const allGroups = sol.analysis.possibleSpaceGroups;
-                const pageRightMargin = doc.internal.pageSize.getWidth() - margin;
-
-                allGroups.forEach((sg, index) => {
-                    const isProbable = probableSet.has(sg);
-                    doc.setFont('courier', isProbable ? 'bold' : 'normal');
-                    const text = sg + (index < allGroups.length - 1 ? ', ' : '');
-                    if (currentX + doc.getTextWidth(text) > pageRightMargin && currentX > margin + 45) {
-                        yPos += 4;
-                        currentX = margin + 45;
-                    }
-                    doc.text(text, currentX, yPos);
-                    currentX += doc.getTextWidth(text);
-                });
-                yPos += 4;
-            }
-            yPos += 3;
-
-            // Modified table header with d_calc, 2θ_calc, d_obs, 2θ_obs
-            doc.setFont('courier', 'normal');
-            doc.text(' h  k  l |   d_cal(A) 2t_calc   d_obs(A)  2t_obs', margin, yPos);
-            yPos += 5;
-
-            const hklList = generateHKL(90, {...sol, lambda}, sol.system);
-            const usedObsPeaks = new Set();
-            const tth_err = parseFloat(ui.tthError.value);
-
-            hklList.slice(0, 30).forEach(hkl => {
-                if (yPos > 280) { doc.addPage(); yPos = 20; }
-
-                // Find best matching observed peak
-                let bestMatch = null;
-                let minDiff = Infinity;
-                pickedPeaks.forEach((peak, index) => {
-                    if (usedObsPeaks.has(index)) return;
-                    const diff = Math.abs(hkl.d - peak.d);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        bestMatch = { peak, index };
-                    }
-                });
-
-                let d_obs_str = '-';
-                let tth_obs_str = '-';
-                if (bestMatch) {
-                    // d matching logic same as before
-                    const d_err_plus = lambda / (2 * Math.sin((bestMatch.peak.tth - tth_err) * Math.PI / 360));
-                    const d_err_minus = lambda / (2 * Math.sin((bestMatch.peak.tth + tth_err) * Math.PI / 360));
-                    const d_tolerance = Math.abs(d_err_plus - d_err_minus) / 2;
-                    if (minDiff < d_tolerance * 2) {
-                        d_obs_str = bestMatch.peak.d.toFixed(5);
-                        tth_obs_str = bestMatch.peak.tth.toFixed(3);
-                        usedObsPeaks.add(bestMatch.index);
-                    }
+            const generatePDFReport = async () => {
+                if (solutions.length === 0) {
+                    alert("No solutions found to generate a report.");
+                    return;
                 }
 
-                // Compute 2theta_calc
-                let tth_calc = '-';
-                if (hkl.d > 0 && lambda/(2*hkl.d) < 1) {
-                    tth_calc = (2 * Math.asin(lambda / (2 * hkl.d)) * 180 / Math.PI).toFixed(3);
+                ui.reportButton.textContent = 'Generating...';
+                ui.reportButton.disabled = true;
+                document.body.style.cursor = 'wait';
+
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                    const margin = 15;
+                    let yPos = 20;
+
+                    // 1. Title and Info
+                    const now = new Date();
+                    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                    doc.setFontSize(18);
+                    doc.text('Powder Indexing Report', 105, yPos, { align: 'center' });
+                    yPos += 10;
+                    doc.setFontSize(10);
+                    doc.text(`Generated: ${timestamp}`, margin, yPos);
+                    yPos += 5;
+                    doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
+                    yPos += 10;
+
+                    // 2. Graph Image
+                    const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff' });
+                    const imgData = canvas.toDataURL('image/png');
+                    const imgProps = doc.getImageProperties(imgData);
+                    const pdfWidth = doc.internal.pageSize.getWidth();
+                    const imgWidth = pdfWidth - 2 * margin;
+                    const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+                    doc.addImage(imgData, 'PNG', margin, yPos, imgWidth, imgHeight);
+                    yPos += imgHeight + 10;
+
+                    // 3. Solutions Summary (unchanged)
+                    doc.addPage();
+                    yPos = 20;
+                    doc.setFontSize(14);
+                    doc.text('Indexing Solutions Summary', margin, yPos);
+                    yPos += 8;
+                    doc.setFont('courier', 'normal');
+                    doc.setFontSize(9);
+                    doc.text('Sys  M(20)   Volume(A^3)  a(A)      b(A)      c(A)      alpha  beta   gamma', margin, yPos);
+                    yPos += 5;
+                    solutions.slice(0, 20).forEach(sol => {
+                        if (yPos > 280) { doc.addPage(); yPos = 20; }
+                        const line = `${sol.system.substring(0,4).padEnd(5)}` +
+                                    `${sol.m20.toFixed(2).padStart(6)}  ` +
+                                    `${sol.volume.toFixed(2).padStart(10)}  ` +
+                                    `${sol.a.toFixed(4).padStart(8)}  ` +
+                                    `${(sol.b ? sol.b.toFixed(4) : '-').padStart(8)}  ` +
+                                    `${(sol.c ? sol.c.toFixed(4) : '-').padStart(8)}  ` +
+                                    `${(sol.alpha ? sol.alpha.toFixed(2) : '90.00').padStart(6)} ` +
+                                    `${(sol.beta ? sol.beta.toFixed(2) : '90.00').padStart(6)} ` +
+                                    `${(sol.gamma ? sol.gamma.toFixed(2) : '90.00').padStart(6)}`;
+                        doc.text(line, margin, yPos);
+                        yPos += 5;
+                    });
+
+                    // 4. Pdetail (now with both 2theta obs and calc)
+                    const lambda = parseFloat(ui.wavelength.value);
+                    solutions.slice(0, 20).forEach(sol => {
+                        doc.addPage();
+                        yPos = 20;
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(12);
+                        doc.text(`Details for Solution: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos);
+                        yPos += 7;
+
+                        doc.setFont('courier', 'normal');
+                        doc.setFontSize(9);
+                        let paramsLine = `a=${sol.a.toFixed(4)}`;
+                        if(sol.b) paramsLine += `, b=${sol.b.toFixed(4)}`;
+                        if(sol.c) paramsLine += `, c=${sol.c.toFixed(4)}`;
+                        paramsLine += ` (A)`;
+                        if(sol.alpha) paramsLine += `, a=${sol.alpha.toFixed(2)}`;
+                        if(sol.beta) paramsLine += `, b=${sol.beta.toFixed(2)}`;
+                        if(sol.gamma) paramsLine += `, g=${sol.gamma.toFixed(2)}`;
+                        doc.text(paramsLine, margin, yPos);
+                        yPos += 7;
+
+                        // Centering and space group (unchanged)
+                        doc.setFont('helvetica', 'bold');
+                        doc.text(`Suggested Centering:`, margin, yPos);
+                        doc.setFont('courier', 'normal');
+                        doc.text(sol.analysis.centering, margin + 45, yPos);
+                        yPos += 5;
+
+                        if (sol.analysis.conditions && sol.analysis.conditions.length > 0) {
+                            doc.setFont('helvetica', 'bold');
+                            doc.text(`Reflection Conditions:`, margin, yPos);
+                            doc.setFont('courier', 'normal');
+                            doc.text(sol.analysis.conditions.join(', '), margin + 45, yPos);
+                            yPos += 5;
+                        }
+
+                        if (sol.analysis.possibleSpaceGroups && sol.analysis.possibleSpaceGroups.length > 0) {
+                            doc.setFont('helvetica', 'bold');
+                            doc.text(`Space Groups:`, margin, yPos);
+                            let currentX = margin + 45;
+                            const probableSet = new Set(sol.analysis.probableSpaceGroups);
+                            const allGroups = sol.analysis.possibleSpaceGroups;
+                            const pageRightMargin = doc.internal.pageSize.getWidth() - margin;
+
+                            allGroups.forEach((sg, index) => {
+                                const isProbable = probableSet.has(sg);
+                                doc.setFont('courier', isProbable ? 'bold' : 'normal');
+                                const text = sg + (index < allGroups.length - 1 ? ', ' : '');
+                                if (currentX + doc.getTextWidth(text) > pageRightMargin && currentX > margin + 45) {
+                                    yPos += 4;
+                                    currentX = margin + 45;
+                                }
+                                doc.text(text, currentX, yPos);
+                                currentX += doc.getTextWidth(text);
+                            });
+                            yPos += 4;
+                        }
+                        yPos += 3;
+
+                        // Modified table header with d_calc, 2θ_calc, d_obs, 2θ_obs
+                        doc.setFont('courier', 'normal');
+                        doc.text(' h  k  l |   d_cal(A) 2t_calc   d_obs(A)  2t_obs', margin, yPos);
+                        yPos += 5;
+
+                        const hklList = generateHKL(90, {...sol, lambda}, sol.system);
+                        const usedObsPeaks = new Set();
+                        const tth_err = parseFloat(ui.tthError.value);
+
+                        hklList.slice(0, 30).forEach(hkl => {
+                            if (yPos > 280) { doc.addPage(); yPos = 20; }
+
+                            // Find best matching observed peak
+                            let bestMatch = null;
+                            let minDiff = Infinity;
+                            pickedPeaks.forEach((peak, index) => {
+                                if (usedObsPeaks.has(index)) return;
+                                const diff = Math.abs(hkl.d - peak.d);
+                                if (diff < minDiff) {
+                                    minDiff = diff;
+                                    bestMatch = { peak, index };
+                                }
+                            });
+
+                            let d_obs_str = '-';
+                            let tth_obs_str = '-';
+                            if (bestMatch) {
+                                // d matching logic same as before
+                                const d_err_plus = lambda / (2 * Math.sin((bestMatch.peak.tth - tth_err) * Math.PI / 360));
+                                const d_err_minus = lambda / (2 * Math.sin((bestMatch.peak.tth + tth_err) * Math.PI / 360));
+                                const d_tolerance = Math.abs(d_err_plus - d_err_minus) / 2;
+                                if (minDiff < d_tolerance * 2) {
+                                    d_obs_str = bestMatch.peak.d.toFixed(5);
+                                    tth_obs_str = bestMatch.peak.tth.toFixed(3);
+                                    usedObsPeaks.add(bestMatch.index);
+                                }
+                            }
+
+                            // Compute 2theta_calc
+                            let tth_calc = '-';
+                            if (hkl.d > 0 && lambda/(2*hkl.d) < 1) {
+                                tth_calc = (2 * Math.asin(lambda / (2 * hkl.d)) * 180 / Math.PI).toFixed(3);
+                            }
+
+                            const line = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)} | ` +
+                                         `${hkl.d.toFixed(5).padStart(9)} ` +
+                                         `${String(tth_calc).padStart(7)}  ` +
+                                         `${d_obs_str.padStart(9)}  ` +
+                                         `${tth_obs_str.padStart(7)}`;
+                            doc.text(line, margin, yPos);
+                            yPos += 5;
+                        });
+                    });
+
+                    // Save the PDF
+                    const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
+                    doc.save(filename);
+
+                } catch (error) {
+                    console.error("Failed to generate PDF:", error);
+                    alert("An error occurred while generating the PDF report.");
+                } finally {
+                    ui.reportButton.textContent = 'Generate PDF Report';
+                    ui.reportButton.disabled = false;
+                    document.body.style.cursor = 'default';
                 }
-
-                const line = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)} | ` +
-                             `${hkl.d.toFixed(5).padStart(9)} ` +
-                             `${String(tth_calc).padStart(7)}  ` +
-                             `${d_obs_str.padStart(9)}  ` +
-                             `${tth_obs_str.padStart(7)}`;
-                doc.text(line, margin, yPos);
-                yPos += 5;
-            });
-        });
-
-        // Save the PDF
-        const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
-        doc.save(filename);
-
-    } catch (error) {
-        console.error("Failed to generate PDF:", error);
-        alert("An error occurred while generating the PDF report.");
-    } finally {
-        ui.reportButton.textContent = 'Generate PDF Report';
-        ui.reportButton.disabled = false;
-        document.body.style.cursor = 'default';
-    }
-};
-
+            };
 
             ui.reportButton.addEventListener('click', generatePDFReport);
         });
@@ -1254,5 +1338,3 @@ const generatePDFReport = async () => {
     </script>
 </body>
 </html>
-
-
