@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Misfit Le Bail Fit (GSAS Profile 4)</title>
+     <link href="./dist/output.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        /* Custom styles from original file */
+        .slider-group { margin-bottom: 1.25rem; }
+        .slider-value-track { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; align-items: center; }
+        .slider-value-track > * { grid-column: 1; grid-row: 1; }
+        .slider-value-display { text-align: center; color: #d1d5db; font-weight: 500; font-size: 0.875rem; pointer-events: none; }
+        input[type="range"].custom-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 36px; background: #374151; border-radius: 8px; outline: none; padding: 0; margin: 0; }
+        input[type="range"].custom-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; background: #3b82f6; border-radius: 50%; cursor: pointer; border: 3px solid #111827; }
+        input[type="range"].custom-slider::-moz-range-thumb { width: 22px; height: 22px; background: #3b82f6; border-radius: 50%; cursor: pointer; border: 3px solid #111827; }
+        input[type="range"].custom-slider:disabled { background: #272f3d; }
+        input[type="range"].custom-slider:disabled::-webkit-slider-thumb { background: #6b7280; }
+        input[type="range"].custom-slider:disabled::-moz-range-thumb { background: #6b7280; }
+
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f9fafb; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        #controls-panel { width: 450px; min-width: 350px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; display: flex; flex-direction: column; }
+        #drag-handle { width: 6px; cursor: col-resize; background-color: #374151; flex-shrink: 0; transition: background-color 0.2s; }
+        #drag-handle:hover, #drag-handle:active { background-color: #3b82f6; }
+        #results-area { flex-grow: 1; position: relative; background-color: #ffffff; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: #1f2937; }
+        .control-group { margin-bottom: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #374151;}
+        .control-group:first-child { border-top: none; padding-top: 0; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; font-size: 0.875rem; }
+        .control-input, .control-select { width: 100%; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 0.5rem 0.75rem; transition: all 0.2s ease; }
+        .control-input:focus, .control-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
+        .control-input:disabled { background-color: #272f3d; cursor: not-allowed; color: #9ca3af; }
+        .fit-checkbox:disabled { cursor: not-allowed; background-color: #272f3d; }
+        .btn { padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; transition: background-color 0.2s; cursor: pointer; border: none; }
+        .btn-primary { background-color: #3b82f6; color: white; }
+        .btn-primary:hover:not(:disabled) { background-color: #2563eb; }
+        .btn-secondary { background-color: #4b5563; color: white; }
+        .btn-secondary:hover:not(:disabled) { background-color: #6b7280; }
+        .btn:disabled { background-color: #4b5563; cursor: not-allowed; opacity: 0.7; }
+        .file-input-label { display: block; padding: 0.75rem 1rem; background-color: #4b5563; color: #d1d5db; border-radius: 0.375rem; text-align: center; cursor: pointer; transition: background-color 0.2s;}
+        .file-input-label:hover { background-color: #6b7280; }
+        .parameter-grid-3col { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.75rem; }
+        .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.75rem; }
+        .result-card { background-color: #1f2937; padding: 0.5rem; border-radius: 0.5rem; text-align: center; transition: background 0.1s linear; }
+        .result-card-label { font-size: 0.75rem; color: #9ca3af; }
+        .result-card-value { font-size: 1.0rem; font-weight: 600; color: #e5e7eb; }
+        .fit-checkbox, .constraint-checkbox { -webkit-appearance: none; appearance: none; background-color: #4b5563; width: 1.25rem; height: 1.25rem; border: 1px solid #6b7280; border-radius: 0.25rem; cursor: pointer; display: inline-block; position: relative; }
+        .fit-checkbox:checked, .constraint-checkbox:checked { background-color: #3b82f6; border-color: #3b82f6; }
+        .fit-checkbox:checked::after, .constraint-checkbox:checked::after { content: '✓'; color: white; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 0.9rem; }
+        .tab-nav { display: flex; border-bottom: 1px solid #374151; margin-bottom: 1.5rem; }
+        .tab-button { padding: 0.75rem 1.25rem; cursor: pointer; border: none; background: none; color: #9ca3af; font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab-button.active { color: #e5e7eb; border-bottom-color: #3b82f6; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+        .profile-section-header { color: #9ca3af; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; grid-column: 1 / -1; }
+        .chart-container { flex-grow: 1; position: relative; }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1 class="text-2xl font-bold text-white mb-2">Misfit Le Bail Fitting</h1>
+            <p class="text-sm text-gray-400 mb-6">Refine lattice parameters for two constrained phases.</p>
+            
+            <div class="control-group">
+                <h2 class="text-lg font-semibold text-white mb-3">Load Data</h2>
+                <label for="file-input" class="file-input-label">
+                    <span id="file-name">Select .xy, .csv or .xrdml File</span>
+                </label>
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml">
+            </div>
+
+            <div class="tab-nav">
+                <button class="tab-button active" data-tab="sample">Phases & Instrument</button>
+                <button class="tab-button" data-tab="background">Background</button>
+                <button class="tab-button" data-tab="profile">Profile</button>
+            </div>
+
+            <div id="tab-content" class="flex-grow">
+                <div id="tab-panel-sample" class="tab-panel active">
+                    <div class="control-group">
+                        <h2 class="text-lg font-semibold text-white mb-3">Phase 1 (e.g., CoO2 Subsystem)</h2>
+                        <div class="parameter-grid-3col">
+                             <label for="crystal-system-p1" class="control-label">Crystal System</label>
+                            <select id="crystal-system-p1" class="control-select col-span-2">
+                                <option value="cubic">Cubic</option>
+                                <option value="tetragonal">Tetragonal</option>
+                                <option value="orthorhombic" selected>Orthorhombic</option>
+                                <option value="hexagonal">Hexagonal / Trigonal</option>
+                                <option value="rhombohedral">Rhombohedral</option>
+                                <option value="monoclinic">Monoclinic</option>
+                            </select>
+
+                            <label for="centering-type-p1" class="control-label">Centering</label>
+                            <select id="centering-type-p1" class="control-select">
+                                <option value="P">Primitive (P)</option><option value="I">Body-centered (I)</option><option value="F">Face-centered (F)</option><option value="C" style="display: none;">C-centered (C)</option>
+                            </select><div></div>
+                        </div>
+                        <div id="lattice-parameters-container-p1" class="parameter-grid-3col mt-4"></div>
+                    </div>
+
+                    <div class="control-group">
+                        <h2 class="text-lg font-semibold text-white mb-3">Phase 2 (e.g., RS Subsystem)</h2>
+                        <div class="parameter-grid-3col">
+                             <label for="crystal-system-p2" class="control-label">Crystal System</label>
+                            <select id="crystal-system-p2" class="control-select col-span-2">
+                                <option value="cubic">Cubic</option>
+                                <option value="tetragonal">Tetragonal</option>
+                                <option value="orthorhombic">Orthorhombic</option>
+                                <option value="hexagonal">Hexagonal / Trigonal</option>
+                                <option value="rhombohedral">Rhombohedral</option>
+                                <option value="monoclinic" selected>Monoclinic</option>
+                            </select>
+
+                            <label for="centering-type-p2" class="control-label">Centering</label>
+                            <select id="centering-type-p2" class="control-select">
+                                <option value="P">Primitive (P)</option><option value="I">Body-centered (I)</option><option value="F">Face-centered (F)</option><option value="C">C-centered (C)</option>
+                            </select><div></div>
+                        </div>
+                        <div id="lattice-parameters-container-p2" class="parameter-grid-3col mt-4"></div>
+                    </div>
+
+                    <div class="control-group">
+                        <h2 class="text-lg font-semibold text-white mb-3">Lattice Constraints ( $P_1 = P_2$ )</h2>
+                        <div id="constraints-container" class="grid grid-cols-3 gap-x-4 gap-y-2">
+                            </div>
+                    </div>
+
+                    <div class="control-group">
+                        <h2 class="text-lg font-semibold text-white mb-3">Instrumental Parameters</h2>
+                        <div class="parameter-grid-3col">
+                            <label for="zero-shift" class="control-label">Zero (°)</label>
+                            <input type="number" id="zero-shift" value="0.0" step="0.001" class="control-input">
+                            <input type="checkbox" id="fit-zero-shift" class="fit-checkbox" title="Fit this parameter">
+                        </div>
+                         <label for="wavelength" class="control-label mt-4">Wavelength (Å)</label>
+                        <div class="flex items-center space-x-2">
+                            <input type="number" id="wavelength" value="1.54056" step="0.0001" class="control-input" min="0.01">
+                            <select id="wavelength-preset" class="control-select w-auto pr-8">
+                                <option value="1.54056">Cu Kα1</option>
+                                <option value="1.5418">Cu Kα (avg)</option>
+                                <option value="0.70930">Mo Kα1</option>
+                                <option value="1.78897">Co Kα1</option>
+                                <option value="custom" style="display: none;">User</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div id="tab-panel-background" class="tab-panel">
+                    <div class="control-group">
+                        <h2 class="text-lg font-semibold text-white mb-3">Background Parameters</h2>
+                        <p class="text-xs text-gray-400 mb-4">Hybrid background: Chebyshev polynomial + inverse term for low-angle rise.</p>
+                        <p class="text-xs text-yellow-400 bg-yellow-900/50 p-2 rounded-md mb-4">For complex backgrounds, enable the B-1 term and/or higher-order Chebyshev terms (B3, B4, etc.).</p>
+                        <div id="background-controls-container" class="parameter-grid-3col">
+                            </div>
+                    </div>
+                </div>
+
+                <div id="tab-panel-profile" class="tab-panel">
+                     <div class="control-group">
+                        <h2 class="text-lg font-semibold text-white mb-3">Peak Profile (GSAS Type 4)</h2>
+                        <div id="profile-controls-container" class="parameter-grid-3col">
+                            <h3 class="profile-section-header">Gaussian Broadening</h3>
+                            <label class="control-label">GU</label>
+                            <input type="number" id="param-gu" value="10" step="1" class="control-input" min="0">
+                            <input type="checkbox" id="fit-gu" class="fit-checkbox" checked>
+                            <label class="control-label">GV</label>
+                            <input type="number" id="param-gv" value="-5" step="1" class="control-input">
+                            <input type="checkbox" id="fit-gv" class="fit-checkbox" checked>
+                            <label class="control-label">GW</label>
+                            <input type="number" id="param-gw" value="5" step="1" class="control-input" min="0">
+                            <input type="checkbox" id="fit-gw" class="fit-checkbox" checked>
+                             <label class="control-label">GP</label>
+                            <input type="number" id="param-gp" value="0" step="0.1" class="control-input">
+                            <input type="checkbox" id="fit-gp" class="fit-checkbox">
+
+                            <h3 class="profile-section-header">Lorentzian Broadening</h3>
+                            <label class="control-label">LX</label>
+                            <input type="number" id="param-lx" value="1" step="0.1" class="control-input" min="0">
+                            <input type="checkbox" id="fit-lx" class="fit-checkbox" checked>
+
+                             <h3 class="profile-section-header">Peak Shape & Position</h3>
+                             <label class="control-label">eta (Mixing)</label>
+                            <input type="number" id="param-eta" value="0.5" step="0.01" min="0" max="1" class="control-input">
+                            <input type="checkbox" id="fit-eta" class="fit-checkbox">
+                             <label class="control-label">shft (Displ.)</label>
+                            <input type="number" id="param-shft" value="0" step="0.01" class="control-input">
+                            <input type="checkbox" id="fit-shft" class="fit-checkbox">
+                             <label class="control-label">trns (Transp.)</label>
+                            <input type="number" id="param-trns" value="0" step="0.01" class="control-input">
+                            <input type="checkbox" id="fit-trns" class="fit-checkbox">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-auto pt-4"> 
+                 <div class="control-group">
+                     <h2 class="text-lg font-semibold text-white mb-3">Refinement</h2>
+                     
+                     <label for="algorithm-select" class="control-label">Algorithm</label>
+                     <select id="algorithm-select" class="control-select mb-4">
+                        <option value="lm">Levenberg-Marquardt (Fast, Precise)</option>
+                        <option value="sa" selected>Simulated Annealing (Robust, Slow)</option>
+                     </select>
+                     
+                     <div class="slider-group">
+                         <label class="control-label">2θ Min</label>
+                         <div class="slider-value-track">
+                            <input type="range" id="tth-min-slider" class="custom-slider" disabled>
+                            <span id="tth-min-value" class="slider-value-display">10.0</span>
+                         </div>
+                     </div>
+                     
+                     <div class="slider-group">
+                         <label class="control-label">2θ Max</label>
+                         <div class="slider-value-track">
+                             <input type="range" id="tth-max-slider" class="custom-slider" disabled>
+                             <span id="tth-max-value" class="slider-value-display">80.0</span>
+                         </div>
+                     </div>
+
+                     <div class="slider-group">
+                         <label class="control-label">Max Iterations</label>
+                         <div class="slider-value-track">
+                            <input type="range" id="iterations-slider" min="2" max="200" value="100" step="1" class="custom-slider">
+                            <span id="iterations-value" class="slider-value-display">100</span>
+                         </div>
+                     </div>
+
+                     <div id="progress-bar-container" class="w-full bg-gray-700 rounded-full h-2.5 mt-4 hidden">
+                        <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                     </div>
+                     <div class="results-grid mt-4">
+                        <div class="result-card">
+                            <div class="result-card-label">Rwp (%)</div>
+                            <div id="rwp-result" class="result-card-value">-</div>
+                        </div>
+                        <div class="result-card">
+                            <div class="result-card-label">Misfit ($b_1/b_2$)</div>
+                            <div id="misfit-result" class="result-card-value">-</div>
+                        </div>
+                     </div>
+                </div>
+                <div class="flex space-x-2">
+                    <button id="fit-button" class="btn btn-primary w-full text-lg" disabled>Load Data to Start Fit</button>
+                    <button id="report-button" class="btn btn-secondary w-full text-lg" disabled>PDF Report</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+             <div id="placeholder" class="w-full h-full flex flex-col items-center justify-center text-center text-gray-500">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                <h2 class="text-2xl font-semibold">Awaiting Data</h2>
+                <p>Load a data file to begin.</p>
+            </div>
+
+            <div id="results-container" class="w-full h-full flex-col hidden relative">
+                <div id="main-chart-container" class="chart-container">
+                    <canvas id="main-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="absolute bottom-2 right-4 text-xs text-gray-400">
+                NitaD, Univ Paris-Saclay, 13 Sept 2025
+            </div>
+        </div>
+    </div>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- UI Elements ---
+        const controls = {
+            controlsPanel: document.getElementById('controls-panel'),
+            fileInput: document.getElementById('file-input'),
+            fileName: document.getElementById('file-name'),
+            crystalSystemP1: document.getElementById('crystal-system-p1'),
+            centeringTypeP1: document.getElementById('centering-type-p1'),
+            latticeParamsContainerP1: document.getElementById('lattice-parameters-container-p1'),
+            crystalSystemP2: document.getElementById('crystal-system-p2'),
+            centeringTypeP2: document.getElementById('centering-type-p2'),
+            latticeParamsContainerP2: document.getElementById('lattice-parameters-container-p2'),
+            constraintsContainer: document.getElementById('constraints-container'),
+            wavelength: document.getElementById('wavelength'),
+            wavelengthPreset: document.getElementById('wavelength-preset'),
+            zeroShift: document.getElementById('zero-shift'), fitZeroShift: document.getElementById('fit-zero-shift'),
+            paramGU: document.getElementById('param-gu'), fitGU: document.getElementById('fit-gu'),
+            paramGV: document.getElementById('param-gv'), fitGV: document.getElementById('fit-gv'),
+            paramGW: document.getElementById('param-gw'), fitGW: document.getElementById('fit-gw'),
+            paramGP: document.getElementById('param-gp'), fitGP: document.getElementById('fit-gp'),
+            paramLX: document.getElementById('param-lx'), fitLX: document.getElementById('fit-lx'),
+            paramEta: document.getElementById('param-eta'), fitEta: document.getElementById('fit-eta'),
+            paramShft: document.getElementById('param-shft'), fitShft: document.getElementById('fit-shft'),
+            paramTrns: document.getElementById('param-trns'), fitTrns: document.getElementById('fit-trns'),
+            algorithmSelect: document.getElementById('algorithm-select'),
+            iterationsSlider: document.getElementById('iterations-slider'), iterationsValue: document.getElementById('iterations-value'),
+            tthMinSlider: document.getElementById('tth-min-slider'), tthMinValue: document.getElementById('tth-min-value'),
+            tthMaxSlider: document.getElementById('tth-max-slider'), tthMaxValue: document.getElementById('tth-max-value'),
+            fitButton: document.getElementById('fit-button'),
+            reportButton: document.getElementById('report-button'),
+            progressBar: document.getElementById('progress-bar'), progressBarContainer: document.getElementById('progress-bar-container'),
+            rwpResult: document.getElementById('rwp-result'),
+            misfitResult: document.getElementById('misfit-result'),
+            mainChartCanvas: document.getElementById('main-chart'),
+            placeholder: document.getElementById('placeholder'),
+            resultsContainer: document.getElementById('results-container'),
+            backgroundContainer: document.getElementById('background-controls-container'),
+        };
+
+        // --- Global State ---
+        const NUM_BG_ANCHOR_POINTS = 5;
+        let fullExperimentalData = { tth: [], intensity: [] };
+        let fitResults = null;
+        let mainChart;
+        let isFitting = false;
+        let lastGeneratedHklList = []; 
+        let lastRawDifference = [];
+        const NUM_BG_TERMS = 10;
+        
+        // --- Core Logic ---
+        function updateLatticeParamUI(phaseIndex) {
+            const system = (phaseIndex === 1) ? controls.crystalSystemP1.value : controls.crystalSystemP2.value;
+            const container = (phaseIndex === 1) ? controls.latticeParamsContainerP1 : controls.latticeParamsContainerP2;
+            container.innerHTML = '';
+
+            const createInput = (name, label, value, step, isAngle = false) => {
+                const id_base = `lattice-param-${name}-p${phaseIndex}`;
+                const unit = isAngle ? '°' : 'Å';
+                const minAttribute = isAngle ? '' : 'min="0.001"';
+                container.innerHTML += `
+                    <label for="${id_base}" class="control-label">${label} (${unit})</label>
+                    <input type="number" id="${id_base}" value="${value}" step="${step}" class="control-input" ${minAttribute}>
+                    <input type="checkbox" id="fit-lattice-${name}-p${phaseIndex}" class="fit-checkbox" title="Fit this parameter" checked>
+                `;
+            };
+
+            const params = {
+                cubic: [{ name: 'a', label: 'a', value: 4.08, step: 0.001 }],
+                tetragonal: [{ name: 'a', label: 'a', value: 4.0, step: 0.001 }, { name: 'c', label: 'c', value: 5.0, step: 0.001 }],
+                orthorhombic: [{ name: 'a', label: 'a', value: 4.8, step: 0.001 }, { name: 'b', label: 'b', value: 4.565, step: 0.001 }, { name: 'c', label: 'c', value: 2.8, step: 0.001 }],
+                hexagonal: [{ name: 'a', label: 'a', value: 4.0, step: 0.001 }, { name: 'c', label: 'c', value: 6.0, step: 0.001 }],
+                rhombohedral: [{ name: 'a', label: 'a', value: 5.0, step: 0.001 }, { name: 'alpha', label: 'α', value: 60.0, step: 0.01, isAngle: true }],
+                monoclinic: [{ name: 'a', label: 'a', value: 4.83, step: 0.001 }, { name: 'b', label: 'b', value: 2.82, step: 0.001 }, { name: 'c', label: 'c', value: 10.84, step: 0.001 }, { name: 'beta', label: 'β', value: 98.1, step: 0.01, isAngle: true }]
+            };
+            
+            if(params[system]) params[system].forEach(p => createInput(p.name, p.label, p.value, p.step, p.isAngle));
+            
+            const centering = (phaseIndex === 1) ? controls.centeringTypeP1 : controls.centeringTypeP2;
+            const options = { 'P': true, 'I': false, 'F': false, 'R': false, 'C': false };
+            if (['cubic', 'tetragonal', 'orthorhombic'].includes(system)) options.I = true;
+            if (['cubic', 'orthorhombic'].includes(system)) options.F = true;
+            if (['orthorhombic', 'monoclinic'].includes(system)) options.C = true;
+            if (system === 'hexagonal') options.R = true; 
+
+            for (const opt of centering.options) opt.style.display = options[opt.value] ? '' : 'none';
+            if (!options[centering.value]) centering.value = 'P';
+            if (system === 'rhombohedral') {
+                centering.value = 'P';
+                Array.from(centering.options).forEach(opt => opt.style.display = opt.value === 'P' ? '' : 'none');
+            }
+        }
+
+        function updateConstraintsUI() {
+            const container = controls.constraintsContainer;
+            container.innerHTML = '';
+            const paramNames = ['a', 'b', 'c', 'alpha', 'beta', 'gamma'];
+            paramNames.forEach(p => {
+                const label = p.length === 1 ? p : (p === 'alpha' ? 'α' : (p === 'beta' ? 'β' : 'γ'));
+                container.innerHTML += `
+                    <div class="flex items-center space-x-2">
+                        <input type="checkbox" id="constraint-${p}" class="constraint-checkbox">
+                        <label for="constraint-${p}" class="control-label mb-0">${label}</label>
+                    </div>
+                `;
+            });
+            // Default constraints for Ca-cobaltate case
+            document.getElementById('constraint-a').checked = true;
+            document.getElementById('constraint-c').checked = true;
+            document.getElementById('constraint-beta').checked = true;
+        }
+
+        function parseDataFile(text) {
+            const lines = text.trim().split(/\r?\n/);
+            const tth = [], intensity = [];
+            for (let line of lines) {
+                if (line.startsWith('#') || line.startsWith('//') || isNaN(parseFloat(line.trim().split(/[\s,;]+/)[0]))) continue;
+                const parts = line.trim().split(/[\s,;]+/);
+                if (parts.length >= 2) {
+                    const x = parseFloat(parts[0]);
+                    const y = parseFloat(parts[1]);
+                    if (!isNaN(x) && !isNaN(y)) {
+                        tth.push(x);
+                        intensity.push(y);
+                    }
+                }
+            }
+            return { tth, intensity };
+        }
+
+        function parseXrdmlFile(xmlString) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+            if (xmlDoc.querySelector("parsererror")) return null;
+            let wavelength = 1.5406;
+            const kAlpha1Node = xmlDoc.querySelector("kAlpha1");
+            if (kAlpha1Node && kAlpha1Node.textContent) {
+                const parsedWavelength = parseFloat(kAlpha1Node.textContent);
+                if (!isNaN(parsedWavelength)) wavelength = parsedWavelength;
+            }
+            let intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts");
+            if (!intensityNode) return null;
+            const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
+            const numPoints = intensity.length;
+            if (numPoints === 0) return null;
+            let tth = [];
+            const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]');
+            if (!positionsNode) return null;
+            const startPosNode = positionsNode.querySelector("startPosition");
+            const endPosNode = positionsNode.querySelector("endPosition");
+            if (startPosNode && endPosNode) {
+                const startPos = parseFloat(startPosNode.textContent);
+                const endPos = parseFloat(endPosNode.textContent);
+                if (!isNaN(startPos) && !isNaN(endPos) && numPoints > 1) {
+                    const step = (endPos - startPos) / (numPoints - 1);
+                    tth = Array.from({ length: numPoints }, (_, i) => startPos + i * step);
+                }
+            }
+            if (tth.length !== intensity.length) return null;
+            return { tth, intensity, wavelength };
+        }
+
+        function getWorkingData() {
+            if (fullExperimentalData.tth.length === 0) return { tth: [], intensity: [] };
+            const minTth = parseFloat(controls.tthMinSlider.value);
+            const maxTth = parseFloat(controls.tthMaxSlider.value);
+            const startIndex = fullExperimentalData.tth.findIndex(t => t >= minTth);
+            let endIndex = fullExperimentalData.tth.findIndex(t => t > maxTth);
+            if (endIndex === -1) endIndex = fullExperimentalData.tth.length;
+            return {
+                tth: fullExperimentalData.tth.slice(startIndex, endIndex),
+                intensity: fullExperimentalData.intensity.slice(startIndex, endIndex)
+            };
+        }
+        
+        function generateHKL(maxTth, phaseParams, system, centering, phaseTag) {
+            const { a, b, c, alpha, beta, gamma } = phaseParams;
+            const lambda = parseFloat(controls.wavelength.value);
+            if (!a || !lambda || a <= 0) return [];
+
+            const reflections = new Map();
+            const maxIndex = Math.ceil(2 * Math.max(a || 0, b || 0, c || 0) / lambda * Math.sin(maxTth / 2 * Math.PI / 180)) + 3;
+            const deg2rad = Math.PI / 180;
+            
+            for (let h = -maxIndex; h <= maxIndex; h++) {
+            for (let k = -maxIndex; k <= maxIndex; k++) {
+            for (let l = 0; l <= maxIndex; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+
+                let allowed = false;
+                switch(centering) {
+                    case 'P': allowed = true; break;
+                    case 'I': allowed = (h + k + l) % 2 === 0; break;
+                    case 'F': allowed = (h % 2 === k % 2) && (k % 2 === l % 2); break;
+                    case 'C': allowed = (h + k) % 2 === 0; break;
+                    case 'R': allowed = (system === 'hexagonal') ? (-h + k + l) % 3 === 0 : true; break;
+                    default: allowed = true;
+                }
+                if (!allowed) continue;
+
+                let inv_d_sq = 0;
+                try {
+                    switch(system) {
+                        case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
+                        case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                        case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
+                        case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                        case 'monoclinic': 
+                            const sin_b_sq = Math.sin((beta || 90) * deg2rad)**2;
+                            if (sin_b_sq < 1e-9) continue;
+                            inv_d_sq = (1/sin_b_sq) * ( (h*h)/(a*a) + (k*k*sin_b_sq)/(b*b) + (l*l)/(c*c) - (2*h*l*Math.cos((beta || 90)*deg2rad))/(a*c) );
+                            break;
+                        case 'rhombohedral':
+                            const cos_a = Math.cos((alpha || 90) * deg2rad);
+                            const denominator = a*a * (1 - 3*cos_a**2 + 2*cos_a**3);
+                            if(Math.abs(denominator) < 1e-9) continue;
+                            inv_d_sq = ((h*h + k*k + l*l) * Math.sin((alpha || 90)*deg2rad)**2 + 2 * (h*k + k*l + l*h) * (cos_a**2 - cos_a)) / denominator;
+                            break;
+                    }
+                } catch (e) { continue; }
+
+                if (inv_d_sq <= 0 || !isFinite(inv_d_sq)) continue;
+                
+                const sinThetaSq = (lambda*lambda / 4) * inv_d_sq;
+                if (sinThetaSq <= 1) {
+                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                    if (tth > maxTth * 1.05) continue;
+                    const d = 1 / Math.sqrt(inv_d_sq);
+                    const key = Math.round(tth * 1000);
+                    if (!reflections.has(key)) {
+                        reflections.set(key, { tth: tth, d: d, hkl_list: [`(${h},${k},${l})`], intensity: 0, phase: phaseTag });
+                    } else {
+                        reflections.get(key).hkl_list.push(`(${h},${k},${l})`);
+                    }
+                }
+            }}}
+            return Array.from(reflections.values()).sort((a, b) => a.tth - b.tth);
+        }
+
+        function calculatePeakShift(tth, params) {
+            const thetaRad = tth * (Math.PI / 180) / 2;
+            const cosTheta = Math.cos(thetaRad);
+            return -(params.shft / 1000) * cosTheta * (180 / Math.PI) + params.trns * Math.sin(2 * thetaRad);
+        }
+
+        function calculateProfileWidths(tth, params) {
+            const thetaRad = Math.min(tth * (Math.PI / 180) / 2, 89.999 * Math.PI / 180);
+            const tanTheta = Math.tan(thetaRad);
+            const cosTheta = Math.cos(thetaRad);
+            const gamma_G_sq = (params.GU/100)*tanTheta*tanTheta + (params.GV/100)*tanTheta + (params.GW/100) + (params.GP/100)/(cosTheta*cosTheta);
+            return { gamma_G: Math.sqrt(Math.max(1e-6, gamma_G_sq)), gamma_L: (params.LX / 100) / cosTheta };
+        }
+
+        function pseudoVoigt(x, x0, gamma_G, gamma_L, eta) {
+            if (gamma_G <= 1e-6 && gamma_L <= 1e-6) return 0.0;
+            const fwhm_g_to_sigma = 1 / (2 * Math.sqrt(2 * Math.log(2)));
+            const normalizedGaussian = Math.exp(-0.5 * ((x - x0) / (gamma_G * fwhm_g_to_sigma)) ** 2);
+            const hwhm_l = gamma_L / 2.0;
+            const normalizedLorentzian = (hwhm_l**2) / ((x - x0)**2 + hwhm_l**2);
+            if (gamma_L < 1e-6) return normalizedGaussian;
+            if (gamma_G < 1e-6) return normalizedLorentzian;
+            return eta * normalizedLorentzian + (1 - eta) * normalizedGaussian;
+        }
+        
+        function calculateBackground(tthAxis, chebyshevCoeffs, invCoeff, fitTthRange = null) {
+            if (!tthAxis || tthAxis.length === 0) return new Array(tthAxis.length).fill(0);
+            const normRange = fitTthRange || tthAxis;
+            const minTth = normRange[0], maxTth = normRange[normRange.length - 1];
+            const range = maxTth - minTth;
+            const cheby_bg = tthAxis.map(tth => {
+                if (range < 1e-6) return chebyshevCoeffs[0] || 0;
+                const x = (2 * (tth - minTth) / range) - 1;
+                let T_prev = 1, T_curr = x, background = (chebyshevCoeffs[0] || 0) * T_prev;
+                if (chebyshevCoeffs.length > 1) background += (chebyshevCoeffs[1] || 0) * T_curr;
+                for (let n = 2; n < chebyshevCoeffs.length; n++) {
+                    const T_next = 2 * x * T_curr - T_prev;
+                    background += (chebyshevCoeffs[n] || 0) * T_next;
+                    T_prev = T_curr; T_curr = T_next;
+                }
+                return background;
+            });
+            return cheby_bg.map((val, i) => tthAxis[i] > 1e-6 ? val + invCoeff / tthAxis[i] : val);
+        }
+
+        function calculatePattern(tthAxis, hklList, params, fitTthRange = null) {
+            const pattern = new Float32Array(tthAxis.length).fill(0);
+            hklList.forEach(peak => {
+                const basePos = peak.tth + params.zeroShift;
+                const peakPos = basePos + calculatePeakShift(basePos, params);
+                const { gamma_G, gamma_L } = calculateProfileWidths(basePos, params);
+                for (let i = 0; i < tthAxis.length; i++) {
+                    if (Math.abs(tthAxis[i] - peakPos) < 5 * (gamma_G + gamma_L)) {
+                       pattern[i] += peak.intensity * pseudoVoigt(tthAxis[i], peakPos, gamma_G, gamma_L, params.eta);
+                    }
+                }
+            });
+            const background = calculateBackground(tthAxis, params.bg, params.bg_inv, fitTthRange);
+            for(let i=0; i<pattern.length; i++) pattern[i] += background[i];
+            return { pattern, background };
+        }
+
+        function leBailIntensityExtraction(exp, hklList, params) {
+            hklList.forEach(p => p.intensity = 0);
+            const background = calculateBackground(exp.tth, params.bg, params.bg_inv, exp.tth);
+            for(let i = 0; i < exp.tth.length; i++) {
+                let totalProfileAtPoint = 0;
+                const contributingPeaks = [];
+                hklList.forEach((peak, peakIdx) => {
+                    const basePos = peak.tth + params.zeroShift;
+                    const peakPos = basePos + calculatePeakShift(basePos, params);
+                    const { gamma_G, gamma_L } = calculateProfileWidths(basePos, params);
+                    if(Math.abs(exp.tth[i] - peakPos) < 5 * (gamma_G + gamma_L)) {
+                        const profileVal = pseudoVoigt(exp.tth[i], peakPos, gamma_G, gamma_L, params.eta);
+                        totalProfileAtPoint += profileVal;
+                        contributingPeaks.push({idx: peakIdx, val: profileVal});
+                    }
+                });
+                if(totalProfileAtPoint > 1e-9) {
+                    const obsIntensityNet = Math.max(0, exp.intensity[i] - background[i]);
+                    contributingPeaks.forEach(p => {
+                        hklList[p.idx].intensity += obsIntensityNet * (p.val / totalProfileAtPoint);
+                    });
+                }
+            }
+            const maxIntensity = Math.max(...hklList.map(p => p.intensity));
+            if (maxIntensity > 0) hklList.forEach(p => p.intensity = p.intensity / maxIntensity * 1000);
+        }
+
+        function calculateRwp(exp_intensity, calc_intensity) {
+            let ss_res = 0, ss_tot = 0;
+            for(let i=0; i<exp_intensity.length; i++) {
+                const weight = 1 / Math.max(exp_intensity[i], 1);
+                ss_res += weight * (exp_intensity[i] - calc_intensity[i])**2;
+                ss_tot += weight * (exp_intensity[i])**2;
+            }
+            return ss_tot > 0 ? 100 * Math.sqrt(ss_res / ss_tot) : 0;
+        }
+        
+        function getAllParams() {
+            const getPhaseParams = (pIdx) => ({
+                system: document.getElementById(`crystal-system-p${pIdx}`).value,
+                centering: document.getElementById(`centering-type-p${pIdx}`).value,
+                a: parseFloat(document.getElementById(`lattice-param-a-p${pIdx}`)?.value),
+                b: parseFloat(document.getElementById(`lattice-param-b-p${pIdx}`)?.value),
+                c: parseFloat(document.getElementById(`lattice-param-c-p${pIdx}`)?.value),
+                alpha: parseFloat(document.getElementById(`lattice-param-alpha-p${pIdx}`)?.value),
+                beta: parseFloat(document.getElementById(`lattice-param-beta-p${pIdx}`)?.value),
+                gamma: parseFloat(document.getElementById(`lattice-param-gamma-p${pIdx}`)?.value),
+            });
+            const bg = [];
+            for(let i = 0; i < NUM_BG_TERMS; i++) bg.push(parseFloat(document.getElementById(`bg-param-${i}`).value));
+            return {
+                phase1: getPhaseParams(1),
+                phase2: getPhaseParams(2),
+                lambda: parseFloat(controls.wavelength.value),
+                zeroShift: parseFloat(controls.zeroShift.value), GU: parseFloat(controls.paramGU.value),
+                GV: parseFloat(controls.paramGV.value), GW: parseFloat(controls.paramGW.value), GP: parseFloat(controls.paramGP.value),
+                LX: parseFloat(controls.paramLX.value), eta: parseFloat(controls.paramEta.value),
+                shft: parseFloat(controls.paramShft.value), trns: parseFloat(controls.paramTrns.value),
+                bg: bg, bg_inv: parseFloat(document.getElementById('bg-param-neg1').value),
+            };
+        }
+        
+        function getFitFlags() {
+            const getPhaseFlags = (pIdx) => ({
+                a: document.getElementById(`fit-lattice-a-p${pIdx}`)?.checked, b: document.getElementById(`fit-lattice-b-p${pIdx}`)?.checked,
+                c: document.getElementById(`fit-lattice-c-p${pIdx}`)?.checked, alpha: document.getElementById(`fit-lattice-alpha-p${pIdx}`)?.checked,
+                beta: document.getElementById(`fit-lattice-beta-p${pIdx}`)?.checked, gamma: document.getElementById(`fit-lattice-gamma-p${pIdx}`)?.checked,
+            });
+            const bgFlags = [];
+            for(let i = 0; i < NUM_BG_TERMS; i++) bgFlags.push(document.getElementById(`fit-bg-${i}`).checked);
+            return {
+                phase1: getPhaseFlags(1), phase2: getPhaseFlags(2),
+                zeroShift: controls.fitZeroShift.checked, GU: controls.fitGU.checked, GV: controls.fitGV.checked, GW: controls.fitGW.checked,
+                GP: controls.fitGP.checked, LX: controls.fitLX.checked, eta: controls.fitEta.checked, shft: controls.fitShft.checked,
+                trns: controls.fitTrns.checked, background: bgFlags, bg_inv: document.getElementById('fit-bg-neg1').checked,
+            };
+        }
+
+        function getConstraints() {
+            const constraints = {};
+            ['a', 'b', 'c', 'alpha', 'beta', 'gamma'].forEach(p => {
+                const el = document.getElementById(`constraint-${p}`);
+                if(el) constraints[`constrain_${p}`] = el.checked;
+            });
+            return constraints;
+        }
+
+        async function runLeBailFit() {
+            if (isFitting) return;
+            isFitting = true; fitResults = null; setUIState(true);
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            if (mainChart) {
+                ['Calculated', 'Background', 'Difference', 'Difference Zero', 'HKL P1', 'HKL P2', 'Simulation (Manual)'].forEach(label => {
+                    const dataset = mainChart.data.datasets.find(d => d.label === label); if (dataset) dataset.data = [];
+                });
+                mainChart.update('none');
+            }
+
+            let params = getAllParams();
+            const fitFlags = getFitFlags();
+            const constraints = getConstraints();
+            const workingData = getWorkingData();
+            
+            if (fitFlags.background[0] && workingData.intensity.length > 0) {
+                const n_points = Math.min(NUM_BG_ANCHOR_POINTS, Math.floor(workingData.intensity.length / 2));
+                if (n_points > 0) {
+                    let initialBg = Array.from({length: 2 * n_points}, (_, i) => i < n_points ? workingData.intensity[i] : workingData.intensity[workingData.intensity.length - 1 - (i - n_points)]).reduce((a, b) => a + b, 0) / (2 * n_points);
+                    params.bg[0] = isNaN(initialBg) ? 100 : initialBg;
+                    document.getElementById('bg-param-0').value = params.bg[0].toExponential(4);
+                }
+            }
+            
+            Object.keys(constraints).forEach(key => {
+                const p = key.replace('constrain_', '');
+                if (constraints[key] && !isNaN(params.phase1[p])) params.phase2[p] = params.phase1[p];
+            });
+
+            const maxIterations = parseInt(controls.iterationsSlider.value);
+            const algorithm = controls.algorithmSelect.value;
+            let finalParams;
+
+            const progressCallback = async (progress, currentParams, rwp) => {
+                 controls.progressBar.style.width = `${progress * 100}%`;
+                 controls.rwpResult.parentElement.style.background = `linear-gradient(to right, #3b82f6 ${progress * 100}%, #1f2937 ${progress * 100}%)`;
+                 
+                 let hkl1 = generateHKL(Math.max(...fullExperimentalData.tth), currentParams.phase1, currentParams.phase1.system, currentParams.phase1.centering, 'P1');
+                 let hkl2 = generateHKL(Math.max(...fullExperimentalData.tth), currentParams.phase2, currentParams.phase2.system, currentParams.phase2.centering, 'P2');
+                 let combined = hkl1.concat(hkl2).sort((a,b)=>a.tth-b.tth);
+                 leBailIntensityExtraction(workingData, combined, currentParams);
+                 const { pattern, background } = calculatePattern(fullExperimentalData.tth, combined, currentParams, workingData.tth);
+                 
+                 updateUI(currentParams, rwp, hkl1, hkl2, pattern, background);
+                 await new Promise(resolve => setTimeout(resolve, 0)); // Yield to the browser
+            };
+            
+            if (algorithm === 'lm') {
+                 finalParams = await refineParametersLM(params, fitFlags, constraints, maxIterations, progressCallback);
+            } else { // 'sa'
+                 finalParams = await refineParametersSA(params, fitFlags, constraints, maxIterations, progressCallback);
+            }
+            
+            const finalWorkingData = getWorkingData();
+            let hklList1 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase1, finalParams.phase1.system, finalParams.phase1.centering, 'P1');
+            let hklList2 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
+            let combinedHklList = hklList1.concat(hklList2).sort((a,b) => a.tth - b.tth);
+            
+            leBailIntensityExtraction(finalWorkingData, combinedHklList, finalParams);
+            lastGeneratedHklList = combinedHklList;
+            
+            const { pattern, background } = calculatePattern(fullExperimentalData.tth, combinedHklList, finalParams, finalWorkingData.tth);
+            const { pattern: finalWorkingPattern } = calculatePattern(finalWorkingData.tth, combinedHklList, finalParams, finalWorkingData.tth);
+            const finalRwp = calculateRwp(finalWorkingData.intensity, finalWorkingPattern);
+            
+            updateUI(finalParams, finalRwp, hklList1, hklList2, pattern, background);
+            isFitting = false; setUIState(false);
+        }
+        
+        function dot(v1, v2) { let s = 0; for(let i=0; i<v1.length; i++) s += v1[i] * v2[i]; return s; }
+        function add(v1, v2) { return v1.map((x, i) => x + v2[i]); }
+        function subtract(v1, v2) { return v1.map((x, i) => x - v2[i]); }
+        function scale(v, s) { return v.map(x => x * s); }
+
+        function transpose(m) {
+            if (!m || m.length === 0 || !Array.isArray(m[0])) return m.map(x => [x]);
+            return m[0].map((_, colIndex) => m.map(row => row[colIndex]));
+        }
+        
+        function multiply(A, B) {
+            if (!Array.isArray(B[0])) { // Matrix-vector multiplication
+                return A.map(row => dot(row, B));
+            }
+            const Bt = transpose(B); // Matrix-matrix multiplication
+            return A.map(rowA => Bt.map(colB => dot(rowA, colB)));
+        }
+
+        function solve(A, b) {
+            const n = A.length, Ab = A.map((row, i) => [...row, b[i]]);
+            for (let i = 0; i < n; i++) {
+                let max = i; for (let k = i + 1; k < n; k++) { if (Math.abs(Ab[k][i]) > Math.abs(Ab[max][i])) max = k; }
+                [Ab[i], Ab[max]] = [Ab[max], Ab[i]];
+                if (Math.abs(Ab[i][i]) < 1e-12) continue;
+                for (let k = i + 1; k < n; k++) {
+                    const factor = Ab[k][i] / Ab[i][i]; if (!isFinite(factor)) continue;
+                    for (let j = i; j < n + 1; j++) Ab[k][j] -= factor * Ab[i][j];
+                }
+            }
+            const x = new Array(n).fill(0);
+            for (let i = n - 1; i >= 0; i--) { let sum = 0; for (let j = i + 1; j < n; j++) sum += Ab[i][j] * x[j]; if (Math.abs(Ab[i][i]) > 1e-12) x[i] = (Ab[i][n] - sum) / Ab[i][i]; }
+            return x;
+        }
+        function matrixInverse(A) {
+            const n = A.length; if (n === 0) return [];
+            const I = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+            const C = A.map((row, i) => [...row, ...I[i]]);
+            for (let i = 0; i < n; i++) {
+                let pivot = i; for (let j = i + 1; j < n; j++) { if (Math.abs(C[j][i]) > Math.abs(C[pivot][i])) pivot = j; }
+                [C[i], C[pivot]] = [C[pivot], C[i]];
+                const div = C[i][i]; if (Math.abs(div) < 1e-12) return null;
+                for (let j = i; j < 2 * n; j++) C[i][j] /= div;
+                for (let j = 0; j < n; j++) { if (i !== j) { const mult = C[j][i]; for (let k = i; k < 2 * n; k++) C[j][k] -= mult * C[i][k]; } }
+            }
+            return C.map(row => row.slice(n));
+        }
+        
+        function getParameterMapping(fitFlags, constraints) {
+            const paramMapping = [];
+            const latticeParamNames = ['a', 'b', 'c', 'alpha', 'beta', 'gamma'];
+            latticeParamNames.forEach(pName => {
+                if (constraints[`constrain_${pName}`]) {
+                    if (fitFlags.phase1[pName] || fitFlags.phase2[pName]) {
+                        paramMapping.push({
+                            name: `${pName}_shared`,
+                            get: p => p.phase1[pName],
+                            set: (p, v) => { p.phase1[pName] = v; p.phase2[pName] = v; },
+                            step: ['a', 'b', 'c'].includes(pName) ? 1e-2 : 1e-1
+                        });
+                    }
+                } else {
+                    if (fitFlags.phase1[pName]) paramMapping.push({ name: `${pName}1`, get: p => p.phase1[pName], set: (p, v) => p.phase1[pName] = v, step: ['a','b','c'].includes(pName) ? 1e-2: 1e-1 });
+                    if (fitFlags.phase2[pName]) paramMapping.push({ name: `${pName}2`, get: p => p.phase2[pName], set: (p, v) => p.phase2[pName] = v, step: ['a','b','c'].includes(pName) ? 1e-2: 1e-1 });
+                }
+            });
+            const sharedParamDefs = [
+                { flag: fitFlags.zeroShift, name: 'zeroShift', get: p => p.zeroShift, set: (p, v) => p.zeroShift = v, step: 1e-2 },
+                { flag: fitFlags.GU, name: 'GU', get: p => p.GU, set: (p, v) => p.GU = v, step: 1. }, { flag: fitFlags.GV, name: 'GV', get: p => p.GV, set: (p, v) => p.GV = v, step: 1. },
+                { flag: fitFlags.GW, name: 'GW', get: p => p.GW, set: (p, v) => p.GW = Math.max(0, v), step: 1.0 }, { flag: fitFlags.GP, name: 'GP', get: p => p.GP, set: (p, v) => p.GP = v, step: 0.5 },
+                { flag: fitFlags.LX, name: 'LX', get: p => p.LX, set: (p, v) => p.LX = Math.max(0, v), step: 0.2 }, { flag: fitFlags.eta, name: 'eta', get: p => p.eta, set: (p, v) => p.eta = Math.max(0, Math.min(1, v)), step: 0.05 },
+                { flag: fitFlags.shft, name: 'shft', get: p => p.shft, set: (p, v) => p.shft = v, step: 0.1 }, { flag: fitFlags.trns, name: 'trns', get: p => p.trns, set: (p, v) => p.trns = v, step: 0.05 },
+                { flag: fitFlags.bg_inv, name: 'B-1', get: p => p.bg_inv, set: (p, v) => p.bg_inv = v, step: 10.0 },
+            ];
+            sharedParamDefs.forEach(def => { if (def.flag) paramMapping.push(def); });
+            fitFlags.background.forEach((fit, i) => { if (fit) { paramMapping.push({ name: `B${i}`, get: p => p.bg[i], set: (p, v) => p.bg[i] = v, step: 50.0 }); } });
+            return { paramMapping };
+        }
+
+        async function refineParametersSA(initialParams, fitFlags, constraints, maxIter, progressCallback) {
+            const { paramMapping } = getParameterMapping(fitFlags, constraints);
+            if (paramMapping.length === 0) { fitResults = { params: initialParams, algorithm: 'sa', paramMapping, fitFlags, constraints }; return initialParams; }
+
+            const workingData = getWorkingData();
+            let p_initial_vec = paramMapping.map(m => m.get(initialParams));
+            
+            let hkl1 = generateHKL(Math.max(...workingData.tth), initialParams.phase1, initialParams.phase1.system, initialParams.phase1.centering, 'P1');
+            let hkl2 = generateHKL(Math.max(...workingData.tth), initialParams.phase2, initialParams.phase2.system, initialParams.phase2.centering, 'P2');
+            const referenceHklList = hkl1.concat(hkl2).sort((a,b)=>a.tth-b.tth);
+            leBailIntensityExtraction(workingData, referenceHklList, initialParams);
+
+            const objective = (p_vec) => {
+                let tempParams = JSON.parse(JSON.stringify(initialParams));
+                paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
+                if (tempParams.phase1.a <= 0 || (tempParams.phase2.a && tempParams.phase2.a <= 0)) return 1e12;
+                
+                let hkl1_curr = generateHKL(Math.max(...workingData.tth), tempParams.phase1, tempParams.phase1.system, tempParams.phase1.centering, 'P1');
+                let hkl2_curr = generateHKL(Math.max(...workingData.tth), tempParams.phase2, tempParams.phase2.system, tempParams.phase2.centering, 'P2');
+                let hklList_curr = hkl1_curr.concat(hkl2_curr).sort((a,b)=>a.tth-b.tth);
+
+                hklList_curr.forEach(hkl => {
+                    const matchingRef = referenceHklList.find(ref => ref.phase === hkl.phase && Math.abs(ref.d - hkl.d) < 0.01 * ref.d);
+                    hkl.intensity = matchingRef ? matchingRef.intensity : 10;
+                });
+
+                const { pattern } = calculatePattern(workingData.tth, hklList_curr, tempParams, workingData.tth);
+                const diff = subtract(workingData.intensity, pattern);
+                return dot(diff, diff);
+            };
+            
+            let T = 1000.0, coolingRate = 0.999, maxSteps = maxIter * 50;
+            let current_x = [...p_initial_vec], current_cost = objective(current_x);
+            let best_x = [...current_x], best_cost = current_cost;
+
+            for (let i = 0; i < maxSteps; i++) {
+                let neighbor_x = current_x.map((val, idx) => {
+                    let newVal = val + (Math.random() - 0.5) * paramMapping[idx].step * 5.0 * Math.max(0.1, T/1000);
+                    if (paramMapping[idx].name.includes('eta')) newVal = Math.max(0, Math.min(1, newVal));
+                    else if (['a1','a2','b1','b2','c1','c2','a_shared','b_shared','c_shared'].includes(paramMapping[idx].name)) newVal = Math.max(0.1, newVal);
+                    return newVal;
+                });
+                
+                let neighbor_cost = objective(neighbor_x);
+                if ((neighbor_cost < current_cost) || (Math.exp(-(neighbor_cost - current_cost) / T) > Math.random())) {
+                    current_x = [...neighbor_x]; current_cost = neighbor_cost;
+                }
+                if (current_cost < best_cost) { best_x = [...current_x]; best_cost = current_cost; }
+                T *= coolingRate;
+
+                if (i % 50 === 0) {
+                    let tempParams = JSON.parse(JSON.stringify(initialParams)); paramMapping.forEach((m, j) => m.set(tempParams, best_x[j]));
+                    const { pattern: workingPattern } = calculatePattern(workingData.tth, referenceHklList, tempParams, workingData.tth);
+                    if (progressCallback) await progressCallback(i / maxSteps, tempParams, calculateRwp(workingData.intensity, workingPattern));
+                }
+            }
+            let finalParams = JSON.parse(JSON.stringify(initialParams));
+            paramMapping.forEach((m, i) => m.set(finalParams, best_x[i]));
+            fitResults = { params: finalParams, algorithm: 'sa', paramMapping, fitFlags, constraints };
+            return finalParams;
+        }
+
+        async function refineParametersLM(initialParams, fitFlags, constraints, maxIter, progressCallback) {
+            const { paramMapping } = getParameterMapping(fitFlags, constraints);
+            if (paramMapping.length === 0) { fitResults = { params: initialParams, algorithm: 'lm', paramMapping, fitFlags, constraints }; return initialParams; }
+
+            let params = JSON.parse(JSON.stringify(initialParams));
+            let lambda = 0.001; const workingData = getWorkingData();
+            const weights = workingData.intensity.map(y => 1 / Math.max(y, 1));
+            
+            const objective = (p_vec) => {
+                let tempParams = JSON.parse(JSON.stringify(params)); paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
+                let hkl1 = generateHKL(Math.max(...workingData.tth), tempParams.phase1, tempParams.phase1.system, tempParams.phase1.centering, 'P1');
+                let hkl2 = generateHKL(Math.max(...workingData.tth), tempParams.phase2, tempParams.phase2.system, tempParams.phase2.centering, 'P2');
+                let combined = hkl1.concat(hkl2).sort((a,b)=>a.tth-b.tth);
+                leBailIntensityExtraction(workingData, combined, tempParams);
+                lastGeneratedHklList = combined;
+                const { pattern } = calculatePattern(workingData.tth, combined, tempParams, workingData.tth);
+                return workingData.intensity.map((y, i) => (y - pattern[i]) * Math.sqrt(weights[i]));
+            };
+
+            let last_cost = Infinity, JtJ, finalResiduals;
+            for (let iter = 0; iter < maxIter; iter++) {
+                let p_current_vec = paramMapping.map(m => m.get(params));
+                const weightedResiduals = objective(p_current_vec);
+                finalResiduals = weightedResiduals.map((r, i) => weights[i] > 0 ? r / Math.sqrt(weights[i]) : 0);
+                const cost = dot(weightedResiduals, weightedResiduals);
+
+                if (Math.abs(last_cost - cost) < 1e-9 * last_cost && iter > 0) { last_cost = cost; break; }
+                last_cost = cost;
+
+                const jacobian = paramMapping.map((m,i) => {
+                    const p_plus = [...p_current_vec]; p_plus[i] += m.step;
+                    const res_plus = objective(p_plus);
+                    return scale(subtract(res_plus, weightedResiduals), 1 / m.step).map(v => isFinite(v) ? v: 0);
+                });
+                
+                const J = transpose(jacobian); JtJ = multiply(transpose(J), J);
+                const Jtr = multiply(transpose(J), weightedResiduals);
+                const A_lm = JSON.parse(JSON.stringify(JtJ));
+                for (let i=0; i < A_lm.length; i++) A_lm[i][i] += lambda * (A_lm[i][i] || 1.0);
+                const p_step = solve(A_lm, scale(Jtr, -1));
+                if (p_step.some(isNaN)) break;
+
+                const p_new_vec = add(p_current_vec, p_step);
+                const new_cost = dot(objective(p_new_vec), objective(p_new_vec));
+                
+                if (new_cost < cost && isFinite(new_cost)) {
+                    paramMapping.forEach((m, i) => m.set(params, p_new_vec[i]));
+                    lambda = Math.max(lambda / 2, 1e-9);
+                } else {
+                    lambda = Math.min(lambda * 2, 1e9);
+                }
+                
+                const { pattern: workingPattern } = calculatePattern(workingData.tth, lastGeneratedHklList, params, workingData.tth);
+                if (progressCallback) await progressCallback((iter + 1) / maxIter, params, calculateRwp(workingData.intensity, workingPattern));
+            }
+            fitResults = { params, JtJ, finalResiduals, paramMapping, ss_res: last_cost, algorithm: 'lm', fitFlags, constraints };
+            return params;
+        }
+
+        function updatePreviewPattern() {
+            if (!mainChart || fullExperimentalData.tth.length === 0 || isFitting) return;
+            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+            ['Calculated', 'Difference', 'Simulation (Manual)'].forEach(label => { const ds = findDataset(label); if(ds) ds.data = []; });
+            let params = getAllParams();
+            const constraints = getConstraints();
+            Object.keys(constraints).forEach(key => {
+                const p = key.replace('constrain_', '');
+                if (constraints[key] && params.phase1[p] !== undefined) params.phase2[p] = params.phase1[p];
+            });
+            const hklList1 = generateHKL(Math.max(...fullExperimentalData.tth), params.phase1, params.phase1.system, params.phase1.centering, 'P1');
+            const hklList2 = generateHKL(Math.max(...fullExperimentalData.tth), params.phase2, params.phase2.system, params.phase2.centering, 'P2');
+            lastGeneratedHklList = hklList1.concat(hklList2).sort((a, b) => a.tth - b.tth);
+            const arbitraryIntensity = Math.max(...fullExperimentalData.intensity) * 0.5;
+            lastGeneratedHklList.forEach(p => p.intensity = arbitraryIntensity);
+            const workingData = getWorkingData();
+            const { pattern, background } = calculatePattern(fullExperimentalData.tth, lastGeneratedHklList, params, workingData.tth.length > 0 ? workingData.tth : null);
+            findDataset('Simulation (Manual)').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: pattern[i]}));
+            findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]}));
+            
+            const yMax = mainChart.options.scales.y.max / 1.1;
+            const markerBarHeight = yMax * 0.04;
+            const p1_top_y = -yMax * 0.02;
+            const p2_top_y = -yMax * 0.08;
+
+            findDataset('HKL P1').data = hklList1.map(hkl => ({ x: hkl.tth + params.zeroShift, y: [p1_top_y - markerBarHeight, p1_top_y] }));
+            findDataset('HKL P2').data = hklList2.map(hkl => ({ x: hkl.tth + params.zeroShift, y: [p2_top_y - markerBarHeight, p2_top_y] }));
+            
+            mainChart.update('none');
+        }
+
+        function setUIState(fitting) {
+            isFitting = fitting;
+            controls.fitButton.disabled = fitting; controls.reportButton.disabled = fitting;
+            controls.fitButton.textContent = fitting ? 'Refining...' : 'Run Refinement';
+            controls.progressBarContainer.classList.toggle('hidden', !fitting);
+            document.body.style.cursor = fitting ? 'wait' : 'default';
+            if (fitting) { controls.rwpResult.textContent = '...'; controls.misfitResult.textContent = '...'; }
+            if (!fitting) { controls.progressBar.style.width = '0%'; if(fitResults) controls.reportButton.disabled = false; controls.rwpResult.parentElement.style.background = ''; }
+        }
+        
+        function updateUI(params, rwp, hklList1, hklList2, pattern, background) {
+            controls.rwpResult.textContent = rwp.toFixed(4);
+            const p1 = params.phase1, p2 = params.phase2;
+            if (p1.b && p2.b && p2.b !== 0) controls.misfitResult.textContent = (p1.b / p2.b).toFixed(4); else controls.misfitResult.textContent = '-';
+            const setVal = (pName, pIdx, val, digits) => {
+                const el = document.getElementById(`lattice-param-${pName}-p${pIdx}`);
+                if (el && val != null && isFinite(val)) el.value = val.toFixed(digits);
+            };
+            ['a', 'b', 'c'].forEach(p => { setVal(p, 1, p1[p], 5); setVal(p, 2, p2[p], 5); });
+            ['alpha', 'beta', 'gamma'].forEach(p => { setVal(p, 1, p1[p], 4); setVal(p, 2, p2[p], 4); });
+            controls.zeroShift.value = params.zeroShift.toFixed(4);
+            controls.paramGU.value = params.GU.toFixed(4); controls.paramGV.value = params.GV.toFixed(4);
+            controls.paramGW.value = params.GW.toFixed(4); controls.paramGP.value = params.GP.toFixed(4);
+            controls.paramLX.value = params.LX.toFixed(4); controls.paramEta.value = params.eta.toFixed(4);
+            controls.paramShft.value = params.shft.toFixed(4); controls.paramTrns.value = params.trns.toFixed(4);
+            document.getElementById('bg-param-neg1').value = params.bg_inv.toExponential(4);
+            params.bg.forEach((val, i) => { document.getElementById(`bg-param-${i}`).value = val.toExponential(4); });
+            
+            if (pattern && background) {
+                updateChart(pattern, background, hklList1, hklList2, params);
+            }
+        }
+
+        function initializeChart() {
+            if (mainChart) mainChart.destroy();
+            
+            const verticalCursorLine = {
+                id: 'verticalCursorLine',
+                afterDraw: chart => {
+                    if (chart.tooltip?._active?.length) {
+                        let x = chart.tooltip._active[0].element.x;
+                        let yAxis = chart.scales.y;
+                        let ctx = chart.ctx;
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.moveTo(x, yAxis.top);
+                        ctx.lineTo(x, yAxis.bottom);
+                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)';
+                        ctx.setLineDash([4, 4]);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            };
+            Chart.register(verticalCursorLine);
+
+            Chart.Tooltip.positioners.experimentalAnchor = function(items) {
+                if (!items.length) return false;
+                const experimentalItem = items.find(item => item.datasetIndex === 0);
+                const anchorPoint = experimentalItem || items[0];
+                return { x: anchorPoint.element.x, y: anchorPoint.element.y };
+            };
+
+            const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
+            mainChart = new Chart(controls.mainChartCanvas, {
+                type: 'line', data: { datasets: [
+                    { label: 'Experimental', data: fullExperimentalData.tth.map((t, i) => ({x: t, y: fullExperimentalData.intensity[i]})), borderColor: 'rgba(107, 114, 128, 0.7)', borderWidth: 1.5, pointRadius: 0, order: 1 },
+                    { label: 'Simulation (Manual)', data: [], borderColor: 'rgba(249, 115, 22, 0.8)', borderWidth: 2, pointRadius: 0, borderDash: [8, 4], order: 2 },
+                    { label: 'Calculated', data: [], borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, pointRadius: 0, order: 3 },
+                    { label: 'Background', data: [], borderColor: 'rgba(217, 119, 6, 0.8)', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 5], order: 4 },
+                    { label: 'Difference', data: [], borderColor: 'rgba(239, 68, 68, 0.8)', borderWidth: 1.5, pointRadius: 0, order: 5 },
+                    { label: 'Difference Zero', data: [], borderColor: 'rgba(156, 163, 175, 0.8)', borderWidth: 1, pointRadius: 0, borderDash: [2, 2], order: 6 },
+                    { type: 'bar', label: 'HKL P1', data: [], backgroundColor: 'rgba(22, 163, 74, 0.9)', barThickness: 1, order: 0 },
+                    { type: 'bar', label: 'HKL P2', data: [], backgroundColor: 'rgba(126, 34, 206, 0.9)', barThickness: 1, order: 0 }
+                ]},
+                options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { 
+                    x: { type: 'linear', title: { display: true, text: '2θ (degrees)', font: { size: 14 }}},
+                    y: { type: 'linear', title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, min: -yMax * 0.3, max: Math.ceil(yMax * 1.1), ticks: { callback: v => v >= 0 ? v : null }}
+                }, plugins: { 
+                    legend: { labels: { filter: item => !['Difference Zero', 'Simulation (Manual)'].includes(item.text) }}, 
+                    tooltip: { 
+                        enabled: true, 
+                        mode: 'index', 
+                        intersect: false,
+                        position: 'experimentalAnchor',
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                if (!tooltipItems.length) return '';
+                                const tth = tooltipItems[0].parsed.x;
+                                let title = `2θ: ${tth.toFixed(2)}°`;
+
+                                if (lastGeneratedHklList && lastGeneratedHklList.length > 0) {
+                                    const currentParams = getAllParams();
+                                    const findClosestPeak = (phase) => {
+                                        let closest = null, minDiff = Infinity;
+                                        lastGeneratedHklList.filter(p => p.phase === phase).forEach(hkl => {
+                                            const peakPos = hkl.tth + currentParams.zeroShift;
+                                            const diff = Math.abs(tth - peakPos);
+                                            if (diff < minDiff) {
+                                                minDiff = diff;
+                                                closest = hkl;
+                                            }
+                                        });
+                                        return { peak: closest, diff: minDiff };
+                                    };
+
+                                    const { peak: p1_peak, diff: p1_diff } = findClosestPeak('P1');
+                                    const { peak: p2_peak, diff: p2_diff } = findClosestPeak('P2');
+                                    
+                                    const checkAndAppend = (peak, diff) => {
+                                        if (!peak) return;
+                                        const { gamma_G, gamma_L } = calculateProfileWidths(peak.tth, currentParams);
+                                        const fwhm = gamma_G + gamma_L;
+                                        if (diff < fwhm) { // Use FWHM as tolerance
+                                            title += `\n${peak.phase} HKL: ${peak.hkl_list[0]}`;
+                                        }
+                                    };
+                                    checkAndAppend(p1_peak, p1_diff);
+                                    checkAndAppend(p2_peak, p2_diff);
+                                }
+                                return title;
+                            },
+                            label: function(context) {
+                                const datasetLabel = context.dataset.label || '';
+
+                                if (['HKL P1', 'HKL P2', 'Difference Zero', 'Simulation (Manual)'].includes(datasetLabel)) {
+                                    return null;
+                                }
+
+                                if (datasetLabel === 'Difference') {
+                                    const yMax = mainChart.options.scales.y.max / 1.1;
+                                    const dYmax = Math.max(1, ...lastRawDifference.map(Math.abs));
+                                    const diffPlotOffset = -yMax * (0.33 / 2);
+                                    const scalingFactor = (yMax * (0.33 / 2) * 0.9) / dYmax;
+                                    const realValue = (context.parsed.y - diffPlotOffset) / scalingFactor;
+                                    return `${datasetLabel}: ${Math.round(realValue)}`;
+                                }
+                                
+                                let label = datasetLabel ? `${datasetLabel}: ` : '';
+                                if (context.parsed.y !== null) {
+                                    label += Math.round(context.parsed.y);
+                                }
+                                return label;
+                            }
+                        }
+                    } 
+                } }
+            });
+        }
+
+        function updatePlotRange() {
+            if(!mainChart || !fullExperimentalData || fullExperimentalData.tth.length === 0) return;
+            const min = parseFloat(controls.tthMinSlider.value); const max = parseFloat(controls.tthMaxSlider.value);
+            mainChart.options.scales.x.min = min; mainChart.options.scales.x.max = max;
+            let yMaxInRange = 1; 
+            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                if (fullExperimentalData.tth[i] >= min && fullExperimentalData.tth[i] <= max && fullExperimentalData.intensity[i] > yMaxInRange) yMaxInRange = fullExperimentalData.intensity[i];
+            }
+            mainChart.options.scales.y.max = Math.ceil(yMaxInRange * 1.1);
+            mainChart.options.scales.y.min = -yMaxInRange * 0.33;
+        }
+        
+        function updateChart(pattern, background, hklList1, hklList2, params) {
+            if (!mainChart) return;
+            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+            findDataset('Simulation (Manual)').data = []; 
+            findDataset('Calculated').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: pattern[i]})); 
+            findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]})); 
+            lastRawDifference = fullExperimentalData.intensity.map((y, i) => y - pattern[i]);
+            
+            updatePlotRange();
+            const yMax = mainChart.options.scales.y.max / 1.1;
+
+            let dYmax = 1;
+            const min = parseFloat(controls.tthMinSlider.value); const max = parseFloat(controls.tthMaxSlider.value);
+            for (let i = 0; i < fullExperimentalData.tth.length; i++) if (fullExperimentalData.tth[i] >= min && fullExperimentalData.tth[i] <= max) dYmax = Math.max(dYmax, Math.abs(lastRawDifference[i]));
+            
+            const diffPlotOffset = -yMax * (0.33 / 2);
+            const scalingFactor = (yMax * (0.33 / 2) * 0.9) / dYmax;
+
+            findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactor) + diffPlotOffset }));
+            findDataset('Difference Zero').data = [{x: fullExperimentalData.tth[0], y: diffPlotOffset}, {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotOffset}];
+
+            const markerBarHeight = yMax * 0.04;
+            const p1_top_y = -yMax * 0.02;
+            const p2_top_y = -yMax * 0.08;
+
+            findDataset('HKL P1').data = hklList1.map(hkl => ({ x: hkl.tth + params.zeroShift, y: [p1_top_y - markerBarHeight, p1_top_y] }));
+            findDataset('HKL P2').data = hklList2.map(hkl => ({ x: hkl.tth + params.zeroShift, y: [p2_top_y - markerBarHeight, p2_top_y] }));
+
+            mainChart.update('none');
+        }
+
+        function rescalePlot() {
+            if (!mainChart || !fullExperimentalData.tth.length) return;
+            updatePlotRange();
+            if (lastRawDifference && lastRawDifference.length > 0) {
+                const calculatedData = mainChart.data.datasets.find(d => d.label === 'Calculated').data;
+                const backgroundData = mainChart.data.datasets.find(d => d.label === 'Background').data;
+                const hkl1Data = mainChart.data.datasets.find(d => d.label === 'HKL P1').data;
+                const hkl2Data = mainChart.data.datasets.find(d => d.label === 'HKL P2').data;
+
+                if (calculatedData.length > 0 && backgroundData.length > 0) {
+                    updateChart(
+                        calculatedData.map(p => p.y),
+                        backgroundData.map(p => p.y),
+                        hkl1Data.map(p => ({tth: p.x})),
+                        hkl2Data.map(p => ({tth: p.x})),
+                        getAllParams()
+                    );
+                }
+            }
+            mainChart.update('none');
+        }
+
+        // --- Event Listeners and Initialization ---
+        controls.fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                let parsedData = file.name.toLowerCase().endsWith('.xrdml') ? parseXrdmlFile(evt.target.result) : parseDataFile(evt.target.result);
+                if (!parsedData || parsedData.tth.length === 0) { alert('No valid data parsed.'); return; }
+                if (parsedData.wavelength) { controls.wavelength.value = parsedData.wavelength.toFixed(5); }
+                fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
+                lastRawDifference = []; 
+                const maxExpIntensity = Math.max(...fullExperimentalData.intensity);
+                if (maxExpIntensity > 0) fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => (y / maxExpIntensity) * 1000);
+                controls.fileName.textContent = file.name;
+                controls.placeholder.classList.add('hidden');
+                controls.resultsContainer.classList.remove('hidden'); controls.resultsContainer.classList.add('flex');
+                controls.fitButton.disabled = false; controls.fitButton.textContent = 'Run Refinement';
+                initializeChart();
+                const min = fullExperimentalData.tth[0], max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
+                const step = (max - min) / 2000;
+                [controls.tthMinSlider, controls.tthMaxSlider].forEach(slider => { slider.min = min; slider.max = max; slider.step = step; slider.disabled = false; });
+                controls.tthMinSlider.value = Math.max(min, 10); controls.tthMaxSlider.value = Math.min(max, 100);
+                controls.tthMinValue.textContent = parseFloat(controls.tthMinSlider.value).toFixed(1); 
+                controls.tthMaxValue.textContent = parseFloat(controls.tthMaxSlider.value).toFixed(1);
+                updatePlotRange();
+                updatePreviewPattern();
+            };
+            reader.readAsText(file);
+        });
+        
+        controls.controlsPanel.addEventListener('input', (event) => {
+            const target = event.target;
+            const targetId = target.id;
+            if ((target.tagName === 'INPUT' || target.tagName === 'SELECT') && !['file-input', 'tth-min-slider', 'tth-max-slider', 'iterations-slider'].includes(targetId)) {
+                handleParameterSync(target);
+                updatePreviewPattern();
+            }
+        });
+        
+        function handleParameterSync(target) {
+            const id = target.id;
+            if (!id.startsWith('lattice-param-') && !id.startsWith('fit-lattice-')) return;
+            
+            const parts = id.split('-');
+            const paramName = parts[2];
+            const phase = parts[3];
+            
+            const constraintCheckbox = document.getElementById(`constraint-${paramName}`);
+            if (constraintCheckbox && constraintCheckbox.checked) {
+                const otherPhase = (phase === 'p1') ? 'p2' : 'p1';
+                if (id.startsWith('lattice-param-')) { // Value input
+                    const destEl = document.getElementById(`lattice-param-${paramName}-${otherPhase}`);
+                    if (destEl) destEl.value = target.value;
+                } else { // Fit checkbox
+                    const destEl = document.getElementById(`fit-lattice-${paramName}-${otherPhase}`);
+                    if (destEl) destEl.checked = target.checked;
+                }
+            }
+        }
+
+        function updateConstraintStates() {
+            ['a', 'b', 'c', 'alpha', 'beta', 'gamma'].forEach(pName => {
+                const constraintCheckbox = document.getElementById(`constraint-${pName}`);
+                const p1ValueEl = document.getElementById(`lattice-param-${pName}-p1`);
+                const p1FitEl = document.getElementById(`fit-lattice-${pName}-p1`);
+                const p2ValueEl = document.getElementById(`lattice-param-${pName}-p2`);
+                const p2FitEl = document.getElementById(`fit-lattice-${pName}-p2`);
+                
+                if (constraintCheckbox && p1ValueEl && p2ValueEl && p1FitEl && p2FitEl) {
+                     if (constraintCheckbox.checked) {
+                        p2ValueEl.value = p1ValueEl.value;
+                        p2FitEl.checked = p1FitEl.checked;
+                        p2ValueEl.disabled = true;
+                        p2FitEl.disabled = true;
+                    } else {
+                        p2ValueEl.disabled = false;
+                        p2FitEl.disabled = false;
+                    }
+                }
+            });
+        }
+
+        function findExperimentalPeakDetails(targetTth, experimentalData, wavelength, searchWindow = 0.5) {
+            if (!experimentalData || experimentalData.tth.length === 0) {
+                return { tth_exp: null, d_exp: null };
+            }
+
+            const minTth = targetTth - searchWindow;
+            const maxTth = targetTth + searchWindow;
+            
+            let maxIntensity = -Infinity;
+            let tth_exp = null;
+
+            for (let i = 0; i < experimentalData.tth.length; i++) {
+                const tth = experimentalData.tth[i];
+                if (tth >= minTth && tth <= maxTth) {
+                    if (experimentalData.intensity[i] > maxIntensity) {
+                        maxIntensity = experimentalData.intensity[i];
+                        tth_exp = tth;
+                    }
+                }
+            }
+
+            if (tth_exp !== null) {
+                const theta_rad = tth_exp * (Math.PI / 180) / 2;
+                const d_exp = wavelength / (2 * Math.sin(theta_rad));
+                return { tth_exp: tth_exp, d_exp: d_exp };
+            }
+
+            return { tth_exp: null, d_exp: null };
+        }
+        
+        controls.fitButton.addEventListener('click', runLeBailFit);
+        document.querySelector('.tab-nav').addEventListener('click', (e) => {
+            if (e.target.classList.contains('tab-button')) {
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                e.target.classList.add('active');
+                document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+                document.getElementById(`tab-panel-${e.target.dataset.tab}`).classList.add('active');
+            }
+        });
+        
+        function createBackgroundControls() {
+            let html = `<label class="control-label">B-1 (1/2θ)</label><input type="number" id="bg-param-neg1" value="0.0" class="control-input"><input type="checkbox" id="fit-bg-neg1" class="fit-checkbox">`;
+            for (let i=0; i < NUM_BG_TERMS; i++) html += `<label class="control-label">B${i}</label><input type="number" id="bg-param-${i}" value="0.0" class="control-input"><input type="checkbox" id="fit-bg-${i}" class="fit-checkbox" ${i<3?'checked':''}>`;
+            controls.backgroundContainer.innerHTML = html;
+        }
+        
+        const resizer = document.getElementById('drag-handle');
+        resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
+            const moveHandler = (me) => { if (me.clientX > 350 && me.clientX < window.innerWidth-350) document.getElementById('controls-panel').style.width = `${me.clientX}px`; };
+            const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
+            window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler);
+        });
+        
+        controls.reportButton.addEventListener('click', async () => {
+             if (!fitResults) { alert("Please run a refinement before generating a report."); return; }
+            controls.reportButton.textContent = 'Generating...'; controls.reportButton.disabled = true;
+            try {
+                const now = new Date(); const filename = `Misfit-LeBail-Report-${now.toISOString().slice(0,19).replace(/[-:T]/g,"")}.pdf`;
+                const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff' });
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                const margin = 15; const contentWidth = doc.internal.pageSize.getWidth() - 2 * margin;
+                doc.setFontSize(18); doc.text('Misfit Le Bail Refinement Report', 105, 15, { align: 'center' });
+                doc.setFontSize(10); doc.text(`Report Generated: ${now.toLocaleString()}`, margin, 25);
+                doc.text(`Data File: ${controls.fileName.textContent}`, margin, 30);
+                const mainImgData = chartCanvas.toDataURL('image/png');
+                const mainImgProps = doc.getImageProperties(mainImgData);
+                const mainImgHeight = (mainImgProps.height * contentWidth) / mainImgProps.width;
+                doc.addImage(mainImgData, 'PNG', margin, 40, contentWidth, mainImgHeight);
+                doc.addPage(); let yPos = 20;
+                doc.setFont('Helvetica', 'bold'); doc.setFontSize(16); doc.text('Refinement Results', margin, yPos); yPos += 10;
+                const finalParams = fitResults.params; const fitFlags = fitResults.fitFlags; const constraints = fitResults.constraints;
+                const lineSpacing = 5;
+                const addLine = (text) => { doc.text(text, margin, yPos); yPos += lineSpacing; };
+                const addHeader = (text) => { yPos += 4; doc.setFont('Helvetica', 'bold'); doc.text(text, margin, yPos); yPos += (lineSpacing + 1); doc.setFont('Courier', 'normal'); };
+                doc.setFontSize(9); doc.setFont('Courier', 'normal');
+                addLine(`Final Rwp: ${controls.rwpResult.textContent} %`);
+                const misfitRatio = (finalParams.phase1.b && finalParams.phase2.b && finalParams.phase2.b !== 0) ? (finalParams.phase1.b / finalParams.phase2.b).toFixed(5) : 'N/A';
+                addLine(`Misfit Ratio (b1/b2): ${misfitRatio}`);
+                addLine(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+                addHeader('Lattice Constraints Applied');
+                let constraintsStr = Object.keys(constraints).filter(k => constraints[k]).map(k => k.replace('constrain_', '')).join(', ');
+                if (!constraintsStr) constraintsStr = "None";
+                addLine(constraintsStr);
+                const paramTableLine = (name, value, flag) => {
+                    const valStr = (value != null && isFinite(value)) ? value.toExponential(6) : 'N/A';
+                    const fitStr = flag ? 'Yes' : (flag === false ? 'No' : '-');
+                    return `${name.padEnd(14)}${valStr.padStart(14)} ${fitStr.padStart(8)}`;
+                };
+                const printPhaseParams = (phaseIdx, params, flags) => {
+                    addHeader(`Phase ${phaseIdx} Structural Parameters`);
+                    addLine(`Crystal System: ${params.system}`); addLine(`Centering:      ${params.centering}`);
+                    addLine('---------------------------------------------------');
+                    addLine('Parameter      Value           Fitted'); addLine('---------------------------------------------------');
+                    const paramDefs = [{ name: 'a (Å)', key: 'a' }, { name: 'b (Å)', key: 'b' }, { name: 'c (Å)', key: 'c' }, { name: 'alpha (°)', key: 'alpha' }, { name: 'beta (°)', key: 'beta' }, { name: 'gamma (°)', key: 'gamma' }];
+                    paramDefs.forEach(p => { if (params[p.key] !== undefined) addLine(paramTableLine(p.name, params[p.key], flags[p.key])); });
+                };
+                printPhaseParams(1, finalParams.phase1, fitFlags.phase1);
+                printPhaseParams(2, finalParams.phase2, fitFlags.phase2);
+                addHeader('Instrument & Profile Parameters');
+                addLine('---------------------------------------------------');
+                addLine('Parameter      Value           Fitted'); addLine('---------------------------------------------------');
+                addLine(paramTableLine('Wavelength (Å)', finalParams.lambda, false));
+                addLine(paramTableLine('Zero Shift (°)', finalParams.zeroShift, fitFlags.zeroShift));
+                addLine(paramTableLine('GU', finalParams.GU, fitFlags.GU)); addLine(paramTableLine('GV', finalParams.GV, fitFlags.GV)); addLine(paramTableLine('GW', finalParams.GW, fitFlags.GW));
+                addLine(paramTableLine('GP', finalParams.GP, fitFlags.GP)); addLine(paramTableLine('LX', finalParams.LX, fitFlags.LX)); addLine(paramTableLine('eta', finalParams.eta, fitFlags.eta));
+                addLine(paramTableLine('shft', finalParams.shft, fitFlags.shft)); addLine(paramTableLine('trns', finalParams.trns, fitFlags.trns));
+                
+                const printHklTable = (doc, hklList, phaseNum, startY, finalParams) => {
+                    let y = startY;
+                    doc.setFont('Helvetica', 'bold');
+                    doc.setFontSize(12);
+                    doc.text(`Reflections Table: Phase ${phaseNum}`, margin, y);
+                    y += 8;
+                    doc.setFontSize(8);
+                    doc.setFont('Courier', 'normal');
+
+                    const header = ['h,k,l'.padEnd(12), 'd_calc'.padStart(10), 'd_exp'.padStart(10), '2θ_calc'.padStart(10), '2θ_exp'.padStart(10)].join('  ');
+                    const separator = '-'.repeat(header.length + 2);
+
+                    const printHeader = () => {
+                        doc.text(header, margin, y);
+                        y += 4;
+                        doc.text(separator, margin, y);
+                        y += 4;
+                    };
+                    
+                    printHeader();
+
+                    hklList.forEach(hkl => {
+                        if (y > 280) { // Page break
+                            doc.addPage();
+                            y = 20;
+                            printHeader();
+                        }
+                        const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                        const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+                        
+                        const { tth_exp, d_exp } = findExperimentalPeakDetails(tthCorr, fullExperimentalData, finalParams.lambda);
+                        
+                        const hklStr = hkl.hkl_list[0].padEnd(12);
+                        const d_calc_str = hkl.d.toFixed(5).padStart(10);
+                        const d_exp_str = d_exp ? d_exp.toFixed(5).padStart(10) : 'N/A'.padStart(10);
+                        const tth_calc_str = tthCorr.toFixed(4).padStart(10);
+                        const tth_exp_str = tth_exp ? tth_exp.toFixed(4).padStart(10) : 'N/A'.padStart(10);
+
+                        const line = [hklStr, d_calc_str, d_exp_str, tth_calc_str, tth_exp_str].join('  ');
+                        doc.text(line, margin, y);
+                        y += lineSpacing;
+                    });
+                    return y;
+                };
+
+                const hklList1_report = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase1, finalParams.phase1.system, finalParams.phase1.centering, 'P1');
+                const hklList2_report = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
+                
+                doc.addPage();
+                yPos = 20;
+                yPos = printHklTable(doc, hklList1_report, 1, yPos, finalParams);
+                doc.addPage();
+                yPos = 20;
+                printHklTable(doc, hklList2_report, 2, yPos, finalParams);
+
+                doc.save(filename);
+            } catch (error) { console.error("Failed to generate PDF:", error); alert("An error occurred while generating the PDF report."); }
+            finally { controls.reportButton.textContent = 'Generate PDF Report'; if(fitResults) controls.reportButton.disabled = false; }
+        });
+        
+        controls.iterationsSlider.addEventListener('input', () => { controls.iterationsValue.textContent = controls.iterationsSlider.value; });
+        
+        controls.tthMinSlider.addEventListener('input', () => {
+            let minVal = parseFloat(controls.tthMinSlider.value);
+            let maxVal = parseFloat(controls.tthMaxSlider.value);
+            if (minVal >= maxVal) { minVal = maxVal - parseFloat(controls.tthMinSlider.step); controls.tthMinSlider.value = minVal; }
+            controls.tthMinValue.textContent = minVal.toFixed(1);
+            rescalePlot();
+        });
+        controls.tthMaxSlider.addEventListener('input', () => {
+            let minVal = parseFloat(controls.tthMinSlider.value);
+            let maxVal = parseFloat(controls.tthMaxSlider.value);
+            if (maxVal <= minVal) { maxVal = minVal + parseFloat(controls.tthMaxSlider.step); controls.tthMaxSlider.value = maxVal; }
+            controls.tthMaxValue.textContent = maxVal.toFixed(1);
+            rescalePlot();
+        });
+        [controls.crystalSystemP1, controls.centeringTypeP1].forEach((el) => {
+            el.addEventListener('change', () => { updateLatticeParamUI(1); updatePreviewPattern(); updateConstraintStates(); });
+        });
+        [controls.crystalSystemP2, controls.centeringTypeP2].forEach((el) => {
+             el.addEventListener('change', () => { updateLatticeParamUI(2); updatePreviewPattern(); updateConstraintStates(); });
+        });
+
+        controls.constraintsContainer.addEventListener('change', (event) => {
+            if(event.target.classList.contains('constraint-checkbox')) {
+                updateConstraintStates();
+                updatePreviewPattern();
+            }
+        });
+        
+        // --- Initial Setup ---
+        controls.crystalSystemP1.value = 'monoclinic';
+        controls.centeringTypeP1.value = 'C';
+        controls.crystalSystemP2.value = 'orthorhombic';
+        controls.centeringTypeP2.value = 'C';
+
+        updateLatticeParamUI(1);
+        updateLatticeParamUI(2);
+        updateConstraintsUI();
+        updateConstraintStates(); // Set initial disabled state for constrained params
+        createBackgroundControls();
+    });
+</script>
+</body>
+</html>
+
