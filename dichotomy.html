@@ -92,7 +92,7 @@
     <div id="app-container">
         <div id="controls-panel">
             <h1 style="font-size: 1.5rem; font-weight: 700; color: white; margin-bottom: 0.5rem;">Powder XRD Indexing</h1>
-            <p style="font-size: 0.875rem; color: var(--text-dark); margin-bottom: 1.5rem;">Determine unit cell parameters using the Dichotomy method. Based on the method of A. Boultif & D. Louer, J. Appl. Cryst. 37, 724-731 (2004)</p>
+            <p style="font-size: 0.875rem; color: var(--text-dark); margin-bottom: 1.5rem;">Determine unit cell parameters using the Dichotomy method. Based on the method of A. Boultif & D. Louer, J. Appl. Cryst. 37, 724-731 (2004). This is a simplified version to be used for educational purposes or simple cases; for real stuff use the original code.</p>
             
             <div class="control-group">
                 <h2 style="font-size: 1.125rem; font-weight: 600; color: white; margin-bottom: 0.75rem;">1. Load Data</h2>
@@ -164,7 +164,7 @@
                         <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic" checked> Cubic</label>
                         <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> Tetragonal</label>
                         <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> Hexagonal</label>
-                        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic" checked> Orthorhombic</label>
+                        <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic" > Orthorhombic</label>
                     </div>
                 </div>
             </div>
@@ -276,6 +276,12 @@
                     const max = parseFloat(el.max);
                     let value = parseFloat(el.value);
 
+                        if (pickedPeaks.length > 0) {
+        recalculatePeakValues();
+        updatePeakTable();
+    }
+
+
                     if (isNaN(value)) {
                         el.value = defaultValue;
                         return;
@@ -355,6 +361,9 @@
                          fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => y / maxIntensity * 1000);
                     }
                     
+                    solutions = [];
+                    updateSolutionsTable();
+
                     if (parsedData.wavelength) {
                         ui.wavelength.value = parsedData.wavelength.toFixed(5);
                     }
@@ -515,13 +524,14 @@
                     if (secondDerivative[i] < secondDerivative[i-1] && 
                         secondDerivative[i] < secondDerivative[i+1] &&
                         secondDerivative[i] < 0) {
-                        
+
                         if(intensity[i] > threshold) {
-                            const lambda = parseFloat(ui.wavelength.value);
-                            const d = lambda / (2 * Math.sin(tth * Math.PI / 360));
-                            const q = 1 / (d * d);
-                            pickedPeaks.push({ tth, d, q });
-                        }
+    const lambda = parseFloat(ui.wavelength.value);
+    const d = lambda / (2 * Math.sin(tth * Math.PI / 360));
+    const q = 1 / (d * d);
+    pickedPeaks.push({ tth, d, q });
+}
+
                     }
                 }
                 
@@ -535,6 +545,16 @@
                 }
             };
             
+
+            const recalculatePeakValues = () => {
+    const lambda = parseFloat(ui.wavelength.value);
+    pickedPeaks.forEach(peak => {
+        peak.d = lambda / (2 * Math.sin(peak.tth * Math.PI / 360));
+        peak.q = 1 / (peak.d * peak.d);
+    });
+};
+
+
             const updatePeakTable = () => {
                 ui.peakListBody.innerHTML = '';
                 pickedPeaks.forEach((peak, index) => {
@@ -550,6 +570,15 @@
                 ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
                 updateAllMarkers();
             };
+
+            ui.wavelength.addEventListener('change', () => {
+    if (pickedPeaks.length > 0) {
+        recalculatePeakValues();
+        updatePeakTable();
+    }
+});
+
+
 
             ui.findPeaksButton.addEventListener('click', () => {
                 findPeaks();
@@ -1060,22 +1089,29 @@
     
     <script id="indexing-worker" type="text/javascript">
         self.onmessage = function(e) {
-            const { peaks, wavelength, tth_error, max_volume, systems, impurity_peaks } = e.data;
-            
+              const { peaks, wavelength, tth_error, max_volume, systems, impurity_peaks } = e.data;
+
+    const q_from_tth_local = (tth) => {
+        const d = wavelength / (2 * Math.sin(tth * Math.PI / 360));
+        return 1 / (d * d);
+    };
+
+    // Calculate q_obs here inside the worker to ensure consistency with the wavelength.
+    const q_obs = peaks.map(p => q_from_tth_local(p.tth));
+    const tth_obs = peaks.map(p => p.tth);
+    const N_FOR_M20 = Math.min(30, peaks.length);
             // Search depth parameters have been increased for a more exhaustive search,
             // closer to the original DICVOL procedure. This will be slower but more likely to find solutions.
-            const max_hkl_indexing = 7; // Max h,k,l to test for initial peak assignments (was 6)
-            const cubic_search_depth = 12; // How many initial peaks to test for cubic (was 8)
-            const tetra_hexa_i_depth = 12; // How many peaks for the first line in T/H (was 10)
-            const tetra_hexa_j_depth = 15; // How many peaks for the second line in T/H (was 12)
-            const ortho_search_depth = 15; // How many initial peaks to combine for orthorhombic (was 12)
+            const max_hkl_indexing = 12; // Max h,k,l to test for initial peak assignments 
+            const cubic_search_depth = 20; // How many initial peaks to test for cubic 
+            const tetra_hexa_i_depth = 20; // How many peaks for the first line in T/H 
+            const tetra_hexa_j_depth = 20; // How many peaks for the second line in T/H 
+            const ortho_search_depth = 30; // How many initial peaks to combine for orthorhombic
 
-            const max_hkl_analysis = 7;
-            const min_m20 = 2.0;
-            const N_FOR_M20 = Math.min(20, peaks.length);
-            const q_obs = peaks.map(p => p.q);
-            const tth_obs = peaks.map(p => p.tth);
+            const max_hkl_analysis = 12;
+            const min_m20 = 1.0;
 
+          
             const spaceGroupData = {
                 cubic: {
                     'P': { 'Pm-3m':{c:[]}, 'P432':{c:[]}, 'P-43m':{c:[]}, 'Pn-3n':{c:['0kl:k+l=2n','hhl:l=2n']}, 'Pm-3n':{c:['hk0:h+k=2n']}, 'Pn-3m':{c:['hhl:l=2n']} },
@@ -1338,49 +1374,115 @@
                     }
                 }
             };
+
             const indexOrthorhombic = () => {
-                // This is a much more thorough search than the previous version.
-                // It iterates through combinations of the first N peaks, and for each combination,
-                // it tests the hypothesis that these peaks correspond to (h,0,0), (0,k,0), and (0,0,l)
-                // for small integer values of h, k, and l. This is closer to the spirit
-                // of a true powder indexing program and will be slower but more robust.
-                const max_peaks_to_try = Math.min(ortho_search_depth, q_obs.length);
-                const max_hkl_to_assign = 3; // Test assignments for (100), (200), (300), etc.
+    const max_peaks_to_try = Math.min(25, q_obs.length);
+    const max_hkl_int = 6; // Reasonable compromise between thoroughness and speed
+    
+    // Generate HKL options, prioritizing lower indices
+    const hkl_options = [];
+    for(let sum = 1; sum <= max_hkl_int * 2; sum++) { // Generate by sum of indices
+        for(let h = 0; h <= Math.min(max_hkl_int, sum); h++) {
+            for(let k = 0; k <= Math.min(max_hkl_int, sum - h); k++) {
+                const l = sum - h - k;
+                if(l >= 0 && l <= max_hkl_int) {
+                    if(h === 0 && k === 0 && l === 0) continue;
+                    hkl_options.push([h, k, l]);
+                }
+            }
+        }
+    }
 
-                for (let i = 0; i < max_peaks_to_try; i++) {
-                    for (let j = i + 1; j < max_peaks_to_try; j++) {
-                        for (let k = j + 1; k < max_peaks_to_try; k++) {
-                            
-                            const q_values = [q_obs[i], q_obs[j], q_obs[k]];
-                            
-                            // Test permutations of which q-value is assigned to which axis basis
-                            const perms = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
-                            
-                            perms.forEach(p => {
-                                const q_a_base = q_values[p[0]];
-                                const q_b_base = q_values[p[1]];
-                                const q_c_base = q_values[p[2]];
+    // Try different peak combinations
+    for (let i = 0; i < max_peaks_to_try - 2; i++) {
+        for (let j = i + 1; j < max_peaks_to_try - 1; j++) {
+            for (let k = j + 1; k < max_peaks_to_try; k++) {
+                const Qs = [q_obs[i], q_obs[j], q_obs[k]];
 
-                                // And for each permutation, test assigning low h, k, l Miller indices
-                                for (let h = 1; h <= max_hkl_to_assign; h++) {
-                                    const a = h / Math.sqrt(q_a_base);
-                                    for (let kk = 1; kk <= max_hkl_to_assign; kk++) {
-                                        const b = kk / Math.sqrt(q_b_base);
-                                        for (let l = 1; l <= max_hkl_to_assign; l++) {
-                                            const c = l / Math.sqrt(q_c_base);
-                                            
-                                            // By convention, sort parameters to avoid redundant checks of the same cell
-                                            const params = [a, b, c].sort((x, y) => y - x);
+                for(const hkl1 of hkl_options) {
+                    for(const hkl2 of hkl_options) {
+                        for(const hkl3 of hkl_options) {
+                            
+                            // Check if HKL combinations are linearly independent
+                            // (avoid cases where all three reflections lie on the same line/plane)
+                            const h_values = [hkl1[0], hkl2[0], hkl3[0]];
+                            const k_values = [hkl1[1], hkl2[1], hkl3[1]];
+                            const l_values = [hkl1[2], hkl2[2], hkl3[2]];
+                            
+                            // Skip if all HKL vectors are too similar
+                            if ((hkl1[0] === hkl2[0] && hkl1[1] === hkl2[1] && hkl1[2] === hkl2[2]) ||
+                                (hkl1[0] === hkl3[0] && hkl1[1] === hkl3[1] && hkl1[2] === hkl3[2]) ||
+                                (hkl2[0] === hkl3[0] && hkl2[1] === hkl3[1] && hkl2[2] === hkl3[2])) {
+                                continue;
+                            }
+                            
+                            const M = [
+                                [hkl1[0]**2, hkl1[1]**2, hkl1[2]**2],
+                                [hkl2[0]**2, hkl2[1]**2, hkl2[2]**2],
+                                [hkl3[0]**2, hkl3[1]**2, hkl3[2]**2]
+                            ];
 
-                                            testSolution({ a: params[0], b: params[1], c: params[2], system: 'orthorhombic' });
-                                        }
+                            const det = M[0][0]*(M[1][1]*M[2][2] - M[1][2]*M[2][1]) -
+                                        M[0][1]*(M[1][0]*M[2][2] - M[1][2]*M[2][0]) +
+                                        M[0][2]*(M[1][0]*M[2][1] - M[1][1]*M[2][0]);
+                            
+                            // Relaxed determinant threshold - was the main problem
+                            if (Math.abs(det) < 1e-15) continue;
+                            
+                            const invDet = 1.0 / det;
+                            const sol_a_sq_inv = invDet * (Qs[0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1]) - 
+                                                           M[0][1]*(Qs[1]*M[2][2]-M[1][2]*Qs[2]) + 
+                                                           M[0][2]*(Qs[1]*M[2][1]-M[1][1]*Qs[2]));
+                            const sol_b_sq_inv = invDet * (M[0][0]*(Qs[1]*M[2][2]-M[1][2]*Qs[2]) - 
+                                                           Qs[0]*(M[1][0]*M[2][2]-M[1][2]*M[2][0]) + 
+                                                           M[0][2]*(M[1][0]*Qs[2]-Qs[1]*M[2][0]));
+                            const sol_c_sq_inv = invDet * (M[0][0]*(M[1][1]*Qs[2]-Qs[1]*M[2][1]) - 
+                                                           M[0][1]*(M[1][0]*Qs[2]-Qs[1]*M[2][0]) + 
+                                                           Qs[0]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]));
+
+                            if (sol_a_sq_inv > 0 && sol_b_sq_inv > 0 && sol_c_sq_inv > 0) {
+                                const cand_a = 1 / Math.sqrt(sol_a_sq_inv);
+                                const cand_b = 1 / Math.sqrt(sol_b_sq_inv);
+                                const cand_c = 1 / Math.sqrt(sol_c_sq_inv);
+                                
+                                // Basic sanity checks for unit cell parameters
+                                if (cand_a < 2 || cand_a > 50 || 
+                                    cand_b < 2 || cand_b > 50 || 
+                                    cand_c < 2 || cand_c > 50) {
+                                    continue;
+                                }
+                                
+                                // Check if parameters are reasonably different (avoid near-degenerate cases)
+                                const params_temp = [cand_a, cand_b, cand_c].sort((x,y) => y-x);
+                                if (params_temp[0] / params_temp[2] > 10) { // Avoid very elongated cells
+                                    continue;
+                                }
+                                
+                                const params_unsorted = [cand_a, cand_b, cand_c];
+                                
+                                // Only apply the heuristic check for the very first few peaks
+                                // and make it more lenient
+                                if (i <= 2) {
+                                    const q_min_calc = Math.min(1/(params_unsorted[0]**2), 
+                                                               1/(params_unsorted[1]**2), 
+                                                               1/(params_unsorted[2]**2));
+                                    if (q_min_calc > q_obs[0] * 1.5) { // Very lenient 50% tolerance
+                                        continue;
                                     }
                                 }
-                            });
+                                
+                                // Sort parameters in descending order (a ≥ b ≥ c convention)
+                                const params = params_unsorted.sort((x,y) => y-x);
+                                
+                                testSolution({ a: params[0], b: params[1], c: params[2], system: 'orthorhombic' });
+                            }
                         }
                     }
                 }
-            };
+            }
+        }
+    }
+};
 
             systems.forEach((system, i) => {
                 if (system === 'cubic') indexCubic();
