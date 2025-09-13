@@ -669,6 +669,97 @@
                 worker.postMessage(params);
             };
             
+
+
+const testSolution = (params) => {
+    const {a, b, c, system} = params;
+    let volume = 0;
+    switch(system){
+        case 'cubic': volume = a*a*a; break;
+        case 'tetragonal': volume = a*a*c; break;
+        case 'hexagonal': volume = a*a*c * Math.sqrt(3)/2; break;
+        case 'orthorhombic': volume = a*b*c; break;
+    }
+    if (volume > max_volume || volume < 1) return;
+    
+    const q_calc = new Set();
+    for (let h = 0; h <= max_hkl_indexing; h++) {
+        for (let k = 0; k <= max_hkl_indexing; k++) {
+            for (let l = 0; l <= max_hkl_indexing; l++) {
+                if (system === 'cubic' && (k > h || l > k)) continue;
+                if ((system === 'tetragonal' || system === 'hexagonal') && k > h) continue;
+                if (h === 0 && k === 0 && l === 0) continue;
+                let q = 0;
+                switch (system) {
+                    case 'cubic': q = (h*h + k*k + l*l) / (a*a); break;
+                    case 'tetragonal': q = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                    case 'hexagonal': q = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                    case 'orthorhombic': q = h*h/(a*a) + k*k/(b*b) + l*l/(c*c); break;
+                }
+                if(q > 0) q_calc.add(q);
+            }
+        }
+    }
+    
+    const q_calc_sorted = Array.from(q_calc).sort((x, y) => x - y);
+    const m20 = calculateM20(q_calc_sorted);
+    if (m20 > min_m20) {
+        const analysis = analyzeSystematicAbsences(params, peaks);
+        const newSolution = {...params, volume, m20, analysis};
+        
+        // Check for duplicates based on lattice parameters
+        let duplicateIndex = -1;
+        
+        for (let i = 0; i < foundSolutions.length; i++) {
+            const existing = foundSolutions[i];
+            if (existing.system !== system) continue;
+            
+            let parametersMatch = false;
+            
+            if (system === 'cubic') {
+                // For cubic: only compare a parameter
+                parametersMatch = Math.abs(a - existing.a) / existing.a < DUPLICATE_TOLERANCE;
+                
+            } else if (system === 'tetragonal' || system === 'hexagonal') {
+                // For tetragonal/hexagonal: compare a and c parameters
+                parametersMatch = 
+                    Math.abs(a - existing.a) / existing.a < DUPLICATE_TOLERANCE &&
+                    Math.abs(c - existing.c) / existing.c < DUPLICATE_TOLERANCE;
+                    
+            } else if (system === 'orthorhombic') {
+                // For orthorhombic: compare all three parameters in sorted order
+                // to handle cases where a,b,c might be in different orders
+                const newParams = [a, b, c].sort((x,y) => y-x);
+                const existingParams = [existing.a, existing.b, existing.c].sort((x,y) => y-x);
+                
+                parametersMatch = 
+                    Math.abs(newParams[0] - existingParams[0]) / existingParams[0] < DUPLICATE_TOLERANCE &&
+                    Math.abs(newParams[1] - existingParams[1]) / existingParams[1] < DUPLICATE_TOLERANCE &&
+                    Math.abs(newParams[2] - existingParams[2]) / existingParams[2] < DUPLICATE_TOLERANCE;
+            }
+            
+            if (parametersMatch) {
+                duplicateIndex = i;
+                break;
+            }
+        }
+        
+        if (duplicateIndex >= 0) {
+            // Found a duplicate - keep the one with higher M(20)
+            if (newSolution.m20 > foundSolutions[duplicateIndex].m20) {
+                foundSolutions[duplicateIndex] = newSolution;
+                self.postMessage({ type: 'solution', payload: newSolution });
+            }
+            // If the existing solution has higher M(20), do nothing (keep existing)
+        } else {
+            // No duplicate found - add new solution
+            foundSolutions.push(newSolution);
+            self.postMessage({ type: 'solution', payload: newSolution });
+        }
+    }
+};
+
+
             ui.startIndexingButton.addEventListener('click', startIndexing);
 
             ui.reportButton.addEventListener('click', () => {
@@ -1090,6 +1181,8 @@
     <script id="indexing-worker" type="text/javascript">
         self.onmessage = function(e) {
               const { peaks, wavelength, tth_error, max_volume, systems, impurity_peaks } = e.data;
+        const DUPLICATE_TOLERANCE = 0.0002; // 0.02% - change this value to adjust tolerance
+        const foundSolutions = [];
 
     const q_from_tth_local = (tth) => {
         const d = wavelength / (2 * Math.sin(tth * Math.PI / 360));
@@ -1374,6 +1467,7 @@
                     }
                 }
             };
+
 
             const indexOrthorhombic = () => {
     const max_peaks_to_try = Math.min(25, q_obs.length);
