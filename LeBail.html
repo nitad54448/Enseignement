@@ -351,6 +351,57 @@
         const NUM_BG_TERMS = 10;
         
         // --- Core Logic ---
+
+        // --- plugin .. ligne verticlae
+        const verticalCursorLine = {
+            id: 'verticalCursorLine',
+            afterDraw: chart => {
+                // draw the line when the tooltip is active
+                if (chart.tooltip?._active?.length) {
+                    let x = chart.tooltip._active[0].element.x;
+                    let yAxis = chart.scales.y;
+                    let ctx = chart.ctx;
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(x, yAxis.top);
+                    ctx.lineTo(x, yAxis.bottom);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; // gray color
+                    ctx.setLineDash([4, 4]); // Optional: make the line dashed ?
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        };
+        Chart.register(verticalCursorLine);
+        // --- 
+
+
+        // --- ADD NEW TOOLTIP POSITIONER ---
+        /**
+         * Custom tooltip positioner that anchors the tooltip to the
+         * exact position of the 'Experimental' data series.
+         */
+        Chart.Tooltip.positioners.experimentalAnchor = function(items) {
+            // "items" is an array of all data points at the cursor's x-position
+            if (!items.length) {
+                return false;
+            }
+            
+            // Find the item corresponding to the 'Experimental' dataset (which is the first one, datasetIndex: 0)
+            const experimentalItem = items.find(item => item.datasetIndex === 0);
+
+            // If we found it, use its coordinates. Otherwise, fall back to the first available item.
+            const anchorPoint = experimentalItem || items[0];
+
+            return {
+                x: anchorPoint.element.x,
+                y: anchorPoint.element.y
+            };
+        };
+        // --- END OF NEW POSITIONER ---
+
+
         function updateLatticeParamUI() {
             const system = controls.crystalSystem.value;
             const container = controls.latticeParamsContainer;
@@ -517,6 +568,289 @@
             };
         }
         
+
+/**
+         * Finds the 2-theta value of the maximum experimental intensity within a search window.
+         * @param {number} targetTth - The theoretical 2-theta position to search around.
+         * @param {object} experimentalData - The object containing the full {tth, intensity} arrays.
+         * @param {number} wavelength - The wavelength in Angstroms.
+         * @param {number} searchWindow - The +/- 2-theta range to search within.
+         * @returns {object} - An object with {tth_exp, d_exp} or {tth_exp: null, d_exp: null} if not found.
+         */
+        function findExperimentalPeakDetails(targetTth, experimentalData, wavelength, searchWindow = 0.5) {
+            if (!experimentalData || experimentalData.tth.length === 0) {
+                return { tth_exp: null, d_exp: null };
+            }
+
+            const minTth = targetTth - searchWindow;
+            const maxTth = targetTth + searchWindow;
+            
+            let maxIntensity = -Infinity;
+            let tth_exp = null;
+
+            for (let i = 0; i < experimentalData.tth.length; i++) {
+                const tth = experimentalData.tth[i];
+                if (tth >= minTth && tth <= maxTth) {
+                    if (experimentalData.intensity[i] > maxIntensity) {
+                        maxIntensity = experimentalData.intensity[i];
+                        tth_exp = tth;
+                    }
+                }
+            }
+
+            if (tth_exp !== null) {
+                // Convert degrees to radians for Math.sin()
+                const theta_rad = tth_exp * (Math.PI / 180) / 2;
+                const d_exp = wavelength / (2 * Math.sin(theta_rad));
+                return { tth_exp: tth_exp, d_exp: d_exp };
+            }
+
+            return { tth_exp: null, d_exp: null };
+        }
+
+
+
+/**
+/**
+         * The crystallographic "ledger" (Verified Version).
+         * Takes h, k, l indices and the crystal system, and returns the
+         * canonical (conventional) representation and the correct multiplicity.
+         */
+        function getMultiplicityAndCanonicalHKL(h, k, l, system) {
+            let H = Math.abs(h);
+            let K = Math.abs(k);
+            let L = Math.abs(l);
+
+            let canonical_hkl = `(${H},${K},${L})`;
+            let multiplicity = 1;
+
+            switch (system) {
+                
+                case 'cubic':
+                    // Sort into conventional order: h >= k >= l >= 0
+                    [H, K, L] = [H, K, L].sort((a, b) => b - a);
+                    canonical_hkl = `(${H},${K},${L})`;
+
+                    if (H > K && K > L && L > 0)      multiplicity = 48; // hkl (general)
+                    else if (H === K && K > L && L > 0) multiplicity = 24; // hhl
+                    else if (H > K && K === L && L > 0) multiplicity = 24; // hkk
+                    else if (H > K && K > 0 && L === 0) multiplicity = 24; // hk0
+                    else if (H === K && K > 0 && L === 0) multiplicity = 12; // hh0
+                    else if (H === K && K === L && L > 0) multiplicity = 8;  // hhh
+                    else if (H > 0 && K === 0 && L === 0) multiplicity = 6;  // h00
+                    break;
+
+                case 'hexagonal':
+                case 'rhombohedral': // Using Hexagonal axes (Laue class 6/mmm or -3m)
+                    canonical_hkl = `(${H},${K},${L})`;
+                    // Conditions based on hk.l notation
+                    if (H > 0 && K > 0 && L > 0 && H !== K) multiplicity = 24; // hkl
+                    else if (H > 0 && K > 0 && L > 0)      multiplicity = 12; // hhl, hkh, etc.
+                    else if (H > 0 && K > 0 && L === 0 && H !== K) multiplicity = 12; // hk0
+                    else if (H > 0 && K === 0 && L > 0)      multiplicity = 12; // h0l
+                    else if (H > 0 && K === H && L === 0)      multiplicity = 6;  // hh0
+                    else if (H > 0 && K === 0 && L === 0)      multiplicity = 6;  // h00 (equivalent to hh0)
+                    else if (H === 0 && K === 0 && L > 0)      multiplicity = 2;  // 00l
+                    break;
+                
+                case 'tetragonal':
+                    // Conventional order: h >= k >= 0, l >= 0
+                    if (K > H) [H, K] = [K, H];
+                    canonical_hkl = `(${H},${K},${L})`;
+                    
+                    if (H > K && K > 0 && L > 0)      multiplicity = 16; // hkl
+                    else if (H === K && K > 0 && L > 0) multiplicity = 8;  // hhl
+                    else if (H > 0 && K === 0 && L > 0) multiplicity = 8;  // h0l
+                    else if (H > K && K > 0 && L === 0) multiplicity = 8;  // hk0
+                    else if (H === K && K > 0 && L === 0) multiplicity = 4;  // hh0
+                    else if (H > 0 && K === 0 && L === 0) multiplicity = 4;  // h00
+                    else if (H === 0 && K === 0 && L > 0) multiplicity = 2;  // 00l
+                    break;
+                
+                case 'orthorhombic':
+                    canonical_hkl = `(${H},${K},${L})`;
+                    
+                    if (H > 0 && K > 0 && L > 0)      multiplicity = 8; // hkl
+                    else if (H > 0 && K > 0 && L === 0) multiplicity = 4; // hk0
+                    else if (H > 0 && K === 0 && L > 0) multiplicity = 4; // h0l
+                    else if (H === 0 && K > 0 && L > 0) multiplicity = 4; // 0kl
+                    else if (H > 0 && K === 0 && L === 0) multiplicity = 2; // h00
+                    else if (H === 0 && K > 0 && L === 0) multiplicity = 2; // 0k0
+                    else if (H === 0 && K === 0 && L > 0) multiplicity = 2; // 00l
+                    break;
+                
+                case 'monoclinic':
+                    // Assumes b-axis is unique (Laue class 2/m)
+                    canonical_hkl = `(${H},${K},${L})`;
+                    
+                    if (H > 0 && L > 0 && K > 0)      multiplicity = 4; // hkl (general)
+                    else if (H > 0 && L > 0 && K === 0) multiplicity = 2; // h0l
+                    else if (H === 0 && K > 0 && L === 0) multiplicity = 2; // 0k0
+                    else { // All other cases (hk0, 0kl, h00, 00l) are general in projection
+                        multiplicity = 4;
+                        // But if one index is zero it's a special reflection
+                        if (H===0 || K===0 || L===0) multiplicity = 2;
+                        // Override for general case
+                        if(H>0 && K>0 && L>0) multiplicity = 4;
+                    }
+
+                    // A simpler way for monoclinic.. à vérifier
+                    if (H > 0 && L > 0) { // hkl and h0l
+                        multiplicity = (K > 0) ? 4 : 2;
+                    } else if (H > 0 || L > 0) { // hk0 and 0kl, or h00 and 00l
+                        multiplicity = (K > 0) ? 4 : 2;
+                    } else if (K > 0) { // 0k0
+                        multiplicity = 2;
+                    }
+                    break;
+            }
+
+            return { canonical_hkl, multiplicity };
+        }
+
+
+        // --- NOUVELLES FONCTIONS D'AIDE POUR LE RAPPORT TEXTE ---
+
+        /**
+         * Génère le contenu complet du rapport texte ASCII.
+         * @param {object} fitResults - L'objet contenant les résultats de l'ajustement.
+         * @param {object} controls - L'objet contenant les éléments de l'interface utilisateur.
+         * @returns {string} - Le rapport complet sous forme de chaîne de caractères.
+         */
+        
+        function generateTextReportContent(fitResults, controls) {
+            const reportLines = [];
+            const now = new Date();
+            const { params: finalParams, fitFlags, algorithm } = fitResults;
+
+            const formatParamLine = (name, value, isFitted) => {
+                let valStr;
+                if (typeof value === 'number') {
+                    valStr = value.toExponential(6).padStart(15);
+                } else if (typeof value === 'string') {
+                    valStr = value.padStart(15);
+                } else {
+                    valStr = 'N/A'.padStart(15);
+                }
+                const fitStr = (isFitted === undefined) ? '' : (isFitted ? 'Yes' : 'No');
+                return `${name.padEnd(20)}${valStr}    ${fitStr}`;
+            };
+            
+            // --- Section En-tête ---
+            reportLines.push('==============================================================');
+            reportLines.push('            Le Bail Refinement Report');
+            reportLines.push('==============================================================');
+            reportLines.push(`Report Generated: ${now.toLocaleString()}`);
+            reportLines.push(`Data File: ${controls.fileName.textContent}`);
+            reportLines.push('');
+
+            // --- Section Statistiques ---
+            reportLines.push('--- Refinement Statistics ---');
+            reportLines.push(`Final Rwp (%): ${controls.rwpResult.textContent}`);
+            reportLines.push(`Algorithm: ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+            reportLines.push('');
+
+            // --- Section Paramètres ---
+            reportLines.push('--- Structural & Instrumental Parameters ---');
+            reportLines.push('Parameter'.padEnd(20) + 'Value'.padStart(15) + '    Fitted');
+            reportLines.push('-'.repeat(50));
+            reportLines.push(formatParamLine('Crystal System:', controls.crystalSystem.value));
+            reportLines.push(formatParamLine('Centering:', controls.centeringType.value));
+            if(finalParams.a) reportLines.push(formatParamLine('a (Å)', finalParams.a, fitFlags.a));
+            if(finalParams.b) reportLines.push(formatParamLine('b (Å)', finalParams.b, fitFlags.b));
+            if(finalParams.c) reportLines.push(formatParamLine('c (Å)', finalParams.c, fitFlags.c));
+            if(finalParams.alpha) reportLines.push(formatParamLine('alpha (°)', finalParams.alpha, fitFlags.alpha));
+            if(finalParams.beta) reportLines.push(formatParamLine('beta (°)', finalParams.beta, fitFlags.beta));
+            if(finalParams.gamma) reportLines.push(formatParamLine('gamma (°)', finalParams.gamma, fitFlags.gamma));
+            reportLines.push(formatParamLine('Wavelength (Å)', finalParams.lambda));
+            reportLines.push(formatParamLine('Zero Shift (°)', finalParams.zeroShift, fitFlags.zeroShift));
+            reportLines.push('');
+
+            reportLines.push('--- Profile Parameters ---');
+            reportLines.push(formatParamLine('GU', finalParams.GU, fitFlags.GU));
+            reportLines.push(formatParamLine('GV', finalParams.GV, fitFlags.GV));
+            reportLines.push(formatParamLine('GW', finalParams.GW, fitFlags.GW));
+            reportLines.push(formatParamLine('GP', finalParams.GP, fitFlags.GP));
+            reportLines.push(formatParamLine('LX', finalParams.LX, fitFlags.LX));
+            reportLines.push(formatParamLine('eta', finalParams.eta, fitFlags.eta));
+            reportLines.push(formatParamLine('shft', finalParams.shft, fitFlags.shft));
+            reportLines.push(formatParamLine('trns', finalParams.trns, fitFlags.trns));
+            reportLines.push('');
+
+            reportLines.push('--- Background Parameters ---');
+            reportLines.push(formatParamLine('B-1', finalParams.bg_inv, fitFlags.bg_inv));
+            finalParams.bg.forEach((val, i) => {
+                if (Math.abs(val) > 1e-9 || fitFlags.background[i]) {
+                    reportLines.push(formatParamLine(`B${i}`, val, fitFlags.background[i]));
+                }
+            });
+            reportLines.push('');
+
+            // --- Section Réflexions (MODIFIED) ---
+            const system = controls.crystalSystem.value;
+            const centering = controls.centeringType.value;
+            const hklListForReport = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
+
+            reportLines.push('--- Calculated vs. Experimental Reflections ---');
+            reportLines.push(['h,k,l'.padEnd(10), 'd_calc (Å)'.padStart(12), 'd_exp (Å)'.padStart(12), '2th_corr (°)' .padStart(15), '2th_exp (°)' .padStart(15)].join('  '));
+            reportLines.push('-'.repeat(80));
+
+            hklListForReport.forEach(hkl => {
+                const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+                
+                // Find corresponding experimental peak details
+                const { tth_exp, d_exp } = findExperimentalPeakDetails(tthCorr, fullExperimentalData, finalParams.lambda);
+                
+                const d_calc_str = hkl.d.toFixed(5).padStart(12);
+                const d_exp_str = d_exp ? d_exp.toFixed(5).padStart(12) : 'N/A'.padStart(12);
+                const tth_corr_str = tthCorr.toFixed(4).padStart(15);
+                const tth_exp_str = tth_exp ? tth_exp.toFixed(4).padStart(15) : 'N/A'.padStart(15);
+
+                const line = [
+                    hkl.hkl_list[0].padEnd(10),
+                    d_calc_str,
+                    d_exp_str,
+                    tth_corr_str,
+                    tth_exp_str
+                ].join('  ');
+                reportLines.push(line);
+            });
+            reportLines.push('');
+            
+            // --- Section Données ---
+            const { pattern: finalCalcPattern } = calculatePattern(fullExperimentalData.tth, hklListForReport, finalParams, getWorkingData().tth);
+            reportLines.push('');
+            reportLines.push('--- Intensity Data ---');
+            reportLines.push(['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'));
+            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                const tth = fullExperimentalData.tth[i];
+                const i_obs = fullExperimentalData.intensity[i];
+                const i_calc = finalCalcPattern[i];
+                const diff = i_obs - i_calc;
+                reportLines.push([tth.toFixed(4), i_obs.toFixed(2), i_calc.toFixed(2), diff.toFixed(2)].join('\t'));
+            }
+
+            return reportLines.join('\n');
+        }
+         /**
+         * Déclenche le téléchargement d'un fichier texte dans le navigateur.
+         * @param {string} content - Le contenu du fichier.
+         * @param {string} filename - Le nom du fichier à télécharger.
+         */
+        function downloadTextFile(content, filename) {
+            const element = document.createElement('a');
+            const file = new Blob([content], {type: 'text/plain;charset=utf-8'});
+            element.href = URL.createObjectURL(file);
+            element.download = filename;
+            document.body.appendChild(element); // Requis pour Firefox
+            element.click();
+            document.body.removeChild(element);
+        }
+
+        // --- FIN DES NOUVELLES FONCTIONS D'AIDE ---
+
+
         function generateHKL(maxTth, params, system, centering) {
             const { a, b, c, alpha, beta, gamma, lambda } = params;
             if (!a || !lambda || a <= 0) return [];
@@ -582,10 +916,12 @@
                             const d = 1 / Math.sqrt(inv_d_sq);
                             const key = Math.round(tth * 1000);
                             if (!reflections.has(key)) {
-                                reflections.set(key, { tth: tth, d: d, hkl_list: [`(${h},${k},${l})`], intensity: 0 });
-                            } else {
-                                reflections.get(key).hkl_list.push(`(${h},${k},${l})`);
+                                // Call the ledger to get the canonical HKL and correct multiplicity.
+                                const { canonical_hkl, multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, system);
+                                reflections.set(key, { tth: tth, d: d, hkl_list: [canonical_hkl], multiplicity: multiplicity, intensity: 0 });
                             }
+                            // If key already exists, do nothing. 
+
                         }
                     }
                 }
@@ -1141,7 +1477,12 @@ async function runLeBailFit() {
             
             const yMax = mainChart.options.scales.y.max / 1.1;
             const markerHeight = -yMax * 0.05;
-            findDataset('HKL Markers').data = hklList.map(hkl => ({ x: hkl.tth + params.zeroShift, y: markerHeight }));
+
+            findDataset('HKL Markers').data = hklList.map(hkl => ({ 
+                x: hkl.tth + params.zeroShift, 
+                y: markerHeight,
+                hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
+            }));
             
             mainChart.update('none');
         }
@@ -1193,6 +1534,9 @@ async function runLeBailFit() {
             }
         }
 
+
+
+
         function initializeChart() {
             if (mainChart) mainChart.destroy();
 
@@ -1240,36 +1584,98 @@ async function runLeBailFit() {
                                 filter: item => item.text !== 'Difference Zero' && item.text !== 'Simulation (Manual)'
                             }
                         }, 
-                        tooltip: { 
-                            enabled: true, 
-                            mode: 'index', 
+
+                        tooltip: {
+                            enabled: true,
+                            mode: 'index',
                             intersect: false,
+                            position: 'experimentalAnchor',
                             callbacks: {
+                                /**
+                                 * Creates the tooltip title. It now uses a dynamic tolerance based on the
+                                 * FWHM of the nearest peak to decide when to show the HKL indices.
+                                 */
+                                title: function(tooltipItems) {
+                                    if (!tooltipItems.length) {
+                                        return '';
+                                    }
+                                    const firstItem = tooltipItems[0];
+                                    const tth = firstItem.parsed.x;
+                                    let title = `2θ: ${tth.toFixed(2)}`;
+
+                                    if (lastGeneratedHklList && lastGeneratedHklList.length > 0) {
+                                        let closestPeak = null;
+                                        let minDiff = Infinity;
+                                        
+                                        const currentParams = getAllParams();
+                                        const zeroShift = currentParams.zeroShift || 0;
+
+                                        // First, find the single closest peak to the cursor
+                                        for (const hkl of lastGeneratedHklList) {
+                                            const peakPos = hkl.tth + zeroShift;
+                                            const diff = Math.abs(tth - peakPos);
+                                            if (diff < minDiff) {
+                                                minDiff = diff;
+                                                closestPeak = hkl;
+                                            }
+                                        }
+
+                                        
+                                        // If a closest peak was found, calculate its FWHM
+                                        if (closestPeak) {
+                                            // Call the existing function to get width components
+                                            const { gamma_G, gamma_L } = calculateProfileWidths(closestPeak.tth, currentParams);
+                                            
+                                            // A good approximation for pseudo-Voigt FWHM is the sum of its components
+                                            const fwhm = gamma_G + gamma_L;
+                                            
+                                            // The tolerance is half of the peak's full width... ou  1 ?
+                                            const dynamicTolerance = fwhm;
+
+                                            // Check if the cursor is within this dynamic tolerance
+                                            if (minDiff < dynamicTolerance) {
+                                                title += `, HKL: ${closestPeak.hkl_list[0]} [m=${closestPeak.multiplicity}])`;
+                                            }
+                                        }
+                                        // --- END NEW LOGIC ---
+                                    }
+                                    return title;
+                                },
+                                /**
+                                 * This function formats each line inside the tooltip.
+                                 * It remains unchanged from the previous version.
+                                 */
                                 label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) { label += ': '; }
-                                    
-                                    if (context.dataset.label === 'Difference') {
+                                    const datasetLabel = context.dataset.label || '';
+
+                                    if (datasetLabel === 'HKL Markers') {
+                                        return null;
+                                    }
+
+                                    if (datasetLabel === 'Difference') {
                                         const yMax = mainChart.options.scales.y.max / 1.1;
                                         const dYmax = Math.max(1, ...lastRawDifference.map(Math.abs));
                                         const diffPlotHeightRatio = 0.33;
-                                        
                                         const diffPlotOffset = -yMax * (diffPlotHeightRatio / 2);
                                         const availableAmplitude = yMax * (diffPlotHeightRatio / 2) * 0.9;
                                         const scalingFactor = availableAmplitude / dYmax;
-
                                         const realValue = (context.parsed.y - diffPlotOffset) / scalingFactor;
-                                        label += realValue.toPrecision(4);
+                                        return `${datasetLabel}: ${Math.round(realValue)}`;
+                                    }
 
-                                    } else if (context.dataset.label !== 'HKL Markers' && context.dataset.label !== 'Difference Zero' && context.dataset.label !== 'Simulation (Manual)') {
-                                        label += context.parsed.y.toPrecision(6);
-                                    } else {
+                                    if (datasetLabel === 'Difference Zero' || datasetLabel === 'Simulation (Manual)') {
                                         return null;
+                                    }
+                                    
+                                    let label = datasetLabel ? `${datasetLabel}: ` : '';
+                                    if (context.parsed.y !== null) {
+                                        label += Math.round(context.parsed.y);
                                     }
                                     return label;
                                 }
                             }
-                        } 
+                        }
+
                     } 
                 }
             });
@@ -1343,7 +1749,12 @@ async function runLeBailFit() {
             ];
 
             const markerHeight = -yMax * 0.05;
-            findDataset('HKL Markers').data = hklList.map(hkl => ({ x: hkl.tth + params.zeroShift, y: markerHeight }));
+
+            findDataset('HKL Markers').data = hklList.map(hkl => ({ 
+                x: hkl.tth + params.zeroShift, 
+                y: markerHeight,
+            hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
+            }));
             
             mainChart.update('none');
         }
@@ -1430,6 +1841,9 @@ async function runLeBailFit() {
                 controls.resultsContainer.classList.remove('hidden');
                 controls.fitButton.disabled = false;
                 controls.fitButton.textContent = 'Run Refinement';
+
+                
+
                 initializeChart();
                 
                 const min = fullExperimentalData.tth[0];
@@ -1520,6 +1934,7 @@ async function runLeBailFit() {
             window.addEventListener('mouseup', upHandler);
         });
 
+
         controls.reportButton.addEventListener('click', async () => {
             if (!fitResults) {
                 alert("Please run a refinement before generating a report.");
@@ -1532,11 +1947,12 @@ async function runLeBailFit() {
 
             try {
                 const now = new Date();
-                const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
-                const filename = `LeBail-Report-${timestamp}.pdf`;
-
-                const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff' });
+                const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+                const baseFilename = `LeBail-Report-${timestamp}`;
                 
+                const textContent = generateTextReportContent(fitResults, controls);
+                downloadTextFile(textContent, `${baseFilename}.txt`);
+
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
                 const margin = 15;
@@ -1549,6 +1965,7 @@ async function runLeBailFit() {
                 doc.text(`Report Generated: ${now.toLocaleString()}`, margin, 25);
                 doc.text(`Data File: ${controls.fileName.textContent}`, margin, 30);
                 
+                const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff' });
                 const mainImgData = chartCanvas.toDataURL('image/png');
                 const mainImgProps = doc.getImageProperties(mainImgData);
                 const mainImgHeight = (mainImgProps.height * contentWidth) / mainImgProps.width;
@@ -1584,9 +2001,6 @@ async function runLeBailFit() {
                             });
                         } else {
                             esdWarning = 'ESD calculation failed (unstable refinement or correlated parameters).';
-                            console.warn('ESD Calculation Failed: Matrix inversion returned null. This is likely due to high correlation between fitted parameters.');
-                            console.warn('Fitted Parameters:', fitResults.paramMapping.map(p => p.name));
-                            console.warn('J_T * J Matrix:', fitResults.JtJ);
                         }
                     }
                 }
@@ -1663,33 +2077,40 @@ async function runLeBailFit() {
                 });
 
                 doc.addPage();
-                yPos = 20; 
-                addHeader('Calculated Reflections');
-                
+                yPos = 20;
+                doc.setFont('Helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.text('Calculated vs. Experimental Reflections', margin, yPos);
+                yPos += 8;
+                doc.setFontSize(9);
+                doc.setFont('Courier', 'normal');
+
                 const hklList = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
-                
+
+                const hklHeader = ['h,k,l', 'd_calc (Å)', 'd_exp (Å)', '2th_corr (°)', '2th_exp (°)'];
+                const hklAlign = ['left', 'right', 'right', 'right', 'right'];
                 const colX = {
                     hkl: margin,
-                    d: margin + 45,
-                    tth_calc: margin + 85,
-                    tth_obs: margin + 125
+                    d_calc: margin + 35,
+                    d_exp: margin + 70,
+                    tth_corr: margin + 105,
+                    tth_exp: margin + 140
                 };
-                const hklHeader = ['h, k, l', 'd (Å)', '2theta_calc (°)', '2theta_obs (°)'];
-                const hklAlign = ['left', 'right', 'right', 'right'];
-                const hklSeparator = '-----------------------------------------------------------------------------';
+                const hklSeparator = '-'.repeat(120);
 
                 const printHklHeader = () => {
                     doc.text(hklHeader[0], colX.hkl, yPos, { align: hklAlign[0] });
-                    doc.text(hklHeader[1], colX.d, yPos, { align: hklAlign[1] });
-                    doc.text(hklHeader[2], colX.tth_calc, yPos, { align: hklAlign[2] });
-                    doc.text(hklHeader[3], colX.tth_obs, yPos, { align: hklAlign[3] });
+                    doc.text(hklHeader[1], colX.d_calc, yPos, { align: hklAlign[1] });
+                    doc.text(hklHeader[2], colX.d_exp, yPos, { align: hklAlign[2] });
+                    doc.text(hklHeader[3], colX.tth_corr, yPos, { align: hklAlign[3] });
+                    doc.text(hklHeader[4], colX.tth_exp, yPos, { align: hklAlign[4] });
                     yPos += lineSpacing;
                     doc.text(hklSeparator, margin, yPos);
                     yPos += lineSpacing;
                 }
-                
+
                 printHklHeader();
-                
+
                 hklList.forEach(hkl => {
                     if (yPos > 280) {
                         doc.addPage();
@@ -1698,27 +2119,36 @@ async function runLeBailFit() {
                         doc.setFontSize(9);
                         printHklHeader();
                     }
-
-                    const tthObs = hkl.tth + finalParams.zeroShift + calculatePeakShift(hkl.tth, finalParams);
+                    const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                    const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
                     
+                    // Find corresponding experimental peak details
+                    const { tth_exp, d_exp } = findExperimentalPeakDetails(tthCorr, fullExperimentalData, finalParams.lambda);
+
+                    const d_calc_str = hkl.d.toFixed(5);
+                    const d_exp_str = d_exp ? d_exp.toFixed(5) : 'N/A';
+                    const tth_corr_str = tthCorr.toFixed(4);
+                    const tth_exp_str = tth_exp ? tth_exp.toFixed(4) : 'N/A';
+
                     doc.text(hkl.hkl_list[0], colX.hkl, yPos, { align: hklAlign[0] });
-                    doc.text(hkl.d.toFixed(5), colX.d, yPos, { align: hklAlign[1] });
-                    doc.text(hkl.tth.toFixed(4), colX.tth_calc, yPos, { align: hklAlign[2] });
-                    doc.text(tthObs.toFixed(4), colX.tth_obs, yPos, { align: hklAlign[3] });
+                    doc.text(d_calc_str, colX.d_calc, yPos, { align: hklAlign[1] });
+                    doc.text(d_exp_str, colX.d_exp, yPos, { align: hklAlign[2] });
+                    doc.text(tth_corr_str, colX.tth_corr, yPos, { align: hklAlign[3] });
+                    doc.text(tth_exp_str, colX.tth_exp, yPos, { align: hklAlign[4] });
                     yPos += lineSpacing;
                 });
-
-                doc.save(filename);
+                
+                doc.save(`${baseFilename}.pdf`);
 
             } catch (error) {
-                console.error("Failed to generate PDF:", error);
-                alert("An error occurred while generating the PDF report.");
+                console.error("Failed to generate report:", error);
+                alert("An error occurred while generating the report.");
             } finally {
                 controls.reportButton.textContent = originalText;
                 controls.reportButton.disabled = false;
             }
         });
-
+        
         // --- Event Listeners for new sliders ---
         controls.iterationsSlider.addEventListener('input', () => {
             controls.iterationsValue.textContent = controls.iterationsSlider.value;
