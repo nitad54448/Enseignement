@@ -975,7 +975,7 @@
                 window.addEventListener('mouseup', upHandler);
             });
 
-            const generatePDFReport = async () => {
+        const generatePDFReport = async () => {
                 if (solutions.length === 0) {
                     showStatus("No solutions found to generate a report.", 'info');
                     return;
@@ -1093,7 +1093,8 @@
                         yPos += 3;
 
                         doc.setFont('courier', 'normal');
-                        doc.text(' h  k  l |   d_cal(A) 2t_calc   d_obs(A)  2t_obs', margin, yPos);
+                        // MODIFIED: Added new column header "d(2t)"
+                        doc.text(' h  k  l |   d_cal(A) 2t_calc   d_obs(A)  2t_obs    d(2t)', margin, yPos);
                         yPos += 5;
 
                         const hklList = generateHKL(Math.max(...pickedPeaks.map(p=>p.tth)), {...sol, lambda}, sol.system);
@@ -1116,26 +1117,38 @@
 
                             let d_obs_str = '-';
                             let tth_obs_str = '-';
+                            // ADDED: New variable for the 2-theta difference string
+                            let tth_diff_str = '-';
+
+                            let tth_calc = '-';
+                            if (hkl.d > 0 && lambda/(2*hkl.d) < 1) {
+                                tth_calc = (2 * Math.asin(lambda / (2 * hkl.d)) * 180 / Math.PI).toFixed(3);
+                            }
+                            
                             if (bestMatch) {
                                 const d_err_plus = lambda / (2 * Math.sin((bestMatch.peak.tth - tth_err) * Math.PI / 360));
                                 const d_err_minus = lambda / (2 * Math.sin((bestMatch.peak.tth + tth_err) * Math.PI / 360));
                                 if (minDiff < Math.abs(d_err_plus - d_err_minus)) {
                                     d_obs_str = bestMatch.peak.d.toFixed(5);
                                     tth_obs_str = bestMatch.peak.tth.toFixed(3);
+                                    
+                                    // ADDED: Calculate the 2-theta difference if there's a match
+                                    if (tth_calc !== '-') {
+                                        const tth_diff = parseFloat(tth_calc) - bestMatch.peak.tth;
+                                        tth_diff_str = tth_diff.toFixed(3);
+                                    }
+                                    
                                     usedObsPeaks.add(bestMatch.index);
                                 }
                             }
-
-                            let tth_calc = '-';
-                            if (hkl.d > 0 && lambda/(2*hkl.d) < 1) {
-                                tth_calc = (2 * Math.asin(lambda / (2 * hkl.d)) * 180 / Math.PI).toFixed(3);
-                            }
-
+                            
+                            // MODIFIED: Appended the new difference column to the output line
                             const line = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)} | ` +
                                          `${hkl.d.toFixed(5).padStart(9)} ` +
                                          `${String(tth_calc).padStart(7)}  ` +
                                          `${d_obs_str.padStart(9)}  ` +
-                                         `${tth_obs_str.padStart(7)}`;
+                                         `${tth_obs_str.padStart(7)} ` +
+                                         `${tth_diff_str.padStart(7)}`;
                             doc.text(line, margin, yPos);
                             yPos += 5;
                         });
@@ -1155,6 +1168,7 @@
                     document.body.style.cursor = 'default';
                 }
             };
+
         });
     </script>
     
