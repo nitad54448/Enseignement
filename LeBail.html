@@ -120,7 +120,8 @@
     <div id="app-container">
         <div id="controls-panel">
             <h1 class="text-2xl font-bold text-white mb-2">Le Bail Fitting</h1>
-            <p class="text-sm text-gray-400 mb-6">Refine lattice parameters using global and local optimization.</p>
+            <p class="text-sm text-gray-400 mb-6">Refine lattice parameters using global or local optimization.<br>Click and drag the plot, use the wheel to zoom (the zoom is axis-sensitive) or right-click to reset.
+            </p>
             
             <div class="control-group">
                 <h2 class="text-lg font-semibold text-white mb-3">Load Data</h2>
@@ -390,7 +391,6 @@
         let lastRawDifference = [];
         const NUM_BG_TERMS = 10;
         
-        let mousePosition = { x: null, y: null };
         // --- Core Logic ---
 
         // --- plugin .. ligne verticlae
@@ -1764,63 +1764,32 @@ y: {
 }
 
                     }, 
-                    plugins: { 
-                        zoom: {
-                            pan: {
-                                enabled: true,
-                                mode: 'xy',
-                                threshold: 5,
-                            },
-                            zoom: {
-                                wheel: {
-                                    enabled: true,
-                                    // This function dynamically sets the zoom mode based on cursor position
-                                    mode: function({chart}) {
-                                        // Failsafe in case the mouse hasn't moved over the chart yet
-                                        if (!mousePosition.x || !mousePosition.y) {
-                                            return 'xy';
-                                        }
+plugins: {
+  zoom: {
+    pan: {
+      enabled: true,
+      mode: 'xy',
+      threshold: 5,
+    },
+    zoom: {
+      // --- MODIFIED: Disable the plugin's default wheel handler ---
+      wheel: {
+        enabled: false,
+      },
+      pinch: {
+        enabled: true,
+      },
+      drag: {
+          enabled: false,
+      }
+    }
+  },
 
-                                        // --- NEW LOGIC START ---
-                                        // Get the boundaries of the main plotting area (the graph itself)
-                                        const chartArea = chart.chartArea;
-
-                                        // Failsafe for initialization race conditions
-                                        if (!chartArea) {
-                                            return 'xy';
-                                        }
-
-                                        // Check if cursor is to the LEFT of the plot area (in the Y-axis "column")
-                                        const isOverYAxisRegion = mousePosition.x < chartArea.left;
-                                        
-                                        // Check if cursor is BELOW the plot area (in the X-axis "row")
-                                        const isOverXAxisRegion = mousePosition.y > chartArea.bottom;
-
-                                        if (isOverYAxisRegion) {
-                                            return 'y'; // Zoom only Y axis
-                                        }
-                                        
-                                        if (isOverXAxisRegion) {
-                                            return 'x'; // Zoom only X axis
-                                        }
-                                        
-                                        // Default to zooming both axes when inside the main plot area
-                                        return 'xy';
-                                        // --- 
-                                    },
-                                },
-                                pinch: {
-                                    enabled: true // For touch devices
-                                },
-                                mode: 'xy', // Default mode for other zoom actions like pinch
-                            }
-                        },
-
-                        legend: { 
-                            labels: {
-                                filter: item => item.text !== 'Difference Zero' && item.text !== 'Simulation (Manual)'
-                            }
-                        },
+  legend: { 
+    labels: {
+      filter: item => item.text !== 'Difference Zero' && item.text !== 'Simulation (Manual)'
+    }
+  },
 
                         tooltip: {
                             enabled: true,
@@ -2426,26 +2395,40 @@ y: {
             rescalePlot();
         });
         
-        // --- Event Listener for Chart Right-Click Reset ---
-        controls.mainChartCanvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault(); // Prevent the default browser context menu
-            if (mainChart) {
-                mainChart.resetZoom();
-                // rescalePlot respects the sliders for the x-axis and autoscales the y-axis
-                rescalePlot();
-            }
-        });
+ // --- Wheel Zoom with Differential Axis Control ---
+controls.mainChartCanvas.addEventListener('wheel', e => {
+    e.preventDefault();
 
-                // Track mouse movement over the chart canvas to enable axis-specific zoom
-        controls.mainChartCanvas.addEventListener('mousemove', (e) => {
-            mousePosition.x = e.offsetX;
-            mousePosition.y = e.offsetY;
-        });
+    const chart = mainChart;
+    if (!chart || !chart.chartArea) return;
 
-        controls.crystalSystem.addEventListener('change', () => {
-            updateLatticeParamUI();
-            updatePreviewPattern();
-        });
+    const { left, right, top, bottom } = chart.chartArea;
+    const x = e.offsetX;
+    const y = e.offsetY;
+
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+
+    if (y > bottom) {
+        // Cursor is below the plot area → zoom X only
+        chart.zoom({ x: zoomFactor }, { x, y });
+           } else if (x < left) {
+        // Cursor is left of the plot area → zoom Y only
+        chart.zoom({ y: zoomFactor }, { x, y });
+           } else if (x >= left && x <= right && y >= top && y <= bottom) {
+        // Cursor is inside the plot area → zoom both
+        chart.zoom({ x: zoomFactor, y: zoomFactor }, { x, y });
+    }
+});
+
+// --- Right-Click Reset Zoom ---
+controls.mainChartCanvas.addEventListener('contextmenu', e => {
+    e.preventDefault(); // prevent browser menu
+    if (mainChart) {
+        mainChart.resetZoom();
+    }
+});
+
+
 
         controls.bgWeightFactorSlider.addEventListener('input', () => {
     controls.bgWeightFactorValue.textContent = controls.bgWeightFactorSlider.value;
@@ -2467,3 +2450,4 @@ controls.fwhmWidthsSlider.addEventListener('input', () => {
 </script>
 </body>
 </html>
+
