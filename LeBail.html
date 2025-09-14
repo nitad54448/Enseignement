@@ -6,6 +6,8 @@
     <title>Le Bail Fit (GSAS Profile 4) for All Systems</title>
     <link href="./dist/output.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -55,6 +57,7 @@
             border-radius: 50%;
             cursor: pointer;
             border: 3px solid #111827;
+            box-sizing: border-box;
         }
         input[type="range"].custom-slider::-moz-range-thumb {
             width: 22px;
@@ -63,6 +66,7 @@
             border-radius: 50%;
             cursor: pointer;
             border: 3px solid #111827;
+            box-sizing: border-box
         }
         input[type="range"].custom-slider:disabled {
             background: #272f3d;
@@ -95,7 +99,7 @@
         .file-input-label { display: block; padding: 0.75rem 1rem; background-color: #4b5563; color: #d1d5db; border-radius: 0.375rem; text-align: center; cursor: pointer; transition: background-color 0.2s;}
         .file-input-label:hover { background-color: #6b7280; }
         .parameter-grid-3col { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.75rem; }
-        .results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.75rem; }
+        .results-grid { display: grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); gap: 0.75rem; }
         .result-card { background-color: #1f2937; padding: 0.5rem; border-radius: 0.5rem; text-align: center; transition: background 0.1s linear; }
         .result-card-label { font-size: 0.75rem; color: #9ca3af; }
         .result-card-value { font-size: 1.0rem; font-weight: 600; color: #e5e7eb; }
@@ -180,15 +184,37 @@
                         </div>
                     </div>
                 </div>
+
                 <div id="tab-panel-background" class="tab-panel">
                     <div class="control-group">
                         <h2 class="text-lg font-semibold text-white mb-3">Background Parameters</h2>
                         <p class="text-xs text-gray-400 mb-4">Hybrid background: Chebyshev polynomial + inverse term for low-angle rise.</p>
                         <p class="text-xs text-yellow-400 bg-yellow-900/50 p-2 rounded-md mb-4">For complex backgrounds, enable the B-1 term and/or higher-order Chebyshev terms (B3, B4, etc.).</p>
                         <div id="background-controls-container" class="parameter-grid-3col">
-                            </div>
+                        </div>
                     </div>
+
+<div class="control-group">
+    <h2 class="text-lg font-semibold text-white mb-3">Background Weighting</h2>
+    <p class="text-xs text-gray-400 mb-4">Increase the weight of data points far from reflections. A weight factor of 1 applies no extra weighting.</p>
+    <div class="slider-group">
+        <label class="control-label">Weight Factor</label>
+        <div class="slider-value-track">
+           <input type="range" id="bg-weight-factor-slider" min="1" max="20" value="1" step="1" class="custom-slider">
+           <span id="bg-weight-factor-value" class="slider-value-display">1</span>
+        </div>
+    </div>
+    <div class="slider-group">
+        <label class="control-label">FWHM Widths</label>
+        <div class="slider-value-track">
+           <input type="range" id="fwhm-widths-slider" min="1.0" max="20.0" value="5.0" step="0.1" class="custom-slider">
+           <span id="fwhm-widths-value" class="slider-value-display">5.0</span>
+        </div>
+    </div>
+</div>
+
                 </div>
+
 
                 <div id="tab-panel-profile" class="tab-panel">
                      <div class="control-group">
@@ -269,8 +295,16 @@
                      </div>
                      <div class="results-grid mt-4">
                         <div class="result-card">
+                            <div class="result-card-label">Rp (%)</div>
+                            <div id="rp-result" class="result-card-value">-</div>
+                        </div>
+                        <div class="result-card">
                             <div class="result-card-label">Rwp (%)</div>
                             <div id="rwp-result" class="result-card-value">-</div>
+                        </div>
+                        <div class="result-card">
+                            <div class="result-card-label">χ² (GOF)</div>
+                            <div id="chi2-result" class="result-card-value">-</div>
                         </div>
                      </div>
                 </div>
@@ -297,7 +331,7 @@
             </div>
 
             <div class="absolute bottom-2 right-4 text-xs text-gray-400">
-                NitaD, Univ Paris-Saclay, 10 Sept 2025
+                NitaD, Univ Paris-Saclay, 14 Sept 2025
             </div>
         </div>
     </div>
@@ -333,11 +367,17 @@
             reportButton: document.getElementById('report-button'),
             progressBar: document.getElementById('progress-bar'),
             progressBarContainer: document.getElementById('progress-bar-container'),
+            rpResult: document.getElementById('rp-result'),
             rwpResult: document.getElementById('rwp-result'),
+            chi2Result: document.getElementById('chi2-result'),
             mainChartCanvas: document.getElementById('main-chart'),
             placeholder: document.getElementById('placeholder'),
             resultsContainer: document.getElementById('results-container'),
             backgroundContainer: document.getElementById('background-controls-container'),
+            fwhmWidthsSlider: document.getElementById('fwhm-widths-slider'),
+            fwhmWidthsValue: document.getElementById('fwhm-widths-value'),
+            bgWeightFactorSlider: document.getElementById('bg-weight-factor-slider'),
+            bgWeightFactorValue: document.getElementById('bg-weight-factor-value'),
         };
 
         // --- Global State ---
@@ -350,6 +390,7 @@
         let lastRawDifference = [];
         const NUM_BG_TERMS = 10;
         
+        let mousePosition = { x: null, y: null };
         // --- Core Logic ---
 
         // --- plugin .. ligne verticlae
@@ -721,7 +762,7 @@
         function generateTextReportContent(fitResults, controls) {
             const reportLines = [];
             const now = new Date();
-            const { params: finalParams, fitFlags, algorithm } = fitResults;
+            const { params: finalParams, fitFlags, algorithm, stats } = fitResults;
 
             const formatParamLine = (name, value, isFitted) => {
                 let valStr;
@@ -746,9 +787,15 @@
 
             // --- Section Statistiques ---
             reportLines.push('--- Refinement Statistics ---');
-            reportLines.push(`Final Rwp (%): ${controls.rwpResult.textContent}`);
-            reportLines.push(`Algorithm: ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+            reportLines.push(`Rp (%):      ${stats.r_p.toFixed(4)}`);
+            reportLines.push(`Rwp (%):     ${stats.rwp.toFixed(4)}`);
+            reportLines.push(`χ² (GOF):    ${stats.chi2.toFixed(4)}`);
+            reportLines.push(`Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+ //           reportLines.push('');
+ //           reportLines.push('Note: R_Bragg is not a meaningful statistic for Le Bail');
+ //           reportLines.push('fitting and is therefore not calculated.');
             reportLines.push('');
+
 
             // --- Section Paramètres ---
             reportLines.push('--- Structural & Instrumental Parameters ---');
@@ -785,6 +832,13 @@
                 }
             });
             reportLines.push('');
+
+            if (fitResults.weightingParams && fitResults.weightingParams.weightFactor > 1) {
+    reportLines.push('--- Background Weighting Parameters ---');
+    reportLines.push(formatParamLine('FWHM Widths', fitResults.weightingParams.fwhmWidths));
+    reportLines.push(formatParamLine('Weight Factor', fitResults.weightingParams.weightFactor));
+    reportLines.push('');
+}
 
             // --- Section Réflexions (MODIFIED) ---
             const system = controls.crystalSystem.value;
@@ -1040,14 +1094,96 @@
             }
         }
 
-        function calculateRwp(exp_intensity, calc_intensity) {
+        /**
+         * Calculates the weights for the refinement.
+         * If background weighting is enabled, points far from peaks get a higher weight.
+         * @param {object} workingData - The experimental data {tth, intensity} to be fitted.
+         * @param {Array} hklList - The list of calculated reflection positions.
+         * @param {object} params - The current set of refinement parameters.
+         * @returns {Array<number>} An array of weights for each data point.
+         */
+
+         function calculateFitWeights(workingData, hklList, params) {
+    const defaultWeights = workingData.intensity.map(y => 1 / Math.max(y, 1));
+    const weightFactor = parseInt(controls.bgWeightFactorSlider.value);
+
+    // If weight factor is 1, no special weighting is needed.
+    if (weightFactor <= 1 || hklList.length === 0) {
+        return defaultWeights;
+    }
+
+    const fwhmMultiplier = parseFloat(controls.fwhmWidthsSlider.value);
+    
+    const peakInfo = hklList.map(peak => {
+        const pos = peak.tth + params.zeroShift + calculatePeakShift(peak.tth, params);
+        const { gamma_G, gamma_L } = calculateProfileWidths(peak.tth, params);
+        const fwhm = gamma_G + gamma_L;
+        return { pos, fwhm };
+    });
+
+    const finalWeights = defaultWeights.map((weight, i) => {
+        const currentTth = workingData.tth[i];
+        let isNearPeak = false;
+        for (const peak of peakInfo) {
+            const threshold = fwhmMultiplier * peak.fwhm;
+            if (Math.abs(currentTth - peak.pos) <= threshold) {
+                isNearPeak = true;
+                break;
+            }
+        }
+        return isNearPeak ? weight : weight * weightFactor;
+    });
+
+    return finalWeights;
+}
+
+        function calculateRwp(exp_intensity, calc_intensity, weights) {
             let ss_res = 0, ss_tot = 0;
+            if (weights.length !== exp_intensity.length) {
+                console.error("Mismatch in lengths for Rwp calculation.");
+                return 0;
+            }
             for(let i=0; i<exp_intensity.length; i++) {
-                const weight = 1 / Math.max(exp_intensity[i], 1);
+                const weight = weights[i];
                 ss_res += weight * (exp_intensity[i] - calc_intensity[i])**2;
                 ss_tot += weight * (exp_intensity[i])**2;
             }
             return ss_tot > 0 ? 100 * Math.sqrt(ss_res / ss_tot) : 0;
+        }
+
+        function calculateStatistics(workingData, finalWorkingPattern, finalParams, fitFlags) {
+            const y_obs = workingData.intensity;
+            const y_calc = finalWorkingPattern;
+
+            const N = y_obs.length;
+            const P = getParameterMapping(fitFlags).paramMapping.length;
+
+            const hklList = generateHKL(Math.max(...workingData.tth), finalParams, controls.crystalSystem.value, controls.centeringType.value);
+            const weights = calculateFitWeights(workingData, hklList, finalParams);
+
+            let sum_w_res_sq = 0;
+            let sum_w_obs_sq = 0;
+            let sum_abs_res = 0;
+            let sum_abs_obs = 0;
+
+            for (let i = 0; i < N; i++) {
+                const res = y_obs[i] - y_calc[i];
+                const w = weights[i];
+
+                sum_w_res_sq += w * res * res;
+                sum_w_obs_sq += w * y_obs[i] * y_obs[i];
+
+                sum_abs_res += Math.abs(res);
+                sum_abs_obs += Math.abs(y_obs[i]);
+            }
+
+            const r_p = sum_abs_obs > 0 ? 100 * (sum_abs_res / sum_abs_obs) : 0;
+            const rwp = sum_w_obs_sq > 0 ? 100 * Math.sqrt(sum_w_res_sq / sum_w_obs_sq) : 0;
+            
+            const degreesOfFreedom = N - P;
+            const chi2 = degreesOfFreedom > 0 ? sum_w_res_sq / degreesOfFreedom : Infinity;
+
+            return { r_p, rwp, chi2 };
         }
         
         function getAllParams() {
@@ -1098,83 +1234,96 @@
             };
         }
 
-async function runLeBailFit() {
-            if (isFitting) return;
-            isFitting = true;
-            fitResults = null;
-            setUIState(true);
+        async function runLeBailFit() {
+    if (isFitting) return;
+    isFitting = true;
+    fitResults = null; // Clear previous results
+    setUIState(true);
 
-            if (mainChart) {
-                const manualSimDataset = mainChart.data.datasets.find(d => d.label === 'Simulation (Manual)');
-                if (manualSimDataset) {
-                    manualSimDataset.data = [];
-                }
+    if (mainChart) {
+        const manualSimDataset = mainChart.data.datasets.find(d => d.label === 'Simulation (Manual)');
+        if (manualSimDataset) manualSimDataset.data = [];
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    if (mainChart) {
+        ['Calculated', 'Background', 'Difference', 'Difference Zero', 'HKL Markers'].forEach(label => {
+            const dataset = mainChart.data.datasets.find(d => d.label === label);
+            if (dataset) dataset.data = [];
+        });
+        mainChart.update('none');
+    }
+
+    let params = getAllParams();
+    const fitFlags = getFitFlags();
+    const workingData = getWorkingData();
+    
+    if (fitFlags.background[0] && workingData.intensity.length > 0) {
+        const n_points = Math.min(NUM_BG_ANCHOR_POINTS, Math.floor(workingData.intensity.length / 2));
+        if (n_points > 0) {
+            let initialBg = 0;
+            for (let i = 0; i < n_points; i++) {
+                initialBg += workingData.intensity[i];
+                initialBg += workingData.intensity[workingData.intensity.length - 1 - i];
             }
-            
-            await new Promise(resolve => setTimeout(resolve, 10));
-
-            if (mainChart) {
-                ['Calculated', 'Background', 'Difference', 'Difference Zero', 'HKL Markers'].forEach(label => {
-                    const dataset = mainChart.data.datasets.find(d => d.label === label);
-                    if (dataset) dataset.data = [];
-                });
-                mainChart.update('none');
-            }
-
-            let params = getAllParams();
-            const fitFlags = getFitFlags();
-            const workingData = getWorkingData();
-            
-            // modifé le 12/09/2025: This block now ONLY runs if the B0 "fit" checkbox is checked.
-            if (fitFlags.background[0] && workingData.intensity.length > 0) {
-                const n_points = Math.min(NUM_BG_ANCHOR_POINTS, Math.floor(workingData.intensity.length / 2));
-                if (n_points > 0) {
-                    let initialBg = 0;
-                    for (let i = 0; i < n_points; i++) {
-                        initialBg += workingData.intensity[i];
-                        initialBg += workingData.intensity[workingData.intensity.length - 1 - i];
-                    }
-                    initialBg /= (2 * n_points);
-                    params.bg[0] = isNaN(initialBg) ? 100 : initialBg;
-                    document.getElementById('bg-param-0').value = params.bg[0].toExponential(4);
-                }
-            }
-
-            const system = controls.crystalSystem.value;
-            const centering = controls.centeringType.value;
-            const maxIterations = parseInt(controls.iterationsSlider.value);
-            const algorithm = controls.algorithmSelect.value;
-            let finalParams;
-
-            const progressCallback = (progress, currentParams, rwp, pattern, background) => {
-                 controls.progressBar.style.width = `${progress * 100}%`;
-                 const rwpCard = controls.rwpResult.parentElement;
-                 rwpCard.style.background = `linear-gradient(to right, #3b82f6 ${progress * 100}%, #1f2937 ${progress * 100}%)`;
-                 updateUI(currentParams, rwp, pattern, background);
-            };
-
-            if (algorithm === 'lm') {
-                 finalParams = await refineParametersLM(params, fitFlags, maxIterations, system, centering, progressCallback);
-            } else if (algorithm === 'sa') {
-                 finalParams = await refineParametersSA(params, fitFlags, maxIterations, system, centering, progressCallback);
-            }
-            
-            const finalWorkingData = getWorkingData();
-
-            const hklList = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
-            lastGeneratedHklList = hklList;
-            leBailIntensityExtraction(finalWorkingData, hklList, finalParams);
-            
-            const { pattern, background } = calculatePattern(fullExperimentalData.tth, hklList, finalParams, finalWorkingData.tth);
-            const { pattern: finalWorkingPattern } = calculatePattern(finalWorkingData.tth, hklList, finalParams, finalWorkingData.tth);
-            
-            const finalRwp = calculateRwp(finalWorkingData.intensity, finalWorkingPattern);
-            
-            updateUI(finalParams, finalRwp, pattern, background);
-
-            isFitting = false;
-            setUIState(false);
+            initialBg /= (2 * n_points);
+            params.bg[0] = isNaN(initialBg) ? 100 : initialBg;
+            document.getElementById('bg-param-0').value = params.bg[0].toExponential(4);
         }
+    }
+
+    const system = controls.crystalSystem.value;
+    const centering = controls.centeringType.value;
+    const maxIterations = parseInt(controls.iterationsSlider.value);
+    const algorithm = controls.algorithmSelect.value;
+    
+    // This is now a local variable, not a global assignment from within the function
+    let results; 
+
+    const progressCallback = (progress, currentParams, rwp) => {
+         controls.progressBar.style.width = `${progress * 100}%`;
+         const rwpCard = controls.rwpResult.parentElement;
+         rwpCard.style.background = `linear-gradient(to right, #3b82f6 ${progress * 100}%, #1f2937 ${progress * 100}%)`;
+         
+         const hklList = generateHKL(Math.max(...fullExperimentalData.tth), currentParams, system, centering);
+         leBailIntensityExtraction(workingData, hklList, currentParams);
+         const { pattern, background } = calculatePattern(fullExperimentalData.tth, hklList, currentParams, workingData.tth);
+
+         updateUI(currentParams, { rwp: rwp }, pattern, background);
+    };
+
+    if (algorithm === 'lm') {
+         results = await refineParametersLM(params, fitFlags, maxIterations, system, centering, progressCallback);
+    } else if (algorithm === 'sa') {
+         results = await refineParametersSA(params, fitFlags, maxIterations, system, centering, progressCallback);
+    }
+    
+    // Now we assign the returned object to the global fitResults
+    fitResults = results;
+    const finalParams = fitResults.params;
+    
+    const finalWorkingData = getWorkingData();
+    const hklList = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
+    lastGeneratedHklList = hklList;
+    leBailIntensityExtraction(finalWorkingData, hklList, finalParams);
+    
+    const { pattern, background } = calculatePattern(fullExperimentalData.tth, hklList, finalParams, finalWorkingData.tth);
+    const { pattern: finalWorkingPattern } = calculatePattern(finalWorkingData.tth, hklList, finalParams, finalWorkingData.tth);
+    
+    const finalStats = calculateStatistics(finalWorkingData, finalWorkingPattern, finalParams, fitFlags);
+    fitResults.stats = finalStats;
+    fitResults.weightingParams = {
+        fwhmWidths: parseFloat(controls.fwhmWidthsSlider.value),
+        weightFactor: parseInt(controls.bgWeightFactorSlider.value)
+    };
+    
+    updateUI(finalParams, finalStats, pattern, background);
+
+    isFitting = false;
+    setUIState(false);
+}
+     
         function dot(v1, v2) { let s = 0; for(let i=0; i<v1.length; i++) s += v1[i] * v2[i]; return s; }
         function add(v1, v2) { return v1.map((x, i) => x + v2[i]); }
         function subtract(v1, v2) { return v1.map((x, i) => x - v2[i]); }
@@ -1265,177 +1414,200 @@ async function runLeBailFit() {
         }
 
         async function refineParametersSA(initialParams, fitFlags, maxIter, system, centering, progressCallback) {
-            const { paramMapping } = getParameterMapping(fitFlags);
-            if (paramMapping.length === 0) { // If nothing to fit, just return initial params.
-                fitResults = { params: initialParams, algorithm: 'sa', paramMapping, fitFlags };
-                return initialParams;
-            }
+    const { paramMapping } = getParameterMapping(fitFlags);
+    if (paramMapping.length === 0) {
+        return { params: initialParams, algorithm: 'sa', paramMapping, fitFlags };
+    }
 
-            const workingData = getWorkingData();
-            let p_initial_vec = paramMapping.map(m => m.get(initialParams));
-            
-            let referenceHklList = generateHKL(Math.max(...workingData.tth), initialParams, system, centering);
-            leBailIntensityExtraction(workingData, referenceHklList, initialParams);
-            const referenceIntensities = referenceHklList.map(hkl => ({ ...hkl }));
+    const workingData = getWorkingData();
+    let p_initial_vec = paramMapping.map(m => m.get(initialParams));
+    
+    let referenceHklList = generateHKL(Math.max(...workingData.tth), initialParams, system, centering);
+    leBailIntensityExtraction(workingData, referenceHklList, initialParams);
+    const referenceIntensities = referenceHklList.map(hkl => ({ ...hkl }));
 
-            const objective = (p_vec) => {
-                let tempParams = JSON.parse(JSON.stringify(initialParams));
-                paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
-                if (tempParams.a <= 0) return 1e12;
-                
-                let hklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering);
-                
-                const maxRefIntensity = Math.max(...referenceIntensities.map(h => h.intensity));
-                hklList.forEach(hkl => {
-                    const matchingRef = referenceIntensities.find(ref => 
-                        Math.abs(ref.d - hkl.d) < 0.01 * ref.d
-                    );
-                    hkl.intensity = matchingRef ? matchingRef.intensity : maxRefIntensity * 0.1;
-                });
+    const objective = (p_vec) => {
+        let tempParams = JSON.parse(JSON.stringify(initialParams));
+        paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
+        if (tempParams.a <= 0) return 1e12;
+        
+        let hklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering);
+        
+        const maxRefIntensity = Math.max(...referenceIntensities.map(h => h.intensity));
+        hklList.forEach(hkl => {
+            const matchingRef = referenceIntensities.find(ref => 
+                Math.abs(ref.d - hkl.d) < 0.01 * ref.d
+            );
+            hkl.intensity = matchingRef ? matchingRef.intensity : maxRefIntensity * 0.1;
+        });
 
-                const { pattern } = calculatePattern(workingData.tth, hklList, tempParams, workingData.tth);
-                const diff = subtract(workingData.intensity, pattern);
-                return dot(diff, diff);
-            };
-
-            let T = 1000.0;
-            const coolingRate = 0.999;
-            const maxSteps = maxIter * 50;
-            
-            let current_x = [...p_initial_vec];
-            let current_cost = objective(current_x);
-            let best_x = [...current_x];
-            let best_cost = current_cost;
-
-            for (let i = 0; i < maxSteps; i++) {
-                let neighbor_x = current_x.map((val, idx) => {
-                    const baseStep = paramMapping[idx].step;
-                    const tempFactor = Math.max(0.1, T / 1000.0);
-                    const stepSize = baseStep * tempFactor * 5.0;
-                    let newVal = val + (Math.random() - 0.5) * stepSize;
-                    if (paramMapping[idx].name === 'eta') newVal = Math.max(0, Math.min(1, newVal));
-                    else if (['a', 'b', 'c'].includes(paramMapping[idx].name)) newVal = Math.max(0.1, newVal);
-                    return newVal;
-                });
-                
-                let neighbor_cost = objective(neighbor_x);
-                let cost_diff = neighbor_cost - current_cost;
-
-                if (cost_diff < 0 || Math.exp(-cost_diff / T) > Math.random()) {
-                    current_x = [...neighbor_x];
-                    current_cost = neighbor_cost;
-                }
-
-                if (current_cost < best_cost) {
-                    best_x = [...current_x];
-                    best_cost = current_cost;
-                }
-
-                T *= coolingRate;
-
-                if (i % 100 === 0) {
-                    let tempParams = JSON.parse(JSON.stringify(initialParams));
-                    paramMapping.forEach((m, j) => m.set(tempParams, best_x[j]));
-                    
-                    const hklList = generateHKL(Math.max(...fullExperimentalData.tth), tempParams, system, centering);
-                    leBailIntensityExtraction(workingData, hklList, tempParams);
-                    
-                    const { pattern, background } = calculatePattern(fullExperimentalData.tth, hklList, tempParams, workingData.tth);
-                    const { pattern: workingPattern } = calculatePattern(workingData.tth, hklList, tempParams, workingData.tth);
-                    const rwp = calculateRwp(workingData.intensity, workingPattern);
-                    
-                    if (progressCallback) {
-                        await progressCallback(i / maxSteps, tempParams, rwp, pattern, background);
-                    }
-                }
-            }
-
-            let finalParams = JSON.parse(JSON.stringify(initialParams));
-            paramMapping.forEach((m, i) => m.set(finalParams, best_x[i]));
-            fitResults = { params: finalParams, algorithm: 'sa', paramMapping, fitFlags };
-            return finalParams;
+        const { pattern } = calculatePattern(workingData.tth, hklList, tempParams, workingData.tth);
+        const diff = subtract(workingData.intensity, pattern);
+        
+        const weights = calculateFitWeights(workingData, hklList, tempParams);
+        let weighted_ss = 0;
+        for (let i = 0; i < diff.length; i++) {
+            weighted_ss += weights[i] * diff[i] * diff[i];
         }
+        return weighted_ss;
+    };
+
+    let T = 1000.0;
+    const coolingRate = 0.999;
+    const maxSteps = maxIter * 50;
+    
+    let current_x = [...p_initial_vec];
+    let current_cost = objective(current_x);
+    let best_x = [...current_x];
+    let best_cost = current_cost;
+
+    for (let i = 0; i < maxSteps; i++) {
+        let neighbor_x = current_x.map((val, idx) => {
+            const baseStep = paramMapping[idx].step;
+            const tempFactor = Math.max(0.1, T / 1000.0);
+            const stepSize = baseStep * tempFactor * 5.0;
+            let newVal = val + (Math.random() - 0.5) * stepSize;
+            if (paramMapping[idx].name === 'eta') newVal = Math.max(0, Math.min(1, newVal));
+            else if (['a', 'b', 'c'].includes(paramMapping[idx].name)) newVal = Math.max(0.1, newVal);
+            return newVal;
+        });
+        
+        let neighbor_cost = objective(neighbor_x);
+        let cost_diff = neighbor_cost - current_cost;
+
+        if (cost_diff < 0 || Math.exp(-cost_diff / T) > Math.random()) {
+            current_x = [...neighbor_x];
+            current_cost = neighbor_cost;
+        }
+
+        if (current_cost < best_cost) {
+            best_x = [...current_x];
+            best_cost = current_cost;
+        }
+
+        T *= coolingRate;
+
+        if (i % 100 === 0) {
+            let tempParams = JSON.parse(JSON.stringify(initialParams));
+            paramMapping.forEach((m, j) => m.set(tempParams, best_x[j]));
+            
+            const hklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering);
+            leBailIntensityExtraction(workingData, hklList, tempParams);
+            
+            const { pattern: workingPattern } = calculatePattern(workingData.tth, hklList, tempParams, workingData.tth);
+            const progressWeights = calculateFitWeights(workingData, hklList, tempParams);
+            const rwp = calculateRwp(workingData.intensity, workingPattern, progressWeights);
+            
+            if (progressCallback) {
+                await progressCallback(i / maxSteps, tempParams, rwp);
+            }
+        }
+    }
+
+    let finalParams = JSON.parse(JSON.stringify(initialParams));
+    paramMapping.forEach((m, i) => m.set(finalParams, best_x[i]));
+    
+    // Return the entire results object
+    return { params: finalParams, algorithm: 'sa', paramMapping, fitFlags };
+}
 
         async function refineParametersLM(initialParams, fitFlags, maxIter, system, centering, progressCallback) {
-            const { paramMapping } = getParameterMapping(fitFlags);
-            if (paramMapping.length === 0) { // If nothing to fit, just return initial params.
-                fitResults = { params: initialParams, algorithm: 'lm', paramMapping, fitFlags };
-                return initialParams;
-            }
+    const { paramMapping } = getParameterMapping(fitFlags);
+    if (paramMapping.length === 0) {
+        return { params: initialParams, algorithm: 'lm', paramMapping, fitFlags };
+    }
 
-            let params = JSON.parse(JSON.stringify(initialParams));
-            let lambda = 0.001;
-            const workingData = getWorkingData();
-            const weights = workingData.intensity.map(y => 1 / Math.max(y, 1));
+    let params = JSON.parse(JSON.stringify(initialParams));
+    let lambda = 0.001;
+    const workingData = getWorkingData();
+
+    const objective = (p_vec, current_params, hklList) => {
+        let tempParams = JSON.parse(JSON.stringify(current_params));
+        paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
+        
+        const { pattern } = calculatePattern(workingData.tth, hklList, tempParams, workingData.tth);
+        const weights = calculateFitWeights(workingData, hklList, tempParams);
+        return { 
+            residuals: workingData.intensity.map((y, i) => (y - pattern[i])),
+            weights: weights
+        };
+    };
+
+    let last_cost = Infinity, JtJ, finalResiduals;
+
+    for (let iter = 0; iter < maxIter; iter++) {
+        let hklList = generateHKL(Math.max(...workingData.tth), params, system, centering);
+        leBailIntensityExtraction(workingData, hklList, params);
+
+        let p_current_vec = paramMapping.map(m => m.get(params));
+        const { residuals, weights } = objective(p_current_vec, params, hklList);
+        const weightedResiduals = residuals.map((r, i) => r * Math.sqrt(weights[i]));
+
+        finalResiduals = residuals;
+        const cost = dot(weightedResiduals, weightedResiduals);
+
+        if (Math.abs(last_cost - cost) < 1e-9 * last_cost && iter > 0) { last_cost = cost; break; }
+        last_cost = cost;
+
+        const jacobian = [];
+        for (let i = 0; i < p_current_vec.length; i++) {
+            const p_plus = [...p_current_vec];
+            p_plus[i] += paramMapping[i].step;
+            let tempParamsForDerivative = JSON.parse(JSON.stringify(params));
+            paramMapping.forEach((m, j) => m.set(tempParamsForDerivative, p_current_vec[j]));
+            paramMapping[i].set(tempParamsForDerivative, p_plus[i]);
+
+            let hklList_plus = generateHKL(Math.max(...workingData.tth), tempParamsForDerivative, system, centering);
+            leBailIntensityExtraction(workingData, hklList_plus, tempParamsForDerivative);
             
-            const objective = (p_vec) => {
-                let tempParams = JSON.parse(JSON.stringify(params));
-                paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
-                
-                let hklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering);
-                leBailIntensityExtraction(workingData, hklList, tempParams);
-                
-                const { pattern } = calculatePattern(workingData.tth, hklList, tempParams, workingData.tth);
-                return workingData.intensity.map((y, i) => (y - pattern[i]) * Math.sqrt(weights[i]));
-            };
-
-            let last_cost = Infinity, JtJ, finalResiduals;
-
-            for (let iter = 0; iter < maxIter; iter++) {
-                let p_current_vec = paramMapping.map(m => m.get(params));
-                const weightedResiduals = objective(p_current_vec);
-                finalResiduals = weightedResiduals.map((r, i) => weights[i] > 0 ? r / Math.sqrt(weights[i]) : 0);
-                const cost = dot(weightedResiduals, weightedResiduals);
-
-                if (Math.abs(last_cost - cost) < 1e-9 * last_cost && iter > 0) { last_cost = cost; break; }
-                last_cost = cost;
-
-                const jacobian = [];
-                for (let i = 0; i < p_current_vec.length; i++) {
-                    const p_plus = [...p_current_vec];
-                    p_plus[i] += paramMapping[i].step;
-                    const res_plus = objective(p_plus);
-                    const deriv = scale(subtract(res_plus, weightedResiduals), 1 / paramMapping[i].step);
-                    jacobian.push(deriv);
-                }
-                for(let i = 0; i < jacobian.length; i++) { 
-                    for(let j = 0; j < jacobian[i].length; j++) { 
-                        if (!isFinite(jacobian[i][j])) { jacobian[i][j] = 0; } 
-                    } 
-                }
-                
-                const J = transpose(jacobian);
-                JtJ = multiply(transpose(J), J);
-                const Jtr = multiply(transpose(J), weightedResiduals);
-                const A_lm = JSON.parse(JSON.stringify(JtJ));
-                for (let i = 0; i < A_lm.length; i++) { A_lm[i][i] += lambda * (A_lm[i][i] || 1.0); }
-                const p_step = solve(A_lm, scale(Jtr, -1));
-
-                if (p_step.some(isNaN)) { console.error("Stopping LM: NaN detected in parameter step."); break; }
-
-                const p_new_vec = add(p_current_vec, p_step);
-                const new_residuals = objective(p_new_vec);
-                const new_cost = dot(new_residuals, new_residuals);
-                
-                if (new_cost < cost && isFinite(new_cost)) {
-                    paramMapping.forEach((m, i) => m.set(params, p_new_vec[i]));
-                    lambda = Math.max(lambda / 2, 1e-9);
-                } else {
-                    lambda = Math.min(lambda * 2, 1e9);
-                }
-                
-                const displayHklList = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering);
-                leBailIntensityExtraction(workingData, displayHklList, params);
-                
-                const {pattern, background} = calculatePattern(fullExperimentalData.tth, displayHklList, params, workingData.tth);
-                const { pattern: workingPattern } = calculatePattern(workingData.tth, displayHklList, params, workingData.tth);
-                const rwp = calculateRwp(workingData.intensity, workingPattern);
-
-                if (progressCallback) await progressCallback((iter + 1) / maxIter, params, rwp, pattern, background);
-            }
-            fitResults = { params, JtJ, finalResiduals, paramMapping, ss_res: last_cost, algorithm: 'lm', fitFlags };
-            return params;
+            // THE BUG FIX IS HERE: Pass the correct 'tempParamsForDerivative'
+            const { residuals: res_plus, weights: weights_plus } = objective(p_plus, tempParamsForDerivative, hklList_plus);
+            const weighted_res_plus = res_plus.map((r, j) => r * Math.sqrt(weights_plus[j]));
+            
+            const deriv = scale(subtract(weighted_res_plus, weightedResiduals), 1 / paramMapping[i].step);
+            jacobian.push(deriv);
         }
+        for(let i = 0; i < jacobian.length; i++) { 
+            for(let j = 0; j < jacobian[i].length; j++) { 
+                if (!isFinite(jacobian[i][j])) { jacobian[i][j] = 0; } 
+            } 
+        }
+        
+        const J = transpose(jacobian);
+        JtJ = multiply(transpose(J), J);
+        const Jtr = multiply(transpose(J), weightedResiduals);
+        const A_lm = JSON.parse(JSON.stringify(JtJ));
+        for (let i = 0; i < A_lm.length; i++) { A_lm[i][i] += lambda * (A_lm[i][i] || 1.0); }
+        const p_step = solve(A_lm, scale(Jtr, -1));
+
+        if (p_step.some(isNaN)) { console.error("Stopping LM: NaN detected in parameter step."); break; }
+
+        const p_new_vec = add(p_current_vec, p_step);
+        let tempParamsNew = JSON.parse(JSON.stringify(params));
+        paramMapping.forEach((m, i) => m.set(tempParamsNew, p_new_vec[i]));
+        let hklListNew = generateHKL(Math.max(...workingData.tth), tempParamsNew, system, centering);
+        leBailIntensityExtraction(workingData, hklListNew, tempParamsNew);
+        
+        const { residuals: new_residuals, weights: new_weights } = objective(p_new_vec, params, hklListNew);
+        const weighted_new_residuals = new_residuals.map((r, i) => r * Math.sqrt(new_weights[i]));
+        const new_cost = dot(weighted_new_residuals, weighted_new_residuals);
+        
+        if (new_cost < cost && isFinite(new_cost)) {
+            params = tempParamsNew;
+            lambda = Math.max(lambda / 2, 1e-9);
+        } else {
+            lambda = Math.min(lambda * 2, 1e9);
+        }
+        
+        const { pattern: workingPattern } = calculatePattern(workingData.tth, hklList, params, workingData.tth);
+        const rwp = calculateRwp(workingData.intensity, workingPattern, weights);
+
+        if (progressCallback) await progressCallback((iter + 1) / maxIter, params, rwp);
+    }
+    
+    // Return the entire results object instead of just params
+    return { params, JtJ, finalResiduals, paramMapping, ss_res: last_cost, algorithm: 'lm', fitFlags };
+}
 
         function updatePreviewPattern() {
             if (!mainChart || fullExperimentalData.tth.length === 0 || isFitting) return;
@@ -1495,18 +1667,25 @@ async function runLeBailFit() {
             controls.progressBarContainer.classList.toggle('hidden', !fitting);
             document.body.style.cursor = fitting ? 'wait' : 'default';
 
-            const rwpCard = controls.rwpResult.parentElement;
-            if (fitting) controls.rwpResult.textContent = '...'; 
+            const rwpCard = controls.rwpResult.parentElement.parentElement;
+            if (fitting) {
+                controls.rpResult.textContent = '...'; 
+                controls.rwpResult.textContent = '...'; 
+                controls.chi2Result.textContent = '...';
+            }
 
             if (!fitting) {
                 controls.progressBar.style.width = '0%';
                 if(fitResults) controls.reportButton.disabled = false;
-                rwpCard.style.background = ''; 
+                rwpCard.querySelectorAll('.result-card').forEach(c => c.style.background = '');
             }
         }
         
-        function updateUI(params, rwp, calcPattern, background) {
-            controls.rwpResult.textContent = rwp.toFixed(4);
+        function updateUI(params, stats, calcPattern, background) {
+            if (stats.r_p !== undefined) controls.rpResult.textContent = stats.r_p.toFixed(4);
+            if (stats.rwp !== undefined) controls.rwpResult.textContent = stats.rwp.toFixed(4);
+            if (stats.chi2 !== undefined) controls.chi2Result.textContent = stats.chi2.toFixed(4);
+            
             if (params.a && document.getElementById('lattice-param-a')) document.getElementById('lattice-param-a').value = params.a.toFixed(5);
             if (params.b && document.getElementById('lattice-param-b')) document.getElementById('lattice-param-b').value = params.b.toFixed(5);
             if (params.c && document.getElementById('lattice-param-c')) document.getElementById('lattice-param-c').value = params.c.toFixed(5);
@@ -1565,25 +1744,83 @@ async function runLeBailFit() {
                             type: 'linear',
                             title: { display: true, text: '2θ (degrees)', font: { size: 14 }},
                         },
-                        y: {
-                            type: 'linear',
-                            position: 'left',
-                            title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }},
-                            min: -yMax * 0.3, 
-                            max: Math.ceil(yMax * 1.1),
-                            ticks: {
-                                callback: function(value, index, ticks) {
-                                    return value >= 0 ? value : null;
-                                }
-                            }
-                        }
+// digits
+y: {
+    type: 'linear',
+    position: 'left',
+    title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }},
+    min: -yMax * 0.3, 
+    max: Math.ceil(yMax * 1.1),
+    ticks: {
+        callback: function(value, index, ticks) {
+            if (value >= 0) {
+                // This line formats the number to a string with 2 decimal places
+                return value.toFixed(1);
+            }
+            // This preserves the logic to hide negative ticks
+            return null; 
+        }
+    }
+}
+
                     }, 
                     plugins: { 
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'xy',
+                                threshold: 5,
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true,
+                                    // This function dynamically sets the zoom mode based on cursor position
+                                    mode: function({chart}) {
+                                        // Failsafe in case the mouse hasn't moved over the chart yet
+                                        if (!mousePosition.x || !mousePosition.y) {
+                                            return 'xy';
+                                        }
+
+                                        // --- NEW LOGIC START ---
+                                        // Get the boundaries of the main plotting area (the graph itself)
+                                        const chartArea = chart.chartArea;
+
+                                        // Failsafe for initialization race conditions
+                                        if (!chartArea) {
+                                            return 'xy';
+                                        }
+
+                                        // Check if cursor is to the LEFT of the plot area (in the Y-axis "column")
+                                        const isOverYAxisRegion = mousePosition.x < chartArea.left;
+                                        
+                                        // Check if cursor is BELOW the plot area (in the X-axis "row")
+                                        const isOverXAxisRegion = mousePosition.y > chartArea.bottom;
+
+                                        if (isOverYAxisRegion) {
+                                            return 'y'; // Zoom only Y axis
+                                        }
+                                        
+                                        if (isOverXAxisRegion) {
+                                            return 'x'; // Zoom only X axis
+                                        }
+                                        
+                                        // Default to zooming both axes when inside the main plot area
+                                        return 'xy';
+                                        // --- 
+                                    },
+                                },
+                                pinch: {
+                                    enabled: true // For touch devices
+                                },
+                                mode: 'xy', // Default mode for other zoom actions like pinch
+                            }
+                        },
+
                         legend: { 
                             labels: {
                                 filter: item => item.text !== 'Difference Zero' && item.text !== 'Simulation (Manual)'
                             }
-                        }, 
+                        },
 
                         tooltip: {
                             enabled: true,
@@ -2012,8 +2249,14 @@ async function runLeBailFit() {
                 doc.setFontSize(9);
                 doc.setFont('Courier', 'normal');
                 
-                addLine(`Final Rwp: ${controls.rwpResult.textContent} %`);
-                addLine(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+                addLine(`Rp (%):      ${fitResults.stats.r_p.toFixed(2)}`);
+                addLine(`Rwp (%):     ${fitResults.stats.rwp.toFixed(2)}`);
+                addLine(`Chi2 (GOF):    ${fitResults.stats.chi2.toFixed(4)}`);
+                addLine(`Algorithm:   ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+                yPos += lineSpacing;
+ //               doc.setFont('Helvetica', 'italic');
+ //               addLine(`Note: R_Bragg is not applicable to Le Bail fits.`);
+ //               doc.setFont('Courier', 'normal');
                 
                 addHeader('Structural Parameters');
                 
@@ -2075,6 +2318,13 @@ async function runLeBailFit() {
                         addLine(paramTableLine(`B${i}`, val, fitFlags.background[i], esds[`B${i}`]));
                     }
                 });
+
+                if (fitResults.weightingParams && fitResults.weightingParams.weightFactor > 1) {
+    addHeader('Background Weighting Parameters');
+    addLine('--------------------------------------------------------------');
+    addLine(`FWHM Widths:      ${fitResults.weightingParams.fwhmWidths.toFixed(2)}`);
+    addLine(`Weight Factor:    ${fitResults.weightingParams.weightFactor}`);
+}
 
                 doc.addPage();
                 yPos = 20;
@@ -2175,11 +2425,36 @@ async function runLeBailFit() {
             controls.tthMaxValue.textContent = maxVal.toFixed(1);
             rescalePlot();
         });
+        
+        // --- Event Listener for Chart Right-Click Reset ---
+        controls.mainChartCanvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); // Prevent the default browser context menu
+            if (mainChart) {
+                mainChart.resetZoom();
+                // rescalePlot respects the sliders for the x-axis and autoscales the y-axis
+                rescalePlot();
+            }
+        });
+
+                // Track mouse movement over the chart canvas to enable axis-specific zoom
+        controls.mainChartCanvas.addEventListener('mousemove', (e) => {
+            mousePosition.x = e.offsetX;
+            mousePosition.y = e.offsetY;
+        });
 
         controls.crystalSystem.addEventListener('change', () => {
             updateLatticeParamUI();
             updatePreviewPattern();
         });
+
+        controls.bgWeightFactorSlider.addEventListener('input', () => {
+    controls.bgWeightFactorValue.textContent = controls.bgWeightFactorSlider.value;
+});
+
+controls.fwhmWidthsSlider.addEventListener('input', () => {
+    controls.fwhmWidthsValue.textContent = parseFloat(controls.fwhmWidthsSlider.value).toFixed(1);
+});
+        
 
         // Set initial state of checkboxes on load
         ['fitGU', 'fitGV', 'fitGW', 'fitLX', 'fitZeroShift', 'fitShft'].forEach(key => {
@@ -2190,8 +2465,5 @@ async function runLeBailFit() {
         createBackgroundControls();
     });
 </script>
-</body>
-</html>
-
 </body>
 </html>
