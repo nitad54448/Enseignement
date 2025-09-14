@@ -1174,7 +1174,7 @@
             const N_FOR_M20 = Math.min(20, peaks.length);
             
             // Search depth parameters
-            const max_hkl_indexing = 10;
+            const max_hkl_indexing = 15;
             const cubic_search_depth = 15;
             const tetra_hexa_i_depth = 15;
             const tetra_hexa_j_depth = 15;
@@ -1716,87 +1716,163 @@
                     }
                 }
             };
-            
+
             const indexMonoclinic = () => {
-                const max_peaks_basis = Math.min(10, q_obs.length);
+                const max_peaks_basis = Math.min(12, q_obs.length);
                 const min_indexed_for_fit = 8;
-                const max_hkl_main = 2; // Keep low to manage complexity
+                const max_hkl_main = 5;
+                const TOLERANCE_FACTOR_MONO = 50;
 
-                const hkl_triplets = [];
-                for (let h = -max_hkl_main; h <= max_hkl_main; h++) for (let k = 0; k <= max_hkl_main; k++) for (let l = -max_hkl_main; l <= max_hkl_main; l++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                    hkl_triplets.push([h, k, l]);
+                const hkl_quadruplets = [];
+                for (let h = 0; h <= max_hkl_main; h++) {
+                    for (let k = 0; k <= max_hkl_main; k++) {
+                        for (let l = 0; l <= max_hkl_main; l++) {
+                            if (h === 0 && k === 0 && l === 0) continue;
+                            hkl_quadruplets.push([h, k, l]);
+                        }
+                    }
                 }
-                
-                const basis_hkls = hkl_triplets.slice(0, 26); // Use a small set of low-index reflections for basis
+                hkl_quadruplets.sort((a, b) => (a[0]**2 + a[1]**2 + a[2]**2) - (b[0]**2 + b[1]**2 + b[2]**2));
 
-                for (let i = 0; i < max_peaks_basis - 3; i++) {
-                    for (let j = i + 1; j < max_peaks_basis - 2; j++) {
-                        for (let k = j + 1; k < max_peaks_basis - 1; k++) {
-                            for (let m = k + 1; m < max_peaks_basis; m++) {
-                                for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) {
-                                    for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) {
-                                        for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) {
-                                            for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
-                                                
-                                                const hkl_basis = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
-                                                const M = hkl_basis.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, -hkl[0]*hkl[2]]); // S1, S2, S3, S4
-                                                const q_vec = [q_obs[i], q_obs[j], q_obs[k], q_obs[m]];
-                                                const s = solveLeastSquares(M, q_vec); // s = [S1, S2, S3, S4]
-                                                
-                                                if (!s || s[0] <= 0 || s[1] <= 0 || s[2] <= 0) continue;
-                                                const cosBeta_val = s[3] / (2 * Math.sqrt(s[0] * s[2]));
-                                                if (Math.abs(cosBeta_val) >= 1) continue;
-                                                
-                                                const beta_rad = Math.acos(cosBeta_val);
-                                                const sinBeta_val = Math.sin(beta_rad);
-                                                if (sinBeta_val < 1e-4) continue;
-                                                
-                                                const rough_params = {
-                                                    a: 1 / (Math.sqrt(s[0]) * sinBeta_val),
-                                                    b: 1 / Math.sqrt(s[1]),
-                                                    c: 1 / (Math.sqrt(s[2]) * sinBeta_val),
-                                                    beta: beta_rad * 180 / Math.PI
-                                                };
+                const basis_hkls = hkl_quadruplets.slice(0, 25);
 
-                                                if (rough_params.a * rough_params.b * rough_params.c * sinBeta_val > max_volume) continue;
+                // Try different beta angles
+                for (let beta = 95; beta <= 125; beta += 5) {
+                    const sinBeta = Math.sin(beta * Math.PI / 180);
+                    const cosBeta = Math.cos(beta * Math.PI / 180);
 
-                                                // Tentatively index
-                                                const indexed_pairs = [];
-                                                const used_q_indices = new Set();
-                                                for (let peak_idx = 0; peak_idx < Math.min(20, q_obs.length); peak_idx++) {
-                                                    const current_q_obs = q_obs[peak_idx];
-                                                    const tolerance = get_q_tolerance(tth_obs[peak_idx]) * 15; // Larger tolerance for rough monoclinic
-                                                    let best_match = null; let min_diff = Infinity;
-                                                    for (const hkl of hkl_triplets) {
-                                                        const [h,k,l] = hkl;
-                                                        const q_calc = (1/(sinBeta_val**2)) * (h*h/(rough_params.a**2) + l*l/(rough_params.c**2) - 2*h*l*cosBeta_val/(rough_params.a*rough_params.c)) + k*k/(rough_params.b**2);
-                                                        const diff = Math.abs(q_calc - current_q_obs);
-                                                        if (diff < tolerance && diff < min_diff) { min_diff = diff; best_match = hkl; }
-                                                    }
-                                                    if (best_match) { indexed_pairs.push({ q_obs: current_q_obs, hkl: best_match }); }
-                                                }
-
-                                                if (indexed_pairs.length >= min_indexed_for_fit) {
-                                                    const M_refine = indexed_pairs.map(p => [p.hkl[0]**2, p.hkl[1]**2, p.hkl[2]**2, -p.hkl[0]*p.hkl[2]]);
-                                                    const q_refine = indexed_pairs.map(p => p.q_obs);
-                                                    const sr = solveLeastSquares(M_refine, q_refine);
-
-                                                    if (!sr || sr[0] <= 0 || sr[1] <= 0 || sr[2] <= 0) continue;
-                                                    const cosBeta_r = sr[3] / (2 * Math.sqrt(sr[0] * sr[2]));
-                                                    if (Math.abs(cosBeta_r) >= 1) continue;
+                    for (let i = 0; i < max_peaks_basis - 3; i++) {
+                        for (let j = i + 1; j < max_peaks_basis - 2; j++) {
+                            for (let k = j + 1; k < max_peaks_basis - 1; k++) {
+                                for (let l = k + 1; l < max_peaks_basis; l++) {
+                                    for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) {
+                                        for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) {
+                                            for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) {
+                                                for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
                                                     
-                                                    const beta_rad_r = Math.acos(cosBeta_r);
-                                                    const sinBeta_r = Math.sin(beta_rad_r);
-                                                    if (sinBeta_r < 1e-4) continue;
+                                                    const hkl_basis = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
+                                                    const M = hkl_basis.map(hkl => [
+                                                        hkl[0]**2,
+                                                        hkl[1]**2,
+                                                        hkl[2]**2,
+                                                        -2 * hkl[0] * hkl[2] * cosBeta
+                                                    ]);
+                                                    const q_vec = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
+                                                    const solution = solveLeastSquares(M, q_vec);
+                                                    
+                                                    if (!solution || solution.some((s, idx) => idx < 3 ? s <= 0 : false)) continue;
+                                                    
+                                                    const a_sq_inv = solution[0] / (sinBeta * sinBeta);
+                                                    const b_sq_inv = solution[1];
+                                                    const c_sq_inv = solution[2] / (sinBeta * sinBeta);
+                                                    const cross_term = solution[3] / (sinBeta * sinBeta);
+                                                    
+                                                    if (a_sq_inv <= 0 || b_sq_inv <= 0 || c_sq_inv <= 0) continue;
+                                                    
+                                                    const rough_params = {
+                                                        a: 1/Math.sqrt(a_sq_inv), 
+                                                        b: 1/Math.sqrt(b_sq_inv), 
+                                                        c: 1/Math.sqrt(c_sq_inv),
+                                                        beta: beta
+                                                    };
+                                                    
+                                                    const volume = rough_params.a * rough_params.b * rough_params.c * sinBeta;
+                                                    if (volume > max_volume || volume < 1) continue;
+                                                    if (rough_params.a < 2.7 || rough_params.b < 2.7 || rough_params.c < 2.7) continue;
+                                                    
+                                                    // Tentatively index with relaxed tolerance
+                                                    const indexed_pairs = [];
+                                                    const used_q_indices = new Set();
+                                                    for (let peak_idx = 0; peak_idx < Math.min(15, q_obs.length); peak_idx++) {
+                                                        if (used_q_indices.has(peak_idx)) continue;
+                                                        const current_q_obs = q_obs[peak_idx];
+                                                        const tolerance = get_q_tolerance(tth_obs[peak_idx]) * TOLERANCE_FACTOR_MONO;
+                                                        let best_match = null; let min_diff = Infinity;
+                                                        for (const hkl of hkl_quadruplets) {
+                                                            const q_calc = (1/(sinBeta*sinBeta)) * 
+                                                                          (hkl[0]**2/rough_params.a**2 + hkl[2]**2/rough_params.c**2 - 
+                                                                           2*hkl[0]*hkl[2]*cosBeta/(rough_params.a*rough_params.c)) + 
+                                                                          hkl[1]**2/rough_params.b**2;
+                                                            const diff = Math.abs(q_calc - current_q_obs);
+                                                            if (diff < tolerance && diff < min_diff) { 
+                                                                min_diff = diff; 
+                                                                best_match = hkl; 
+                                                            }
+                                                            if (q_calc > current_q_obs + tolerance) break;
+                                                        }
+                                                        if (best_match) { 
+                                                            indexed_pairs.push({ q_obs: current_q_obs, hkl: best_match }); 
+                                                            used_q_indices.add(peak_idx); 
+                                                        }
+                                                    }
 
-                                                    testSolution({ 
-                                                        a: 1 / (Math.sqrt(sr[0]) * sinBeta_r),
-                                                        b: 1 / Math.sqrt(sr[1]),
-                                                        c: 1 / (Math.sqrt(sr[2]) * sinBeta_r),
-                                                        beta: beta_rad_r * 180 / Math.PI,
-                                                        system: 'monoclinic', alpha: 90, gamma: 90 
-                                                    });
+                                                    if (indexed_pairs.length >= min_indexed_for_fit) {
+                                                        // Try to refine beta angle by optimizing the fit
+                                                        let best_beta = beta;
+                                                        let best_m20 = 0;
+                                                        let best_params = null;
+
+                                                        for (let beta_refine = beta - 3; beta_refine <= beta + 3; beta_refine += 0.5) {
+                                                            if (beta_refine < 85 || beta_refine > 135) continue;
+                                                            
+                                                            const sinBeta_ref = Math.sin(beta_refine * Math.PI / 180);
+                                                            const cosBeta_ref = Math.cos(beta_refine * Math.PI / 180);
+                                                            
+                                                            const M_refine = indexed_pairs.map(p => [
+                                                                p.hkl[0]**2,
+                                                                p.hkl[1]**2,
+                                                                p.hkl[2]**2,
+                                                                -2 * p.hkl[0] * p.hkl[2] * cosBeta_ref
+                                                            ]);
+                                                            const q_refine = indexed_pairs.map(p => p.q_obs);
+                                                            const refined_solution = solveLeastSquares(M_refine, q_refine);
+                                                            
+                                                            if (refined_solution && refined_solution.slice(0,3).every(s => s > 0)) {
+                                                                const final_a_sq_inv = refined_solution[0] / (sinBeta_ref * sinBeta_ref);
+                                                                const final_b_sq_inv = refined_solution[1];
+                                                                const final_c_sq_inv = refined_solution[2] / (sinBeta_ref * sinBeta_ref);
+                                                                
+                                                                if (final_a_sq_inv > 0 && final_b_sq_inv > 0 && final_c_sq_inv > 0) {
+                                                                    const test_params = {
+                                                                        a: 1/Math.sqrt(final_a_sq_inv), 
+                                                                        b: 1/Math.sqrt(final_b_sq_inv), 
+                                                                        c: 1/Math.sqrt(final_c_sq_inv), 
+                                                                        beta: beta_refine,
+                                                                        system: 'monoclinic', 
+                                                                        alpha: 90, 
+                                                                        gamma: 90 
+                                                                    };
+                                                                    
+                                                                    // Calculate M20 for this beta
+                                                                    const q_calc_test = new Set();
+                                                                    for (let h = 0; h <= 8; h++) {
+                                                                        for (let k = 0; k <= 8; k++) {
+                                                                            for (let l = 0; l <= 8; l++) {
+                                                                                if (h === 0 && k === 0 && l === 0) continue;
+                                                                                const q = (1/(sinBeta_ref*sinBeta_ref)) * 
+                                                                                          (h*h/test_params.a**2 + l*l/test_params.c**2 - 
+                                                                                           2*h*l*cosBeta_ref/(test_params.a*test_params.c)) + 
+                                                                                          k*k/test_params.b**2;
+                                                                                if (q > 0) q_calc_test.add(q);
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    const q_calc_test_sorted = Array.from(q_calc_test).sort((x, y) => x - y);
+                                                                    const test_m20 = calculateM20(q_calc_test_sorted);
+                                                                    
+                                                                    if (test_m20 > best_m20) {
+                                                                        best_m20 = test_m20;
+                                                                        best_beta = beta_refine;
+                                                                        best_params = test_params;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        if (best_params && best_m20 > min_m20) {
+                                                            testSolution(best_params);
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1807,7 +1883,6 @@
                     }
                 }
             };
-            
 
             // Main worker execution flow
             if (systemToSearch === 'cubic') indexCubic();
