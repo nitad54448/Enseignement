@@ -258,9 +258,12 @@
                         </div>
                      </div>
                 </div>
-                <div class="flex space-x-2">
+                <div class="flex flex-col space-y-2">
                     <button id="fit-button" class="btn btn-primary w-full text-lg" disabled>Load Data to Start Fit</button>
-                    <button id="report-button" class="btn btn-secondary w-full text-lg" disabled>PDF Report</button>
+                    <div class="flex space-x-2">
+                        <button id="save-data-button" class="btn btn-secondary w-full" disabled>Save Data</button>
+                        <button id="report-button" class="btn btn-secondary w-full" disabled>Report</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -316,6 +319,7 @@
             tthMaxSlider: document.getElementById('tth-max-slider'), tthMaxValue: document.getElementById('tth-max-value'),
             fitButton: document.getElementById('fit-button'),
             reportButton: document.getElementById('report-button'),
+            saveDataButton: document.getElementById('save-data-button'),
             progressBar: document.getElementById('progress-bar'), progressBarContainer: document.getElementById('progress-bar-container'),
             rwpResult: document.getElementById('rwp-result'),
             misfitResult: document.getElementById('misfit-result'),
@@ -976,12 +980,21 @@
 
         function setUIState(fitting) {
             isFitting = fitting;
-            controls.fitButton.disabled = fitting; controls.reportButton.disabled = fitting;
+            controls.fitButton.disabled = fitting;
+            controls.reportButton.disabled = fitting;
+            controls.saveDataButton.disabled = fitting;
             controls.fitButton.textContent = fitting ? 'Refining...' : 'Run Refinement';
             controls.progressBarContainer.classList.toggle('hidden', !fitting);
             document.body.style.cursor = fitting ? 'wait' : 'default';
             if (fitting) { controls.rwpResult.textContent = '...'; controls.misfitResult.textContent = '...'; }
-            if (!fitting) { controls.progressBar.style.width = '0%'; if(fitResults) controls.reportButton.disabled = false; controls.rwpResult.parentElement.style.background = ''; }
+            if (!fitting) {
+                controls.progressBar.style.width = '0%';
+                if (fitResults) {
+                    controls.reportButton.disabled = false;
+                    controls.saveDataButton.disabled = false;
+                }
+                controls.rwpResult.parentElement.style.background = '';
+            }
         }
         
         function updateUI(params, rwp, hklList1, hklList2, pattern, background) {
@@ -1207,6 +1220,152 @@
             }
             mainChart.update('none');
         }
+        
+        function downloadTextFile(content, filename) {
+            const element = document.createElement('a');
+            const file = new Blob([content], {type: 'text/plain;charset=utf-8'});
+            element.href = URL.createObjectURL(file);
+            element.download = filename;
+            document.body.appendChild(element); // Required for Firefox
+            element.click();
+            document.body.removeChild(element);
+        }
+
+        function generateTextReportContent(fitResults, controls) {
+            const reportLines = [];
+            const now = new Date();
+            const { params: finalParams, fitFlags, algorithm, constraints } = fitResults;
+
+            const formatParamLine = (name, value, isFitted) => {
+                let valStr = 'N/A'.padStart(15);
+                if (typeof value === 'number') { valStr = value.toExponential(6).padStart(15); }
+                else if (typeof value === 'string') { valStr = value.padStart(15); }
+                const fitStr = (isFitted === undefined) ? '' : (isFitted ? 'Yes' : 'No');
+                return `${name.padEnd(20)}${valStr}    ${fitStr}`;
+            };
+
+            reportLines.push('==============================================================');
+            reportLines.push('            Misfit Le Bail Refinement Report');
+            reportLines.push('==============================================================');
+            reportLines.push(`Report Generated: ${now.toLocaleString()}`);
+            reportLines.push(`Data File: ${controls.fileName.textContent}`);
+            reportLines.push('');
+
+            reportLines.push('--- Refinement Statistics ---');
+            reportLines.push(`Rwp (%):             ${controls.rwpResult.textContent}`);
+            reportLines.push(`Misfit (b1/b2):      ${controls.misfitResult.textContent}`);
+            reportLines.push(`Algorithm:           ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+            reportLines.push('');
+            
+            reportLines.push('--- Lattice Constraints Applied ---');
+            let constraintsStr = Object.keys(constraints).filter(k => constraints[k]).map(k => k.replace('constrain_', '')).join(', ');
+            if (!constraintsStr) constraintsStr = "None";
+            reportLines.push(constraintsStr);
+            reportLines.push('');
+
+            const printPhaseParams = (phaseNum, params, flags) => {
+                reportLines.push(`--- Phase ${phaseNum} Structural Parameters ---`);
+                reportLines.push('Parameter'.padEnd(20) + 'Value'.padStart(15) + '    Fitted');
+                reportLines.push('-'.repeat(50));
+                reportLines.push(formatParamLine('Crystal System:', params.system));
+                reportLines.push(formatParamLine('Centering:', params.centering));
+                if(params.a !== undefined) reportLines.push(formatParamLine('a (Å)', params.a, flags.a));
+                if(params.b !== undefined) reportLines.push(formatParamLine('b (Å)', params.b, flags.b));
+                if(params.c !== undefined) reportLines.push(formatParamLine('c (Å)', params.c, flags.c));
+                if(params.alpha !== undefined) reportLines.push(formatParamLine('alpha (°)', params.alpha, flags.alpha));
+                if(params.beta !== undefined) reportLines.push(formatParamLine('beta (°)', params.beta, flags.beta));
+                if(params.gamma !== undefined) reportLines.push(formatParamLine('gamma (°)', params.gamma, flags.gamma));
+                reportLines.push('');
+            };
+            printPhaseParams(1, finalParams.phase1, fitFlags.phase1);
+            printPhaseParams(2, finalParams.phase2, fitFlags.phase2);
+
+            reportLines.push('--- Shared Instrumental & Profile Parameters ---');
+            reportLines.push(formatParamLine('Wavelength (Å)', finalParams.lambda));
+            reportLines.push(formatParamLine('Zero Shift (°)', finalParams.zeroShift, fitFlags.zeroShift));
+            reportLines.push(formatParamLine('GU', finalParams.GU, fitFlags.GU));
+            reportLines.push(formatParamLine('GV', finalParams.GV, fitFlags.GV));
+            reportLines.push(formatParamLine('GW', finalParams.GW, fitFlags.GW));
+            reportLines.push(formatParamLine('GP', finalParams.GP, fitFlags.GP));
+            reportLines.push(formatParamLine('LX', finalParams.LX, fitFlags.LX));
+            reportLines.push(formatParamLine('eta', finalParams.eta, fitFlags.eta));
+            reportLines.push(formatParamLine('shft', finalParams.shft, fitFlags.shft));
+            reportLines.push(formatParamLine('trns', finalParams.trns, fitFlags.trns));
+            reportLines.push('');
+
+            reportLines.push('--- Background Parameters ---');
+            reportLines.push(formatParamLine('B-1', finalParams.bg_inv, fitFlags.bg_inv));
+            finalParams.bg.forEach((val, i) => {
+                if (Math.abs(val) > 1e-9 || fitFlags.background[i]) {
+                    reportLines.push(formatParamLine(`B${i}`, val, fitFlags.background[i]));
+                }
+            });
+            reportLines.push('');
+            
+            const printHklList = (phaseNum, hklList) => {
+                reportLines.push(`--- Phase ${phaseNum} Calculated vs. Experimental Reflections ---`);
+                reportLines.push(['h,k,l'.padEnd(12), 'd_calc (Å)'.padStart(12), 'd_exp (Å)'.padStart(12), '2th_corr (°)' .padStart(15), '2th_exp (°)' .padStart(15)].join('  '));
+                reportLines.push('-'.repeat(80));
+                hklList.forEach(hkl => {
+                    const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                    const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+                    const { tth_exp, d_exp } = findExperimentalPeakDetails(tthCorr, fullExperimentalData, finalParams.lambda);
+                    const line = [ hkl.hkl_list[0].padEnd(12), hkl.d.toFixed(5).padStart(12), (d_exp ? d_exp.toFixed(5) : 'N/A').padStart(12), tthCorr.toFixed(4).padStart(15), (tth_exp ? tth_exp.toFixed(4) : 'N/A').padStart(15) ].join('  ');
+                    reportLines.push(line);
+                });
+                reportLines.push('');
+            };
+
+            const hklList1 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase1, finalParams.phase1.system, finalParams.phase1.centering, 'P1');
+            const hklList2 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
+            printHklList(1, hklList1);
+            printHklList(2, hklList2);
+
+            const combinedHkl = hklList1.concat(hklList2).sort((a,b)=>a.tth-b.tth);
+            const { pattern: finalCalcPattern } = calculatePattern(fullExperimentalData.tth, combinedHkl, finalParams, getWorkingData().tth);
+            reportLines.push('--- Intensity Data ---');
+            reportLines.push(['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'));
+            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                const tth = fullExperimentalData.tth[i];
+                const i_obs = fullExperimentalData.intensity[i];
+                const i_calc = finalCalcPattern[i];
+                const diff = i_obs - i_calc;
+                reportLines.push([tth.toFixed(4), i_obs.toFixed(2), i_calc.toFixed(2), diff.toFixed(2)].join('\t'));
+            }
+
+            return reportLines.join('\n');
+        }
+
+        function findExperimentalPeakDetails(targetTth, experimentalData, wavelength, searchWindow = 0.5) {
+    if (!experimentalData || experimentalData.tth.length === 0) {
+        return { tth_exp: null, d_exp: null };
+    }
+
+    const minTth = targetTth - searchWindow;
+    const maxTth = targetTth + searchWindow;
+
+    let maxIntensity = -Infinity;
+    let tth_exp = null;
+
+    for (let i = 0; i < experimentalData.tth.length; i++) {
+        const tth = experimentalData.tth[i];
+        if (tth >= minTth && tth <= maxTth) {
+            if (experimentalData.intensity[i] > maxIntensity) {
+                maxIntensity = experimentalData.intensity[i];
+                tth_exp = tth;
+            }
+        }
+    }
+
+    if (tth_exp !== null) {
+        const theta_rad = tth_exp * (Math.PI / 180) / 2;
+        const d_exp = wavelength / (2 * Math.sin(theta_rad));
+        return { tth_exp: tth_exp, d_exp: d_exp };
+    }
+
+    return { tth_exp: null, d_exp: null };
+}
+
 
         // --- Event Listeners and Initialization ---
         controls.fileInput.addEventListener('change', (e) => {
@@ -1289,36 +1448,6 @@
             });
         }
 
-        function findExperimentalPeakDetails(targetTth, experimentalData, wavelength, searchWindow = 0.5) {
-            if (!experimentalData || experimentalData.tth.length === 0) {
-                return { tth_exp: null, d_exp: null };
-            }
-
-            const minTth = targetTth - searchWindow;
-            const maxTth = targetTth + searchWindow;
-            
-            let maxIntensity = -Infinity;
-            let tth_exp = null;
-
-            for (let i = 0; i < experimentalData.tth.length; i++) {
-                const tth = experimentalData.tth[i];
-                if (tth >= minTth && tth <= maxTth) {
-                    if (experimentalData.intensity[i] > maxIntensity) {
-                        maxIntensity = experimentalData.intensity[i];
-                        tth_exp = tth;
-                    }
-                }
-            }
-
-            if (tth_exp !== null) {
-                const theta_rad = tth_exp * (Math.PI / 180) / 2;
-                const d_exp = wavelength / (2 * Math.sin(theta_rad));
-                return { tth_exp: tth_exp, d_exp: d_exp };
-            }
-
-            return { tth_exp: null, d_exp: null };
-        }
-        
         controls.fitButton.addEventListener('click', runLeBailFit);
         document.querySelector('.tab-nav').addEventListener('click', (e) => {
             if (e.target.classList.contains('tab-button')) {
@@ -1343,118 +1472,173 @@
         });
         
         controls.reportButton.addEventListener('click', async () => {
-             if (!fitResults) { alert("Please run a refinement before generating a report."); return; }
-            controls.reportButton.textContent = 'Generating...'; controls.reportButton.disabled = true;
-            try {
-                const now = new Date(); const filename = `Misfit-LeBail-Report-${now.toISOString().slice(0,19).replace(/[-:T]/g,"")}.pdf`;
-                const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff' });
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-                const margin = 15; const contentWidth = doc.internal.pageSize.getWidth() - 2 * margin;
-                doc.setFontSize(18); doc.text('Misfit Le Bail Refinement Report', 105, 15, { align: 'center' });
-                doc.setFontSize(10); doc.text(`Report Generated: ${now.toLocaleString()}`, margin, 25);
-                doc.text(`Data File: ${controls.fileName.textContent}`, margin, 30);
-                const mainImgData = chartCanvas.toDataURL('image/png');
-                const mainImgProps = doc.getImageProperties(mainImgData);
-                const mainImgHeight = (mainImgProps.height * contentWidth) / mainImgProps.width;
-                doc.addImage(mainImgData, 'PNG', margin, 40, contentWidth, mainImgHeight);
-                doc.addPage(); let yPos = 20;
-                doc.setFont('Helvetica', 'bold'); doc.setFontSize(16); doc.text('Refinement Results', margin, yPos); yPos += 10;
-                const finalParams = fitResults.params; const fitFlags = fitResults.fitFlags; const constraints = fitResults.constraints;
-                const lineSpacing = 5;
-                const addLine = (text) => { doc.text(text, margin, yPos); yPos += lineSpacing; };
-                const addHeader = (text) => { yPos += 4; doc.setFont('Helvetica', 'bold'); doc.text(text, margin, yPos); yPos += (lineSpacing + 1); doc.setFont('Courier', 'normal'); };
-                doc.setFontSize(9); doc.setFont('Courier', 'normal');
-                addLine(`Final Rwp: ${controls.rwpResult.textContent} %`);
-                const misfitRatio = (finalParams.phase1.b && finalParams.phase2.b && finalParams.phase2.b !== 0) ? (finalParams.phase1.b / finalParams.phase2.b).toFixed(5) : 'N/A';
-                addLine(`Misfit Ratio (b1/b2): ${misfitRatio}`);
-                addLine(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
-                addHeader('Lattice Constraints Applied');
-                let constraintsStr = Object.keys(constraints).filter(k => constraints[k]).map(k => k.replace('constrain_', '')).join(', ');
-                if (!constraintsStr) constraintsStr = "None";
-                addLine(constraintsStr);
-                const paramTableLine = (name, value, flag) => {
-                    const valStr = (value != null && isFinite(value)) ? value.toExponential(6) : 'N/A';
-                    const fitStr = flag ? 'Yes' : (flag === false ? 'No' : '-');
-                    return `${name.padEnd(14)}${valStr.padStart(14)} ${fitStr.padStart(8)}`;
-                };
-                const printPhaseParams = (phaseIdx, params, flags) => {
-                    addHeader(`Phase ${phaseIdx} Structural Parameters`);
-                    addLine(`Crystal System: ${params.system}`); addLine(`Centering:      ${params.centering}`);
-                    addLine('---------------------------------------------------');
-                    addLine('Parameter      Value           Fitted'); addLine('---------------------------------------------------');
-                    const paramDefs = [{ name: 'a (Å)', key: 'a' }, { name: 'b (Å)', key: 'b' }, { name: 'c (Å)', key: 'c' }, { name: 'alpha (°)', key: 'alpha' }, { name: 'beta (°)', key: 'beta' }, { name: 'gamma (°)', key: 'gamma' }];
-                    paramDefs.forEach(p => { if (params[p.key] !== undefined) addLine(paramTableLine(p.name, params[p.key], flags[p.key])); });
-                };
-                printPhaseParams(1, finalParams.phase1, fitFlags.phase1);
-                printPhaseParams(2, finalParams.phase2, fitFlags.phase2);
-                addHeader('Instrument & Profile Parameters');
-                addLine('---------------------------------------------------');
-                addLine('Parameter      Value           Fitted'); addLine('---------------------------------------------------');
-                addLine(paramTableLine('Wavelength (Å)', finalParams.lambda, false));
-                addLine(paramTableLine('Zero Shift (°)', finalParams.zeroShift, fitFlags.zeroShift));
-                addLine(paramTableLine('GU', finalParams.GU, fitFlags.GU)); addLine(paramTableLine('GV', finalParams.GV, fitFlags.GV)); addLine(paramTableLine('GW', finalParams.GW, fitFlags.GW));
-                addLine(paramTableLine('GP', finalParams.GP, fitFlags.GP)); addLine(paramTableLine('LX', finalParams.LX, fitFlags.LX)); addLine(paramTableLine('eta', finalParams.eta, fitFlags.eta));
-                addLine(paramTableLine('shft', finalParams.shft, fitFlags.shft)); addLine(paramTableLine('trns', finalParams.trns, fitFlags.trns));
-                
-                const printHklTable = (doc, hklList, phaseNum, startY, finalParams) => {
-                    let y = startY;
-                    doc.setFont('Helvetica', 'bold');
-                    doc.setFontSize(12);
-                    doc.text(`Reflections Table: Phase ${phaseNum}`, margin, y);
-                    y += 8;
-                    doc.setFontSize(8);
-                    doc.setFont('Courier', 'normal');
+    if (!fitResults) { alert("Please run a refinement before generating a report."); return; }
+    controls.reportButton.textContent = 'Generating...'; controls.reportButton.disabled = true;
+    try {
+        const now = new Date(); const filename = `Misfit-LeBail-Report-${now.toISOString().slice(0,19).replace(/[-:T]/g,"")}.pdf`;
+        const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff' });
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const margin = 15; const contentWidth = doc.internal.pageSize.getWidth() - 2 * margin;
+        doc.setFontSize(18); doc.text('Misfit Le Bail Refinement Report', 105, 15, { align: 'center' });
+        doc.setFontSize(10); doc.text(`Report Generated: ${now.toLocaleString()}`, margin, 25);
+        doc.text(`Data File: ${controls.fileName.textContent}`, margin, 30);
+        const mainImgData = chartCanvas.toDataURL('image/png');
+        const mainImgProps = doc.getImageProperties(mainImgData);
+        const mainImgHeight = (mainImgProps.height * contentWidth) / mainImgProps.width;
+        doc.addImage(mainImgData, 'PNG', margin, 40, contentWidth, mainImgHeight);
+        doc.addPage(); let yPos = 20;
+        doc.setFont('Helvetica', 'bold'); doc.setFontSize(16); doc.text('Refinement Results', margin, yPos); yPos += 10;
+        const finalParams = fitResults.params; const fitFlags = fitResults.fitFlags; const constraints = fitResults.constraints;
 
-                    const header = ['h,k,l'.padEnd(12), 'd_calc'.padStart(10), 'd_exp'.padStart(10), '2θ_calc'.padStart(10), '2θ_exp'.padStart(10)].join('  ');
-                    const separator = '-'.repeat(header.length + 2);
-
-                    const printHeader = () => {
-                        doc.text(header, margin, y);
-                        y += 4;
-                        doc.text(separator, margin, y);
-                        y += 4;
-                    };
-                    
-                    printHeader();
-
-                    hklList.forEach(hkl => {
-                        if (y > 280) { // Page break
-                            doc.addPage();
-                            y = 20;
-                            printHeader();
+        let esds = {};
+        let esdWarning = null;
+        if (fitResults.algorithm === 'lm' && fitResults.JtJ) {
+            const N = fitResults.finalResiduals.length;
+            const P = fitResults.paramMapping.length;
+            if (N > P && fitResults.ss_res !== undefined) {
+                const reduced_chi_sq = fitResults.ss_res / (N - P);
+                const cov_matrix = matrixInverse(fitResults.JtJ);
+                if (cov_matrix) {
+                    fitResults.paramMapping.forEach((p, i) => {
+                        if (cov_matrix[i] && cov_matrix[i][i] !== undefined) {
+                            esds[p.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i]));
                         }
-                        const peakShift = calculatePeakShift(hkl.tth, finalParams);
-                        const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
-                        
-                        const { tth_exp, d_exp } = findExperimentalPeakDetails(tthCorr, fullExperimentalData, finalParams.lambda);
-                        
-                        const hklStr = hkl.hkl_list[0].padEnd(12);
-                        const d_calc_str = hkl.d.toFixed(5).padStart(10);
-                        const d_exp_str = d_exp ? d_exp.toFixed(5).padStart(10) : 'N/A'.padStart(10);
-                        const tth_calc_str = tthCorr.toFixed(4).padStart(10);
-                        const tth_exp_str = tth_exp ? tth_exp.toFixed(4).padStart(10) : 'N/A'.padStart(10);
-
-                        const line = [hklStr, d_calc_str, d_exp_str, tth_calc_str, tth_exp_str].join('  ');
-                        doc.text(line, margin, y);
-                        y += lineSpacing;
                     });
-                    return y;
-                };
+                } else {
+                    esdWarning = 'ESD calculation failed (unstable refinement).';
+                }
+            }
+        }
 
-                const hklList1_report = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase1, finalParams.phase1.system, finalParams.phase1.centering, 'P1');
-                const hklList2_report = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
-                
-                doc.addPage();
-                yPos = 20;
-                yPos = printHklTable(doc, hklList1_report, 1, yPos, finalParams);
-                doc.addPage();
-                yPos = 20;
-                printHklTable(doc, hklList2_report, 2, yPos, finalParams);
+        const lineSpacing = 5;
+        const addLine = (text) => { doc.text(text, margin, yPos); yPos += lineSpacing; };
+        const addHeader = (text) => { yPos += 4; doc.setFont('Helvetica', 'bold'); doc.text(text, margin, yPos); yPos += (lineSpacing + 1); doc.setFont('Courier', 'normal'); };
+        doc.setFontSize(9); doc.setFont('Courier', 'normal');
+        addLine(`Final Rwp: ${controls.rwpResult.textContent} %`);
+        const misfitRatio = (finalParams.phase1.b && finalParams.phase2.b && finalParams.phase2.b !== 0) ? (finalParams.phase1.b / finalParams.phase2.b).toFixed(5) : 'N/A';
+        addLine(`Misfit Ratio (b1/b2): ${misfitRatio}`);
+        addLine(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+        addHeader('Lattice Constraints Applied');
+        let constraintsStr = Object.keys(constraints).filter(k => constraints[k]).map(k => k.replace('constrain_', '')).join(', ');
+        if (!constraintsStr) constraintsStr = "None";
+        addLine(constraintsStr);
 
-                doc.save(filename);
-            } catch (error) { console.error("Failed to generate PDF:", error); alert("An error occurred while generating the PDF report."); }
-            finally { controls.reportButton.textContent = 'Generate PDF Report'; if(fitResults) controls.reportButton.disabled = false; }
+        const paramTableLine = (name, value, flag, esd) => {
+            const valStr = (value != null && isFinite(value)) ? value.toExponential(6) : 'N/A';
+            const fitStr = flag ? 'Yes' : (flag === false ? 'No' : '-');
+            const esdStr = (flag && esd !== undefined) ? `(${esd.toExponential(2)})` : '-';
+            return `${name.padEnd(14)}${valStr.padStart(14)} ${fitStr.padStart(8)}   ${esdStr.padStart(15)}`;
+        };
+
+        const printPhaseParams = (phaseIdx, params, flags) => {
+            addHeader(`Phase ${phaseIdx} Structural Parameters`);
+            addLine(`Crystal System: ${params.system}`); addLine(`Centering:      ${params.centering}`);
+            addLine('--------------------------------------------------------------');
+            addLine('Parameter      Value           Fitted          ESD'); 
+            addLine('--------------------------------------------------------------');
+            const paramDefs = [{ name: 'a (Å)', key: 'a' }, { name: 'b (Å)', key: 'b' }, { name: 'c (Å)', key: 'c' }, { name: 'alpha (°)', key: 'alpha' }, { name: 'beta (°)', key: 'beta' }, { name: 'gamma (°)', key: 'gamma' }];
+            paramDefs.forEach(p => { 
+                if (params[p.key] !== undefined) {
+                    const esdKey = constraints[`constrain_${p.key}`] ? `${p.key}_shared` : `${p.key}${phaseIdx}`;
+                    addLine(paramTableLine(p.name, params[p.key], flags[p.key], esds[esdKey]));
+                }
+            });
+        };
+        printPhaseParams(1, finalParams.phase1, fitFlags.phase1);
+        printPhaseParams(2, finalParams.phase2, fitFlags.phase2);
+        if (esdWarning) { yPos +=2; doc.setFont('Helvetica','italic'); doc.setTextColor(255,0,0); doc.text(esdWarning, margin, yPos); doc.setTextColor(0,0,0); yPos += lineSpacing; }
+
+        addHeader('Instrument & Profile Parameters');
+        addLine('--------------------------------------------------------------');
+        addLine('Parameter      Value           Fitted          ESD'); 
+        addLine('--------------------------------------------------------------');
+        addLine(paramTableLine('Wavelength (Å)', finalParams.lambda, false));
+        addLine(paramTableLine('Zero Shift (°)', finalParams.zeroShift, fitFlags.zeroShift, esds['zeroShift']));
+        addLine(paramTableLine('GU', finalParams.GU, fitFlags.GU, esds['GU'])); 
+        addLine(paramTableLine('GV', finalParams.GV, fitFlags.GV, esds['GV'])); 
+        addLine(paramTableLine('GW', finalParams.GW, fitFlags.GW, esds['GW']));
+        addLine(paramTableLine('GP', finalParams.GP, fitFlags.GP, esds['GP'])); 
+        addLine(paramTableLine('LX', finalParams.LX, fitFlags.LX, esds['LX'])); 
+        addLine(paramTableLine('eta', finalParams.eta, fitFlags.eta, esds['eta']));
+        addLine(paramTableLine('shft', finalParams.shft, fitFlags.shft, esds['shft'])); 
+        addLine(paramTableLine('trns', finalParams.trns, fitFlags.trns, esds['trns']));
+
+        const printHklTable = (doc, hklList, phaseNum, startY, finalParams) => {
+            let y = startY;
+            doc.setFont('Helvetica', 'bold');
+            doc.setFontSize(12);
+            doc.text(`Reflections Table: Phase ${phaseNum}`, margin, y);
+            y += 8;
+            doc.setFontSize(8);
+            doc.setFont('Courier', 'normal');
+
+            const header = ['h,k,l'.padEnd(12), 'd_calc'.padStart(10), 'd_exp'.padStart(10), '2theta_calc'.padStart(10), '2theta_exp'.padStart(10)].join('  ');
+            const separator = '-'.repeat(header.length + 2);
+
+            const printHeader = () => {
+                doc.text(header, margin, y);
+                y += 4;
+                doc.text(separator, margin, y);
+                y += 4;
+            };
+
+            printHeader();
+
+            hklList.forEach(hkl => {
+                if (y > 280) { // Page break
+                    doc.addPage();
+                    y = 20;
+                    printHeader();
+                }
+                const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+
+                const { tth_exp, d_exp } = findExperimentalPeakDetails(tthCorr, fullExperimentalData, finalParams.lambda);
+
+                const hklStr = hkl.hkl_list[0].padEnd(12);
+                const d_calc_str = hkl.d.toFixed(5).padStart(10);
+                const d_exp_str = d_exp ? d_exp.toFixed(5).padStart(10) : 'N/A'.padStart(10);
+                const tth_calc_str = tthCorr.toFixed(4).padStart(10);
+                const tth_exp_str = tth_exp ? tth_exp.toFixed(4).padStart(10) : 'N/A'.padStart(10);
+
+                const line = [hklStr, d_calc_str, d_exp_str, tth_calc_str, tth_exp_str].join('  ');
+                doc.text(line, margin, y);
+                y += lineSpacing;
+            });
+            return y;
+        };
+
+        const hklList1_report = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase1, finalParams.phase1.system, finalParams.phase1.centering, 'P1');
+        const hklList2_report = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
+
+        doc.addPage();
+        yPos = 20;
+        yPos = printHklTable(doc, hklList1_report, 1, yPos, finalParams);
+        doc.addPage();
+        yPos = 20;
+        printHklTable(doc, hklList2_report, 2, yPos, finalParams);
+
+        doc.save(filename);
+    } catch (error) { console.error("Failed to generate PDF:", error); alert("An error occurred while generating the PDF report."); }
+    finally { controls.reportButton.textContent = 'Report'; if(fitResults) controls.reportButton.disabled = false; }
+});
+
+        controls.saveDataButton.addEventListener('click', () => {
+            if (!fitResults) { alert("Please run a refinement before saving data."); return; }
+            controls.saveDataButton.textContent = 'Saving...'; controls.saveDataButton.disabled = true;
+            try {
+                const now = new Date();
+                const filename = `Misfit-LeBail-Data-${now.toISOString().slice(0,19).replace(/[-:T]/g,"")}.txt`;
+                const textContent = generateTextReportContent(fitResults, controls);
+                downloadTextFile(textContent, filename);
+            } catch (error) {
+                console.error("Failed to save data:", error);
+                alert("An error occurred while saving the data file.");
+            } finally {
+                controls.saveDataButton.textContent = 'Save Data';
+                if(fitResults) controls.saveDataButton.disabled = false;
+            }
         });
         
         controls.iterationsSlider.addEventListener('input', () => { controls.iterationsValue.textContent = controls.iterationsSlider.value; });
