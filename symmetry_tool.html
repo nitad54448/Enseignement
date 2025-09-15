@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Symmetry Tool v2.7</title>
+    <title>Crystal Symmetry Explorer v2.7</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -133,7 +133,11 @@
 
     <div id="app-container">
         <div id="controls-panel">
-            <h1>3D Symmetry Tool v2.7</h1>
+            <div style="font-size: 0.9em; color: #9ca3af; padding: 0 0 16px 0; margin-bottom: 24px; border-bottom: 1px solid #374151;">
+                <p style="margin: 0 0 4px 0;"><strong>Orbit:</strong> Left-click + Drag</p>
+                <p style="margin: 0 0 4px 0;"><strong>Pan:</strong> Right-click + Drag</p>
+                <p style="margin: 0;"><strong>Zoom:</strong> Mouse Wheel</p>
+            </div>
 
             <div class="control-group">
                 <h2>Crystal System</h2>
@@ -143,9 +147,11 @@
                     <option value="cubic">Cubic (a=b=c, 90,90,90)</option>
                     <option value="hexagonal">Hexagonal (a=b≠c, 90,90,120)</option>
                 </select>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #374151;">
-                    <label for="unit-cell-only" style="color: #9ca3af; font-weight: 400; text-transform: none;">Cell Only</label>
-                    <input type="checkbox" id="unit-cell-only" checked>
+                <div id="cell-display-controls" style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #374151;">
+                    <h4 style="margin-top: 0; margin-bottom: 0.5rem;">Cell Display Range</h4>
+                    <div class="input-row"><label for="cell-range-x-num">X</label><input type="range" id="cell-range-x-range" min="1" max="4" value="1" step="1"><input type="number" id="cell-range-x-num" min="1" max="4" value="1" step="1"></div>
+                    <div class="input-row"><label for="cell-range-y-num">Y</label><input type="range" id="cell-range-y-range" min="1" max="4" value="1" step="1"><input type="number" id="cell-range-y-num" min="1" max="4" value="1" step="1"></div>
+                    <div class="input-row"><label for="cell-range-z-num">Z</label><input type="range" id="cell-range-z-range" min="1" max="4" value="1" step="1"><input type="number" id="cell-range-z-num" min="1" max="4" value="1" step="1"></div>
                 </div>
             </div>
 
@@ -189,7 +195,7 @@
     </div>
 
     <footer style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #111827; padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #9ca3af; border-top: 1px solid #374151; z-index: 10;">
-        <div style="padding: 0 1rem;">Interactive Symmetry Visualizer v2.7</div>
+        <div style="padding: 0 1rem;">Crystal Symmetry v2.7</div>
         <div style="padding: 0 1rem;">NitaD, Univ Paris-Saclay, August 27, 2025</div>
     </footer>
 
@@ -230,12 +236,15 @@
         let parentMotif, unitCellVisuals;
         const symmetryElements = [];
         const generatedMotifs = new THREE.Group();
+        const symmetryElementVisuals = new THREE.Group();
         let currentSystem = "orthorhombic";
 
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xf0f0f0);
             scene.add(generatedMotifs);
+            scene.add(symmetryElementVisuals);
+
             const viewport = document.getElementById('visualization-area');
             const aspect = viewport.clientWidth / viewport.clientHeight;
             
@@ -260,30 +269,66 @@
                 this.object = camera;
                 this.domElement = domElement;
                 this.target = new THREE.Vector3(0.5, 0.5, 0.5);
-                let isMouseDown = false, lastMouseX = 0, lastMouseY = 0;
-                const onMouseDown = e => { isMouseDown = true; lastMouseX = e.clientX; lastMouseY = e.clientY; };
-                const onMouseUp = () => { isMouseDown = false; };
+                const frustumSize = 2.0;
+
+                let isMouseDown = false, lastMouseX = 0, lastMouseY = 0, mouseButton = -1;
+
+                const onMouseDown = e => {
+                    isMouseDown = true;
+                    mouseButton = e.button;
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                };
+
+                const onMouseUp = () => {
+                    isMouseDown = false;
+                    mouseButton = -1;
+                };
+
                 const onMouseMove = e => {
                     if (!isMouseDown) return;
-                    const deltaX = e.clientX - lastMouseX, deltaY = e.clientY - lastMouseY;
-                    lastMouseX = e.clientX; lastMouseY = e.clientY;
-                    const azimuth = -deltaX * 0.005, elevation = -deltaY * 0.005;
-                    this.object.position.sub(this.target);
-                    const R_azimuth = new THREE.Matrix4().makeRotationZ(azimuth);
-                    const axis_elevation = new THREE.Vector3().crossVectors(this.object.position, this.object.up).normalize();
-                    const R_elevation = new THREE.Matrix4().makeRotationAxis(axis_elevation, elevation);
-                    this.object.position.applyMatrix4(R_elevation).applyMatrix4(R_azimuth);
-                    this.object.position.add(this.target);
-                    this.object.lookAt(this.target);
+                    const deltaX = e.clientX - lastMouseX;
+                    const deltaY = e.clientY - lastMouseY;
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+
+                    if (mouseButton === 0) { // Left-click: Orbit
+                        const azimuth = -deltaX * 0.005;
+                        const elevation = -deltaY * 0.005;
+                        this.object.position.sub(this.target);
+                        const R_azimuth = new THREE.Matrix4().makeRotationZ(azimuth);
+                        const axis_elevation = new THREE.Vector3().crossVectors(this.object.position, this.object.up).normalize();
+                        const R_elevation = new THREE.Matrix4().makeRotationAxis(axis_elevation, elevation);
+                        this.object.position.applyMatrix4(R_elevation).applyMatrix4(R_azimuth);
+                        this.object.position.add(this.target);
+                        this.object.lookAt(this.target);
+                    } else if (mouseButton === 2) { // Right-click: Pan
+                        const panSpeed = frustumSize / (this.domElement.clientHeight * this.object.zoom);
+                        const panVector = new THREE.Vector3();
+                        const right = new THREE.Vector3().setFromMatrixColumn(this.object.matrix, 0);
+                        const up = new THREE.Vector3().setFromMatrixColumn(this.object.matrix, 1);
+                        
+                        panVector.add(right.multiplyScalar(-deltaX * panSpeed));
+                        panVector.add(up.multiplyScalar(deltaY * panSpeed));
+                        
+                        this.object.position.add(panVector);
+                        this.target.add(panVector);
+                    }
                 };
+                
                 const onWheel = e => {
                     this.object.zoom *= (e.deltaY > 0 ? 0.9 : 1.1);
                     this.object.updateProjectionMatrix();
                 };
+
+                const onContextMenu = e => e.preventDefault();
+
                 domElement.addEventListener('mousedown', onMouseDown);
                 domElement.addEventListener('mouseup', onMouseUp);
                 domElement.addEventListener('mousemove', onMouseMove);
                 domElement.addEventListener('wheel', onWheel, { passive: true });
+                domElement.addEventListener('contextmenu', onContextMenu);
+
                 this.update = () => {};
             };
             controls = new OrbitControls(camera, renderer.domElement);
@@ -294,7 +339,6 @@
             parentMotif = createAsymmetricObject();
             setupEventListeners();
             handleSystemChange();
-            updateScene();
             animate();
         }
         
@@ -327,28 +371,19 @@
             group.position.set(-0.05, -0.05, -0.05);
             return group;
         }
-
-        function updateUnitCell(system) {
-            unitCellVisuals.clear();
-            const cellGenerator = crystalSystems[system].cellGenerator;
-            cellGenerator();
-            
-            const axes = drawAxes(system);
-            unitCellVisuals.add(axes);
-
-            if(system === 'hexagonal'){
-                controls.target.set(0.25, Math.sqrt(3)/4, 0.5);
-                camera.lookAt(controls.target);
-            } else {
-                controls.target.set(0.5, 0.5, 0.5);
-                camera.lookAt(controls.target);
-            }
-        }
         
         function handleSystemChange() {
             currentSystem = document.getElementById('crystal-system-select').value;
             updateSymmetryOptions(currentSystem);
-            updateUnitCell(currentSystem);
+            
+            if(currentSystem === 'hexagonal'){
+                const n = parseInt(document.getElementById('cell-range-x-num').value) || 1;
+                controls.target.set(0.25 * n, Math.sqrt(3)/4 * n, 0.5);
+            } else {
+                controls.target.set(0.5, 0.5, 0.5);
+            }
+            camera.lookAt(controls.target);
+
             resetSymmetry();
         }
 
@@ -373,7 +408,6 @@
         }
         
         function resetSymmetry() {
-            symmetryElements.forEach(el => scene.remove(el.visual));
             symmetryElements.length = 0;
             document.getElementById('symmetry-list').innerHTML = '';
             updateScene();
@@ -389,9 +423,8 @@
             const lineGeometry = new THREE.BufferGeometry();
             lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             lineGeometry.setIndex(lineIndices);
-            const material = new THREE.LineBasicMaterial({ color: 0x374151 });
-            const lines = new THREE.LineSegments(lineGeometry, material);
-            unitCellVisuals.add(lines);
+            const material = new THREE.LineBasicMaterial({ color: 0x9ca3af });
+            return new THREE.LineSegments(lineGeometry, material);
         }
         
         function generateHexagonalCell() {
@@ -410,9 +443,8 @@
             const lineGeometry = new THREE.BufferGeometry();
             lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             lineGeometry.setIndex(lineIndices);
-            const material = new THREE.LineBasicMaterial({ color: 0x374151 });
-            const lines = new THREE.LineSegments(lineGeometry, material);
-            unitCellVisuals.add(lines);
+            const material = new THREE.LineBasicMaterial({ color: 0x9ca3af });
+            return new THREE.LineSegments(lineGeometry, material);
         }
         
 		function createAsymmetricObject() {
@@ -434,7 +466,6 @@
 
             const sphereGeom = new THREE.SphereGeometry(radius * 1.2, 16, 16);
             const sphere = new THREE.Mesh(sphereGeom, material);
-            // By giving the sphere a non-zero Y coordinate, we break the mirror plane.
             sphere.position.set(height * 0.1, height * 0.3, height * 0.8);
 
 			group.add(cylinder1);
@@ -473,9 +504,51 @@
 		
 		function updateScene() {
             if (!parentMotif) return;
-            parentMotif.position.set(parseFloat(document.getElementById('parent-x-num').value), parseFloat(document.getElementById('parent-y-num').value), parseFloat(document.getElementById('parent-z-num').value));
-            generatedMotifs.clear();
 
+            generatedMotifs.clear();
+            unitCellVisuals.clear();
+            symmetryElementVisuals.clear();
+            
+            const rangeX = parseInt(document.getElementById('cell-range-x-num').value);
+            const rangeY = parseInt(document.getElementById('cell-range-y-num').value);
+            const rangeZ = parseInt(document.getElementById('cell-range-z-num').value);
+            const transformation = crystalSystems[currentSystem].transformationMatrix;
+
+            const cellGenerator = crystalSystems[currentSystem].cellGenerator;
+            const singleCellLines = cellGenerator();
+            for (let dx = 0; dx < rangeX; dx++) {
+                for (let dy = 0; dy < rangeY; dy++) {
+                    for (let dz = 0; dz < rangeZ; dz++) {
+                        const cellCopy = singleCellLines.clone();
+                        const translationVector = new THREE.Vector3(dx, dy, dz).applyMatrix4(transformation);
+                        cellCopy.position.add(translationVector);
+                        unitCellVisuals.add(cellCopy);
+                    }
+                }
+            }
+            const axes = drawAxes(currentSystem);
+            unitCellVisuals.add(axes);
+            
+            symmetryElements.forEach(element => {
+                updateElementVisual(element);
+                const visualTemplate = element.visual;
+                const templatePosition = visualTemplate.position;
+
+                for (let dx = 0; dx < rangeX; dx++) {
+                    for (let dy = 0; dy < rangeY; dy++) {
+                        for (let dz = 0; dz < rangeZ; dz++) {
+                            const visualCopy = visualTemplate.clone();
+                            const translationVector = new THREE.Vector3(dx, dy, dz).applyMatrix4(transformation);
+                            
+                            visualCopy.position.copy(templatePosition).add(translationVector);
+                            
+                            symmetryElementVisuals.add(visualCopy);
+                        }
+                    }
+                }
+            });
+
+            parentMotif.position.set(parseFloat(document.getElementById('parent-x-num').value), parseFloat(document.getElementById('parent-y-num').value), parseFloat(document.getElementById('parent-z-num').value));
             parentMotif.traverse(child => { if (child.isMesh) { child.material.color.set(0x3b82f6); }});
             parentMotif.userData.chirality = 'right';
 
@@ -483,7 +556,6 @@
             canonicalParent.position.x -= Math.floor(canonicalParent.position.x);
             canonicalParent.position.y -= Math.floor(canonicalParent.position.y);
             canonicalParent.position.z -= Math.floor(canonicalParent.position.z);
-
             const canonicalMotifList = [canonicalParent];
 
             let added = true;
@@ -525,10 +597,8 @@
             
             const coordsContainer = document.getElementById('generated-coords-container');
             const coordsList = document.getElementById('generated-coordinates-list');
-            
-            const motifsToShowInText = canonicalMotifList;
             let html = '';
-            motifsToShowInText.forEach(m => {
+            canonicalMotifList.forEach(m => {
                 const pos = m.position.clone();
                 const color = m.userData.chirality === 'right' ? '#3b82f6' : '#ef4444';
                 html += `<div style="color:${color};">(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})</div>`;
@@ -537,31 +607,29 @@
             coordsContainer.style.display = 'block';
 
             let visualMotifList = [];
-            const transformation = crystalSystems[currentSystem].transformationMatrix;
             canonicalMotifList.forEach(motif => {
                 const cartesianMotif = motif.clone();
                 cartesianMotif.position.applyMatrix4(transformation);
                 visualMotifList.push(...expandSpecialPosition(cartesianMotif));
             });
-
-            const showUnitCellOnly = document.getElementById('unit-cell-only').checked;
-            if (showUnitCellOnly) {
-                visualMotifList.forEach(m => { generatedMotifs.add(m.clone()); });
-            } else {
-                const occupiedPositions = new Set();
-                visualMotifList.forEach(originalMotif => {
-                    for (let dx = -1; dx <= 1; dx++) {
-                        for (let dy = -1; dy <= 1; dy++) {
-                            for (let dz = -1; dz <= 1; dz++) {
-                                const periodicCopy = originalMotif.clone();
-                                periodicCopy.position.add(new THREE.Vector3(dx, dy, dz).applyMatrix4(transformation));
-                                const posKey = periodicCopy.position.toArray().map(p => p.toFixed(4)).join(',');
-                                if (!occupiedPositions.has(posKey)) { generatedMotifs.add(periodicCopy); occupiedPositions.add(posKey); }
+            
+            const occupiedPositions = new Set();
+            visualMotifList.forEach(originalMotif => {
+                for (let dx = 0; dx < rangeX; dx++) {
+                    for (let dy = 0; dy < rangeY; dy++) {
+                        for (let dz = 0; dz < rangeZ; dz++) {
+                            const periodicCopy = originalMotif.clone();
+                            const translationVector = new THREE.Vector3(dx, dy, dz).applyMatrix4(transformation);
+                            periodicCopy.position.add(translationVector);
+                            const posKey = periodicCopy.position.toArray().map(p => p.toFixed(4)).join(',');
+                            if (!occupiedPositions.has(posKey)) {
+                                generatedMotifs.add(periodicCopy);
+                                occupiedPositions.add(posKey);
                             }
                         }
                     }
-                });
-            }
+                }
+            });
         }
         function getOpType(type) {
             if (type.startsWith('m_')) return 'mirror';
@@ -603,14 +671,24 @@
             document.getElementById('crystal-system-select').addEventListener('change', handleSystemChange);
             document.getElementById('add-sym-btn').addEventListener('click', addSymmetryElement);
             window.addEventListener('resize', onWindowResize);
-            document.getElementById('unit-cell-only').addEventListener('change', updateScene);
+            
+            const syncInputs = (event) => {
+                if (event.target.type === 'range' || event.target.type === 'number') {
+                    const newValue = event.target.value;
+                    const parentRow = event.target.closest('.input-row');
+                    if (parentRow) {
+                        const rangeInput = parentRow.querySelector('input[type="range"]');
+                        const numberInput = parentRow.querySelector('input[type="number"]');
+                        if (rangeInput) rangeInput.value = newValue;
+                        if (numberInput) numberInput.value = newValue;
+                        updateScene();
+                    }
+                }
+            };
             const parentControls = document.getElementById('parent-motif-controls');
-            parentControls.addEventListener('input', e => {
-                const baseId = e.target.id.replace('-range', '').replace('-num', '');
-                document.getElementById(`${baseId}-range`).value = e.target.value;
-                document.getElementById(`${baseId}-num`).value = e.target.value;
-                updateScene();
-            });
+            parentControls.addEventListener('input', syncInputs);
+            const cellControls = document.getElementById('cell-display-controls');
+            cellControls.addEventListener('input', syncInputs);
             document.getElementById('symmetry-list').addEventListener('input', handleSymElementChange);
         }
         function addSymmetryElement() {
@@ -621,7 +699,7 @@
             const axis = type.split('_').pop();
             if (opType === 'mirror' || opType === 'glide') {
                 const color = opType === 'mirror' ? 0xff0000 : 0x6ee7b7;
-                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
+                elementData.visual = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.0), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide }));
                 elementData.normal = new THREE.Vector3(Number(axis === 'x'), Number(axis === 'y'), Number(axis === 'z'));
                 if (type.startsWith('g_')) {
                     elementData.glideDirection = { g_x: 'y', g_y: 'x', g_z: 'x' }[type];
@@ -647,7 +725,7 @@
             } else if (opType === 'inversion') {
                 elementData.visual = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 8), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
             }
-            scene.add(elementData.visual);
+            
             symmetryElements.push(elementData);
             createSymmetryElementUI(elementData);
             updateElementVisual(elementData);
@@ -694,18 +772,23 @@
         function handleSymElementChange(event) {
             const symElementDiv = event.target.closest('.sym-element');
             if (!symElementDiv) return;
-            const id = parseInt(symElementDiv.dataset.id), element = symmetryElements.find(e => e.id === id);
+            const id = parseInt(symElementDiv.dataset.id);
+            const element = symmetryElements.find(e => e.id === id);
             if (!element) return;
             if (event.target.classList.contains('glide-dir')) {
                 element.glideDirection = event.target.value;
                 element.glideVector.set(Number(element.glideDirection === 'x'), Number(element.glideDirection === 'y'), Number(element.glideDirection === 'z'));
-            } else {
+            } else if (event.target.type === 'range' || event.target.type === 'number') {
                 const axis = event.target.dataset.axis;
                 if(!axis) return;
                 const value = parseFloat(event.target.value);
                 const row = event.target.closest('.input-row');
-                row.querySelector(`input[type="range"]`).value = value;
-                row.querySelector(`input[type="number"]`).value = value;
+                if (row) {
+                    const rangeInput = row.querySelector('input[type="range"]');
+                    const numberInput = row.querySelector('input[type="number"]');
+                    if (rangeInput) rangeInput.value = value;
+                    if (numberInput) numberInput.value = value;
+                }
                 const type = element.type;
                 if (getOpType(type) === 'mirror' || getOpType(type) === 'glide') {
                     const mainAxis = type.split('_')[1];
@@ -748,7 +831,6 @@
             const id = parseInt(event.target.dataset.id);
             const index = symmetryElements.findIndex(e => e.id === id);
             if (index > -1) {
-                scene.remove(symmetryElements[index].visual);
                 symmetryElements.splice(index, 1);
                 document.getElementById(`sym-element-${id}`).remove();
                 updateScene();
