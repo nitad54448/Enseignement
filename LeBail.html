@@ -142,25 +142,23 @@
                     <div class="control-group">
                         <h2 class="text-lg font-semibold text-white mb-3">Structural Parameters</h2>
                         <div class="parameter-grid-3col">
-                             <label for="crystal-system" class="control-label">Crystal System</label>
-                            <select id="crystal-system" class="control-select col-span-2">
-                                <option value="cubic" selected>Cubic</option>
-                                <option value="tetragonal">Tetragonal</option>
-                                <option value="orthorhombic">Orthorhombic</option>
-                                <option value="hexagonal">Hexagonal / Trigonal (Hex. axes)</option>
-                                <option value="rhombohedral">Rhombohedral (Rhom. axes)</option>
-                                <option value="monoclinic">Monoclinic</option>
+                            <label for="bravais-lattice" class="control-label">System</label>
+                            <select id="bravais-lattice" class="control-select col-span-2">
+                                <option value="cubic_F" selected>Cubic (F)</option>
+                                <option value="cubic_I">Cubic (I)</option>
+                                <option value="cubic_P">Cubic (P)</option>
+                                <option value="hexagonal_P">Hexagonal (P)</option>
+                                <option value="hexagonal_R">Trigonal (R, Hex. axes)</option>
+                                <option value="rhombohedral_P">Rhombohedral (Rhom. axes)</option>
+                                <option value="tetragonal_I">Tetragonal (I)</option>
+                                <option value="tetragonal_P">Tetragonal (P)</option>
+                                <option value="orthorhombic_F">Orthorhombic (F)</option>
+                                <option value="orthorhombic_I">Orthorhombic (I)</option>
+                                <option value="orthorhombic_C">Orthorhombic (C)</option>
+                                <option value="orthorhombic_P">Orthorhombic (P)</option>
+                                <option value="monoclinic_C">Monoclinic (C)</option>
+                                <option value="monoclinic_P">Monoclinic (P)</option>
                             </select>
-
-                            <label for="centering-type" class="control-label">Centering</label>
-                            <select id="centering-type" class="control-select">
-                                <option value="P">Primitive (P)</option>
-                                <option value="I">Body-centered (I)</option>
-                                <option value="F">Face-centered (F)</option>
-                                <option value="R" style="display: none;">Rhombohedral (R)</option>
-                                <option value="C" style="display: none;">C-centered (C)</option>
-                            </select>
-                            <div></div>
                         </div>
                         <div id="lattice-parameters-container" class="parameter-grid-3col mt-4">
                         </div>
@@ -309,9 +307,12 @@
                         </div>
                      </div>
                 </div>
-                <div class="flex space-x-2">
+                <div class="flex flex-col space-y-2">
                     <button id="fit-button" class="btn btn-primary w-full text-lg" disabled>Load Data to Start Fit</button>
-                    <button id="report-button" class="btn btn-secondary w-full text-lg" disabled>Report</button>
+                    <div class="flex space-x-2">
+                        <button id="save-data-button" class="btn btn-secondary w-full text-lg" disabled>Save Data</button>
+                        <button id="report-button" class="btn btn-secondary w-full text-lg" disabled>Report</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -342,8 +343,7 @@
         const controls = {
             fileInput: document.getElementById('file-input'),
             fileName: document.getElementById('file-name'),
-            crystalSystem: document.getElementById('crystal-system'),
-            centeringType: document.getElementById('centering-type'),
+            bravaisLattice: document.getElementById('bravais-lattice'),
             latticeParamsContainer: document.getElementById('lattice-parameters-container'),
             wavelength: document.getElementById('wavelength'),
             wavelengthPreset: document.getElementById('wavelength-preset'),
@@ -366,6 +366,7 @@
             tthMaxValue: document.getElementById('tth-max-value'),
             fitButton: document.getElementById('fit-button'),
             reportButton: document.getElementById('report-button'),
+            saveDataButton: document.getElementById('save-data-button'),
             progressBar: document.getElementById('progress-bar'),
             progressBarContainer: document.getElementById('progress-bar-container'),
             rpResult: document.getElementById('rp-result'),
@@ -438,9 +439,14 @@
         };
         // --- 
 
+        function getSystemAndCentering() {
+            const value = controls.bravaisLattice.value; // e.g., "cubic_P"
+            const [system, centering] = value.split('_');
+            return { system, centering };
+        }
 
         function updateLatticeParamUI() {
-            const system = controls.crystalSystem.value;
+            const { system } = getSystemAndCentering();
             const container = controls.latticeParamsContainer;
             container.innerHTML = '';
 
@@ -484,24 +490,6 @@
             
             if(params[system]) {
                 params[system].forEach(p => createInput(p.name, p.label, p.value, p.step, p.isAngle));
-            }
-            
-            const centering = controls.centeringType;
-            const options = { 'P': true, 'I': false, 'F': false, 'R': false, 'C': false };
-            if (['cubic', 'tetragonal', 'orthorhombic'].includes(system)) { options.I = true; }
-            if (['cubic', 'orthorhombic'].includes(system)) { options.F = true; }
-            if (['orthorhombic', 'monoclinic'].includes(system)) { options.C = true; }
-            if (system === 'hexagonal') { options.R = true; } 
-
-            for (const opt of centering.options) {
-                opt.style.display = options[opt.value] ? '' : 'none';
-                if (!options[opt.value] && centering.value === opt.value) {
-                     centering.value = 'P';
-                }
-            }
-            if (system === 'rhombohedral') {
-                centering.value = 'P';
-                Array.from(centering.options).forEach(opt => opt.style.display = opt.value === 'P' ? '' : 'none');
             }
         }
 
@@ -775,6 +763,7 @@
             reportLines.push('            Le Bail Refinement Report');
             reportLines.push('==============================================================');
             reportLines.push(`Report Generated: ${now.toLocaleString()}`);
+            reportLines.push(`Program used: LeBail.html, version 14 Sept 2025, nitad54448.github.io`);
             reportLines.push(`Data File: ${controls.fileName.textContent}`);
             reportLines.push('');
 
@@ -784,9 +773,6 @@
             reportLines.push(`Rwp (%):     ${stats.rwp.toFixed(4)}`);
             reportLines.push(`χ² (GOF):    ${stats.chi2.toFixed(4)}`);
             reportLines.push(`Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
- //           reportLines.push('');
- //           reportLines.push('Note: R_Bragg is not a meaningful statistic for Le Bail');
- //           reportLines.push('fitting and is therefore not calculated.');
             reportLines.push('');
 
 
@@ -794,8 +780,8 @@
             reportLines.push('--- Structural & Instrumental Parameters ---');
             reportLines.push('Parameter'.padEnd(20) + 'Value'.padStart(15) + '    Fitted');
             reportLines.push('-'.repeat(50));
-            reportLines.push(formatParamLine('Crystal System:', controls.crystalSystem.value));
-            reportLines.push(formatParamLine('Centering:', controls.centeringType.value));
+            const selectedOption = controls.bravaisLattice.options[controls.bravaisLattice.selectedIndex];
+            reportLines.push(formatParamLine('System:', selectedOption.text));
             if(finalParams.a) reportLines.push(formatParamLine('a (Å)', finalParams.a, fitFlags.a));
             if(finalParams.b) reportLines.push(formatParamLine('b (Å)', finalParams.b, fitFlags.b));
             if(finalParams.c) reportLines.push(formatParamLine('c (Å)', finalParams.c, fitFlags.c));
@@ -834,8 +820,7 @@
 }
 
             // --- Section Réflexions 
-            const system = controls.crystalSystem.value;
-            const centering = controls.centeringType.value;
+            const { system, centering } = getSystemAndCentering();
             const hklListForReport = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
 
             reportLines.push('--- Calculated vs. Experimental Reflections ---');
@@ -921,8 +906,9 @@
                             case 'F': allowed = (h % 2 === k % 2) && (k % 2 === l % 2); break;
                             case 'C': allowed = (h + k) % 2 === 0; break;
                             case 'R':
+                                // This condition is for hexagonal axes description of a rhombohedral lattice
                                 if (system === 'hexagonal') allowed = (-h + k + l) % 3 === 0;
-                                else allowed = true;
+                                else allowed = true; // Rhombohedral axes is primitive by definition
                                 break;
                             default: allowed = true;
                         }
@@ -1149,8 +1135,8 @@
 
             const N = y_obs.length;
             const P = getParameterMapping(fitFlags).paramMapping.length;
-
-            const hklList = generateHKL(Math.max(...workingData.tth), finalParams, controls.crystalSystem.value, controls.centeringType.value);
+            const { system, centering } = getSystemAndCentering();
+            const hklList = generateHKL(Math.max(...workingData.tth), finalParams, system, centering);
             const weights = calculateFitWeights(workingData, hklList, finalParams);
 
             let sum_w_res_sq = 0;
@@ -1265,8 +1251,7 @@
         }
     }
 
-    const system = controls.crystalSystem.value;
-    const centering = controls.centeringType.value;
+    const { system, centering } = getSystemAndCentering();
     const maxIterations = parseInt(controls.iterationsSlider.value);
     const algorithm = controls.algorithmSelect.value;
     
@@ -1611,7 +1596,7 @@
             if (calculatedDataset) calculatedDataset.data = [];
             if (differenceDataset) differenceDataset.data = [];
 
-            const system = controls.crystalSystem.value;
+            const { system, centering } = getSystemAndCentering();
             const params = getAllParams();
             
             const requiredParams = {
@@ -1627,7 +1612,7 @@
                 }
             }
 
-            let hklList = generateHKL(Math.max(...fullExperimentalData.tth), params, controls.crystalSystem.value, controls.centeringType.value);
+            let hklList = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering);
             lastGeneratedHklList = hklList;
             
             const arbitraryIntensity = Math.max(...fullExperimentalData.intensity) * 0.5;
@@ -1655,6 +1640,7 @@
             isFitting = fitting;
             controls.fitButton.disabled = fitting;
             controls.reportButton.disabled = fitting;
+            controls.saveDataButton.disabled = fitting;
             controls.fitButton.textContent = fitting ? 'Refining...' : 'Run Refinement';
             controls.progressBarContainer.classList.toggle('hidden', !fitting);
             document.body.style.cursor = fitting ? 'wait' : 'default';
@@ -1668,7 +1654,10 @@
 
             if (!fitting) {
                 controls.progressBar.style.width = '0%';
-                if(fitResults) controls.reportButton.disabled = false;
+                if(fitResults) {
+                    controls.reportButton.disabled = false;
+                    controls.saveDataButton.disabled = false;
+                }
                 rwpCard.querySelectorAll('.result-card').forEach(c => c.style.background = '');
             }
         }
@@ -1699,7 +1688,8 @@
                 document.getElementById(`bg-param-${i}`).value = val.toExponential(4);
             });
             if (calcPattern && background) {
-                const hklList = generateHKL(Math.max(...fullExperimentalData.tth), params, controls.crystalSystem.value, controls.centeringType.value);
+                const { system, centering } = getSystemAndCentering();
+                const hklList = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering);
                 lastGeneratedHklList = hklList;
                 updateChart(calcPattern, background, hklList, params);
             }
@@ -2093,7 +2083,7 @@ plugins: {
         const previewInputs = Object.values(controls).filter(el => el && (el.tagName === 'INPUT' || el.tagName === 'SELECT'));
             previewInputs.forEach(input => {
                 // Exclude the 2-theta range sliders from triggering the preview update.
-                if (input.id !== 'file-input' && input.id !== 'tth-min-slider' && input.id !== 'tth-max-slider') {
+                if (input.id !== 'file-input' && input.id !== 'tth-min-slider' && input.id !== 'tth-max-slider' && input.id !== 'bravais-lattice') {
                     input.addEventListener('input', updatePreviewPattern);
                 }
             });
@@ -2147,9 +2137,6 @@ plugins: {
                 const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
                 const baseFilename = `LeBail-Report-${timestamp}`;
                 
-                const textContent = generateTextReportContent(fitResults, controls);
-                downloadTextFile(textContent, `${baseFilename}.txt`);
-
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
                 const margin = 15;
@@ -2160,8 +2147,8 @@ plugins: {
                 doc.text('Le Bail Refinement Report', 105, 15, { align: 'center' });
                 doc.setFontSize(10);
                 doc.text(`Report Generated: ${now.toLocaleString()}`, margin, 25);
-                doc.text(`Data File: ${controls.fileName.textContent}`, margin, 30);
-                
+                doc.text(`Program used: LeBail.html, version 14 Sept 2025, nitad54448.github.io`,margin, 30);
+                doc.text(`Data File: ${controls.fileName.textContent}`, margin, 35);
                 const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff' });
                 const mainImgData = chartCanvas.toDataURL('image/png');
                 const mainImgProps = doc.getImageProperties(mainImgData);
@@ -2176,8 +2163,7 @@ plugins: {
                 doc.text('Refinement Parameters & Statistics', margin, yPos);
                 yPos += 10;
                 
-                const system = controls.crystalSystem.value;
-                const centering = controls.centeringType.value;
+                const { system, centering } = getSystemAndCentering();
                 const finalParams = fitResults.params;
                 const fitFlags = fitResults.fitFlags;
 
@@ -2214,9 +2200,6 @@ plugins: {
                 addLine(`Chi2 (GOF):    ${fitResults.stats.chi2.toFixed(4)}`);
                 addLine(`Algorithm:   ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
                 yPos += lineSpacing;
- //               doc.setFont('Helvetica', 'italic');
- //               addLine(`Note: R_Bragg is not applicable to Le Bail fits.`);
- //               doc.setFont('Courier', 'normal');
                 
                 addHeader('Structural Parameters');
                 
@@ -2236,8 +2219,8 @@ plugins: {
                     { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd_name: 'gamma' }
                 ];
                 
-                addLine(`Crystal System: ${system}`);
-                addLine(`Centering:      ${centering}`);
+                const selectedOption = controls.bravaisLattice.options[controls.bravaisLattice.selectedIndex];
+                addLine(`System: ${selectedOption.text}`);
                 addLine('--------------------------------------------------------------');
                 addLine('Parameter      Value           Fitted          ESD');
                 addLine('--------------------------------------------------------------');
@@ -2359,6 +2342,40 @@ plugins: {
             }
         });
 
+        controls.saveDataButton.addEventListener('click', () => {
+            if (!fitResults) {
+                alert("Please run a refinement before saving data.");
+                return;
+            }
+
+            const originalText = controls.saveDataButton.textContent;
+            controls.saveDataButton.textContent = 'Saving...';
+            controls.saveDataButton.disabled = true;
+            
+            try {
+                const now = new Date();
+                const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+                const baseFilename = `LeBail-Data-${timestamp}`;
+                
+                const textContent = generateTextReportContent(fitResults, controls);
+                downloadTextFile(textContent, `${baseFilename}.txt`);
+
+            } catch (error) {
+                console.error("Failed to save data:", error);
+                alert("An error occurred while saving the data file.");
+            } finally {
+                controls.saveDataButton.textContent = originalText;
+                controls.saveDataButton.disabled = false;
+            }
+        });
+
+        controls.bravaisLattice.addEventListener('change', () => {
+            updateLatticeParamUI();
+            if (fullExperimentalData.tth.length > 0) {
+                updatePreviewPattern();
+            }
+        });
+
         // --- Event Listeners for new sliders ---
         controls.iterationsSlider.addEventListener('input', () => {
             controls.iterationsValue.textContent = controls.iterationsSlider.value;
@@ -2441,4 +2458,3 @@ controls.fwhmWidthsSlider.addEventListener('input', () => {
 </script>
 </body>
 </html>
-
