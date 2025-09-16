@@ -172,7 +172,16 @@
                     <div class="control-group">
                         <h2 class="text-lg font-semibold text-white mb-3">Background Parameters</h2>
                         <p class="text-xs text-gray-400 mb-4">Hybrid background: Chebyshev polynomial + inverse term for low-angle rise.</p>
-                        <p class="text-xs text-yellow-400 bg-yellow-900/50 p-2 rounded-md mb-4">For complex backgrounds, enable the B-1 term and/or higher-order Chebyshev terms (B3, B4, etc.).</p>
+                        <p class="text-xs text-yellow-400 bg-yellow-900/50 p-2 rounded-md mb-4">The slider below also applies to the main refinement. Set to 0 to include all data points in the fit.</p>
+                        
+                        <div class="slider-group">
+                             <label class="control-label">Exclude Peak Regions (FWHM multiple)</label>
+                             <div class="slider-value-track">
+                                <input type="range" id="bg-exclude-slider" min="0" max="5" value="1.5" step="0.1" class="custom-slider" disabled>
+                                <span id="bg-exclude-value" class="slider-value-display">1.5</span>
+                             </div>
+                        </div>
+                        
                         <div id="background-controls-container" class="parameter-grid-3col">
                             </div>
                     </div>
@@ -334,6 +343,8 @@
             placeholder: document.getElementById('placeholder'),
             resultsContainer: document.getElementById('results-container'),
             backgroundContainer: document.getElementById('background-controls-container'),
+            bgExcludeSlider: document.getElementById('bg-exclude-slider'),
+            bgExcludeValue: document.getElementById('bg-exclude-value'),
         };
 
         // --- Global State ---
@@ -597,7 +608,7 @@ function updateAvailableConstraints() {
             return eta * normalizedLorentzian + (1 - eta) * normalizedGaussian;
         }
         
-        function calculateBackground(tthAxis, chebyshevCoeffs, invCoeff, fitTthRange = null) {
+        function calculateBackground(tthAxis, chebyshevCoeffs, invCoeff, fitTthRange = null, minIntensity = 0) {
             if (!tthAxis || tthAxis.length === 0) return new Array(tthAxis.length).fill(0);
             const normRange = fitTthRange || tthAxis;
             const minTth = normRange[0], maxTth = normRange[normRange.length - 1];
@@ -614,10 +625,10 @@ function updateAvailableConstraints() {
                 }
                 return background;
             });
-            return cheby_bg.map((val, i) => tthAxis[i] > 1e-6 ? val + invCoeff / tthAxis[i] : val);
+            return cheby_bg.map((val, i) => Math.max(minIntensity, tthAxis[i] > 1e-6 ? val + invCoeff / tthAxis[i] : val));
         }
 
-        function calculatePattern(tthAxis, hklList, params, fitTthRange = null) {
+        function calculatePattern(tthAxis, hklList, params, fitTthRange = null, minIntensity = 0) {
             const pattern = new Float32Array(tthAxis.length).fill(0);
             hklList.forEach(peak => {
                 const basePos = peak.tth + params.zeroShift;
@@ -629,14 +640,15 @@ function updateAvailableConstraints() {
                     }
                 }
             });
-            const background = calculateBackground(tthAxis, params.bg, params.bg_inv, fitTthRange);
+            const background = calculateBackground(tthAxis, params.bg, params.bg_inv, fitTthRange, minIntensity);
             for(let i=0; i<pattern.length; i++) pattern[i] += background[i];
             return { pattern, background };
         }
 
         function leBailIntensityExtraction(exp, hklList, params) {
             hklList.forEach(p => p.intensity = 0);
-            const background = calculateBackground(exp.tth, params.bg, params.bg_inv, exp.tth);
+            const minIntensity = exp.intensity.length > 0 ? Math.min(...exp.intensity) : 0;
+            const background = calculateBackground(exp.tth, params.bg, params.bg_inv, exp.tth, minIntensity);
             for(let i = 0; i < exp.tth.length; i++) {
                 let totalProfileAtPoint = 0;
                 const contributingPeaks = [];
@@ -740,6 +752,7 @@ function updateAvailableConstraints() {
             const fitFlags = getFitFlags();
             const constraints = getConstraints();
             const workingData = getWorkingData();
+            const excludeFwhm = parseFloat(controls.bgExcludeSlider.value);
             
             if (fitFlags.background[0] && workingData.intensity.length > 0) {
                 const n_points = Math.min(NUM_BG_ANCHOR_POINTS, Math.floor(workingData.intensity.length / 2));
@@ -758,6 +771,7 @@ function updateAvailableConstraints() {
             const maxIterations = parseInt(controls.iterationsSlider.value);
             const algorithm = controls.algorithmSelect.value;
             let finalParams;
+            const minIntensity = workingData.intensity.length > 0 ? Math.min(...workingData.intensity) : 0;
 
             const progressCallback = async (progress, currentParams, rwp) => {
                  controls.progressBar.style.width = `${progress * 100}%`;
@@ -767,19 +781,20 @@ function updateAvailableConstraints() {
                  let hkl2 = generateHKL(Math.max(...fullExperimentalData.tth), currentParams.phase2, currentParams.phase2.system, currentParams.phase2.centering, 'P2');
                  let combined = hkl1.concat(hkl2).sort((a,b)=>a.tth-b.tth);
                  leBailIntensityExtraction(workingData, combined, currentParams);
-                 const { pattern, background } = calculatePattern(fullExperimentalData.tth, combined, currentParams, workingData.tth);
+                 const { pattern, background } = calculatePattern(fullExperimentalData.tth, combined, currentParams, workingData.tth, minIntensity);
                  
                  updateUI(currentParams, rwp, hkl1, hkl2, pattern, background);
                  await new Promise(resolve => setTimeout(resolve, 0)); // Yield to the browser
             };
             
             if (algorithm === 'lm') {
-                 finalParams = await refineParametersLM(params, fitFlags, constraints, maxIterations, progressCallback);
+                 finalParams = await refineParametersLM(params, fitFlags, constraints, maxIterations, progressCallback, excludeFwhm);
             } else { // 'sa'
-                 finalParams = await refineParametersSA(params, fitFlags, constraints, maxIterations, progressCallback);
+                 finalParams = await refineParametersSA(params, fitFlags, constraints, maxIterations, progressCallback, excludeFwhm);
             }
             
             const finalWorkingData = getWorkingData();
+            const finalMinIntensity = finalWorkingData.intensity.length > 0 ? Math.min(...finalWorkingData.intensity) : 0;
             let hklList1 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase1, finalParams.phase1.system, finalParams.phase1.centering, 'P1');
             let hklList2 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
             let combinedHklList = hklList1.concat(hklList2).sort((a,b) => a.tth - b.tth);
@@ -787,8 +802,8 @@ function updateAvailableConstraints() {
             leBailIntensityExtraction(finalWorkingData, combinedHklList, finalParams);
             lastGeneratedHklList = combinedHklList;
             
-            const { pattern, background } = calculatePattern(fullExperimentalData.tth, combinedHklList, finalParams, finalWorkingData.tth);
-            const { pattern: finalWorkingPattern } = calculatePattern(finalWorkingData.tth, combinedHklList, finalParams, finalWorkingData.tth);
+            const { pattern, background } = calculatePattern(fullExperimentalData.tth, combinedHklList, finalParams, finalWorkingData.tth, finalMinIntensity);
+            const { pattern: finalWorkingPattern } = calculatePattern(finalWorkingData.tth, combinedHklList, finalParams, finalWorkingData.tth, finalMinIntensity);
             const finalRwp = calculateRwp(finalWorkingData.intensity, finalWorkingPattern);
             
             updateUI(finalParams, finalRwp, hklList1, hklList2, pattern, background);
@@ -873,11 +888,40 @@ function updateAvailableConstraints() {
             return { paramMapping };
         }
 
-        async function refineParametersSA(initialParams, fitFlags, constraints, maxIter, progressCallback) {
+        function zeroOutExcludedRegions(residuals, workingData, params, excludeFwhm) {
+            if (excludeFwhm <= 0) return;
+
+            let hkl1 = generateHKL(Math.max(...workingData.tth), params.phase1, params.phase1.system, params.phase1.centering, 'P1');
+            let hkl2 = generateHKL(Math.max(...workingData.tth), params.phase2, params.phase2.system, params.phase2.centering, 'P2');
+            let combinedHkl = hkl1.concat(hkl2);
+
+            const peakRegions = combinedHkl.map(peak => {
+                const basePos = peak.tth + params.zeroShift;
+                const { gamma_G, gamma_L } = calculateProfileWidths(basePos, params);
+                const fwhm = gamma_G + gamma_L;
+                const width = excludeFwhm * fwhm;
+                return { start: basePos - width / 2, end: basePos + width / 2 };
+            });
+
+            if (peakRegions.length === 0) return;
+
+            for (let i = 0; i < workingData.tth.length; i++) {
+                const tth = workingData.tth[i];
+                for (const region of peakRegions) {
+                    if (tth >= region.start && tth <= region.end) {
+                        residuals[i] = 0;
+                        break; 
+                    }
+                }
+            }
+        }
+
+        async function refineParametersSA(initialParams, fitFlags, constraints, maxIter, progressCallback, excludeFwhm) {
             const { paramMapping } = getParameterMapping(fitFlags, constraints);
             if (paramMapping.length === 0) { fitResults = { params: initialParams, algorithm: 'sa', paramMapping, fitFlags, constraints }; return initialParams; }
 
             const workingData = getWorkingData();
+            const minIntensity = workingData.intensity.length > 0 ? Math.min(...workingData.intensity) : 0;
             let p_initial_vec = paramMapping.map(m => m.get(initialParams));
             
             let hkl1 = generateHKL(Math.max(...workingData.tth), initialParams.phase1, initialParams.phase1.system, initialParams.phase1.centering, 'P1');
@@ -899,8 +943,9 @@ function updateAvailableConstraints() {
                     hkl.intensity = matchingRef ? matchingRef.intensity : 10;
                 });
 
-                const { pattern } = calculatePattern(workingData.tth, hklList_curr, tempParams, workingData.tth);
+                const { pattern } = calculatePattern(workingData.tth, hklList_curr, tempParams, workingData.tth, minIntensity);
                 const diff = subtract(workingData.intensity, pattern);
+                zeroOutExcludedRegions(diff, workingData, tempParams, excludeFwhm);
                 return dot(diff, diff);
             };
             
@@ -925,7 +970,7 @@ function updateAvailableConstraints() {
 
                 if (i % 50 === 0) {
                     let tempParams = JSON.parse(JSON.stringify(initialParams)); paramMapping.forEach((m, j) => m.set(tempParams, best_x[j]));
-                    const { pattern: workingPattern } = calculatePattern(workingData.tth, referenceHklList, tempParams, workingData.tth);
+                    const { pattern: workingPattern } = calculatePattern(workingData.tth, referenceHklList, tempParams, workingData.tth, minIntensity);
                     if (progressCallback) await progressCallback(i / maxSteps, tempParams, calculateRwp(workingData.intensity, workingPattern));
                 }
             }
@@ -935,12 +980,13 @@ function updateAvailableConstraints() {
             return finalParams;
         }
 
-        async function refineParametersLM(initialParams, fitFlags, constraints, maxIter, progressCallback) {
+        async function refineParametersLM(initialParams, fitFlags, constraints, maxIter, progressCallback, excludeFwhm) {
             const { paramMapping } = getParameterMapping(fitFlags, constraints);
             if (paramMapping.length === 0) { fitResults = { params: initialParams, algorithm: 'lm', paramMapping, fitFlags, constraints }; return initialParams; }
 
             let params = JSON.parse(JSON.stringify(initialParams));
             let lambda = 0.001; const workingData = getWorkingData();
+            const minIntensity = workingData.intensity.length > 0 ? Math.min(...workingData.intensity) : 0;
             const weights = workingData.intensity.map(y => 1 / Math.max(y, 1));
             
             const objective = (p_vec) => {
@@ -950,8 +996,10 @@ function updateAvailableConstraints() {
                 let combined = hkl1.concat(hkl2).sort((a,b)=>a.tth-b.tth);
                 leBailIntensityExtraction(workingData, combined, tempParams);
                 lastGeneratedHklList = combined;
-                const { pattern } = calculatePattern(workingData.tth, combined, tempParams, workingData.tth);
-                return workingData.intensity.map((y, i) => (y - pattern[i]) * Math.sqrt(weights[i]));
+                const { pattern } = calculatePattern(workingData.tth, combined, tempParams, workingData.tth, minIntensity);
+                const weightedResiduals = workingData.intensity.map((y, i) => (y - pattern[i]) * Math.sqrt(weights[i]));
+                zeroOutExcludedRegions(weightedResiduals, workingData, tempParams, excludeFwhm);
+                return weightedResiduals;
             };
 
             let last_cost = Infinity, JtJ, finalResiduals;
@@ -987,12 +1035,176 @@ function updateAvailableConstraints() {
                     lambda = Math.min(lambda * 2, 1e9);
                 }
                 
-                const { pattern: workingPattern } = calculatePattern(workingData.tth, lastGeneratedHklList, params, workingData.tth);
+                const { pattern: workingPattern } = calculatePattern(workingData.tth, lastGeneratedHklList, params, workingData.tth, minIntensity);
                 if (progressCallback) await progressCallback((iter + 1) / maxIter, params, calculateRwp(workingData.intensity, workingPattern));
             }
             fitResults = { params, JtJ, finalResiduals, paramMapping, ss_res: last_cost, algorithm: 'lm', fitFlags, constraints };
             return params;
         }
+
+        async function runBackgroundFit() {
+            if (isFitting || fullExperimentalData.tth.length === 0) return;
+            
+            const fitFlags = getFitFlags();
+            const bgFitParamsCount = fitFlags.background.filter(f => f).length + (fitFlags.bg_inv ? 1 : 0);
+
+            if (bgFitParamsCount === 0) {
+                alert("Cannot fit background: Please check the 'fit' box for at least one background parameter (e.g., B0, B1, B-1).");
+                return;
+            }
+
+            isFitting = true;
+            controls.fitButton.disabled = true;
+            document.body.style.cursor = 'wait';
+            
+            await new Promise(resolve => setTimeout(resolve, 10));
+            let fitSucceeded = false;
+
+            try {
+                let params = getAllParams();
+                const workingData = getWorkingData();
+                if(workingData.tth.length < 2) throw new Error("Not enough data in the selected 2-theta range.");
+
+                const fitTthRange = [workingData.tth[0], workingData.tth[workingData.tth.length - 1]];
+                const excludeFwhm = parseFloat(controls.bgExcludeSlider.value);
+
+                let hkl1 = generateHKL(Math.max(...workingData.tth), params.phase1, params.phase1.system, params.phase1.centering, 'P1');
+                let hkl2 = generateHKL(Math.max(...workingData.tth), params.phase2, params.phase2.system, params.phase2.centering, 'P2');
+                let combinedHkl = hkl1.concat(hkl2).sort((a,b)=>a.tth-b.tth);
+
+                leBailIntensityExtraction(workingData, combinedHkl, params);
+
+                const peakRegions = combinedHkl.map(peak => {
+                    const basePos = peak.tth + params.zeroShift;
+                    const { gamma_G, gamma_L } = calculateProfileWidths(basePos, params);
+                    const fwhm = gamma_G + gamma_L;
+                    const width = excludeFwhm * fwhm;
+                    return { start: basePos - width / 2, end: basePos + width / 2 };
+                });
+                
+                const backgroundOnlyData = { tth: [], intensity: [] };
+                for (let i = 0; i < workingData.tth.length; i++) {
+                    const tth = workingData.tth[i];
+                    let isPeakRegion = false;
+                    for (const region of peakRegions) {
+                        if (tth >= region.start && tth <= region.end) {
+                            isPeakRegion = true;
+                            break;
+                        }
+                    }
+                    if (!isPeakRegion || i === 0 || i === workingData.tth.length - 1) {
+                        backgroundOnlyData.tth.push(tth);
+                        backgroundOnlyData.intensity.push(workingData.intensity[i]);
+                    }
+                }
+                
+                const result = await refineBackgroundOnlyLM(params, fitFlags, backgroundOnlyData, fitTthRange);
+                
+                if (result.error) {
+                    alert(`Could not fit background: ${result.error}`);
+                    return;
+                }
+
+                const finalParams = result.params;
+                document.getElementById('bg-param-neg1').value = finalParams.bg_inv.toExponential(4);
+                finalParams.bg.forEach((val, i) => { 
+                    const el = document.getElementById(`bg-param-${i}`);
+                    if (el) el.value = val.toExponential(4);
+                });
+                fitSucceeded = true;
+
+            } catch (error) {
+                console.error("Background fit failed:", error);
+                alert("An error occurred during background fitting.");
+            } finally {
+                isFitting = false;
+                controls.fitButton.disabled = fullExperimentalData.tth.length === 0;
+                document.body.style.cursor = 'default';
+                if(fitSucceeded) {
+                    updatePreviewPattern();
+                }
+            }
+        }
+
+        async function refineBackgroundOnlyLM(initialParams, fitFlags, backgroundData, fitTthRange) {
+    const bgParamMapping = [];
+    if (fitFlags.bg_inv) {
+         bgParamMapping.push({ name: 'B-1', get: p => p.bg_inv, set: (p, v) => p.bg_inv = v, step: 10.0 });
+    }
+    fitFlags.background.forEach((fit, i) => { 
+        if (fit) { 
+            bgParamMapping.push({ name: `B${i}`, get: p => p.bg[i], set: (p, v) => p.bg[i] = v, step: 50.0 }); 
+        } 
+    });
+
+    if (bgParamMapping.length === 0) {
+        return { error: "No background parameters were selected for fitting." };
+    }
+    if (backgroundData.tth.length < bgParamMapping.length) {
+        return { error: `Not enough data points (${backgroundData.tth.length}) to refine ${bgParamMapping.length} parameters. Try reducing the exclusion width.` };
+    }
+
+    let params = JSON.parse(JSON.stringify(initialParams));
+    let lambda = 0.001;
+    const maxIter = 20; 
+    
+    const minIntensity = backgroundData.intensity.length > 0 ? Math.min(...backgroundData.intensity) : 0;
+    
+    const objective = (p_vec) => {
+        let tempParams = JSON.parse(JSON.stringify(initialParams)); 
+        bgParamMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
+        const calcBg = calculateBackground(backgroundData.tth, tempParams.bg, tempParams.bg_inv, fitTthRange, minIntensity);
+        return backgroundData.intensity.map((y, i) => y - calcBg[i]);
+    };
+
+    let last_cost = Infinity;
+    let errorMsg = null; 
+
+    for (let iter = 0; iter < maxIter; iter++) {
+        let p_current_vec = bgParamMapping.map(m => m.get(params));
+        const residuals = objective(p_current_vec);
+        const cost = dot(residuals, residuals);
+
+        if (Math.abs(last_cost - cost) < 1e-9 * last_cost && iter > 0) break;
+        last_cost = cost;
+
+        const jacobian = bgParamMapping.map((m,i) => {
+            const p_plus = [...p_current_vec]; p_plus[i] += m.step;
+            const res_plus = objective(p_plus);
+            return scale(subtract(res_plus, residuals), 1 / m.step).map(v => isFinite(v) ? v: 0);
+        });
+        
+        const J = transpose(jacobian); 
+        const JtJ = multiply(transpose(J), J);
+        const Jtr = multiply(transpose(J), residuals);
+
+        const A_lm = JSON.parse(JSON.stringify(JtJ));
+        for (let i=0; i < A_lm.length; i++) A_lm[i][i] += lambda * (A_lm[i][i] || 1.0);
+        
+        const p_step = solve(A_lm, scale(Jtr, -1));
+        
+        if (p_step.some(isNaN)) {
+            errorMsg = "Numerical instability encountered. The fit could not converge.\n\nTry one of the following:\n  a) Reduce the 'Exclude Peak Regions' slider value.\n  b) Deselect higher-order background terms (like B3, B4...).";
+            break;
+        }
+
+        const p_new_vec = add(p_current_vec, p_step);
+        const new_cost = dot(objective(p_new_vec), objective(p_new_vec));
+        
+        if (new_cost < cost && isFinite(new_cost)) {
+            bgParamMapping.forEach((m, i) => m.set(params, p_new_vec[i]));
+            lambda = Math.max(lambda / 2, 1e-9);
+        } else {
+            lambda = Math.min(lambda * 2, 1e9);
+        }
+    }
+
+    if (errorMsg) {
+        return { error: errorMsg };
+    }
+    
+    return { params: params };
+}
 
         function updatePreviewPattern() {
             if (!mainChart || fullExperimentalData.tth.length === 0 || isFitting) return;
@@ -1010,7 +1222,8 @@ function updateAvailableConstraints() {
             const arbitraryIntensity = Math.max(...fullExperimentalData.intensity) * 0.5;
             lastGeneratedHklList.forEach(p => p.intensity = arbitraryIntensity);
             const workingData = getWorkingData();
-            const { pattern, background } = calculatePattern(fullExperimentalData.tth, lastGeneratedHklList, params, workingData.tth.length > 0 ? workingData.tth : null);
+            const minIntensity = workingData.intensity.length > 0 ? Math.min(...workingData.intensity) : 0;
+            const { pattern, background } = calculatePattern(fullExperimentalData.tth, lastGeneratedHklList, params, workingData.tth.length > 0 ? workingData.tth : null, minIntensity);
             findDataset('Simulation (Manual)').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: pattern[i]}));
             findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]}));
             
@@ -1215,6 +1428,7 @@ function updateAvailableConstraints() {
             mainChart.options.scales.y.min = -yMaxInRange * 0.33;
         }
         
+
         function updateChart(pattern, background, hklList1, hklList2, params) {
             if (!mainChart) return;
             const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
@@ -1369,9 +1583,11 @@ function updateAvailableConstraints() {
             const hklList2 = generateHKL(Math.max(...fullExperimentalData.tth), finalParams.phase2, finalParams.phase2.system, finalParams.phase2.centering, 'P2');
             printHklList(1, hklList1);
             printHklList(2, hklList2);
-
+            
+            const workingData = getWorkingData();
+            const minIntensity = workingData.intensity.length > 0 ? Math.min(...workingData.intensity) : 0;
             const combinedHkl = hklList1.concat(hklList2).sort((a,b)=>a.tth-b.tth);
-            const { pattern: finalCalcPattern } = calculatePattern(fullExperimentalData.tth, combinedHkl, finalParams, getWorkingData().tth);
+            const { pattern: finalCalcPattern } = calculatePattern(fullExperimentalData.tth, combinedHkl, finalParams, workingData.tth, minIntensity);
             reportLines.push('--- Intensity Data ---');
             reportLines.push(['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'));
             for (let i = 0; i < fullExperimentalData.tth.length; i++) {
@@ -1432,6 +1648,10 @@ function updateAvailableConstraints() {
                 controls.placeholder.classList.add('hidden');
                 controls.resultsContainer.classList.remove('hidden'); controls.resultsContainer.classList.add('flex');
                 controls.fitButton.disabled = false; controls.fitButton.textContent = 'Run Refinement';
+                controls.bgExcludeSlider.disabled = false;
+
+                createBackgroundControls();
+                seedBackgroundFromData();
                 initializeChart();
                 const min = fullExperimentalData.tth[0], max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
                 const step = (max - min) / 2000;
@@ -1448,7 +1668,7 @@ function updateAvailableConstraints() {
         controls.controlsPanel.addEventListener('input', (event) => {
             const target = event.target;
             const targetId = target.id;
-            if ((target.tagName === 'INPUT' || target.tagName === 'SELECT') && !['file-input', 'tth-min-slider', 'tth-max-slider', 'iterations-slider'].includes(targetId)) {
+            if ((target.tagName === 'INPUT' || target.tagName === 'SELECT') && !['file-input', 'tth-min-slider', 'tth-max-slider', 'iterations-slider', 'bg-exclude-slider'].includes(targetId)) {
                 handleParameterSync(target);
                 updatePreviewPattern();
             }
@@ -1498,6 +1718,11 @@ function updateAvailableConstraints() {
         }
 
         controls.fitButton.addEventListener('click', runLeBailFit);
+        controls.bgExcludeSlider.addEventListener('change', runBackgroundFit);
+        controls.bgExcludeSlider.addEventListener('input', () => { 
+            controls.bgExcludeValue.textContent = parseFloat(controls.bgExcludeSlider.value).toFixed(1); 
+        });
+        
         document.querySelector('.tab-nav').addEventListener('click', (e) => {
             if (e.target.classList.contains('tab-button')) {
                 document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
@@ -1507,11 +1732,42 @@ function updateAvailableConstraints() {
             }
         });
         
-        function createBackgroundControls() {
-            let html = `<label class="control-label">B-1 (1/2θ)</label><input type="number" id="bg-param-neg1" value="0.0" class="control-input"><input type="checkbox" id="fit-bg-neg1" class="fit-checkbox">`;
-            for (let i=0; i < NUM_BG_TERMS; i++) html += `<label class="control-label">B${i}</label><input type="number" id="bg-param-${i}" value="0.0" class="control-input"><input type="checkbox" id="fit-bg-${i}" class="fit-checkbox" ${i<3?'checked':''}>`;
-            controls.backgroundContainer.innerHTML = html;
-        }
+      
+function seedBackgroundFromData() {
+    const n_points = Math.min(NUM_BG_ANCHOR_POINTS, Math.floor(fullExperimentalData.intensity.length / 2));
+    if (n_points > 0) {
+        let initialBg = Array.from(
+            {length: 2 * n_points},
+            (_, i) => i < n_points
+                ? fullExperimentalData.intensity[i]
+                : fullExperimentalData.intensity[fullExperimentalData.intensity.length - 1 - (i - n_points)]
+        ).reduce((a, b) => a + b, 0) / (2 * n_points);
+
+        document.getElementById('bg-param-0').value = initialBg.toExponential(4);
+    }
+}
+        
+
+function createBackgroundControls() {
+    controls.backgroundContainer.innerHTML = ''; // Clear existing controls first
+
+    // 
+    controls.backgroundContainer.innerHTML += `
+        <label class="control-label">B-1 (1/2θ)</label>
+        <input type="number" id="bg-param-neg1" value="0.0" class="control-input">
+        <input type="checkbox" id="fit-bg-neg1" class="fit-checkbox" checked>
+    `;
+
+    // Add Chebyshev terms B0...B9
+    for (let i = 0; i < NUM_BG_TERMS; i++) {
+        const isChecked = i < 3 ? 'checked' : ''; // Check B0, B1, B2 by default
+        controls.backgroundContainer.innerHTML += `
+            <label class="control-label">B${i}</label>
+            <input type="number" id="bg-param-${i}" value="0.0" class="control-input">
+            <input type="checkbox" id="fit-bg-${i}" class="fit-checkbox" ${isChecked}>
+        `;
+    }
+}
         
         const resizer = document.getElementById('drag-handle');
         resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
@@ -1710,12 +1966,12 @@ function updateAvailableConstraints() {
         
 controls.bravaisLatticeP1.addEventListener('change', () => {
     updateLatticeParamUI(1);
-    updateAvailableConstraints(); // Add this line
+    updateAvailableConstraints();
     updatePreviewPattern();
 });
 controls.bravaisLatticeP2.addEventListener('change', () => {
     updateLatticeParamUI(2);
-    updateAvailableConstraints(); // Add this line
+    updateAvailableConstraints();
     updatePreviewPattern();
 });
 
@@ -1760,15 +2016,12 @@ controls.bravaisLatticeP2.addEventListener('change', () => {
         });
         
         // --- Initial Setup ---
-// --- Initial Setup ---
 updateLatticeParamUI(1);
 updateLatticeParamUI(2);
 updateConstraintsUI();
 updateAvailableConstraints();
-// updateConstraintStates() is now called by updateAvailableConstraints(), les contraintes..;re.
-createBackgroundControls();
+
     });
 </script>
 </body>
 </html>
-}
