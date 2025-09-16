@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D EXAFS Simulator</title>
+    <style>
+        :root {
+            --panel-bg: #111827; --panel-text: #d1d5db; --panel-border: #374151;
+            --results-bg: #f1f5f9; --results-text: #1f2937; --white: #ffffff;
+            --blue-500: #3b82f6; --blue-600: #2563eb; --gray-300: #d1d5db;
+            --gray-400: #9ca3af; --gray-500: #6b7280; --gray-600: #4b5563;
+            --gray-700: #374151; --gray-900: #111827; --red-500: #ef4444;
+        }
+        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; margin: 0; background-color: var(--results-bg); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        #controls-panel { width: 450px; min-width: 380px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: var(--panel-bg); border-right: 1px solid var(--panel-border); overflow-y: auto; color: var(--panel-text); }
+        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--panel-border); flex-shrink: 0; transition: background-color 0.2s; }
+        #drag-handle:hover { background-color: var(--blue-500); }
+        #results-area { flex-grow: 1; min-width: 0; padding: 1.5rem; }
+        .control-group { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--panel-border); }
+        .control-group:last-child { border-bottom: none; padding-bottom: 0; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--gray-400); }
+        select, input[type="number"], .btn-danger { width: 100%; padding: 0.5rem; border-radius: 0.375rem; background-color: var(--gray-700); border: 1px solid var(--gray-600); color: var(--panel-text); }
+        select:focus, input[type="number"]:focus { outline: none; border-color: var(--blue-500); }
+        .btn-danger { display: block; font-weight: 600; transition: background-color 0.2s; cursor: pointer; text-align: center; background-color: var(--red-500); color: var(--white); }
+        .btn-danger:hover { background-color: #b91c1c; }
+        .canvas-wrapper { position: relative; flex-grow: 1; min-height: 0; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--white); }
+        .plot-wrapper { background-color: var(--white); box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1); border-radius: 0.5rem; padding: 1rem; display: flex; flex-direction: column; }
+        input[type="range"] { -webkit-appearance: none; width: 100%; height: 8px; background: var(--gray-600); border-radius: 5px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--blue-500); cursor: pointer; border-radius: 50%; }
+        input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: var(--blue-500); cursor: pointer; border-radius: 50%; }
+        body.resizing { cursor: col-resize !important; user-select: none; }
+        footer {
+            width: 100%;
+            background-color: var(--white);
+            padding: 8px 24px;
+            font-size: 0.8em;
+            color: var(--gray-500);
+            border-top: 1px solid var(--gray-300);
+            flex-shrink: 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="controls-panel">
+            <h1 style="font-size: 1.5rem; font-weight: 700; color: white; margin-bottom: 0.5rem;">2D EXAFS Simulator</h1>
+            <div class="control-group">
+                <p style="font-size: 0.875rem; color: var(--gray-400);">
+                    1. Select & place the central Absorber atom.<br>
+                    2. Select a Scatterer type & place neighbors.<br>
+                    3. Adjust parameters to see the effect on the spectra.
+                </p>
+            </div>
+            
+            <div class="control-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div>
+                    <label for="absorber-select" class="control-label">Absorber Atom</label>
+                    <select id="absorber-select">
+                        <option value="Cu">Cu (Copper)</option>
+                        <option value="Fe">Fe (Iron)</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scatterer-select" class="control-label">Scatterer to Add</label>
+                    <select id="scatterer-select">
+                        <option value="O">O (Oxygen)</option>
+                        <option value="Al">Al (Aluminum)</option>
+                        <option value="Fe">Fe (Iron)</option>
+                        <option value="Pb">Pb (Lead)</option>
+                        <option value="Cu">Cu (Copper)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Atomic Structure</label>
+                <div id="atom-list-container" style="max-height: 15rem; overflow-y: auto; background-color: rgba(17, 24, 39, 0.5); padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--gray-700);">
+                    <ul id="atom-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <li id="no-atoms-msg" style="color: var(--gray-500); font-size: 0.875rem; text-align: center; padding: 0.5rem;">Place Absorber to begin.</li>
+                    </ul>
+                </div>
+                <button id="clear-btn" class="btn-danger" style="margin-top: 1rem;">Clear All Atoms</button>
+            </div>
+
+             <div class="control-group">
+                <h3 style="font-weight: 600; font-size: 1.125rem; color: white; margin-bottom: 1rem;">Simulation Parameters</h3>
+                <div>
+                    <span class="control-label" style="margin-bottom: 0;">Edge Energy E₀ (eV)</span>
+                    <div id="e0-display" style="font-size: 1.25rem; font-weight: 700; color: var(--blue-500);">8979</div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <label for="k-max-slider" style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500;">Max k (Å⁻¹): <span id="k-max-value" style="font-weight: 700;">12</span></label>
+                    <input type="range" id="k-max-slider" min="5" max="20" value="12" step="0.5">
+                </div>
+                <div style="margin-top: 1rem;">
+                    <label for="sigma2-slider" style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500;">Debye-Waller σ² (Å²): <span id="sigma2-value" style="font-weight: 700;">0.005</span></label>
+                    <input type="range" id="sigma2-slider" min="0" max="0.05" value="0.005" step="0.0005">
+                </div>
+            </div>
+             <div class="control-group">
+                <h3 style="font-weight: 600; font-size: 1.125rem; color: white; margin-bottom: 1rem;">Fourier Transform Controls</h3>
+                 <div>
+                    <label for="k-weight-select" class="control-label">k-Weighting</label>
+                    <select id="k-weight-select">
+                        <option value="1">k¹</option>
+                        <option value="2" selected>k²</option>
+                        <option value="3">k³</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+             <div style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1.5rem; height: 100%;">
+                <div class="plot-wrapper">
+                     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; flex-shrink: 0;">Local Atomic Structure</h2>
+                     <div class="canvas-wrapper"><canvas id="structure-canvas"></canvas></div>
+                </div>
+                <div class="plot-wrapper">
+                     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; flex-shrink: 0;">Absorption Spectrum</h2>
+                     <div class="canvas-wrapper"><canvas id="mu-canvas"></canvas></div>
+                </div>
+                <div class="plot-wrapper">
+                     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; flex-shrink: 0;">EXAFS Spectrum</h2>
+                     <div class="canvas-wrapper"><canvas id="chi-canvas"></canvas></div>
+                </div>
+                <div class="plot-wrapper">
+                     <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; flex-shrink: 0;">Fourier Transform</h2>
+                     <div class="canvas-wrapper"><canvas id="ft-canvas"></canvas></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer id="footer-date"></footer>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const footer = document.getElementById('footer-date');
+        footer.textContent = `EXAFS Simulator, Univ Paris-Saclay, 16 September 2025`;
+
+        const ABSORBER_PROPS = {
+            'Cu': { E0: 8979 },
+            'Fe': { E0: 7112 }
+        };
+
+        const feffData = {};
+        (function createFeffData() {
+            const amp_raw = {
+                'O': { k: [2, 4, 6, 8, 10, 15, 20], val: [0.4, 0.3, 0.25, 0.2, 0.18, 0.15, 0.1] },
+                'Al': { k: [2, 4, 6, 8, 10, 15, 20], val: [0.7, 0.5, 0.4, 0.3, 0.25, 0.2, 0.18] },
+                'Fe': { k: [2, 4, 6, 8, 10, 15, 20], val: [0.9, 0.7, 0.5, 0.4, 0.35, 0.25, 0.2] },
+                'Pb': { k: [2, 4, 6, 8, 10, 15, 20], val: [1.1, 1.0, 0.8, 0.6, 0.5, 0.4, 0.35] }
+            };
+            const phase_raw = {
+                'O': { k: [2, 5, 10, 15, 20], val: [3.0, 2.0, 0.5, -1.0, -2.5] },
+                'Al': { k: [2, 5, 10, 15, 20], val: [4.0, 1.0, -2.0, -5.0, -8.0] },
+                'Fe': { k: [2, 5, 10, 15, 20], val: [5.0, 2.0, -2.0, -6.0, -9.0] },
+                'Pb': { k: [2, 5, 10, 15, 20], val: [6.0, 4.0, 1.0, -2.0, -5.0] }
+            };
+            const k_grid = Array.from({length: 201}, (_, i) => i * 0.1);
+            function _interpolate(x, x_arr, y_arr) {
+                if (x <= x_arr[0]) return y_arr[0];
+                if (x >= x_arr[x_arr.length - 1]) return y_arr[y_arr.length - 1];
+                const idx = x_arr.findIndex(val => val > x);
+                const x1 = x_arr[idx - 1], y1 = y_arr[idx - 1];
+                const x2 = x_arr[idx], y2 = y_arr[idx];
+                return y1 + (y2 - y1) * (x - x1) / (x2 - x1);
+            }
+            const absorbers = ['Cu', 'Fe'];
+            const scatterers = ['O', 'Al', 'Fe', 'Pb', 'Cu'];
+            for (const absorber of absorbers) {
+                for (const scatterer of scatterers) {
+                    const pairKey = `${absorber}-${scatterer}`;
+                    let scattererKey = scatterer;
+                    if (scatterer === 'Cu') scattererKey = 'Fe';
+                    const amp_data = amp_raw[scattererKey];
+                    const phase_data = phase_raw[scattererKey];
+                    if (!amp_data || !phase_data) continue;
+                    feffData[pairKey] = {
+                        k: k_grid,
+                        F_k: k_grid.map(k => _interpolate(k, amp_data.k, amp_data.val)),
+                        delta_k: k_grid.map(k => _interpolate(k, phase_data.k, phase_data.val))
+                    };
+                }
+            }
+        })();
+
+        // --- DOM Elements ---
+        const structureCanvas = document.getElementById('structure-canvas');
+        const muCanvas = document.getElementById('mu-canvas');
+        const chiCanvas = document.getElementById('chi-canvas');
+        const ftCanvas = document.getElementById('ft-canvas');
+        const structureCtx = structureCanvas.getContext('2d');
+        const muCtx = muCanvas.getContext('2d');
+        const chiCtx = chiCanvas.getContext('2d');
+        const ftCtx = ftCanvas.getContext('2d');
+        
+        const absorberSelect = document.getElementById('absorber-select');
+        const scattererSelect = document.getElementById('scatterer-select');
+        const atomListUI = document.getElementById('atom-list');
+        const noAtomsMsg = document.getElementById('no-atoms-msg');
+        const clearBtn = document.getElementById('clear-btn');
+        
+        const e0Display = document.getElementById('e0-display');
+        const kMaxSlider = document.getElementById('k-max-slider');
+        const kMaxValue = document.getElementById('k-max-value');
+        const sigma2Slider = document.getElementById('sigma2-slider');
+        const sigma2Value = document.getElementById('sigma2-value');
+        const kWeightSelect = document.getElementById('k-weight-select');
+
+        // --- State Variables ---
+        let absorber = null;
+        let scatterers = [];
+        let params = { E0: ABSORBER_PROPS.Cu.E0, k_min: 2.0, k_max: 12.0, sigma2: 0.005, k_weight: 2 };
+        const PLOT_RANGE = 5;
+        const ATOM_COLORS = { 'Cu': '#d97706', 'Fe': '#b91c1c', 'O': '#2563eb', 'Al': '#6b7280', 'Pb': '#374151' };
+
+        // --- Core Physics & Math Functions ---
+        function interpolate(x, x_arr, y_arr) {
+            if (x <= x_arr[0]) return y_arr[0];
+            if (x >= x_arr[x_arr.length - 1]) return y_arr[y_arr.length - 1];
+            const idx = x_arr.findIndex(val => val > x);
+            const x1 = x_arr[idx - 1], y1 = y_arr[idx - 1];
+            const x2 = x_arr[idx], y2 = y_arr[idx];
+            return y1 + (y2 - y1) * (x - x1) / (x2 - x1);
+        }
+
+        function calculateEXAFS() {
+            if (!absorber || scatterers.length === 0) return { k_vals: [], chi_k: [] };
+            const N_POINTS = 512;
+            const k_vals = Array.from({length: N_POINTS}, (_, i) => params.k_min + i * (params.k_max - params.k_min) / (N_POINTS - 1));
+            let total_chi_k = Array(N_POINTS).fill(0);
+
+            scatterers.forEach(scat => {
+                const R = Math.sqrt(scat.x**2 + scat.y**2);
+                if (R < 0.1) return;
+                const pairKey = `${absorber.type}-${scat.type}`;
+                const data = feffData[pairKey];
+                if (!data) return;
+
+                for (let i = 0; i < N_POINTS; i++) {
+                    const k = k_vals[i];
+                    const F_k = interpolate(k, data.k, data.F_k);
+                    const delta_k = interpolate(k, data.k, data.delta_k);
+                    const debyeWaller = Math.exp(-2 * k**2 * params.sigma2);
+                    const sin_term = Math.sin(2 * k * R + delta_k);
+                    const chi_j = (1 / (k * R**2)) * F_k * debyeWaller * sin_term;
+                    total_chi_k[i] += chi_j;
+                }
+            });
+            return { k_vals, chi_k: total_chi_k };
+        }
+        
+        function calculateMuE(k_vals, chi_k) {
+            if (k_vals.length === 0) return { E_vals: [], mu_E: [] };
+            const K_TO_E = 3.81;
+            const E_pre_edge = Array.from({length: 50}, (_, i) => params.E0 - 50 + i);
+            const k_edge_vals = [0, params.k_min, ...k_vals];
+            const chi_edge_vals = [0, 0, ...chi_k];
+            const E_post_edge = k_edge_vals.map(k => params.E0 + K_TO_E * k**2);
+            const E_vals = [...E_pre_edge, ...E_post_edge];
+            const mu0 = (E) => (Math.atan((E - params.E0) / 10) / Math.PI + 0.5);
+            const mu_E = E_vals.map((E) => {
+                if (E < params.E0) return mu0(E);
+                const k = Math.sqrt((E - params.E0) / K_TO_E);
+                const chi = interpolate(k, k_edge_vals, chi_edge_vals);
+                return mu0(E) * (1 + chi);
+            });
+            return { E_vals, mu_E };
+        }
+
+        function calculateFFT(k_vals, chi_k) {
+            if (k_vals.length === 0) return { R: [], FT: [] };
+            const N = chi_k.length;
+            const k_min = k_vals[0], k_max = k_vals[N-1];
+            const dk = (k_max - k_min) / (N-1);
+            const weighted_chi = chi_k.map((chi, i) => {
+                const k = k_vals[i];
+                const hanning = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
+                return chi * Math.pow(k, params.k_weight) * hanning;
+            });
+            const R_MAX = 8; const R_POINTS = 256;
+            const R = Array.from({length: R_POINTS}, (_, i) => i * R_MAX / R_POINTS);
+            const FT = Array(R_POINTS).fill(0);
+            for (let j = 0; j < R_POINTS; j++) {
+                let real = 0, imag = 0;
+                for (let i = 0; i < N; i++) {
+                    const angle = 2 * k_vals[i] * R[j];
+                    real += weighted_chi[i] * Math.cos(angle) * dk;
+                    imag += weighted_chi[i] * Math.sin(angle) * dk;
+                }
+                FT[j] = Math.sqrt(real**2 + imag**2);
+            }
+            return { R, FT };
+        }
+
+        // --- Drawing Functions ---
+        function resizeCanvases() {
+            [structureCanvas, muCanvas, chiCanvas, ftCanvas].forEach(canvas => {
+                const wrapper = canvas.parentElement;
+                if (wrapper && wrapper.clientWidth > 0) {
+                    canvas.width = wrapper.clientWidth;
+                    canvas.height = wrapper.clientHeight;
+                }
+            });
+            redrawAll();
+        }
+
+        function drawPlot(ctx, x_data, y_data, x_label, y_label) {
+            const w = ctx.canvas.width, h = ctx.canvas.height;
+            const pad = 50;
+            ctx.clearRect(0, 0, w, h); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+            if (x_data.length === 0) {
+                 ctx.fillStyle = '#6b7280'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+                 ctx.fillText('Not enough data to plot.', w / 2, h / 2); return;
+            }
+            const x_min = x_data[0], x_max = x_data[x_data.length - 1];
+            let y_min = Math.min(...y_data), y_max = Math.max(...y_data);
+            if (y_max - y_min < 1e-9) { y_min -= 1; y_max += 1; }
+            const y_range = y_max - y_min;
+            y_max += y_range * 0.1; y_min -= y_range * 0.1;
+            const mapX = x => pad + (x - x_min) * (w - 2 * pad) / (x_max - x_min);
+            const mapY = y => (h - pad) - (y - y_min) * (h - 2 * pad) / (y_max - y_min);
+            ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(pad, h - pad); ctx.lineTo(w - pad, h - pad); ctx.stroke();
+            ctx.strokeStyle = ATOM_COLORS['O']; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(mapX(x_data[0]), mapY(y_data[0]));
+            for (let i = 1; i < x_data.length; i++) { ctx.lineTo(mapX(x_data[i]), mapY(y_data[i])); }
+            ctx.stroke();
+            ctx.fillStyle = '#374151'; ctx.font = '12px sans-serif'; ctx.textBaseline = 'middle';
+            
+            ctx.textAlign = 'right';
+            for (let i = 0; i <= 4; i++) {
+                const val = y_min + i * (y_max - y_min) / 4;
+                const y_pos = mapY(val);
+                ctx.fillText(val.toExponential(1), pad - 10, y_pos);
+                ctx.beginPath(); ctx.moveTo(pad - 5, y_pos); ctx.lineTo(pad, y_pos); ctx.stroke();
+            }
+
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.font = '600 12px sans-serif';
+            ctx.fillText(y_label, pad, pad - 10);
+
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= 5; i++) {
+                const val = x_min + i * (x_max - x_min) / 5;
+                const x_pos = mapX(val);
+                let label;
+                if (x_label.includes('Energy')) {
+                    label = val.toFixed(0);
+                } else {
+                    label = val.toFixed(1);
+                }
+                ctx.fillText(label, x_pos, h - pad + 20);
+                 ctx.beginPath(); ctx.moveTo(x_pos, h-pad); ctx.lineTo(x_pos, h - pad + 5); ctx.stroke();
+            }
+            ctx.fillText(x_label, w / 2, h - 15);
+        }
+
+        function drawStructure() {
+            const w = structureCanvas.width, h = structureCanvas.height;
+            const center_x = w / 2, center_y = h / 2;
+            const scale = Math.min(w, h) / (2 * PLOT_RANGE * 1.1);
+            structureCtx.fillStyle = '#f8fafc'; structureCtx.fillRect(0, 0, w, h);
+            structureCtx.strokeStyle = '#e2e8f0'; structureCtx.lineWidth = 1;
+            for (let i = -PLOT_RANGE; i <= PLOT_RANGE; i++) {
+                if (i === 0) continue;
+                structureCtx.beginPath();
+                structureCtx.moveTo(center_x + i * scale, 0); structureCtx.lineTo(center_x + i * scale, h);
+                structureCtx.moveTo(0, center_y + i * scale); structureCtx.lineTo(w, center_y + i * scale);
+                structureCtx.stroke();
+            }
+            structureCtx.strokeStyle = '#9ca3af'; structureCtx.lineWidth = 1.5;
+            structureCtx.beginPath(); structureCtx.moveTo(center_x, 0); structureCtx.lineTo(center_x, h); structureCtx.stroke();
+            structureCtx.beginPath(); structureCtx.moveTo(0, center_y); structureCtx.lineTo(w, center_y); structureCtx.stroke();
+            if (absorber) {
+                structureCtx.strokeStyle = 'rgba(0,0,0,0.2)';
+                scatterers.forEach(scat => {
+                    structureCtx.beginPath(); structureCtx.moveTo(center_x, center_y);
+                    structureCtx.lineTo(center_x + scat.x * scale, center_y - scat.y * scale);
+                    structureCtx.stroke();
+                });
+            }
+            if (absorber) drawAtom(absorber.type, center_x, center_y, 10);
+            scatterers.forEach(scat => drawAtom(scat.type, center_x + scat.x * scale, center_y - scat.y * scale, 7));
+            function drawAtom(type, x, y, r) {
+                structureCtx.fillStyle = ATOM_COLORS[type] || '#6b7280';
+                structureCtx.strokeStyle = 'white'; structureCtx.lineWidth = 2;
+                structureCtx.beginPath(); structureCtx.arc(x, y, r, 0, 2 * Math.PI); structureCtx.fill(); structureCtx.stroke();
+            }
+        }
+
+        // --- UI & Event Handlers ---
+        function updateAtomList() {
+            atomListUI.innerHTML = '';
+            if (!absorber) { noAtomsMsg.style.display = 'block'; noAtomsMsg.textContent = 'Place Absorber to begin.'; return; }
+            noAtomsMsg.style.display = 'none';
+            const abs_li = document.createElement('li');
+            abs_li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background-color: var(--gray-600); padding: 0.5rem; border-radius: 0.375rem;';
+            abs_li.innerHTML = `<span style="font-weight: 600; font-size: 0.875rem; color: white;">${absorber.type} (Absorber) @ (0.0, 0.0)</span>`;
+            atomListUI.appendChild(abs_li);
+            scatterers.forEach((scat, index) => {
+                const R = Math.sqrt(scat.x**2 + scat.y**2);
+                const li = document.createElement('li');
+                li.style.cssText = 'display: flex; justify-content: space-between; align-items: center; background-color: var(--gray-700); padding: 0.5rem; border-radius: 0.375rem;';
+                li.innerHTML = `<div style="display:flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--gray-300);">
+                    <span>${scat.type}:</span><span>(${scat.x.toFixed(2)}, ${scat.y.toFixed(2)})</span>
+                    <span style="font-size: 0.75rem; color: var(--gray-400);">R=${R.toFixed(2)}Å</span></div>
+                    <button data-index="${index}" class="remove-atom-btn" style="color: var(--red-500); background: none; border: none; cursor: pointer; font-size: 0.75rem; font-weight: 600;">REMOVE</button>`;
+                atomListUI.appendChild(li);
+            });
+        }
+        
+        function redrawAll() {
+            updateAtomList();
+            drawStructure();
+            const { k_vals, chi_k } = calculateEXAFS();
+            const { E_vals, mu_E } = calculateMuE(k_vals, chi_k);
+            const { R, FT } = calculateFFT(k_vals, chi_k);
+            const weighted_chi = chi_k.map((chi, i) => chi * Math.pow(k_vals[i], params.k_weight));
+            
+            drawPlot(muCtx, E_vals, mu_E, 'Energy (eV)', 'μ(E)');
+            drawPlot(chiCtx, k_vals, weighted_chi, `k (Å⁻¹) `, `k^${params.k_weight}χ(k)`);
+            drawPlot(ftCtx, R, FT, 'R (Å)', '|FT|');
+        }
+
+        function handleCanvasClick(event) {
+            const rect = structureCanvas.getBoundingClientRect();
+            const scale = Math.min(rect.width, rect.height) / (2 * PLOT_RANGE * 1.1);
+            const x = (event.clientX - rect.left - rect.width / 2) / scale;
+            const y = -(event.clientY - rect.top - rect.height / 2) / scale;
+            if (!absorber) {
+                const type = absorberSelect.value;
+                params.E0 = ABSORBER_PROPS[type].E0;
+                e0Display.textContent = params.E0;
+                absorber = { type, x: 0, y: 0 };
+            } else {
+                scatterers.push({ type: scattererSelect.value, x, y });
+            }
+            redrawAll();
+        }
+
+        function init() {
+            absorberSelect.addEventListener('change', (e) => {
+                const newType = e.target.value;
+                params.E0 = ABSORBER_PROPS[newType].E0;
+                e0Display.textContent = params.E0;
+                if (absorber) { absorber.type = newType; }
+                redrawAll();
+            });
+            structureCanvas.addEventListener('click', handleCanvasClick);
+            clearBtn.addEventListener('click', () => { absorber = null; scatterers = []; redrawAll(); });
+            atomListUI.addEventListener('click', (e) => {
+                if (e.target.classList.contains('remove-atom-btn')) {
+                    scatterers.splice(parseInt(e.target.dataset.index, 10), 1);
+                    redrawAll();
+                }
+            });
+            kMaxSlider.addEventListener('input', e => { kMaxValue.textContent = (params.k_max = parseFloat(e.target.value)).toFixed(1); redrawAll(); });
+            sigma2Slider.addEventListener('input', e => { sigma2Value.textContent = (params.sigma2 = parseFloat(e.target.value)).toFixed(4); redrawAll(); });
+            kWeightSelect.addEventListener('change', e => {
+                params.k_weight = parseInt(e.target.value);
+                redrawAll();
+            });
+            
+            const leftPanel = document.getElementById('controls-panel'), resizer = document.getElementById('drag-handle');
+            resizer.addEventListener('mousedown', (e) => {
+                e.preventDefault(); document.body.classList.add('resizing');
+                const moveHandler = (e) => { if (e.clientX > 380 && e.clientX < 600) leftPanel.style.width = `${e.clientX}px`; };
+                const upHandler = () => {
+                    document.body.classList.remove('resizing');
+                    window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler);
+                    setTimeout(resizeCanvases, 50);
+                };
+                window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler);
+            });
+
+            window.addEventListener('resize', () => setTimeout(resizeCanvases, 50));
+            setTimeout(resizeCanvases, 100);
+        }
+
+        init();
+    });
+    </script>
+</body>
+</html>
