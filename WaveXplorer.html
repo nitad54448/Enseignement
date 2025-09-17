@@ -201,7 +201,8 @@
                 lights: [],
                 axes: null,
                 lastEmittedCycle: -1,
-                nextShellIndex: 0
+                nextShellIndex: 0,
+                lastParticleAngle: 0
             };
             scatteringParams = {
                 numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
@@ -254,6 +255,7 @@
                     sphere: new THREE.Mesh(sphereGeom.clone(), radiatedMat.clone()),
                     torus: new THREE.Mesh(dipoleGeom.clone(), radiatedMat.clone()),
                     isActive: false, birthTime: 0,
+                    orientationAngle: 0, // Property to store orientation for non-polarized scattering
                 };
                 shell.sphere.visible = false;
                 shell.torus.visible = false;
@@ -270,6 +272,7 @@
                 const shell = scatteringViz.radiatedWave.shells[scatteringViz.nextShellIndex];
                 shell.isActive = true;
                 shell.birthTime = animationTime;
+                shell.orientationAngle = scatteringViz.lastParticleAngle || 0; // Save the angle
                 const isPeakEmission = currentCycle % 2 === 0;
                 const targetColor = isPeakEmission ? 0xFFFF00 : 0xE74C3C;
                 shell.torus.material.color.set(targetColor);
@@ -281,7 +284,7 @@
         }
 
         function updateRadiatedScatteringWave(currentAmplitude) {
-            const isLinear = scatteringParams.polarizationType.startsWith('linear');
+            const isLinear = scatteringParams.polarizationType.startsWith('linear') || scatteringParams.polarizationType === 'non_polarized';
             const show = scatteringParams.showRadiatedWave && scatteringParams.particleCharge !== 0;
             const amplitudeScale = Math.min(1, currentAmplitude / scatteringParams.baseAmplitude);
             scatteringViz.radiatedWave.shells.forEach(shell => {
@@ -291,9 +294,13 @@
                 const age = animationTime - shell.birthTime;
                 if (age > scatteringParams.shellMaxAge) { shell.isActive = false; return; }
                 const scale = age * scatteringParams.waveSpeed;
-                const opacity = 0.9 * (1 - age / scatteringParams.shellMaxAge) * amplitudeScale;
+                const opacity = 1.0 * (1 - age / scatteringParams.shellMaxAge) * amplitudeScale; // Increased opacity
                 if (isLinear) {
-                    shell.torus.rotation.set(scatteringParams.polarizationType === 'linear_vertical' ? 0 : Math.PI / 2, 0, 0);
+                    if (scatteringParams.polarizationType === 'non_polarized') {
+                        shell.torus.rotation.set(shell.orientationAngle, 0, 0);
+                    } else {
+                        shell.torus.rotation.set(scatteringParams.polarizationType === 'linear_vertical' ? 0 : Math.PI / 2, 0, 0);
+                    }
                     shell.torus.scale.setScalar(scale);
                     shell.torus.material.opacity = opacity;
                 } else {
@@ -826,6 +833,9 @@
                     case 'linear_horizontal': displacement.z = -Math.sin(particlePhase); break;
                     case 'non_polarized': displacement.set(0, -Math.sin(particlePhase) * Math.cos(particleAngle), -Math.sin(particlePhase) * Math.sin(particleAngle)); break;
                 }
+                
+                scatteringViz.lastParticleAngle = particleAngle;
+                
                 if (scatteringViz.particle) scatteringViz.particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * scatteringParams.particleCharge);
                 emitScatteringPulse(particlePhase, (animationTime - 0.015) * scatteringParams.oscillationFrequency);
                 updateRadiatedScatteringWave(effectiveAmplitude);
@@ -914,8 +924,7 @@
             conceptSelector = document.getElementById('concept-selector');
             conceptSelector.addEventListener('change', handleConceptChange);
             
-// 
-document.getElementById('footer-date').textContent = "NitaD, Univ Paris-Saclay, version August 2, 2025.";
+            document.getElementById('footer-date').textContent = "NitaD, Univ Paris-Saclay, August 2, 2025.";
 
             resetScatteringObjects();
             setupConceptUI(currentConcept); 
