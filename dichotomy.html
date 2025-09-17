@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Powder Indexing by Dichotomy Method</title>
+    <title>Powder Indexing by Dichotomy Method (Optimized)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
@@ -30,7 +30,7 @@
 
         body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f9fafb; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
-        #controls-panel { width: 450px; min-width: 350px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: var(--dark-bg); border-right: 1px solid var(--light-bg); overflow-y: auto; color: var(--text-medium); display: flex; flex-direction: column; }
+        #controls-panel { width: 350px; min-width: 250px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: var(--dark-bg); border-right: 1px solid var(--light-bg); overflow-y: auto; color: var(--text-medium); display: flex; flex-direction: column; }
         #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color: 0.2s; }
         #drag-handle:hover, #drag-handle:active { background-color: var(--primary-accent); }
         #results-area { flex-grow: 1; position: relative; background-color: #ffffff; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: var(--medium-bg); }
@@ -103,9 +103,9 @@
             <div class="control-group">
                 <h2 style="font-size: 1.125rem; font-weight: 600; color: white; margin-bottom: 0.75rem;">1. Load Data</h2>
                 <label for="file-input" class="file-input-label">
-                    <span id="file-name">Select .xy, .csv or .xrdml File</span>
+                    <span id="file-name">Select Data File</span>
                 </label>
-                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml">
+                <input type="file" id="file-input" class="hidden">
             </div>
 
             <div class="control-group">
@@ -146,7 +146,7 @@
                         </div>
                         <div>
                             <label for="max-volume" class="control-label">Max Volume (Å³)</label>
-                            <input type="number" id="max-volume" value="1000" step="100" min="100" class="control-input">
+                            <input type="number" id="max-volume" value="1000" step="100" min="60" max="12000" class="control-input">
                         </div>
                     </div>
                     <div class="parameter-grid" style="margin-top: 1rem;">
@@ -268,9 +268,9 @@
 
             const inputsToValidate = [
                 { id: 'wavelength', el: ui.wavelength, default: 1.54056 },
-                { id: 'max-volume', el: ui.maxVolume, default: 2000 },
+                { id: 'max-volume', el: ui.maxVolume, default: 1000 },
                 { id: 'tth-error', el: ui.tthError, default: 0.05 },
-                { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
+                { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 1 },
                 { id: 'peak-threshold-input', el: ui.peakThresholdInput, default: 2 },
             ];
 
@@ -299,7 +299,6 @@
                 }
             });
 
-            // Wavelength change requires recalculating d-spacing and Q
             if (ui.wavelength) {
                 ui.wavelength.addEventListener('change', () => {
                     if (pickedPeaks.length > 0) {
@@ -314,7 +313,7 @@
                 const lines = text.trim().split(/\r?\n/);
                 const tth = [], intensity = [];
                 lines.forEach(line => {
-                    if (line.startsWith('#') || line.startsWith('//')) return;
+                    if (line.startsWith('#') || line.startsWith('//') || line.trim() === '') return;
                     const parts = line.trim().split(/[\s,;]+/);
                     if (parts.length >= 2) {
                         const x = parseFloat(parts[0]);
@@ -331,21 +330,153 @@
             const parseXrdmlFile = (xmlString) => {
                  const parser = new DOMParser();
                  const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-                 if (xmlDoc.querySelector("parsererror")) { console.error("Error parsing XRDML"); return null; }
+                 if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); }
 
-                 let wavelength = 1.5406;
+                 let wavelength = null;
                  const kAlpha1Node = xmlDoc.querySelector("kAlpha1");
                  if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent);
 
                  const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts");
+                 if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file.");
                  const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
 
                  const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]');
+                 if (!positionsNode) throw new Error("Could not find <positions> in XRDML file.");
                  const startPos = parseFloat(positionsNode.querySelector("startPosition").textContent);
                  const endPos = parseFloat(positionsNode.querySelector("endPosition").textContent);
                  const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1));
 
                  return { tth, intensity, wavelength };
+            };
+            
+            const parseBrukerBrmlFile = (xmlString) => {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+                if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); }
+
+                let wavelength = null;
+                const wlNode = xmlDoc.querySelector('usedWavelength');
+                if (wlNode) {
+                    const kAlpha1 = wlNode.getAttribute('kAlpha1');
+                    if (kAlpha1) wavelength = parseFloat(kAlpha1);
+                }
+                
+                const intensityNode = xmlDoc.querySelector("dataPoints > counts");
+                if (!intensityNode) throw new Error("No <counts> data found in BRML file.");
+                const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
+
+                const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]');
+                const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]');
+                if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file.");
+
+                const startPos = parseFloat(startPosNode.textContent);
+                const stepSize = parseFloat(stepSizeNode.textContent);
+                
+                const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize);
+
+                return { tth, intensity, wavelength };
+            };
+
+            const parseRigakuRasFile = (text) => {
+                const lines = text.trim().split(/\r?\n/);
+                const tth = [], intensity = [];
+                let inDataSection = false;
+                let wavelength = null;
+
+                for (const line of lines) {
+                    const upperLine = line.toUpperCase();
+                    if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) {
+                        const parts = line.trim().split(/\s+/);
+                        if (parts.length > 1) {
+                            const wl = parseFloat(parts[1]);
+                            if (!isNaN(wl)) wavelength = wl;
+                        }
+                    }
+                    if (upperLine.startsWith('*RAS_INT_START')) {
+                        inDataSection = true;
+                        continue;
+                    }
+                    if (upperLine.startsWith('*RAS_INT_END')) {
+                        break;
+                    }
+                    if (inDataSection) {
+                        const parts = line.trim().split(/[\s,]+/);
+                        if (parts.length >= 2) {
+                            const x = parseFloat(parts[0]);
+                            const y = parseFloat(parts[1]);
+                            if (!isNaN(x) && !isNaN(y)) {
+                                tth.push(x);
+                                intensity.push(y);
+                            }
+                        }
+                    }
+                }
+                if (tth.length === 0) throw new Error("No data found in RAS file data section.");
+                return { tth, intensity, wavelength };
+            };
+
+            const parseGsasEsdFile = (text) => {
+                const lines = text.trim().split(/\r?\n/);
+                const tth = [], intensity = [];
+                let inDataSection = false;
+                
+                for (const line of lines) {
+                    // Data lines in GSAS are strange.... 
+                    if (!inDataSection && /^\s*\d/.test(line)) {
+                        inDataSection = true;
+                    }
+
+                    if (inDataSection) {
+                         if (line.trim().length < 30) continue;
+                        try {
+                            const tth_val = parseFloat(line.substring(0, 10)) / 100;
+                            const int_val = parseFloat(line.substring(20, 30)); // raw intensity
+                            if (!isNaN(tth_val) && !isNaN(int_val)) {
+                                tth.push(tth_val);
+                                intensity.push(int_val);
+                            }
+                        } catch (e) { 
+                            console.warn("Skipping malformed data line in GSAS file:", line);
+                        }
+                    }
+                }
+                if (tth.length === 0) throw new Error("Could not parse data from GSAS ESD file.");
+                return { tth, intensity };
+            };
+
+            const parsePhilipsUdfFile = (text) => {
+                const lines = text.trim().split(/\r?\n/);
+                const tth = [], intensity = [];
+                let inDataSection = false;
+                let wavelength = null;
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine.toUpperCase().startsWith('LAMBDA')) {
+                        const parts = trimmedLine.split('=');
+                        if (parts.length > 1) wavelength = parseFloat(parts[1]);
+                    }
+                    if (trimmedLine.toUpperCase() === '[DATA]') {
+                        inDataSection = true;
+                        continue;
+                    }
+                    if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') {
+                        inDataSection = false;
+                    }
+                    if (inDataSection) {
+                        const parts = trimmedLine.split(/,/).map(p => p.trim());
+                        if(parts.length >= 2) {
+                            const x = parseFloat(parts[0]);
+                            const y = parseFloat(parts[1]);
+                            if (!isNaN(x) && !isNaN(y)) {
+                                tth.push(x);
+                                intensity.push(y);
+                            }
+                        }
+                    }
+                }
+                if (tth.length === 0) throw new Error("No [Data] section found in UDF file.");
+                return { tth, intensity, wavelength };
             };
 
             ui.fileInput.addEventListener('change', (e) => {
@@ -353,41 +484,70 @@
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = (evt) => {
-                    let parsedData;
-                    if (file.name.toLowerCase().endsWith('.xrdml')) {
-                        parsedData = parseXrdmlFile(evt.target.result);
-                    } else {
-                        parsedData = parseDataFile(evt.target.result);
+                    try {
+                        let parsedData;
+                        const fileContent = evt.target.result;
+                        const fileName = file.name.toLowerCase();
+                        const fileStart = fileContent.substring(0, 200).toUpperCase();
+                        
+                        // --- Smart Dispatcher Logic ---
+                        if (fileName.endsWith('.xrdml')) {
+                            parsedData = parseXrdmlFile(fileContent);
+                        } else if (fileName.endsWith('.brml')) {
+                            parsedData = parseBrukerBrmlFile(fileContent);
+                        } else if (fileName.endsWith('.ras')) {
+                            parsedData = parseRigakuRasFile(fileContent);
+                        } else if (fileName.endsWith('.esd') || fileName.endsWith('.std')) {
+                             parsedData = parseGsasEsdFile(fileContent);
+                        } else if (fileName.endsWith('.udf')) {
+                             parsedData = parsePhilipsUdfFile(fileContent);
+                        } else if (fileStart.includes('<?XML')) { // Content-based check for XML
+                            if (fileStart.includes('<XRDMEASUREMENT')) parsedData = parseXrdmlFile(fileContent);
+                            else if (fileStart.includes('<RAWDATAFILE')) parsedData = parseBrukerBrmlFile(fileContent);
+                            else throw new Error("Unsupported XML file format.");
+                        } else if (fileStart.includes('*RAS_HEADER_START')) { // Content-based for RAS
+                            parsedData = parseRigakuRasFile(fileContent);
+                        } else {
+                            // Fallback for generic .xy, .csv, .txt files
+                            parsedData = parseDataFile(fileContent);
+                        }
+                        
+                        if (!parsedData || parsedData.tth.length === 0) {
+                            throw new Error("No valid data points could be parsed from the file.");
+                        }
+
+                        // --- Successful Parse: Update UI ---
+                        fullExperimentalData = parsedData;
+                        const maxIntensity = Math.max(...fullExperimentalData.intensity);
+                        if (maxIntensity > 0) {
+                             fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => y / maxIntensity * 1000);
+                        }
+
+                        solutions = [];
+                        updateSolutionsTable();
+
+                        if (parsedData.wavelength) {
+                            ui.wavelength.value = parsedData.wavelength.toFixed(5);
+                        }
+
+                        selectedSolution = null;
+                        currentHklList = [];
+                        ui.fileName.textContent = file.name;
+                        ui.placeholder.style.display = 'none';
+                        ui.resultsContainer.style.display = 'flex';
+                        ui.peakControls.classList.remove('hidden');
+                        ui.indexingControls.classList.remove('hidden');
+                        initializeChart();
+                        setupTthSliders();
+                        showStatus(`File "${file.name}" loaded successfully.`, 'success');
+
+                    } catch (error) {
+                        showStatus(`Error reading file: ${error.message}`, 'error');
+                        console.error(error);
                     }
-
-                    if (!parsedData || parsedData.tth.length === 0) {
-                        showStatus('Error: No valid data could be parsed from the file.', 'error');
-                        return;
-                    }
-
-                    fullExperimentalData = parsedData;
-                    const maxIntensity = Math.max(...fullExperimentalData.intensity);
-                    if (maxIntensity > 0) {
-                         fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => y / maxIntensity * 1000);
-                    }
-
-                    solutions = [];
-                    updateSolutionsTable();
-
-                    if (parsedData.wavelength) {
-                        ui.wavelength.value = parsedData.wavelength.toFixed(5);
-                    }
-
-                    selectedSolution = null;
-                    currentHklList = [];
-                    ui.fileName.textContent = file.name;
-                    ui.placeholder.style.display = 'none';
-                    ui.resultsContainer.style.display = 'flex';
-                    ui.peakControls.classList.remove('hidden');
-                    ui.indexingControls.classList.remove('hidden');
-                    initializeChart();
-                    setupTthSliders();
-                    showStatus(`File "${file.name}" loaded successfully.`, 'success');
+                };
+                reader.onerror = () => {
+                     showStatus('Error: Could not read the selected file.', 'error');
                 };
                 reader.readAsText(file);
             });
@@ -995,7 +1155,6 @@
                 window.addEventListener('mouseup', upHandler);
             });
             
-            // --- Wheel Zoom with Differential Axis Control (Added from misfit.html) ---
             ui.chartCanvas.addEventListener('wheel', e => {
                 e.preventDefault();
 
@@ -1009,20 +1168,16 @@
                 const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
 
                 if (y > bottom) {
-                    // Cursor is below the plot area → zoom X only
                     chart.zoom({ x: zoomFactor }, { x, y });
                 } else if (x < left) {
-                    // Cursor is left of the plot area → zoom Y only
                     chart.zoom({ y: zoomFactor }, { x, y });
                 } else if (x >= left && x <= right && y >= top && y <= bottom) {
-                    // Cursor is inside the plot area → zoom both
                     chart.zoom({ x: zoomFactor, y: zoomFactor }, { x, y });
                 }
             });
 
-            // --- Right-Click Reset Zoom (Added from misfit.html) ---
             ui.chartCanvas.addEventListener('contextmenu', e => {
-                e.preventDefault(); // prevent browser menu
+                e.preventDefault();
                 if (xrdChart) {
                     xrdChart.resetZoom();
                 }
@@ -1147,7 +1302,6 @@
                         yPos += 3;
 
                         doc.setFont('courier', 'normal');
-                        // MODIFIED: Added new column header "d(2t)"
                         doc.text(' h  k  l |   d_cal(A) 2t_calc   d_obs(A)  2t_obs    d(2t)', margin, yPos);
                         yPos += 5;
 
@@ -1171,7 +1325,6 @@
 
                             let d_obs_str = '-';
                             let tth_obs_str = '-';
-                            // ADDED: New variable for the 2-theta difference string
                             let tth_diff_str = '-';
 
                             let tth_calc = '-';
@@ -1186,7 +1339,6 @@
                                     d_obs_str = bestMatch.peak.d.toFixed(5);
                                     tth_obs_str = bestMatch.peak.tth.toFixed(3);
                                     
-                                    // ADDED: Calculate the 2-theta difference if there's a match
                                     if (tth_calc !== '-') {
                                         const tth_diff = parseFloat(tth_calc) - bestMatch.peak.tth;
                                         tth_diff_str = tth_diff.toFixed(3);
@@ -1196,7 +1348,6 @@
                                 }
                             }
                             
-                            // MODIFIED: Appended the new difference column to the output line
                             const line = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)} | ` +
                                          `${hkl.d.toFixed(5).padStart(9)} ` +
                                          `${String(tth_calc).padStart(7)}  ` +
@@ -1226,712 +1377,509 @@
         });
     </script>
     
-    <script id="indexing-worker" type="text/javascript">
-        self.onmessage = function(e) {
-            const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks } = e.data;
-            const DUPLICATE_TOLERANCE = 0.002; // 0.2% tolerance for considering solutions identical
-            const foundSolutions = [];
+<script id="indexing-worker" type="text/javascript">
+    self.onmessage = function(e) {
+        const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks } = e.data;
+        const DUPLICATE_TOLERANCE = 0.002;
+        const foundSolutions = [];
 
-            const q_from_tth_local = (tth) => {
-                const d = wavelength / (2 * Math.sin(tth * Math.PI / 360));
-                return 1 / (d * d);
-            };
+        const q_from_tth_local = (tth) => {
+            const sin_theta = Math.sin(tth * Math.PI / 360);
+            return (4 * sin_theta * sin_theta) / (wavelength * wavelength);
+        };
+        
+        // Use sorted Float64Array for q_obs
+        const tth_obs_deg = new Float64Array(peaks.map(p => p.tth));
+        const peaks_sorted_by_q = peaks.map((p, i) => ({...p, original_index: i}))
+                                     .sort((a,b) => a.q - b.q);
+        const q_obs = new Float64Array(peaks_sorted_by_q.map(p => p.q));
+        const original_indices = peaks_sorted_by_q.map(p => p.original_index);
 
-            const q_obs = peaks.map(p => q_from_tth_local(p.tth));
-            const tth_obs = peaks.map(p => p.tth);
-            const N_FOR_M20 = Math.min(20, peaks.length);
+        // Pre-calculate theta in radians for tolerance calculations
+        const tth_obs_rad = new Float64Array(peaks.map(p => p.tth * Math.PI / 360));
+        const N_FOR_M20 = Math.min(20, peaks.length);
+
+        // Calculate d_min and q_max for dynamic HKL bounds
+        const d_min = wavelength / (2 * Math.sin(peaks.map(p => p.tth).sort((a,b)=>b-a)[0] * Math.PI / 360));
+        const q_max = 1 / (d_min * d_min);
+
+        const min_lattice_param = 3.0;
+        const max_lattice_param = 42.0;
+        const min_m20 = 2.0;
+        
+        // Search depth parameters
+        const max_hkl_low_angle_search = 5; //  reduced from 15+
+        const tetra_hexa_i_depth = Math.min(10, peaks.length); // Use fewer peaks for basis, bon, je vais perdre certains ?
+        const tetra_hexa_j_depth = Math.min(10, peaks.length);
+
+        const max_hkl_analysis = 10;
+        const spaceGroupData = { /* space group data */ 
+            cubic: { 'P': { 'Pm-3m': { c: [] }, 'Pn-3n': { c: ['0kl:k+l=2n', 'hhl:l=2n'] }, 'Pm-3n': { c: ['hk0:h+k=2n'] }, 'Pa-3': { c: ['hk0:h=2n'] }, 'Pn-3m': { c: ['hhl:l=2n'] } }, 'I': { 'Im-3m': { c: [] }, 'Ia-3': { c: ['0kl:k=2n'] }, 'Ia-3d': { c: ['0kl:k=2n,l=2n', 'hhl:2h+l=4n'] } }, 'F': { 'Fm-3m': { c: [] }, 'Fd-3m': { c: ['0kl:k+l=4n'] }, 'Fm-3c': { c: ['hhl:l=2n'] } } },
+            tetragonal: { 'P': { 'P4/mmm': { c: [] }, 'P4/mcc': { c: ['hhl:l=2n', '0kl:l=2n'] }, 'P4/nmm': { c: ['hk0:h+k=2n'] }, 'P4/ncc': { c: ['hk0:h+k=2n', '0kl:l=2n'] }, 'P4_2/mcm': { c: ['0kl:l=2n', 'hhl:l=2n'] }, 'P4_2/mnm': { c: ['0kl:k+l=2n', 'h00:h=2n'] }, 'P4_2/nmc': { c: ['hk0:h+k=2n', 'h0l:l=2n'] }, 'P4_2/nbc': { c: ['hk0:h+k=2n', '0kl:k=2n'] } }, 'I': { 'I4/mmm': { c: [] }, 'I4/mcm': { c: ['0kl:l=2n', 'hhl:l=2n'] }, 'I4_1/a': { c: ['hkl:2h+l=4n'] }, 'I4_1/amd': { c: ['hkl:2h+l=4n', 'hk0:h=2n,k=2n'] }, 'I4_1/acd': { c: ['hkl:2h+l=4n', 'hk0:h=2n,k=2n', '0kl:k=2n,l=2n'] } } },
+            hexagonal: { 'P': { 'P6/mmm': { c: [] }, 'P6/mcc': { c: ['h-hl:l=2n', '00l:l=2n'] }, 'P6_3/mmc': { c: ['00l:l=2n'] }, 'P6_3/mcm': { c: ['h-hl:l=2n', '00l:l=2n'] }, 'P-3': { c: [] }, 'P-3m1': { c: [] }, 'P-31m': { c: [] }, }, 'R': { 'R-3': { c: [] }, 'R-3m': { c: [] }, 'R-3c': { c: ['h-hl:l=2n'] } } },
+            orthorhombic: { 'P': { 'Pmmm': { c: [] }, 'Pnnn': { c: ['0kl:k+l=2n', 'h0l:h+l=2n', 'hk0:h+k=2n'] }, 'Pccm': { c: ['h0l:l=2n', '0kl:l=2n'] }, 'Pban': { c: ['0kl:k=2n', 'h0l:h=2n'] }, 'Pccn': { c: ['h0l:l=2n', '0kl:k=2n'] }, 'Pbcm': { c: ['0kl:k=2n', 'h0l:l=2n'] }, 'Pnnm': { c: ['hk0:h+k=2n'] }, 'Pnma': { c: ['0kl:k+l=2n', 'hk0:h=2n'] }, 'Pbca': { c: ['0kl:k=2n', 'h0l:l=2n', 'hk0:h=2n'] }, 'P2_12_12_1': { c: ['h00:h=2n', '0k0:k=2n', '00l:l=2n'] } }, 'C': { 'Cmmm': { c: [] }, 'Cmcm': { c: ['h0l:l=2n'] }, 'Cmce': { c: ['0kl:l=2n', 'h0l:h+l=2n'] }, 'Cccm': { c: ['h0l:l=2n'] }, 'Ccce': { c: ['h0l:l=2n', 'hhl:l=2n'] }, }, 'I': { 'Immm': { c: [] }, 'Ibam': { c: ['0kl:k=2n'] }, 'Ibca': { c: ['0kl:k=2n', 'h0l:l=2n'] }, 'Imma': { c: ['0kl:k+l=2n'] } }, 'F': { 'Fmmm': { c: [] }, 'Fddd': { c: ['0kl:k+l=4n', 'h0l:h+l=4n', 'hk0:h+k=4n'] } } },
+            monoclinic: { 'P': { 'P2/m': { c: [] }, 'P2_1/m': { c: ['0k0:k=2n'] }, 'P2/c': { c: ['h0l:l=2n'] }, 'P2_1/c': { c: ['h0l:l=2n', '0k0:k=2n'] } }, 'C': { 'C2/m': { c: [] }, 'C2/c': { c: ['h0l:l=2n'] } } }
+        };
+
+
+        const get_q_tolerance = (original_peak_index) => {
+            const theta = tth_obs_rad[original_peak_index];
+            const d_theta = tth_error * Math.PI / 360;
+            // dq/d(theta) = (8*sin(theta)*cos(theta))/lambda^2
+            return ((8 * Math.sin(theta) * Math.cos(theta)) / (wavelength * wavelength)) * d_theta;
+        };
+
+        const binarySearchClosest = (arr, target) => {
+            let low = 0, high = arr.length - 1;
+            if (target <= arr[low]) return low;
+            if (target >= arr[high]) return high;
+            while (low <= high) {
+                let mid = Math.floor((low + high) / 2);
+                if (arr[mid] === target) return mid;
+                if (arr[mid] < target) low = mid + 1;
+                else high = mid - 1;
+            }
+            return (arr[low] - target) < (target - arr[high]) ? low : high;
+        };
+        
+        // Suggestion 6: Rewritten M20 calculation with O(N log N) matching
+        const calculateM20 = (q_calc_sorted) => {
+            if (q_calc_sorted.length === 0) return 0;
+            let N_indexed = 0;
+            let sum_delta_q = 0;
+            for (let i = 0; i < N_FOR_M20; i++) {
+                const q_o = q_obs[i];
+                const tolerance = get_q_tolerance(original_indices[i]);
+                const closest_idx = binarySearchClosest(q_calc_sorted, q_o);
+                const diff = Math.abs(q_o - q_calc_sorted[closest_idx]);
+                if (diff < tolerance) {
+                    N_indexed++;
+                    sum_delta_q += diff;
+                }
+            }
+
+            const unindexed_peaks = N_FOR_M20 - N_indexed;
+            if (unindexed_peaks > impurity_peaks) return 0;
+            if (N_indexed === 0) return 0;
+
+            const q_n = q_obs[N_FOR_M20 - 1];
+            let N_calc = 0;
+            for (let i = 0; i < q_calc_sorted.length; i++) {
+                if (q_calc_sorted[i] > q_n * 1.05) break;
+                N_calc++;
+            }
+
+            if (N_calc === 0) return 0;
+            const avg_delta_q = sum_delta_q / N_indexed;
+            if (avg_delta_q === 0) return 0;
+            return q_n / (2 * avg_delta_q * N_calc);
+        };
+
+        const testSolution = (params) => {
+            let {a, b, c, alpha, beta, gamma, system} = params;
+            // Suggestion 1: Apply parameter limits early
+            if (a < min_lattice_param || a > max_lattice_param ||
+                (b && (b < min_lattice_param || b > max_lattice_param)) ||
+                (c && (c < min_lattice_param || c > max_lattice_param))) {
+                return;
+            }
+
+            if (system === 'monoclinic' && beta < 90.0) {
+                beta = 180.0 - beta;
+            }
+
+            let volume = 0;
+            switch(system){
+                case 'cubic': volume = a*a*a; break;
+                case 'tetragonal': volume = a*a*c; break;
+                case 'hexagonal': volume = a*a*c * Math.sqrt(3)/2; break;
+                case 'orthorhombic': volume = a*b*c; break;
+                case 'monoclinic': volume = a*b*c*Math.sin(beta * Math.PI / 180); break;
+            }
+            if (volume > max_volume || volume < 20) return;
+
+            //  Dynamic HKL bounds and early loop exit
+            const q_calc = new Set();
+            const h_max = Math.ceil(a / d_min);
+            const k_max = b ? Math.ceil(b / d_min) : h_max;
+            const l_max = c ? Math.ceil(c / d_min) : h_max;
             
-            // Search depth parameters
-            const max_hkl_indexing = 15;
-            const cubic_search_depth = 15;
-            const tetra_hexa_i_depth = 15;
-            const tetra_hexa_j_depth = 15;
-            const max_hkl_analysis = 10;
-            const min_m20 = 1.0;
-            const min_lattice_param = 2.7;
-
-
-            const spaceGroupData = {
-                cubic: {
-                    'P': {
-                        'Pm-3m': { c: [] },
-                        'Pn-3n': { c: ['0kl:k+l=2n', 'hhl:l=2n'] },
-                        'Pm-3n': { c: ['hk0:h+k=2n'] },
-                        'Pa-3': { c: ['hk0:h=2n'] },
-                        'Pn-3m': { c: ['hhl:l=2n'] }
-                    },
-                    'I': {
-                        'Im-3m': { c: [] },
-                        'Ia-3': { c: ['0kl:k=2n'] },
-                        'Ia-3d': { c: ['0kl:k=2n,l=2n', 'hhl:2h+l=4n'] }
-                    },
-                    'F': {
-                        'Fm-3m': { c: [] },
-                        'Fd-3m': { c: ['0kl:k+l=4n'] },
-                        'Fm-3c': { c: ['hhl:l=2n'] }
-                    }
-                },
-                tetragonal: {
-                    'P': {
-                        'P4/mmm': { c: [] },
-                        'P4/mcc': { c: ['hhl:l=2n', '0kl:l=2n'] },
-                        'P4/nmm': { c: ['hk0:h+k=2n'] },
-                        'P4/ncc': { c: ['hk0:h+k=2n', '0kl:l=2n'] }, // Added
-                        'P4_2/mcm': { c: ['0kl:l=2n', 'hhl:l=2n'] },
-                        'P4_2/mnm': { c: ['0kl:k+l=2n', 'h00:h=2n'] },
-                        'P4_2/nmc': { c: ['hk0:h+k=2n', 'h0l:l=2n'] }, // Added
-                        'P4_2/nbc': { c: ['hk0:h+k=2n', '0kl:k=2n'] }  // Added
-                    },
-                    'I': {
-                        'I4/mmm': { c: [] },
-                        'I4/mcm': { c: ['0kl:l=2n', 'hhl:l=2n'] },
-                        'I4_1/a': { c: ['hkl:2h+l=4n'] }, // Added
-                        'I4_1/amd': { c: ['hkl:2h+l=4n', 'hk0:h=2n,k=2n'] },
-                        'I4_1/acd': { c: ['hkl:2h+l=4n', 'hk0:h=2n,k=2n', '0kl:k=2n,l=2n'] }
-                    }
-                },
-                hexagonal: { // Includes Trigonal space groups with hexagonal lattice
-                    'P': {
-                        'P6/mmm': { c: [] },
-                        'P6/mcc': { c: ['h-hl:l=2n', '00l:l=2n'] },
-                        'P6_3/mmc': { c: ['00l:l=2n'] },
-                        'P6_3/mcm': { c: ['h-hl:l=2n', '00l:l=2n'] },
-                        'P-3': { c: [] }, // Added
-                        'P-3m1': { c: [] }, // Added
-                        'P-31m': { c: [] }, // Added
-                    },
-                    'R': { // Rhombohedral setting
-                        'R-3': { c: [] }, // Added
-                        'R-3m': { c: [] },
-                        'R-3c': { c: ['h-hl:l=2n'] }
-                    }
-                },
-                orthorhombic: {
-                    'P': {
-                        'Pmmm': { c: [] },
-                        'Pnnn': { c: ['0kl:k+l=2n', 'h0l:h+l=2n', 'hk0:h+k=2n'] },
-                        'Pccm': { c: ['h0l:l=2n', '0kl:l=2n'] }, // Added
-                        'Pban': { c: ['0kl:k=2n', 'h0l:h=2n'] }, // Added
-                        'Pccn': { c: ['h0l:l=2n', '0kl:k=2n'] },
-                        'Pbcm': { c: ['0kl:k=2n', 'h0l:l=2n'] }, // Added
-                        'Pnnm': { c: ['hk0:h+k=2n'] }, // Added
-                        'Pnma': { c: ['0kl:k+l=2n', 'hk0:h=2n'] },
-                        'Pbca': { c: ['0kl:k=2n', 'h0l:l=2n', 'hk0:h=2n'] },
-                        'P2_12_12_1': { c: ['h00:h=2n', '0k0:k=2n', '00l:l=2n'] } // Added P212121
-                    },
-                    'C': {
-                        'Cmmm': { c: [] },
-                        'Cmcm': { c: ['h0l:l=2n'] }, // Added
-                        'Cmce': { c: ['0kl:l=2n', 'h0l:h+l=2n'] },
-                        'Cccm': { c: ['h0l:l=2n'] },
-                        'Ccce': { c: ['h0l:l=2n', 'hhl:l=2n'] }, // Added
-                    },
-                    'I': {
-                        'Immm': { c: [] },
-                        'Ibam': { c: ['0kl:k=2n'] }, // Added
-                        'Ibca': { c: ['0kl:k=2n', 'h0l:l=2n'] },
-                        'Imma': { c: ['0kl:k+l=2n'] }
-                    },
-                    'F': {
-                        'Fmmm': { c: [] },
-                        'Fddd': { c: ['0kl:k+l=4n', 'h0l:h+l=4n', 'hk0:h+k=4n'] }
-                    }
-                },
-                monoclinic: {
-                    'P': {
-                        'P2/m': { c: [] },
-                        'P2_1/m': { c: ['0k0:k=2n'] },
-                        'P2/c': { c: ['h0l:l=2n'] },
-                        'P2_1/c': { c: ['h0l:l=2n', '0k0:k=2n'] }
-                    },
-                    'C': {
-                        'C2/m': { c: [] },
-                        'C2/c': { c: ['h0l:l=2n'] }
-                    }
-                }
-            };
-
-            const q_from_tth = (tth) => {
-                const d = wavelength / (2 * Math.sin(tth * Math.PI / 360));
-                return 1 / (d * d);
-            };
-
-            const get_q_tolerance = (tth) => {
-                const q_plus = q_from_tth(tth + tth_error);
-                const q_minus = q_from_tth(tth - tth_error);
-                return Math.abs(q_plus - q_minus) / 2;
-            };
-
-            const calculateM20 = (q_calc_sorted) => {
-                let N_indexed = 0;
-                let sum_delta_q = 0;
-                for(let i=0; i < N_FOR_M20; i++){
-                    const q_o = q_obs[i];
-                    const tolerance = get_q_tolerance(tth_obs[i]);
-                    let min_diff = Infinity;
-                    let found = false;
-                    for(const q_c of q_calc_sorted){
-                        const diff = Math.abs(q_o - q_c);
-                        if(diff < tolerance){
-                           min_diff = Math.min(min_diff, diff);
-                           found = true;
+            for (let h = 0; h <= h_max; h++) {
+                for (let k = 0; k <= k_max; k++) {
+                    if ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal') && k > h) continue;
+                    for (let l = 0; l <= l_max; l++) {
+                        if (system === 'cubic' && l > k) continue;
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        let q = 0;
+                        switch (system) {
+                            case 'cubic': q = (h*h + k*k + l*l) / (a*a); break;
+                            case 'tetragonal': q = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                            case 'hexagonal': q = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                            case 'orthorhombic': 
+                                 const q_h = h*h/(a*a); if(q_h > q_max*1.05) continue;
+                                 const q_hk = q_h + k*k/(b*b); if(q_hk > q_max*1.05) continue;
+                                 q = q_hk + l*l/(c*c);
+                                 break;
+                            case 'monoclinic':
+                                 const sinBeta = Math.sin(beta * Math.PI / 180);
+                                 const cosBeta = Math.cos(beta * Math.PI / 180);
+                                 q = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
+                                 break;
                         }
-                    }
-                    if(found) {
-                        N_indexed++;
-                        sum_delta_q += min_diff;
+                        if (q > q_max * 1.05) continue;
+                        if (q > 0) q_calc.add(q);
                     }
                 }
+            }
 
-                const unindexed_peaks = N_FOR_M20 - N_indexed;
-                if (unindexed_peaks > impurity_peaks) return 0;
+            const q_calc_sorted = new Float64Array(Array.from(q_calc)).sort((x, y) => x - y);
+            const m20 = calculateM20(q_calc_sorted);
 
-                if (N_indexed === 0) return 0;
-
-                const q_n = q_obs[N_FOR_M20 - 1];
-                const N_calc = q_calc_sorted.filter(q => q <= q_n * 1.05).length;
-                if (N_calc === 0) return 0;
-                const avg_delta_q = sum_delta_q / N_indexed;
-                if (avg_delta_q === 0) return 0;
-
-                return q_n / (2 * avg_delta_q * N_calc);
-            };
-
-
-            const testSolution = (params) => {
-                // FIX: Changed 'const' to 'let' to allow reassignment for the monoclinic case.
-                let {a, b, c, alpha, beta, gamma, system} = params;
-
-                // For monoclinic, ensure beta is obtuse by convention
-                if (system === 'monoclinic' && beta < 90.0) {
-                    const beta_rad = beta * Math.PI / 180;
-                    const a_new = Math.sqrt(a*a + c*c + 2*a*c*Math.cos(beta_rad));
-                    const beta_new = 180.0 - beta;
-                    
-                    // Update the parameters for the rest of the function
-                    // This now works because 'a' and 'beta' were declared with 'let'.
-                    a = a_new;
-                    beta = beta_new;
-                }
-
-                if (a < min_lattice_param || (b && b < min_lattice_param) || (c && c < min_lattice_param)) {
-                    return;
-                }
-
-                let volume = 0;
-                switch(system){
-                    case 'cubic': volume = a*a*a; break;
-                    case 'tetragonal': volume = a*a*c; break;
-                    case 'hexagonal': volume = a*a*c * Math.sqrt(3)/2; break;
-                    case 'orthorhombic': volume = a*b*c; break;
-                    case 'monoclinic': volume = a*b*c*Math.sin(beta * Math.PI / 180); break;
-                }
-                if (volume > max_volume || volume < 1) return;
-
-                const q_calc = new Set();
-                for (let h = 0; h <= max_hkl_indexing; h++) {
-                    for (let k = 0; k <= max_hkl_indexing; k++) {
-                        for (let l = 0; l <= max_hkl_indexing; l++) {
-                             if (system === 'cubic' && (k > h || l > k)) continue;
-                             if ((system === 'tetragonal' || system === 'hexagonal') && k > h) continue;
-                            if (h === 0 && k === 0 && l === 0) continue;
-                            let q = 0;
-                            switch (system) {
-                                case 'cubic': q = (h*h + k*k + l*l) / (a*a); break;
-                                case 'tetragonal': q = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
-                                case 'hexagonal': q = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
-                                case 'orthorhombic': q = h*h/(a*a) + k*k/(b*b) + l*l/(c*c); break;
-                                case 'monoclinic':
-                                     const sinBeta = Math.sin(beta * Math.PI / 180);
-                                     const cosBeta = Math.cos(beta * Math.PI / 180);
-                                     q = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
-                                     break;
-                            }
-                            if(q > 0) q_calc.add(q);
-                        }
-                    }
-                }
-                const q_calc_sorted = Array.from(q_calc).sort((x, y) => x - y);
-                const m20 = calculateM20(q_calc_sorted);
-
-                if (m20 > min_m20) {
-                    const analysis = analyzeSystematicAbsences({a, b, c, alpha, beta, gamma, system}, peaks);
-                    const newSolution = {a, b, c, alpha, beta, gamma, system, volume, m20, analysis};
-
-                    let isDuplicate = foundSolutions.some(existing => {
-                        if (existing.system !== system) return false;
-                        if (system === 'cubic') {
-                            return Math.abs(a - existing.a) / a < DUPLICATE_TOLERANCE;
-                        } else if (system === 'tetragonal' || system === 'hexagonal') {
-                            return Math.abs(a - existing.a) / a < DUPLICATE_TOLERANCE && Math.abs(c - existing.c) / c < DUPLICATE_TOLERANCE;
-                        } else if (system === 'orthorhombic') {
-                            const newParams = [a, b, c].sort((x,y) => x-y);
-                            const existingParams = [existing.a, existing.b, existing.c].sort((x,y) => x-y);
-                            return newParams.every((p, idx) => Math.abs(p - existingParams[idx]) / p < DUPLICATE_TOLERANCE);
-                        } else if (system === 'monoclinic') {
-                            return Math.abs(volume - existing.volume) / volume < DUPLICATE_TOLERANCE && Math.abs(beta - existing.beta) / beta < DUPLICATE_TOLERANCE;
-                        }
-                        return false;
-                    });
-
-                    if (!isDuplicate) {
-                        foundSolutions.push(newSolution);
-                        self.postMessage({ type: 'solution', payload: newSolution });
-                    }
-                }
-            };
-
-            const analyzeSystematicAbsences = (solution, obs_peaks) => {
-                const { system } = solution;
-                const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p=>p.tth)));
-                const obs_hkl_list = [];
-                const used_peaks = new Set();
-                all_hkls.forEach(hkl => {
-                    let bestMatch = null; let minDiff = Infinity;
-                    obs_peaks.forEach((peak, index) => {
-                        if (used_peaks.has(index)) return;
-                        const diff = Math.abs(hkl.d - peak.d);
-                        if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; }
-                    });
-                    if (bestMatch) {
-                        const tolerance = get_q_tolerance(bestMatch.peak.tth);
-                        const d_tolerance = Math.abs(1/Math.sqrt(bestMatch.peak.q + tolerance) - 1/Math.sqrt(bestMatch.peak.q - tolerance)) / 2;
-                        if (minDiff < d_tolerance) {
-                           obs_hkl_list.push(hkl); used_peaks.add(bestMatch.index);
-                        }
-                    }
+            if (m20 > min_m20) {
+                const analysis = analyzeSystematicAbsences({a, b, c, alpha, beta, gamma, system}, peaks);
+                const newSolution = {a, b, c, alpha, beta, gamma, system, volume, m20, analysis};
+                let isDuplicate = foundSolutions.some(existing => {
+                    if (existing.system !== system) return false;
+                    if (system === 'monoclinic') return Math.abs(volume - existing.volume) / volume < DUPLICATE_TOLERANCE && Math.abs(beta - existing.beta) / beta < DUPLICATE_TOLERANCE;
+                    const newParams = [a, b, c].filter(Boolean).sort((x,y)=>x-y);
+                    const exParams = [existing.a, existing.b, existing.c].filter(Boolean).sort((x,y)=>x-y);
+                    if (newParams.length !== exParams.length) return false;
+                    return newParams.every((p, idx) => Math.abs(p - exParams[idx]) / p < DUPLICATE_TOLERANCE);
                 });
-
-                let centering = 'Primitive (P)';
-                if (obs_hkl_list.length >= 3) {
-                     if (system === 'cubic' || system === 'tetragonal' || system === 'orthorhombic') {
-                        const violates_I = obs_hkl_list.some(({h,k,l}) => (h+k+l) % 2 !== 0);
-                        const violates_F = obs_hkl_list.some(({h,k,l}) => !((h%2===k%2)&&(k%2===l%2)));
-                        if (!violates_F) centering = 'Face (F)';
-                        else if (!violates_I) centering = 'Body (I)';
-                     }
-                    if ((system === 'orthorhombic' || system === 'monoclinic') && centering === 'Primitive (P)' && !obs_hkl_list.some(({h,k,l}) => (h+k) % 2 !== 0)) centering = 'C-Face (C)';
-                    if (system === 'hexagonal' && (!obs_hkl_list.some(({h,k,l}) => (-h+k+l)%3!==0) || !obs_hkl_list.some(({h,k,l}) => (h-k+l)%3!==0))) centering = 'Rhombohedral (R)';
+                if (!isDuplicate) {
+                    foundSolutions.push(newSolution);
+                    self.postMessage({ type: 'solution', payload: newSolution });
                 }
-                const centerChar = centering.charAt(centering.indexOf('(')+1);
-
-                const foundConditions = new Set();
-                const check = (filter, rule) => {
-                    const subset = obs_hkl_list.filter(filter);
-                    return subset.length === 0 || !subset.some(rule);
-                };
-                if (check(p => p.h !== 0 && p.k===0 && p.l===0, p => p.h%2 !== 0)) foundConditions.add('h00:h=2n');
-                if (check(p => p.k !== 0 && p.h===0 && p.l===0, p => p.k%2 !== 0)) foundConditions.add('0k0:k=2n');
-                if (check(p => p.l !== 0 && p.h===0 && p.k===0, p => p.l%2 !== 0)) foundConditions.add('00l:l=2n');
-                if (check(p => p.h!==0 && p.k!==0 && p.l===0, p => (p.h+p.k)%2 !== 0)) foundConditions.add('hk0:h+k=2n');
-                if (check(p => p.k!==0 && p.l!==0 && p.h===0, p => (p.k+p.l)%2 !== 0)) foundConditions.add('0kl:k+l=2n');
-                if (check(p => p.h!==0 && p.l!==0 && p.k===0, p => (p.h+p.l)%2 !== 0)) foundConditions.add('h0l:h+l=2n');
-                 if (system === 'monoclinic' && check(p => p.h!==0 && p.l!==0 && p.k===0, p => p.l%2 !== 0)) foundConditions.add('h0l:l=2n');
-                if (check(p => p.h===p.k && p.l!==0, p => p.l%2 !== 0)) foundConditions.add('hhl:l=2n');
-                if (check(p => p.h===-p.k && p.l!==0, p => p.l%2 !== 0)) foundConditions.add('h-hl:l=2n');
-
-                const sg_block = spaceGroupData[system]?.[centerChar] || {};
-                const possibleSpaceGroups = Object.keys(sg_block);
-                const probableSpaceGroups = possibleSpaceGroups.filter(sg =>
-                    (sg_block[sg].c || []).every(cond => foundConditions.has(cond))
-                );
-
-                return { centering, conditions: Array.from(foundConditions), possibleSpaceGroups, probableSpaceGroups };
-            };
-
-            const generateHKL_for_analysis = (params, lambda, maxTth) => {
-                 const { a, b, c, beta, system } = params;
-                 const reflections = [];
-                 for (let h = -max_hkl_analysis; h <= max_hkl_analysis; h++) {
-                     for (let k = -max_hkl_analysis; k <= max_hkl_analysis; k++) {
-                         for (let l = -max_hkl_analysis; l <= max_hkl_analysis; l++) {
-                             if (h === 0 && k === 0 && l === 0) continue;
-                             let inv_d_sq = 0;
-                             switch (system) {
-                                 case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
-                                 case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
-                                 case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
-                                 case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
-                                 case 'monoclinic':
-                                     const sinBeta = Math.sin(beta * Math.PI / 180);
-                                     const cosBeta = Math.cos(beta * Math.PI / 180);
-                                     inv_d_sq = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
-                                     break;
-                             }
-                             if (inv_d_sq > 0) {
-                                  const d = 1 / Math.sqrt(inv_d_sq);
-                                  const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-                                  if (sinThetaSq <= 1) {
-                                     const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-                                     if(tth <= maxTth*1.05) reflections.push({ tth, h, k, l, d });
-                                  }
-                             }
+            }
+        };
+        const analyzeSystematicAbsences = (solution, obs_peaks) => { /* unchanged */ 
+            const { system } = solution;
+            const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p=>p.tth)));
+            const obs_hkl_list = [];
+            const used_peaks = new Set();
+            all_hkls.forEach(hkl => {
+                let bestMatch = null; let minDiff = Infinity;
+                obs_peaks.forEach((peak, index) => {
+                    if (used_peaks.has(index)) return;
+                    const diff = Math.abs(hkl.d - peak.d);
+                    if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; }
+                });
+                if (bestMatch) {
+                    const tolerance = get_q_tolerance(bestMatch.index);
+                    const d_tolerance = Math.abs(1/Math.sqrt(bestMatch.peak.q + tolerance) - 1/Math.sqrt(bestMatch.peak.q - tolerance)) / 2;
+                    if (minDiff < d_tolerance) {
+                       obs_hkl_list.push(hkl); used_peaks.add(bestMatch.index);
+                    }
+                }
+            });
+            let centering = 'Primitive (P)';
+            if (obs_hkl_list.length >= 3) {
+                 if (system === 'cubic' || system === 'tetragonal' || system === 'orthorhombic') {
+                    const violates_I = obs_hkl_list.some(({h,k,l}) => (h+k+l) % 2 !== 0);
+                    const violates_F = obs_hkl_list.some(({h,k,l}) => !((h%2===k%2)&&(k%2===l%2)));
+                    if (!violates_F) centering = 'Face (F)';
+                    else if (!violates_I) centering = 'Body (I)';
+                 }
+                if ((system === 'orthorhombic' || system === 'monoclinic') && centering === 'Primitive (P)' && !obs_hkl_list.some(({h,k,l}) => (h+k) % 2 !== 0)) centering = 'C-Face (C)';
+                if (system === 'hexagonal' && (!obs_hkl_list.some(({h,k,l}) => (-h+k+l)%3!==0) || !obs_hkl_list.some(({h,k,l}) => (h-k+l)%3!==0))) centering = 'Rhombohedral (R)';
+            }
+            const centerChar = centering.charAt(centering.indexOf('(')+1);
+            const foundConditions = new Set();
+            const check = (filter, rule) => { const subset = obs_hkl_list.filter(filter); return subset.length === 0 || !subset.some(rule); };
+            if (check(p => p.h !== 0 && p.k===0 && p.l===0, p => p.h%2 !== 0)) foundConditions.add('h00:h=2n');
+            if (check(p => p.k !== 0 && p.h===0 && p.l===0, p => p.k%2 !== 0)) foundConditions.add('0k0:k=2n');
+            if (check(p => p.l !== 0 && p.h===0 && p.k===0, p => p.l%2 !== 0)) foundConditions.add('00l:l=2n');
+            if (check(p => p.h!==0 && p.k!==0 && p.l===0, p => (p.h+p.k)%2 !== 0)) foundConditions.add('hk0:h+k=2n');
+            if (check(p => p.k!==0 && p.l!==0 && p.h===0, p => (p.k+p.l)%2 !== 0)) foundConditions.add('0kl:k+l=2n');
+            if (check(p => p.h!==0 && p.l!==0 && p.k===0, p => (p.h+p.l)%2 !== 0)) foundConditions.add('h0l:h+l=2n');
+            if (system === 'monoclinic' && check(p => p.h!==0 && p.l!==0 && p.k===0, p => p.l%2 !== 0)) foundConditions.add('h0l:l=2n');
+            if (check(p => p.h===p.k && p.l!==0, p => p.l%2 !== 0)) foundConditions.add('hhl:l=2n');
+            if (check(p => p.h===-p.k && p.l!==0, p => p.l%2 !== 0)) foundConditions.add('h-hl:l=2n');
+            const sg_block = spaceGroupData[system]?.[centerChar] || {};
+            const possibleSpaceGroups = Object.keys(sg_block);
+            const probableSpaceGroups = possibleSpaceGroups.filter(sg => (sg_block[sg].c || []).every(cond => foundConditions.has(cond)));
+            return { centering, conditions: Array.from(foundConditions), possibleSpaceGroups, probableSpaceGroups };
+         };
+        const generateHKL_for_analysis = (params, lambda, maxTth) => { /* unchanged */
+             const { a, b, c, beta, system } = params;
+             const reflections = [];
+             for (let h = -max_hkl_analysis; h <= max_hkl_analysis; h++) {
+                 for (let k = -max_hkl_analysis; k <= max_hkl_analysis; k++) {
+                     for (let l = -max_hkl_analysis; l <= max_hkl_analysis; l++) {
+                         if (h === 0 && k === 0 && l === 0) continue;
+                         let inv_d_sq = 0;
+                         switch (system) {
+                             case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
+                             case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                             case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
+                             case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                             case 'monoclinic':
+                                 const sinBeta = Math.sin(beta * Math.PI / 180);
+                                 const cosBeta = Math.cos(beta * Math.PI / 180);
+                                 inv_d_sq = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
+                                 break;
+                         }
+                         if (inv_d_sq > 0) {
+                              const d = 1 / Math.sqrt(inv_d_sq);
+                              const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+                              if (sinThetaSq <= 1) {
+                                 const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                                 if(tth <= maxTth*1.05) reflections.push({ tth, h, k, l, d });
+                              }
                          }
                      }
                  }
-                 return reflections.sort((a, b) => a.tth - b.tth);
-            };
-
-            const indexCubic = () => {
-                for (let i = 0; i < Math.min(cubic_search_depth, q_obs.length); i++) {
-                    for (let h = 1; h <= max_hkl_indexing; h++) {
-                        for (let k = 0; k <= h; k++) {
-                            for (let l = 0; l <= k; l++) {
-                                const S = h * h + k * k + l * l;
-                                if (S === 0) continue;
-                                testSolution({a: Math.sqrt(S / q_obs[i]), system: 'cubic', alpha: 90, beta: 90, gamma: 90});
-                            }
-                        }
-                    }
-                }
-            };
-            const indexTetragonal = () => {
-                for (let i = 0; i < Math.min(tetra_hexa_i_depth, q_obs.length); i++) {
-                    for (let j = i + 1; j < Math.min(tetra_hexa_j_depth, q_obs.length); j++) {
-                        for (let h1 = 0; h1 <= max_hkl_indexing; h1++) {
-                            for (let k1 = 0; k1 <= h1; k1++) {
-                                for (let l1 = 0; l1 <= max_hkl_indexing; l1++) {
-                                    if (h1 === 0 && k1 === 0 && l1 === 0) continue;
-                                    const S1 = h1*h1 + k1*k1;
-                                    for (let h2 = 0; h2 <= max_hkl_indexing; h2++) {
-                                        for (let k2 = 0; k2 <= h2; k2++) {
-                                            for (let l2 = 0; l2 <= max_hkl_indexing; l2++) {
-                                                if (h2 === 0 && k2 === 0 && l2 === 0) continue;
-                                                const S2 = h2*h2 + k2*k2;
-                                                const det = S1 * l2*l2 - S2 * l1*l1;
-                                                if (Math.abs(det) < 1e-6) continue;
-                                                const a_sq_inv = (q_obs[i] * l2*l2 - q_obs[j] * l1*l1) / det;
-                                                const c_sq_inv = (q_obs[j] * S1 - q_obs[i] * S2) / det;
-                                                if (a_sq_inv > 0 && c_sq_inv > 0) {
-                                                    testSolution({a: 1/Math.sqrt(a_sq_inv), c: 1/Math.sqrt(c_sq_inv), system: 'tetragonal', alpha: 90, beta: 90, gamma: 90});
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-            const indexHexagonal = () => {
-                for (let i = 0; i < Math.min(tetra_hexa_i_depth, q_obs.length); i++) {
-                    for (let j = i + 1; j < Math.min(tetra_hexa_j_depth, q_obs.length); j++) {
-                        for (let h1 = 0; h1 <= max_hkl_indexing; h1++) {
-                            for (let k1 = 0; k1 <= h1; k1++) {
-                                for (let l1 = 0; l1 <= max_hkl_indexing; l1++) {
-                                    if(h1 === 0 && k1 === 0 && l1 === 0) continue;
-                                    const S1 = h1*h1 + h1*k1 + k1*k1;
-                                    for(let h2 = 0; h2 <= max_hkl_indexing; h2++) {
-                                        for(let k2 = 0; k2 <= h2; k2++) {
-                                            for(let l2 = 0; l2 <= max_hkl_indexing; l2++) {
-                                                if(h2 === 0 && k2 === 0 && l2 === 0) continue;
-                                                const S2 = h2*h2 + h2*k2 + k2*k2;
-                                                const det = S1*l2*l2 - S2*l1*l1;
-                                                if(Math.abs(det) < 1e-6) continue;
-                                                const a_term = (q_obs[i]*l2*l2 - q_obs[j]*l1*l1) / det;
-                                                const c_inv = (q_obs[j]*S1 - q_obs[i]*S2) / det;
-                                                if(a_term > 0 && c_inv > 0) {
-                                                    testSolution({a: Math.sqrt(4/(3*a_term)), c: Math.sqrt(1/c_inv), system: 'hexagonal', alpha: 90, beta: 90, gamma: 120});
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-            
-            // --- Helper for matrix operations for Orthorhombic and Monoclinic ---
-            // Solves M * x = q for x using the pseudoinverse method.
-            const solveLeastSquares = (M, q_vec) => {
-                const num_eq = M.length;
-                if (num_eq === 0) return null;
-                const num_params = M[0].length;
-                if (num_eq < num_params) return null;
-
-                // Transpose M
-                const MT = Array(num_params).fill(0).map(() => Array(num_eq).fill(0));
-                for (let i = 0; i < num_params; i++) {
-                    for (let j = 0; j < num_eq; j++) {
-                        MT[i][j] = M[j][i];
-                    }
-                }
-                
-                // M^T * M
-                const MTM = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
-                for (let i = 0; i < num_params; i++) {
-                    for (let j = 0; j < num_params; j++) {
-                        let sum = 0;
-                        for (let k = 0; k < num_eq; k++) sum += MT[i][k] * M[k][j];
-                        MTM[i][j] = sum;
-                    }
-                }
-
-                // Invert MTM
-                let det;
-                if (num_params === 3) {
-                    det = MTM[0][0]*(MTM[1][1]*MTM[2][2] - MTM[2][1]*MTM[1][2]) -
-                          MTM[0][1]*(MTM[1][0]*MTM[2][2] - MTM[1][2]*MTM[2][0]) +
-                          MTM[0][2]*(MTM[1][0]*MTM[2][1] - MTM[1][1]*MTM[2][0]);
-                } else if (num_params === 4) {
-                    const m = MTM;
-                    det = m[0][0]*(m[1][1]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])+m[1][3]*(m[2][1]*m[3][2]-m[2][2]*m[3][1]))
-                        - m[0][1]*(m[1][0]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][2]-m[2][2]*m[3][0]))
-                        + m[0][2]*(m[1][0]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])-m[1][1]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))
-                        - m[0][3]*(m[1][0]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])-m[1][1]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])+m[1][2]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]));
-                } else { return null; }
-
-                if (Math.abs(det) < 1e-9) return null;
-                const invDet = 1.0 / det;
-                const MTM_inv = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
-
-                if (num_params === 3) {
-                     MTM_inv[0][0] = (MTM[1][1]*MTM[2][2] - MTM[2][1]*MTM[1][2])*invDet;
-                     MTM_inv[0][1] = (MTM[0][2]*MTM[2][1] - MTM[0][1]*MTM[2][2])*invDet;
-                     MTM_inv[0][2] = (MTM[0][1]*MTM[1][2] - MTM[0][2]*MTM[1][1])*invDet;
-                     MTM_inv[1][0] = (MTM[1][2]*MTM[2][0] - MTM[1][0]*MTM[2][2])*invDet;
-                     MTM_inv[1][1] = (MTM[0][0]*MTM[2][2] - MTM[0][2]*MTM[2][0])*invDet;
-                     MTM_inv[1][2] = (MTM[0][2]*MTM[1][0] - MTM[0][0]*MTM[1][2])*invDet;
-                     MTM_inv[2][0] = (MTM[1][0]*MTM[2][1] - MTM[2][0]*MTM[1][1])*invDet;
-                     MTM_inv[2][1] = (MTM[0][1]*MTM[2][0] - MTM[0][0]*MTM[2][1])*invDet;
-                     MTM_inv[2][2] = (MTM[0][0]*MTM[1][1] - MTM[0][1]*MTM[1][0])*invDet;
-                } else { // 4x4 adjugate
-                    const m = MTM;
-                    MTM_inv[0][0] = (m[1][1]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])+m[1][3]*(m[2][1]*m[3][2]-m[2][2]*m[3][1]))*invDet;
-                    MTM_inv[0][1] = -(m[0][1]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[0][2]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])+m[0][3]*(m[2][1]*m[3][2]-m[2][2]*m[3][1]))*invDet;
-                    MTM_inv[0][2] = (m[0][1]*(m[1][2]*m[3][3]-m[1][3]*m[3][2])-m[0][2]*(m[1][1]*m[3][3]-m[1][3]*m[3][1])+m[0][3]*(m[1][1]*m[3][2]-m[1][2]*m[3][1]))*invDet;
-                    MTM_inv[0][3] = -(m[0][1]*(m[1][2]*m[2][3]-m[1][3]*m[2][2])-m[0][2]*(m[1][1]*m[2][3]-m[1][3]*m[2][1])+m[0][3]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]))*invDet;
-                    MTM_inv[1][0] = -(m[1][0]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][2]-m[2][2]*m[3][0]))*invDet;
-                    MTM_inv[1][1] = (m[0][0]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[0][2]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[0][3]*(m[2][0]*m[3][2]-m[2][2]*m[3][0]))*invDet;
-                    MTM_inv[1][2] = -(m[0][0]*(m[1][2]*m[3][3]-m[1][3]*m[3][2])-m[0][2]*(m[1][0]*m[3][3]-m[1][3]*m[3][0])+m[0][3]*(m[1][0]*m[3][2]-m[1][2]*m[3][0]))*invDet;
-                    MTM_inv[1][3] = (m[0][0]*(m[1][2]*m[2][3]-m[1][3]*m[2][2])-m[0][2]*(m[1][0]*m[2][3]-m[1][3]*m[2][0])+m[0][3]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]))*invDet;
-                    MTM_inv[2][0] = (m[1][0]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])-m[1][1]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet;
-                    MTM_inv[2][1] = -(m[0][0]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])-m[0][1]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[0][3]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet;
-                    MTM_inv[2][2] = (m[0][0]*(m[1][1]*m[3][3]-m[1][3]*m[3][1])-m[0][1]*(m[1][0]*m[3][3]-m[1][3]*m[3][0])+m[0][3]*(m[1][0]*m[3][1]-m[1][1]*m[3][0]))*invDet;
-                    MTM_inv[2][3] = -(m[0][0]*(m[1][1]*m[2][3]-m[1][3]*m[2][1])-m[0][1]*(m[1][0]*m[2][3]-m[1][3]*m[2][0])+m[0][3]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]))*invDet;
-                    MTM_inv[3][0] = -(m[1][0]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])-m[1][1]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])+m[1][2]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet;
-                    MTM_inv[3][1] = (m[0][0]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])-m[0][1]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])+m[0][2]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet;
-                    MTM_inv[3][2] = -(m[0][0]*(m[1][1]*m[3][2]-m[1][2]*m[3][1])-m[0][1]*(m[1][0]*m[3][2]-m[1][2]*m[3][0])+m[0][2]*(m[1][0]*m[3][1]-m[1][1]*m[3][0]))*invDet;
-                    MTM_inv[3][3] = (m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]))*invDet;
-                }
-
-                // M^T * q
-                const MTq = Array(num_params).fill(0);
-                 for (let i = 0; i < num_params; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < num_eq; j++) sum += MT[i][j] * q_vec[j];
-                    MTq[i] = sum;
-                }
-
-                // x = (M^T * M)^-1 * (M^T * q)
-                const x = Array(num_params).fill(0);
-                 for (let i = 0; i < num_params; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < num_params; j++) sum += MTM_inv[i][j] * MTq[j];
-                    x[i] = sum;
-                }
-                return x;
-            };
-
-            const indexOrthorhombic = () => {
-                const max_peaks_basis = Math.min(15, q_obs.length);
-                const min_indexed_for_fit = 6;
-                const max_hkl_main = 6;
-
-                const hkl_triplets = [];
-                for (let h = 0; h <= max_hkl_main; h++) for (let k = 0; k <= max_hkl_main; k++) for (let l = 0; l <= max_hkl_main; l++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                    hkl_triplets.push([h, k, l]);
-                }
-                hkl_triplets.sort((a, b) => (a[0]**2 + a[1]**2 + a[2]**2) - (b[0]**2 + b[1]**2 + b[2]**2));
-                
-                const basis_hkls = hkl_triplets.slice(0, 30);
-
-                for (let i = 0; i < max_peaks_basis - 2; i++) {
-                    for (let j = i + 1; j < max_peaks_basis - 1; j++) {
-                        for (let k = j + 1; k < max_peaks_basis; k++) {
-                            for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) {
-                                for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) {
-                                    for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
-                                        
-                                        const hkl_basis = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]];
-                                        const M = hkl_basis.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2]);
-                                        const q_vec = [q_obs[i], q_obs[j], q_obs[k]];
-                                        const solution = solveLeastSquares(M, q_vec);
-                                        
-                                        if (!solution || solution.some(s => s <=0)) continue;
-                                        
-                                        const rough_params = {a: 1/Math.sqrt(solution[0]), b: 1/Math.sqrt(solution[1]), c: 1/Math.sqrt(solution[2])};
-                                        if (rough_params.a * rough_params.b * rough_params.c > max_volume) continue;
-                                        
-                                        // Tentatively index
-                                        const indexed_pairs = [];
-                                        const used_q_indices = new Set();
-                                        for (let peak_idx = 0; peak_idx < Math.min(20, q_obs.length); peak_idx++) {
-                                            if (used_q_indices.has(peak_idx)) continue;
-                                            const current_q_obs = q_obs[peak_idx];
-                                            const tolerance = get_q_tolerance(tth_obs[peak_idx]) * 10;
-                                            let best_match = null; let min_diff = Infinity;
-                                            for (const hkl of hkl_triplets) {
-                                                const q_calc = hkl[0]**2/(rough_params.a**2) + hkl[1]**2/(rough_params.b**2) + hkl[2]**2/(rough_params.c**2);
-                                                const diff = Math.abs(q_calc - current_q_obs);
-                                                if (diff < tolerance && diff < min_diff) { min_diff = diff; best_match = hkl; }
-                                                if (q_calc > current_q_obs + tolerance) break;
-                                            }
-                                            if (best_match) { indexed_pairs.push({ q_obs: current_q_obs, hkl: best_match }); used_q_indices.add(peak_idx); }
-                                        }
-
-                                        if (indexed_pairs.length >= min_indexed_for_fit) {
-                                            const M_refine = indexed_pairs.map(p => [p.hkl[0]**2, p.hkl[1]**2, p.hkl[2]**2]);
-                                            const q_refine = indexed_pairs.map(p => p.q_obs);
-                                            const refined_solution = solveLeastSquares(M_refine, q_refine);
-                                            
-                                            if (refined_solution && refined_solution.every(s => s > 0)) {
-                                                testSolution({ a: 1/Math.sqrt(refined_solution[0]), b: 1/Math.sqrt(refined_solution[1]), c: 1/Math.sqrt(refined_solution[2]), system: 'orthorhombic', alpha: 90, beta: 90, gamma: 90 });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-
-
-            const indexMonoclinic = () => {
-                const max_peaks_basis = Math.min(15, q_obs.length);
-                const min_indexed_for_fit = 7;
-                const max_hkl_main = 5;
-
-                const hkl_triplets = [];
-                for (let h = 0; h <= max_hkl_main; h++) {
-                    for (let k = 0; k <= max_hkl_main; k++) {
-                        for (let l = 0; l <= max_hkl_main; l++) {
-                            if (h === 0 && k === 0 && l === 0) continue;
-                            hkl_triplets.push([h, k, l]);
-                        }
-                    }
-                }
-                // Sort by complexity, which helps find low-index solutions first
-                hkl_triplets.sort((a, b) => (a[0]**2 + a[1]**2 + a[2]**2) - (b[0]**2 + b[1]**2 + b[2]**2));
-
-                const basis_hkls = hkl_triplets.slice(0, 35); // Use a slightly larger pool of indices
-
-                // We need 4 peaks to solve for 4 unknown parameters (A, B, C, D)
-                for (let i = 0; i < max_peaks_basis - 3; i++) {
-                    for (let j = i + 1; j < max_peaks_basis - 2; j++) {
-                        for (let k = j + 1; k < max_peaks_basis - 1; k++) {
-                            for (let l = k + 1; l < max_peaks_basis; l++) {
-                                // And we need to assign 4 hkl indices to these peaks
-                                for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) {
-                                    for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) {
-                                        for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) {
-                                            for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
-                                                
-                                                const hkl_basis = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
-                                                
-                                                // CORRECT: The matrix M for the linear equation Q = A*h^2 + B*k^2 + C*l^2 + D*hl
-                                                const M = hkl_basis.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
-                                                const q_vec = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
-                                                
-                                                // Solve for x = [A, B, C, D]
-                                                const solution = solveLeastSquares(M, q_vec);
-                                                
-                                                if (!solution) continue;
-                                                const [A, B, C, D] = solution;
-
-                                                // Check for physical validity
-                                                if (A <= 0 || B <= 0 || C <= 0) continue;
-
-                                                // Key validity check for monoclinic system: D^2 must be < 4*A*C for beta to be real
-                                                if (D**2 >= 4 * A * C) continue;
-                                                
-                                                // --- Derive cell parameters directly from the solution ---
-                                                const cosBeta = -D / (2 * Math.sqrt(A * C));
-                                                let beta = Math.acos(cosBeta) * 180 / Math.PI; // beta in degrees
-                                                
-                                                if (beta < 80 || beta > 140) continue; // Constrain to reasonable angles
-
-                                                const sinBetaSq = 1 - cosBeta**2;
-                                                
-                                                const a = 1 / Math.sqrt(A * sinBetaSq);
-                                                const b = 1 / Math.sqrt(B);
-                                                const c = 1 / Math.sqrt(C * sinBetaSq);
-
-                                                const rough_params = { a, b, c, beta };
-
-                                                if (a*b*c*Math.sqrt(sinBetaSq) > max_volume) continue;
-
-                                                // --- Tentatively index all peaks and refine the cell ---
-                                                const indexed_pairs = [];
-                                                const used_q_indices = new Set();
-                                                for (let peak_idx = 0; peak_idx < Math.min(20, q_obs.length); peak_idx++) {
-                                                    const current_q_obs = q_obs[peak_idx];
-                                                    const tolerance = get_q_tolerance(tth_obs[peak_idx]) * 10;
-                                                    let best_match = null; let min_diff = Infinity;
-
-                                                    for (const hkl of hkl_triplets) {
-                                                        const q_calc = (1/sinBetaSq) * (hkl[0]**2/a**2 + hkl[2]**2/c**2 - 2*hkl[0]*hkl[2]*cosBeta/(a*c)) + hkl[1]**2/b**2;
-                                                        const diff = Math.abs(q_calc - current_q_obs);
-                                                        if (diff < tolerance && diff < min_diff) {
-                                                            min_diff = diff;
-                                                            best_match = hkl;
-                                                        }
-                                                        if (q_calc > current_q_obs + tolerance) break;
-                                                    }
-                                                    if (best_match) {
-                                                        indexed_pairs.push({ q_obs: current_q_obs, hkl: best_match });
-                                                        used_q_indices.add(peak_idx);
-                                                    }
-                                                }
-
-                                                if (indexed_pairs.length >= min_indexed_for_fit) {
-                                                    const M_refine = indexed_pairs.map(p => [p.hkl[0]**2, p.hkl[1]**2, p.hkl[2]**2, p.hkl[0]*p.hkl[2]]);
-                                                    const q_refine = indexed_pairs.map(p => p.q_obs);
-                                                    const refined_solution = solveLeastSquares(M_refine, q_refine);
-                                                    
-                                                    if (refined_solution) {
-                                                        const [rA, rB, rC, rD] = refined_solution;
-                                                        if (rA > 0 && rB > 0 && rC > 0 && rD**2 < 4 * rA * rC) {
-                                                            const rCosBeta = -rD / (2 * Math.sqrt(rA * rC));
-                                                            const rBeta = Math.acos(rCosBeta) * 180 / Math.PI;
-                                                            const rSinBetaSq = 1 - rCosBeta**2;
-                                                            
-                                                            testSolution({
-                                                                a: 1 / Math.sqrt(rA * rSinBetaSq),
-                                                                b: 1 / Math.sqrt(rB),
-                                                                c: 1 / Math.sqrt(rC * rSinBetaSq),
-                                                                beta: rBeta,
-                                                                system: 'monoclinic',
-                                                                alpha: 90,
-                                                                gamma: 90
-                                                            });
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-
-            // Main worker execution flow
-            if (systemToSearch === 'cubic') indexCubic();
-            if (systemToSearch === 'tetragonal') indexTetragonal();
-            if (systemToSearch === 'hexagonal') indexHexagonal();
-            if (systemToSearch === 'orthorhombic') indexOrthorhombic();
-            if (systemToSearch === 'monoclinic') indexMonoclinic();
-            
-            self.postMessage({ type: 'done' });
+             }
+             return reflections.sort((a, b) => a.tth - b.tth);
         };
-    </script>
+        const indexCubic = () => {
+            const h_max = 8;
+            for (let i = 0; i < Math.min(peaks.length, 10); i++) {
+                for (let h = 1; h <= h_max; h++) {
+                    for (let k = 0; k <= h; k++) {
+                        for (let l = 0; l <= k; l++) {
+                            const S = h * h + k * k + l * l;
+                            if (S === 0) continue;
+                            testSolution({a: Math.sqrt(S / q_obs[i]), system: 'cubic', alpha: 90, beta: 90, gamma: 90});
+                        }
+                    }
+                }
+            }
+        };
+        const indexTetragonal = () => {
+            for (let i = 0; i < tetra_hexa_i_depth; i++) {
+                for (let j = i + 1; j < tetra_hexa_j_depth; j++) {
+                    for (let h1 = 0; h1 <= max_hkl_low_angle_search; h1++) {
+                        for (let k1 = 0; k1 <= h1; k1++) {
+                            for (let l1 = 0; l1 <= max_hkl_low_angle_search; l1++) {
+                                if (h1 === 0 && k1 === 0 && l1 === 0) continue;
+                                const S1 = h1*h1 + k1*k1;
+                                for (let h2 = 0; h2 <= max_hkl_low_angle_search; h2++) {
+                                    for (let k2 = 0; k2 <= h2; k2++) {
+                                        for (let l2 = 0; l2 <= max_hkl_low_angle_search; l2++) {
+                                            if (h2 === 0 && k2 === 0 && l2 === 0) continue;
+                                            const S2 = h2*h2 + k2*k2;
+                                            const det = S1 * l2*l2 - S2 * l1*l1;
+                                            if (Math.abs(det) < 1e-6) continue;
+                                            const a_sq_inv = (q_obs[i] * l2*l2 - q_obs[j] * l1*l1) / det;
+                                            const c_sq_inv = (q_obs[j] * S1 - q_obs[i] * S2) / det;
+                                            if (a_sq_inv > 0 && c_sq_inv > 0) {
+                                                testSolution({a: 1/Math.sqrt(a_sq_inv), c: 1/Math.sqrt(c_sq_inv), system: 'tetragonal', alpha: 90, beta: 90, gamma: 90});
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        const indexHexagonal = () => {
+            for (let i = 0; i < tetra_hexa_i_depth; i++) {
+                for (let j = i + 1; j < tetra_hexa_j_depth; j++) {
+                    for (let h1 = 0; h1 <= max_hkl_low_angle_search; h1++) {
+                        for (let k1 = 0; k1 <= h1; k1++) {
+                            for (let l1 = 0; l1 <= max_hkl_low_angle_search; l1++) {
+                                if(h1 === 0 && k1 === 0 && l1 === 0) continue;
+                                const S1 = h1*h1 + h1*k1 + k1*k1;
+                                for(let h2 = 0; h2 <= max_hkl_low_angle_search; h2++) {
+                                    for(let k2 = 0; k2 <= h2; k2++) {
+                                        for(let l2 = 0; l2 <= max_hkl_low_angle_search; l2++) {
+                                            if(h2 === 0 && k2 === 0 && l2 === 0) continue;
+                                            const S2 = h2*h2 + h2*k2 + k2*k2;
+                                            const det = S1*l2*l2 - S2*l1*l1;
+                                            if(Math.abs(det) < 1e-6) continue;
+                                            const a_term = (q_obs[i]*l2*l2 - q_obs[j]*l1*l1) / det;
+                                            const c_inv = (q_obs[j]*S1 - q_obs[i]*S2) / det;
+                                            if(a_term > 0 && c_inv > 0) {
+                                                testSolution({a: Math.sqrt(4/(3*a_term)), c: Math.sqrt(1/c_inv), system: 'hexagonal', alpha: 90, beta: 90, gamma: 120});
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        
+        const solveLeastSquares = (M, q_vec) => { /* unchanged */ 
+            const num_eq = M.length; if (num_eq === 0) return null;
+            const num_params = M[0].length; if (num_eq < num_params) return null;
+            const MT = Array(num_params).fill(0).map(() => Array(num_eq).fill(0));
+            for (let i = 0; i < num_params; i++) for (let j = 0; j < num_eq; j++) MT[i][j] = M[j][i];
+            const MTM = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
+            for (let i = 0; i < num_params; i++) for (let j = 0; j < num_params; j++) { let sum = 0; for (let k = 0; k < num_eq; k++) sum += MT[i][k] * M[k][j]; MTM[i][j] = sum; }
+            let det;
+            if (num_params === 3) { det = MTM[0][0]*(MTM[1][1]*MTM[2][2] - MTM[2][1]*MTM[1][2]) - MTM[0][1]*(MTM[1][0]*MTM[2][2] - MTM[1][2]*MTM[2][0]) + MTM[0][2]*(MTM[1][0]*MTM[2][1] - MTM[1][1]*MTM[2][0]); } 
+            else if (num_params === 4) { const m = MTM; det = m[0][0]*(m[1][1]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])+m[1][3]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])) - m[0][1]*(m[1][0]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])) + m[0][2]*(m[1][0]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])-m[1][1]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][1]-m[2][1]*m[3][0])) - m[0][3]*(m[1][0]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])-m[1][1]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])+m[1][2]*(m[2][0]*m[3][1]-m[2][1]*m[3][0])); } 
+            else { return null; }
+            if (Math.abs(det) < 1e-9) return null;
+            const invDet = 1.0 / det;
+            const MTM_inv = Array(num_params).fill(0).map(() => Array(num_params).fill(0));
+            if (num_params === 3) { MTM_inv[0][0] = (MTM[1][1]*MTM[2][2] - MTM[2][1]*MTM[1][2])*invDet; MTM_inv[0][1] = (MTM[0][2]*MTM[2][1] - MTM[0][1]*MTM[2][2])*invDet; MTM_inv[0][2] = (MTM[0][1]*MTM[1][2] - MTM[0][2]*MTM[1][1])*invDet; MTM_inv[1][0] = (MTM[1][2]*MTM[2][0] - MTM[1][0]*MTM[2][2])*invDet; MTM_inv[1][1] = (MTM[0][0]*MTM[2][2] - MTM[0][2]*MTM[2][0])*invDet; MTM_inv[1][2] = (MTM[0][2]*MTM[1][0] - MTM[0][0]*MTM[1][2])*invDet; MTM_inv[2][0] = (MTM[1][0]*MTM[2][1] - MTM[2][0]*MTM[1][1])*invDet; MTM_inv[2][1] = (MTM[0][1]*MTM[2][0] - MTM[0][0]*MTM[2][1])*invDet; MTM_inv[2][2] = (MTM[0][0]*MTM[1][1] - MTM[0][1]*MTM[1][0])*invDet; } 
+            else { const m = MTM; MTM_inv[0][0] = (m[1][1]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])+m[1][3]*(m[2][1]*m[3][2]-m[2][2]*m[3][1]))*invDet; MTM_inv[0][1] = -(m[0][1]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[0][2]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])+m[0][3]*(m[2][1]*m[3][2]-m[2][2]*m[3][1]))*invDet; MTM_inv[0][2] = (m[0][1]*(m[1][2]*m[3][3]-m[1][3]*m[3][2])-m[0][2]*(m[1][1]*m[3][3]-m[1][3]*m[3][1])+m[0][3]*(m[1][1]*m[3][2]-m[1][2]*m[3][1]))*invDet; MTM_inv[0][3] = -(m[0][1]*(m[1][2]*m[2][3]-m[1][3]*m[2][2])-m[0][2]*(m[1][1]*m[2][3]-m[1][3]*m[2][1])+m[0][3]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]))*invDet; MTM_inv[1][0] = -(m[1][0]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[1][2]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][2]-m[2][2]*m[3][0]))*invDet; MTM_inv[1][1] = (m[0][0]*(m[2][2]*m[3][3]-m[2][3]*m[3][2])-m[0][2]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[0][3]*(m[2][0]*m[3][2]-m[2][2]*m[3][0]))*invDet; MTM_inv[1][2] = -(m[0][0]*(m[1][2]*m[3][3]-m[1][3]*m[3][2])-m[0][2]*(m[1][0]*m[3][3]-m[1][3]*m[3][0])+m[0][3]*(m[1][0]*m[3][2]-m[1][2]*m[3][0]))*invDet; MTM_inv[1][3] = (m[0][0]*(m[1][2]*m[2][3]-m[1][3]*m[2][2])-m[0][2]*(m[1][0]*m[2][3]-m[1][3]*m[2][0])+m[0][3]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]))*invDet; MTM_inv[2][0] = (m[1][0]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])-m[1][1]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[1][3]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet; MTM_inv[2][1] = -(m[0][0]*(m[2][1]*m[3][3]-m[2][3]*m[3][1])-m[0][1]*(m[2][0]*m[3][3]-m[2][3]*m[3][0])+m[0][3]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet; MTM_inv[2][2] = (m[0][0]*(m[1][1]*m[3][3]-m[1][3]*m[3][1])-m[0][1]*(m[1][0]*m[3][3]-m[1][3]*m[3][0])+m[0][3]*(m[1][0]*m[3][1]-m[1][1]*m[3][0]))*invDet; MTM_inv[2][3] = -(m[0][0]*(m[1][1]*m[2][3]-m[1][3]*m[2][1])-m[0][1]*(m[1][0]*m[2][3]-m[1][3]*m[2][0])+m[0][3]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]))*invDet; MTM_inv[3][0] = -(m[1][0]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])-m[1][1]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])+m[1][2]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet; MTM_inv[3][1] = (m[0][0]*(m[2][1]*m[3][2]-m[2][2]*m[3][1])-m[0][1]*(m[2][0]*m[3][2]-m[2][2]*m[3][0])+m[0][2]*(m[2][0]*m[3][1]-m[2][1]*m[3][0]))*invDet; MTM_inv[3][2] = -(m[0][0]*(m[1][1]*m[3][2]-m[1][2]*m[3][1])-m[0][1]*(m[1][0]*m[3][2]-m[1][2]*m[3][0])+m[0][2]*(m[1][0]*m[3][1]-m[1][1]*m[3][0]))*invDet; MTM_inv[3][3] = (m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]))*invDet; }
+            const MTq = Array(num_params).fill(0);
+            for (let i = 0; i < num_params; i++) { let sum = 0; for (let j = 0; j < num_eq; j++) sum += MT[i][j] * q_vec[j]; MTq[i] = sum; }
+            const x = Array(num_params).fill(0);
+            for (let i = 0; i < num_params; i++) { let sum = 0; for (let j = 0; j < num_params; j++) sum += MTM_inv[i][j] * MTq[j]; x[i] = sum; }
+            return x;
+        };
+        const indexOrthorhombic = () => {
+            const max_peaks_basis = Math.min(15, q_obs.length);
+            const min_indexed_for_fit = 6;
+            const min_indexed_pre_filter = 5; // Parameter for early rejection
+            const max_hkl_main = 6;
+            const hkl_triplets = [];
+            for (let h = 0; h <= max_hkl_main; h++) for (let k = 0; k <= max_hkl_main; k++) for (let l = 0; l <= max_hkl_main; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+                hkl_triplets.push([h, k, l]);
+            }
+            hkl_triplets.sort((a, b) => (a[0]**2 + a[1]**2 + a[2]**2) - (b[0]**2 + b[1]**2 + b[2]**2));
+            const basis_hkls = hkl_triplets.slice(0, 30);
+            for (let i = 0; i < max_peaks_basis - 2; i++) {
+                for (let j = i + 1; j < max_peaks_basis - 1; j++) {
+                    for (let k = j + 1; k < max_peaks_basis; k++) {
+                        for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) {
+                            for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) {
+                                for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
+                                    const hkl_basis = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]];
+                                    const M = hkl_basis.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2]);
+                                    const q_vec = [q_obs[i], q_obs[j], q_obs[k]];
+                                    const solution = solveLeastSquares(M, q_vec);
+                                    if (!solution || solution.some(s => s <=0)) continue;
+                                    const [a_sq_inv, b_sq_inv, c_sq_inv] = solution;
+                                    if (1/Math.sqrt(a_sq_inv) < min_lattice_param || 1/Math.sqrt(b_sq_inv) < min_lattice_param || 1/Math.sqrt(c_sq_inv) < min_lattice_param) continue;
+                                    if (1/(Math.sqrt(a_sq_inv)*Math.sqrt(b_sq_inv)*Math.sqrt(c_sq_inv)) > max_volume) continue;
+                                    let rough_indexed_count = 0;
+                                    for (let peak_idx = 0; peak_idx < Math.min(10, q_obs.length); peak_idx++) {
+                                        const current_q_obs = q_obs[peak_idx];
+                                        const tolerance = get_q_tolerance(original_indices[peak_idx]) * 5; // Wider tolerance
+                                        for (const hkl of hkl_triplets) {
+                                            const q_calc = hkl[0]**2 * a_sq_inv + hkl[1]**2 * b_sq_inv + hkl[2]**2 * c_sq_inv;
+                                            if (Math.abs(q_calc - current_q_obs) < tolerance) { rough_indexed_count++; break; }
+                                            if (q_calc > current_q_obs + tolerance) break;
+                                        }
+                                    }
+                                    if (rough_indexed_count < min_indexed_pre_filter - impurity_peaks) continue;
+                                    const indexed_pairs = [];
+                                    for (let peak_idx = 0; peak_idx < N_FOR_M20; peak_idx++) {
+                                        const current_q_obs = q_obs[peak_idx];
+                                        const tolerance = get_q_tolerance(original_indices[peak_idx]);
+                                        let best_match = null; let min_diff = Infinity;
+                                        for (const hkl of hkl_triplets) {
+                                            const q_calc = hkl[0]**2 * a_sq_inv + hkl[1]**2 * b_sq_inv + hkl[2]**2 * c_sq_inv;
+                                            const diff = Math.abs(q_calc - current_q_obs);
+                                            if (diff < tolerance && diff < min_diff) { min_diff = diff; best_match = hkl; }
+                                            if (q_calc > current_q_obs + tolerance) break;
+                                        }
+                                        if (best_match) indexed_pairs.push({ q_obs: current_q_obs, hkl: best_match });
+                                    }
+                                    if (indexed_pairs.length >= min_indexed_for_fit) {
+                                        const M_refine = indexed_pairs.map(p => [p.hkl[0]**2, p.hkl[1]**2, p.hkl[2]**2]);
+                                        const q_refine = indexed_pairs.map(p => p.q_obs);
+                                        const refined_solution = solveLeastSquares(M_refine, q_refine);
+                                        if (refined_solution && refined_solution.every(s => s > 0)) {
+                                            testSolution({ a: 1/Math.sqrt(refined_solution[0]), b: 1/Math.sqrt(refined_solution[1]), c: 1/Math.sqrt(refined_solution[2]), system: 'orthorhombic', alpha: 90, beta: 90, gamma: 90 });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        const indexMonoclinic = () => {
+            const max_peaks_basis = Math.min(15, q_obs.length);
+            const min_indexed_for_fit = 7;
+            const min_indexed_pre_filter = 6;
+            const max_hkl_main = 5;
+            const hkl_triplets = [];
+            for (let h = 0; h <= max_hkl_main; h++) for (let k = 0; k <= max_hkl_main; k++) for (let l = 0; l <= max_hkl_main; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+                hkl_triplets.push([h, k, l]);
+            }
+            hkl_triplets.sort((a, b) => (a[0]**2 + a[1]**2 + a[2]**2) - (b[0]**2 + b[1]**2 + b[2]**2));
+            const basis_hkls = hkl_triplets.slice(0, 35);
+            for (let i = 0; i < max_peaks_basis - 3; i++) {
+                for (let j = i + 1; j < max_peaks_basis - 2; j++) {
+                    for (let k = j + 1; k < max_peaks_basis - 1; k++) {
+                        for (let l = k + 1; l < max_peaks_basis; l++) {
+                            for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) {
+                                for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) {
+                                    for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) {
+                                        for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
+                                            const hkl_basis = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
+                                            const M = hkl_basis.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
+                                            const q_vec = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
+                                            const solution = solveLeastSquares(M, q_vec);
+                                            if (!solution) continue;
+                                            const [A, B, C, D] = solution;
+                                            if (A <= 0 || B <= 0 || C <= 0 || D**2 >= 4 * A * C) continue;
+                                            const cosBeta = -D / (2 * Math.sqrt(A * C));
+                                            let beta = Math.acos(cosBeta) * 180 / Math.PI;
+                                            if (beta < 80 || beta > 140) continue;
+                                            const sinBetaSq = 1 - cosBeta**2;
+                                            const a = 1 / Math.sqrt(A * sinBetaSq); const b = 1 / Math.sqrt(B); const c = 1 / Math.sqrt(C * sinBetaSq);
+                                            if (a*b*c*Math.sqrt(sinBetaSq) > max_volume) continue;
+                                            let rough_indexed_count = 0;
+                                            for (let peak_idx = 0; peak_idx < Math.min(12, q_obs.length); peak_idx++) {
+                                                const current_q_obs = q_obs[peak_idx];
+                                                const tolerance = get_q_tolerance(original_indices[peak_idx]) * 5;
+                                                for (const hkl of hkl_triplets) {
+                                                    const q_calc = (1/sinBetaSq) * (hkl[0]**2/a**2 + hkl[2]**2/c**2 - 2*hkl[0]*hkl[2]*cosBeta/(a*c)) + hkl[1]**2/b**2;
+                                                    if (Math.abs(q_calc - current_q_obs) < tolerance) { rough_indexed_count++; break; }
+                                                    if (q_calc > current_q_obs + tolerance) break;
+                                                }
+                                            }
+                                            if (rough_indexed_count < min_indexed_pre_filter - impurity_peaks) continue;
+                                            const indexed_pairs = [];
+                                            for (let peak_idx = 0; peak_idx < N_FOR_M20; peak_idx++) {
+                                                const current_q_obs = q_obs[peak_idx]; const tolerance = get_q_tolerance(original_indices[peak_idx]);
+                                                let best_match = null; let min_diff = Infinity;
+                                                for (const hkl of hkl_triplets) {
+                                                    const q_calc = (1/sinBetaSq) * (hkl[0]**2/a**2 + hkl[2]**2/c**2 - 2*hkl[0]*hkl[2]*cosBeta/(a*c)) + hkl[1]**2/b**2;
+                                                    const diff = Math.abs(q_calc - current_q_obs);
+                                                    if (diff < tolerance && diff < min_diff) { min_diff = diff; best_match = hkl; }
+                                                    if (q_calc > current_q_obs + tolerance) break;
+                                                }
+                                                if (best_match) indexed_pairs.push({ q_obs: current_q_obs, hkl: best_match });
+                                            }
+                                            if (indexed_pairs.length >= min_indexed_for_fit) {
+                                                const M_refine = indexed_pairs.map(p => [p.hkl[0]**2, p.hkl[1]**2, p.hkl[2]**2, p.hkl[0]*p.hkl[2]]);
+                                                const q_refine = indexed_pairs.map(p => p.q_obs);
+                                                const refined_solution = solveLeastSquares(M_refine, q_refine);
+                                                if (refined_solution) {
+                                                    const [rA, rB, rC, rD] = refined_solution;
+                                                    if (rA > 0 && rB > 0 && rC > 0 && rD**2 < 4 * rA * rC) {
+                                                        const rCosBeta = -rD / (2 * Math.sqrt(rA * rC));
+                                                        const rBeta = Math.acos(rCosBeta) * 180 / Math.PI;
+                                                        const rSinBetaSq = 1 - rCosBeta**2;
+                                                        testSolution({ a: 1/Math.sqrt(rA*rSinBetaSq), b: 1/Math.sqrt(rB), c: 1/Math.sqrt(rC*rSinBetaSq), beta: rBeta, system: 'monoclinic', alpha: 90, gamma: 90 });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        if (systemToSearch === 'cubic') indexCubic();
+        if (systemToSearch === 'tetragonal') indexTetragonal();
+        if (systemToSearch === 'hexagonal') indexHexagonal();
+        if (systemToSearch === 'orthorhombic') indexOrthorhombic();
+        if (systemToSearch === 'monoclinic') indexMonoclinic();
+        
+        self.postMessage({ type: 'done' });
+    };
+</script>
 </body>
 </html>
