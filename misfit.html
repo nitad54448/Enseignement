@@ -81,9 +81,9 @@
             <div class="control-group">
                 <h2 class="text-lg font-semibold text-white mb-3">Load Data</h2>
                 <label for="file-input" class="file-input-label">
-                    <span id="file-name">Select .xy, .csv or .xrdml File</span>
+                    <span id="file-name">Select Data File</span>
                 </label>
-                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml">
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf">
             </div>
 
             <div class="tab-nav">
@@ -452,10 +452,6 @@ function updateAvailableConstraints() {
 }
 
 
-
-
-
-
         function parseDataFile(text) {
             const lines = text.trim().split(/\r?\n/);
             const tth = [], intensity = [];
@@ -477,34 +473,201 @@ function updateAvailableConstraints() {
         function parseXrdmlFile(xmlString) {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-            if (xmlDoc.querySelector("parsererror")) return null;
+
+            const parserError = xmlDoc.querySelector("parsererror");
+            if (parserError) {
+                console.error("Error parsing XRDML file:", parserError.textContent);
+                return null;
+            }
+
             let wavelength = 1.5406;
             const kAlpha1Node = xmlDoc.querySelector("kAlpha1");
             if (kAlpha1Node && kAlpha1Node.textContent) {
                 const parsedWavelength = parseFloat(kAlpha1Node.textContent);
                 if (!isNaN(parsedWavelength)) wavelength = parsedWavelength;
             }
+
             let intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts");
-            if (!intensityNode) return null;
+            if (!intensityNode) {
+                console.error("Could not find <intensities> or <counts> tag in XRDML file.");
+                return null;
+            }
             const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
             const numPoints = intensity.length;
-            if (numPoints === 0) return null;
+            if (numPoints === 0) {
+                console.error("No intensity data points found.");
+                return null;
+            }
+
             let tth = [];
             const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]');
-            if (!positionsNode) return null;
+            if (!positionsNode) {
+                console.error("Could not find <positions axis=\"2Theta\"> tag in XRDML file.");
+                return null;
+            }
+
             const startPosNode = positionsNode.querySelector("startPosition");
             const endPosNode = positionsNode.querySelector("endPosition");
+
             if (startPosNode && endPosNode) {
                 const startPos = parseFloat(startPosNode.textContent);
                 const endPos = parseFloat(endPosNode.textContent);
                 if (!isNaN(startPos) && !isNaN(endPos) && numPoints > 1) {
                     const step = (endPos - startPos) / (numPoints - 1);
                     tth = Array.from({ length: numPoints }, (_, i) => startPos + i * step);
+                } else if (numPoints === 1 && !isNaN(startPos)) {
+                    tth = [startPos];
+                } else {
+                    console.error("Invalid start/end positions for 2-theta axis.");
+                    return null;
+                }
+            } else {
+                const listPositions = positionsNode.textContent.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+                if (listPositions.length === numPoints) {
+                    tth = listPositions;
+                } else {
+                    console.error("Mismatch between number of intensity points and explicit 2-theta positions.");
+                    return null;
                 }
             }
-            if (tth.length !== intensity.length) return null;
+            
+            if (tth.length !== intensity.length) {
+                console.error("Final mismatch between 2-theta and intensity data points.");
+                return null;
+            }
+
             return { tth, intensity, wavelength };
         }
+        
+        const parseBrukerBrmlFile = (xmlString) => {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+            if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); }
+
+            let wavelength = null;
+            const wlNode = xmlDoc.querySelector('usedWavelength');
+            if (wlNode) {
+                const kAlpha1 = wlNode.getAttribute('kAlpha1');
+                if (kAlpha1) wavelength = parseFloat(kAlpha1);
+            }
+            
+            const intensityNode = xmlDoc.querySelector("dataPoints > counts");
+            if (!intensityNode) throw new Error("No <counts> data found in BRML file.");
+            const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
+
+            const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]');
+            const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]');
+            if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file.");
+
+            const startPos = parseFloat(startPosNode.textContent);
+            const stepSize = parseFloat(stepSizeNode.textContent);
+            
+            const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize);
+
+            return { tth, intensity, wavelength };
+        };
+
+        const parseRigakuRasFile = (text) => {
+            const lines = text.trim().split(/\r?\n/);
+            const tth = [], intensity = [];
+            let inDataSection = false;
+            let wavelength = null;
+
+            for (const line of lines) {
+                const upperLine = line.toUpperCase();
+                if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) {
+                    const parts = line.trim().split(/\s+/);
+                    if (parts.length > 1) {
+                        const wl = parseFloat(parts[1]);
+                        if (!isNaN(wl)) wavelength = wl;
+                    }
+                }
+                if (upperLine.startsWith('*RAS_INT_START')) {
+                    inDataSection = true;
+                    continue;
+                }
+                if (upperLine.startsWith('*RAS_INT_END')) {
+                    break;
+                }
+                if (inDataSection) {
+                    const parts = line.trim().split(/[\s,]+/);
+                    if (parts.length >= 2) {
+                        const x = parseFloat(parts[0]);
+                        const y = parseFloat(parts[1]);
+                        if (!isNaN(x) && !isNaN(y)) {
+                            tth.push(x);
+                            intensity.push(y);
+                        }
+                    }
+                }
+            }
+            if (tth.length === 0) throw new Error("No data found in RAS file data section.");
+            return { tth, intensity, wavelength };
+        };
+
+        const parseGsasEsdFile = (text) => {
+            const lines = text.trim().split(/\r?\n/);
+            const tth = [], intensity = [];
+            let inDataSection = false;
+            
+            for (const line of lines) {
+                if (!inDataSection && /^\s*\d/.test(line)) {
+                    inDataSection = true;
+                }
+
+                if (inDataSection) {
+                     if (line.trim().length < 30) continue;
+                    try {
+                        const tth_val = parseFloat(line.substring(0, 10)) / 100;
+                        const int_val = parseFloat(line.substring(20, 30)); // raw intensity
+                        if (!isNaN(tth_val) && !isNaN(int_val)) {
+                            tth.push(tth_val);
+                            intensity.push(int_val);
+                        }
+                    } catch (e) { 
+                        console.warn("Skipping malformed data line in GSAS file:", line);
+                    }
+                }
+            }
+            if (tth.length === 0) throw new Error("Could not parse data from GSAS ESD file.");
+            return { tth, intensity };
+        };
+
+        const parsePhilipsUdfFile = (text) => {
+            const lines = text.trim().split(/\r?\n/);
+            const tth = [], intensity = [];
+            let inDataSection = false;
+            let wavelength = null;
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine.toUpperCase().startsWith('LAMBDA')) {
+                    const parts = trimmedLine.split('=');
+                    if (parts.length > 1) wavelength = parseFloat(parts[1]);
+                }
+                if (trimmedLine.toUpperCase() === '[DATA]') {
+                    inDataSection = true;
+                    continue;
+                }
+                if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') {
+                    inDataSection = false;
+                }
+                if (inDataSection) {
+                    const parts = trimmedLine.split(/,/).map(p => p.trim());
+                    if(parts.length >= 2) {
+                        const x = parseFloat(parts[0]);
+                        const y = parseFloat(parts[1]);
+                        if (!isNaN(x) && !isNaN(y)) {
+                            tth.push(x);
+                            intensity.push(y);
+                        }
+                    }
+                }
+            }
+            if (tth.length === 0) throw new Error("No [Data] section found in UDF file.");
+            return { tth, intensity, wavelength };
+        };
+
 
         function getWorkingData() {
             if (fullExperimentalData.tth.length === 0) return { tth: [], intensity: [] };
@@ -1634,34 +1797,139 @@ function updateAvailableConstraints() {
 
         // --- Event Listeners and Initialization ---
         controls.fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0]; if (!file) return;
+            const file = e.target.files[0];
+            if (!file) return;
             const reader = new FileReader();
-            reader.onload = (evt) => {
-                let parsedData = file.name.toLowerCase().endsWith('.xrdml') ? parseXrdmlFile(evt.target.result) : parseDataFile(evt.target.result);
-                if (!parsedData || parsedData.tth.length === 0) { alert('No valid data parsed.'); return; }
-                if (parsedData.wavelength) { controls.wavelength.value = parsedData.wavelength.toFixed(5); }
-                fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
-                lastRawDifference = []; 
-                const maxExpIntensity = Math.max(...fullExperimentalData.intensity);
-                if (maxExpIntensity > 0) fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => (y / maxExpIntensity) * 1000);
-                controls.fileName.textContent = file.name;
-                controls.placeholder.classList.add('hidden');
-                controls.resultsContainer.classList.remove('hidden'); controls.resultsContainer.classList.add('flex');
-                controls.fitButton.disabled = false; controls.fitButton.textContent = 'Run Refinement';
-                controls.bgExcludeSlider.disabled = false;
 
-                createBackgroundControls();
-                seedBackgroundFromData();
-                initializeChart();
-                const min = fullExperimentalData.tth[0], max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
-                const step = (max - min) / 2000;
-                [controls.tthMinSlider, controls.tthMaxSlider].forEach(slider => { slider.min = min; slider.max = max; slider.step = step; slider.disabled = false; });
-                controls.tthMinSlider.value = Math.max(min, 10); controls.tthMaxSlider.value = Math.min(max, 100);
-                controls.tthMinValue.textContent = parseFloat(controls.tthMinSlider.value).toFixed(1); 
-                controls.tthMaxValue.textContent = parseFloat(controls.tthMaxSlider.value).toFixed(1);
-                updatePlotRange();
-                updatePreviewPattern();
+            reader.onload = (evt) => {
+                try {
+                    let parsedData;
+                    const fileContent = evt.target.result;
+                    const fileName = file.name.toLowerCase();
+                    const fileStart = (fileContent && typeof fileContent === 'string') ? fileContent.substring(0, 200).toUpperCase() : '';
+
+                    // --- Smart Dispatcher Logic ---
+                    if (fileName.endsWith('.xrdml')) {
+                        parsedData = parseXrdmlFile(fileContent);
+                    } else if (fileName.endsWith('.brml')) {
+                        parsedData = parseBrukerBrmlFile(fileContent);
+                    } else if (fileName.endsWith('.ras')) {
+                        parsedData = parseRigakuRasFile(fileContent);
+                    } else if (fileName.endsWith('.esd') || fileName.endsWith('.std')) {
+                        parsedData = parseGsasEsdFile(fileContent);
+                    } else if (fileName.endsWith('.udf')) {
+                        parsedData = parsePhilipsUdfFile(fileContent);
+                    } else if (fileStart.includes('<?XML')) {
+                        if (fileStart.includes('<XRDMEASUREMENT')) parsedData = parseXrdmlFile(fileContent);
+                        else if (fileStart.includes('<RAWDATAFILE')) parsedData = parseBrukerBrmlFile(fileContent);
+                        else throw new Error("Unsupported XML file format. Trying generic parser.");
+                    } else if (fileStart.includes('*RAS_HEADER_START')) {
+                        parsedData = parseRigakuRasFile(fileContent);
+                    } else {
+                        const data = parseDataFile(fileContent);
+                        if (data.tth.length > 0) {
+                           parsedData = { tth: data.tth, intensity: data.intensity };
+                        }
+                    }
+
+                    if (!parsedData || parsedData.tth.length === 0) {
+                        throw new Error("No valid data points could be parsed from the file.");
+                    }
+
+                    // --- Successful Parse: Wavelength Handling ---
+                    if (parsedData.wavelength) {
+                        controls.wavelength.value = parsedData.wavelength.toFixed(5);
+                        const presetOption = Array.from(controls.wavelengthPreset.options).find(opt => Math.abs(parseFloat(opt.value) - parsedData.wavelength) < 0.001);
+                        const customOption = document.querySelector('#wavelength-preset option[value="custom"]');
+                        if (presetOption) {
+                            controls.wavelengthPreset.value = presetOption.value;
+                            customOption.style.display = 'none';
+                        } else {
+                            customOption.style.display = '';
+                            customOption.textContent = `File (${parsedData.wavelength.toFixed(4)} Å)`;
+                            controls.wavelengthPreset.value = 'custom';
+                        }
+                    }
+                    
+                    // --- Successful Parse: Update Misfit UI ---
+                    fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
+                    lastRawDifference = []; 
+                    const maxExpIntensity = Math.max(...fullExperimentalData.intensity);
+                    if (maxExpIntensity > 0) fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => (y / maxExpIntensity) * 1000);
+
+                    controls.fileName.textContent = file.name;
+                    controls.placeholder.classList.add('hidden');
+                    controls.resultsContainer.classList.remove('hidden'); 
+                    controls.resultsContainer.classList.add('flex');
+                    controls.fitButton.disabled = false; 
+                    controls.fitButton.textContent = 'Run Refinement';
+                    controls.bgExcludeSlider.disabled = false;
+
+                    createBackgroundControls();
+                    seedBackgroundFromData();
+                    initializeChart();
+
+                    const min = fullExperimentalData.tth[0];
+                    const max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
+                    const step = (max - min) / 2000;
+                    [controls.tthMinSlider, controls.tthMaxSlider].forEach(slider => {
+                        slider.min = min; slider.max = max; slider.step = step; slider.disabled = false;
+                    });
+                    controls.tthMinSlider.value = Math.max(min, 10);
+                    controls.tthMaxSlider.value = Math.min(max, 100);
+                    controls.tthMinValue.textContent = parseFloat(controls.tthMinSlider.value).toFixed(1); 
+                    controls.tthMaxValue.textContent = parseFloat(controls.tthMaxSlider.value).toFixed(1);
+                    
+                    updatePlotRange();
+                    updatePreviewPattern();
+
+                } catch (error) {
+                    alert(`Error reading file: ${error.message}`);
+                    console.error(error);
+                    // Fallback to generic parser
+                    try {
+                        const genericData = parseDataFile(evt.target.result);
+                        if (genericData && genericData.tth.length > 0) {
+                            alert('Smart parsing failed. Loaded file as generic two-column data.');
+                            // Manually run the success block again
+                            let parsedData = { tth: genericData.tth, intensity: genericData.intensity };
+                            fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
+                            lastRawDifference = []; 
+                            const maxExpIntensity = Math.max(...fullExperimentalData.intensity);
+                            if (maxExpIntensity > 0) fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => (y / maxExpIntensity) * 1000);
+                            controls.fileName.textContent = file.name;
+                            controls.placeholder.classList.add('hidden');
+                            controls.resultsContainer.classList.remove('hidden'); 
+                            controls.resultsContainer.classList.add('flex');
+                            controls.fitButton.disabled = false; 
+                            controls.fitButton.textContent = 'Run Refinement';
+                            controls.bgExcludeSlider.disabled = false;
+                            createBackgroundControls();
+                            seedBackgroundFromData();
+                            initializeChart();
+                            const min = fullExperimentalData.tth[0];
+                            const max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
+                            const step = (max - min) / 2000;
+                            [controls.tthMinSlider, controls.tthMaxSlider].forEach(slider => {
+                                slider.min = min; slider.max = max; slider.step = step; slider.disabled = false;
+                            });
+                            controls.tthMinSlider.value = Math.max(min, 10);
+                            controls.tthMaxSlider.value = Math.min(max, 100);
+                            controls.tthMinValue.textContent = parseFloat(controls.tthMinSlider.value).toFixed(1); 
+                            controls.tthMaxValue.textContent = parseFloat(controls.tthMaxSlider.value).toFixed(1);
+                            updatePlotRange();
+                            updatePreviewPattern();
+                        }
+                    } catch (finalError) {
+                        // If even the generic parser fails, do nothing.
+                    }
+                }
             };
+
+            reader.onerror = () => {
+                 alert('Error: Could not read the selected file.');
+            };
+            
             reader.readAsText(file);
         });
         
