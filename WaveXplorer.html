@@ -243,7 +243,10 @@
             }
 
             // Radiated Wave
-            const radiatedMat = new THREE.MeshPhongMaterial({ color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7 });
+   //         const radiatedMat = new THREE.MeshPhongMaterial({ color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7 });
+     
+            const radiatedMat = new THREE.MeshPhongMaterial({ color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7, emissiveIntensity: 2.5 });         
+
             const sphereGeom = new THREE.SphereGeometry(1, 32, 24);
             const points = [];
             const profileSegments = 32;
@@ -298,8 +301,8 @@
                 if (age > scatteringParams.shellMaxAge) { shell.isActive = false; return; }
                 const scale = age * scatteringParams.waveSpeed;
                 
-                const opacity = 0.7 * amplitudeScale; 
-                
+                const opacity = (2.0 * amplitudeScale) / (1 + scale * scale);
+
                 if (isLinear) {
                     if (scatteringParams.polarizationType === 'non_polarized') {
                         shell.torus.rotation.set(shell.orientationAngle, 0, 0);
@@ -307,19 +310,23 @@
                         shell.torus.rotation.set(scatteringParams.polarizationType === 'linear_vertical' ? 0 : Math.PI / 2, 0, 0);
                     }
 
-                    // --- Handle section view via clipping planes ---
-                    const torusMat = shell.torus.material;
-                    if (scatteringParams.showSection) {
-                        const plane = shell.clippingPlane;
-                        // Set the normal to cut perpendicular to the wave propagation direction (X-axis)
-                        // This removes the "first half" (+X side) of the torus.
-                        plane.normal.set(-1, 0, 0);
-                        plane.constant = 0;
-                        torusMat.clippingPlanes = [plane];
-                    } else {
-                        torusMat.clippingPlanes = null;
-                    }
-                    // --- END SECTION ---
+
+                    // --- Handle section view with a clipped wireframe ---
+const torusMat = shell.torus.material;
+if (scatteringParams.showSection) {
+    // Both activate wireframe AND apply the clipping plane
+    torusMat.wireframe = true;
+    const plane = shell.clippingPlane;
+    plane.normal.set(-1, 0, 0); // Plane to cut the front half
+    plane.constant = 0;
+    torusMat.clippingPlanes = [plane];
+} else {
+    // Revert both when turned off
+    torusMat.wireframe = false;
+    torusMat.clippingPlanes = null;
+}
+// --- END SECTION ---
+
 
                     shell.torus.scale.setScalar(scale);
                     shell.torus.material.opacity = opacity;
