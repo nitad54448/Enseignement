@@ -206,8 +206,10 @@
             };
             scatteringParams = {
                 numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
-                polarizationType: 'linear_vertical', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 2.0,
+                polarizationType: 'linear_vertical', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0, // MODIFIED: Increased shellMaxAge for visibility
                 vectorsPerCycle: 12, wavelength: 0,
+                showSection: false, // NEW: For showing half the tori
+                showWavefront: true, // NEW: For showing the incoming wavefront planes
             };
             scatteringParams.wavelength = scatteringParams.waveSpeed / scatteringParams.oscillationFrequency * (2 * Math.PI);
         }
@@ -256,6 +258,7 @@
                     torus: new THREE.Mesh(dipoleGeom.clone(), radiatedMat.clone()),
                     isActive: false, birthTime: 0,
                     orientationAngle: 0, // Property to store orientation for non-polarized scattering
+                    clippingPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), // NEW: For section view
                 };
                 shell.sphere.visible = false;
                 shell.torus.visible = false;
@@ -294,13 +297,30 @@
                 const age = animationTime - shell.birthTime;
                 if (age > scatteringParams.shellMaxAge) { shell.isActive = false; return; }
                 const scale = age * scatteringParams.waveSpeed;
-                const opacity = 1.0 * (1 - age / scatteringParams.shellMaxAge) * amplitudeScale; // Increased opacity
+                
+                const opacity = 0.7 * amplitudeScale; 
+                
                 if (isLinear) {
                     if (scatteringParams.polarizationType === 'non_polarized') {
                         shell.torus.rotation.set(shell.orientationAngle, 0, 0);
                     } else {
                         shell.torus.rotation.set(scatteringParams.polarizationType === 'linear_vertical' ? 0 : Math.PI / 2, 0, 0);
                     }
+
+                    // --- Handle section view via clipping planes ---
+                    const torusMat = shell.torus.material;
+                    if (scatteringParams.showSection) {
+                        const plane = shell.clippingPlane;
+                        // Set the normal to cut perpendicular to the wave propagation direction (X-axis)
+                        // This removes the "first half" (+X side) of the torus.
+                        plane.normal.set(-1, 0, 0);
+                        plane.constant = 0;
+                        torusMat.clippingPlanes = [plane];
+                    } else {
+                        torusMat.clippingPlanes = null;
+                    }
+                    // --- END SECTION ---
+
                     shell.torus.scale.setScalar(scale);
                     shell.torus.material.opacity = opacity;
                 } else {
@@ -559,6 +579,20 @@
                             <input type="checkbox" id="radiated-wave-toggle" checked>
                             <span class="slider"></span>
                         </label>
+                    </div>
+                     <div class="control-group">
+                        <label>Show Incoming Wavefront:</label>
+                        <label class="switch" style="vertical-align: middle;">
+                            <input type="checkbox" id="wavefront-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                     <div class="control-group">
+                        <label>Show Section (Radiated Wave):</label>
+                        <label class="switch" style="vertical-align: middle;">
+                            <input type="checkbox" id="section-toggle">
+                            <span class="slider"></span>
+                        </label>
                     </div>`;
                 const massSlider = document.getElementById('mass-slider');
                 const massDisplay = document.getElementById('mass-display');
@@ -570,6 +604,8 @@
                 document.querySelectorAll('input[name="charge"]').forEach(r => r.addEventListener('change', (e) => scatteringParams.particleCharge = parseInt(e.target.value)));
                 document.getElementById('polarization-selector-scatter').addEventListener('change', (e) => scatteringParams.polarizationType = e.target.value);
                 document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => scatteringParams.showRadiatedWave = e.target.checked);
+                document.getElementById('wavefront-toggle').addEventListener('change', (e) => scatteringParams.showWavefront = e.target.checked);
+                document.getElementById('section-toggle').addEventListener('change', (e) => scatteringParams.showSection = e.target.checked);
             } else {
                 parameterControlsContainer.innerHTML = '<p style="text-align:center; padding:10px;">Concept not implemented.</p>';
             }
@@ -802,7 +838,8 @@
                 for (let i = 0; i < scatteringParams.numPlanes; i++) {
                     const peakX = scatteringParams.sceneExtent + firstPeakOffset - i * scatteringParams.wavelength;
                     scatteringViz.incomingWave.planes[i].position.x = peakX;
-                    scatteringViz.incomingWave.planes[i].visible = true;
+                    // MODIFICATION: Set visibility based on new parameter
+                    scatteringViz.incomingWave.planes[i].visible = scatteringParams.showWavefront;
                     for (let j = 0; j < scatteringParams.vectorsPerCycle; j++) {
                         const vector = scatteringViz.incomingWave.vectors[i][j];
                         vector.position.x = peakX - (j / scatteringParams.vectorsPerCycle) * scatteringParams.wavelength;
@@ -918,7 +955,9 @@
             const initialWidth = vizArea.clientWidth; const initialHeight = vizArea.clientHeight;
             camera = new THREE.OrthographicCamera( waveParams.extent / -2, waveParams.extent / 2, (waveParams.extent * initialHeight / initialWidth) / 2, (waveParams.extent * initialHeight / initialWidth) / -2, 0.1, 1000 );
             camera.position.set(0, 0, 10); 
-            renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true }); renderer.setSize(initialWidth, initialHeight);
+            renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true });
+            renderer.setSize(initialWidth, initialHeight);
+            renderer.localClippingEnabled = true; // NEW: Enable clipping
             controls = new THREE.OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = 0.05; controls.screenSpacePanning = true; 
             controls.target.set(0, 0, 0); controls.minZoom = 0.2; controls.maxZoom = 5; controls.update();
             conceptSelector = document.getElementById('concept-selector');
@@ -989,3 +1028,4 @@
     </script>
 </body>
 </html>
+
