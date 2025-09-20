@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dichotomy</title>
+    <title>Dichotomy Powder Indexing</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -61,8 +60,9 @@
         .btn-secondary { background-color: var(--light-bg); color: var(--text-light); border-color: var(--border-color); }
         .btn-secondary:hover:not(:disabled) { background-color: #4a5568; }
         .btn:disabled { background-color: var(--border-color); cursor: not-allowed; opacity: 0.7; }
-        .file-input-label { display: block; padding: 0.75rem 1rem; background-color: var(--border-color); color: var(--text-medium); border-radius: 0.375rem; text-align: center; cursor: pointer; transition: background-color: 0.2s; }
+.file-input-label { display: flex; align-items: center; justify-content: center; padding: 0.6rem 1rem; background-color: var(--border-color); color: var(--text-medium); border-radius: 0.375rem; text-align: center; cursor: pointer; transition: background-color: 0.2s; }
         .file-input-label:hover { background-color: #6b7280; }
+        .file-input-label.error { border: 1px solid var(--error-red); color: var(--error-red); }
         .parameter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
         .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-medium); cursor: pointer;}
 
@@ -264,12 +264,14 @@
         <div id="controls-panel">
 
             <div class="control-group">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                     <label for="file-input" class="file-input-label" style="flex-grow: 1;">
-                        <span id="file-name">Select Data File</span>
-                    </label>
+<div style="display: flex; align-items: center; gap: 0.5rem;">
+
+    <label for="file-input" class="file-input-label" style="flex-grow: 1;">
+    <span id="file-name">Select Data File</span>
+</label>
+
                      <div class="help-tooltip-container">
-                        <span class="help-icon">?</span>
+                        <span class="help-icon" aria-label="Help and usage information">?</span>
                         <div class="tooltip-content">
                             <h4>Powder XRD Indexing</h4>
                             <p>Determine unit cell parameters using the Dichotomy method. Based on the method of A. Boultif & D. Louer, J. Appl. Cryst. 37, 724-731 (2004).</p>
@@ -293,7 +295,7 @@
                 <button class="tab-btn" data-tab="parameters">Parameters</button>
                 <button class="tab-btn" data-tab="solutions">
                     Solutions
-                    <span id="solutions-led" class="led-indicator gray"></span>
+                    <span id="solutions-led" class="led-indicator gray" aria-label="Solutions status indicator"></span>
                 </button>
             </div>
 
@@ -440,6 +442,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             const ui = {
                 fileInput: document.getElementById('file-input'),
+                fileInputLabel: document.querySelector('.file-input-label'),
                 fileName: document.getElementById('file-name'),
                 peakControls: document.getElementById('peak-controls'),
                 peakThresholdSlider: document.getElementById('peak-threshold-slider'),
@@ -492,6 +495,17 @@
                 return Math.exp(minLog + scale * position);
             }
 
+            // --- DEBOUNCE UTILITY ---
+            const debounce = (func, delay) => {
+                let timeout;
+                return function(...args) {
+                    const context = this;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(context, args), delay);
+                };
+            };
+            const debouncedFindPeaks = debounce(findPeaks, 250);
+
             // --- INITIALIZE LOG SLIDER ---
             const initialPeakThreshold = 2.0;
             ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
@@ -538,7 +552,20 @@
             let isIndexing = false;
             let activeWorkers = [];
             let sortState = { column: 'm20', direction: 'desc' };
+            let workerURL = null; // To hold the reusable worker URL
 
+            // --- WORKER SETUP (Create blob URL once) ---
+            const setupWorker = () => {
+                try {
+                    const workerScript = document.getElementById('indexing-worker').textContent;
+                    const blob = new Blob([workerScript], { type: 'application/javascript' });
+                    workerURL = URL.createObjectURL(blob);
+                } catch (error) {
+                    console.error("Failed to create worker blob URL:", error);
+                    showStatus("Critical error: Could not initialize indexing engine.", "error", 10000);
+                }
+            };
+            setupWorker();
 
             const inputsToValidate = [
                 { id: 'wavelength', el: ui.wavelength, default: 1.541780 },
@@ -559,11 +586,7 @@
                             el.value = defaultValue;
                             return;
                         }
-                        if (el.step == 2 && value % 2 === 0) { // Ensure window is odd
-                            value += 1;
-                            el.value = value;
-                        }
-
+                        
                         if (!isNaN(min) && value < min) el.value = min;
                         if (!isNaN(max) && value > max) el.value = max;
                     });
@@ -581,7 +604,7 @@
                 });
             }
 
-
+            // --- FILE PARSING LOGIC ---
             const parseDataFile = (text) => {
                 const lines = text.trim().split(/\r?\n/);
                 const tth = [], intensity = [];
@@ -615,8 +638,12 @@
 
                  const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]');
                  if (!positionsNode) throw new Error("Could not find <positions> in XRDML file.");
-                 const startPos = parseFloat(positionsNode.querySelector("startPosition").textContent);
-                 const endPos = parseFloat(positionsNode.querySelector("endPosition").textContent);
+                 const startPosNode = positionsNode.querySelector("startPosition");
+                 const endPosNode = positionsNode.querySelector("endPosition");
+
+                 if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML.");
+                 const startPos = parseFloat(startPosNode.textContent);
+                 const endPos = parseFloat(endPosNode.textContent);
                  const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1));
 
                  return { tth, intensity, wavelength };
@@ -801,35 +828,43 @@
                 return { tth, intensity, wavelength };
             };
 
+            const detectAndParseFile = (fileName, fileContent) => {
+                const name = fileName.toLowerCase();
+                const lines = fileContent.trim().split(/\r?\n/);
+                const firstLine = lines.length > 0 ? lines[0].trim() : '';
+
+                if (name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION')) {
+                    return parseUxdFile(fileContent);
+                }
+                if (name.endsWith('.xrdml') || (fileContent.includes('<?xml') && fileContent.includes('<xrdMeasurement'))) {
+                    return parseXrdmlFile(fileContent);
+                }
+                if (name.endsWith('.brml') || (fileContent.includes('<?xml') && fileContent.includes('<RawDataFile'))) {
+                    return parseBrukerBrmlFile(fileContent);
+                }
+                if (name.endsWith('.ras') || fileContent.toUpperCase().includes('*RAS_HEADER_START')) {
+                    return parseRigakuRasFile(fileContent);
+                }
+                if (name.endsWith('.udf')) {
+                    return parsePhilipsUdfFile(fileContent);
+                }
+                if (lines.length > 2 && lines[1].toUpperCase().includes('BANK')) {
+                     return parseGsasEsdFile(fileContent);
+                }
+                // Fallback to generic 2-column parser
+                return parseDataFile(fileContent);
+            };
 
             ui.fileInput.addEventListener('change', (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+
+                ui.fileInputLabel.classList.remove('error');
                 const reader = new FileReader();
+
                 reader.onload = (evt) => {
                     try {
-                        let parsedData;
-                        const fileContent = evt.target.result;
-                        const fileName = file.name.toLowerCase();
-                        
-                        const lines = fileContent.trim().split(/\r?\n/);
-                        const firstLine = lines.length > 0 ? lines[0].trim() : '';
-
-                        if (fileName.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION')) {
-                            parsedData = parseUxdFile(fileContent);
-                        } else if (fileName.endsWith('.xrdml') || (fileContent.includes('<?xml') && fileContent.includes('<xrdMeasurement'))) {
-                            parsedData = parseXrdmlFile(fileContent);
-                        } else if (fileName.endsWith('.brml') || (fileContent.includes('<?xml') && fileContent.includes('<RawDataFile'))) {
-                            parsedData = parseBrukerBrmlFile(fileContent);
-                        } else if (fileName.endsWith('.ras') || fileContent.toUpperCase().includes('*RAS_HEADER_START')) {
-                            parsedData = parseRigakuRasFile(fileContent);
-                        } else if (fileName.endsWith('.udf')) {
-                            parsedData = parsePhilipsUdfFile(fileContent);
-                        } else if (lines.length > 2 && lines[1].toUpperCase().includes('BANK')) {
-                             parsedData = parseGsasEsdFile(fileContent);
-                        } else {
-                            parsedData = parseDataFile(fileContent);
-                        }
+                        const parsedData = detectAndParseFile(file.name, evt.target.result);
                         
                         if (!parsedData || parsedData.tth.length === 0) {
                             throw new Error("No valid data points could be parsed from the file.");
@@ -844,7 +879,7 @@
 
                         solutions = [];
                         updateSolutionsTable();
-                        ui.solutionsLed.className = 'led-indicator gray'; // Reset LED
+                        ui.solutionsLed.className = 'led-indicator gray';
 
                         if (parsedData.wavelength) {
                             ui.wavelength.value = parsedData.wavelength.toFixed(5);
@@ -864,11 +899,13 @@
 
                     } catch (error) {
                         showStatus(`Error reading file: ${error.message}`, 'error');
+                        ui.fileInputLabel.classList.add('error');
                         console.error(error);
                     }
                 };
                 reader.onerror = () => {
                      showStatus('Error: Could not read the selected file.', 'error');
+                     ui.fileInputLabel.classList.add('error');
                 };
                 reader.readAsText(file);
             });
@@ -931,7 +968,6 @@
                 }
                 ui.tthMinValue.textContent = minVal.toFixed(2);
                 updatePlotRange();
-                // findPeaks(); // Deactivated as per user request
             });
              ui.tthMaxSlider.addEventListener('input', () => {
                 let minVal = parseFloat(ui.tthMinSlider.value);
@@ -942,26 +978,25 @@
                 }
                 ui.tthMaxValue.textContent = maxVal.toFixed(2);
                 updatePlotRange();
-                // findPeaks(); // Deactivated as per user request
             });
             
             ui.ballRadiusSlider.addEventListener('input', () => {
                 ui.ballRadiusValue.textContent = ui.ballRadiusSlider.value;
-                findPeaks();
+                debouncedFindPeaks();
             });
             ui.smoothingWidthSlider.addEventListener('input', () => {
                 ui.smoothingWidthValue.textContent = ui.smoothingWidthSlider.value;
-                findPeaks();
+                debouncedFindPeaks();
             });
             
             ui.peakThresholdSlider.addEventListener('input', () => {
                 const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value));
                 ui.peakThresholdValue.textContent = value.toFixed(1);
-                findPeaks();
+                debouncedFindPeaks();
             });
 
 
-            // ======= Rolling Ball Background Subtraction (from LeBail.html)
+            // ======= Rolling Ball Background Subtraction
             const rollingBallBackground = (y, radius, smoothingWidth) => {
                 const n = y.length;
                 if (n === 0 || radius <= 0) return new Array(n).fill(0);
@@ -1054,7 +1089,7 @@
             };
 
             // ====== Peak finding logic, now using rolling ball
-            const findPeaks = () => {
+            function findPeaks() {
                 if (!fullExperimentalData || !fullExperimentalData.intensity || fullExperimentalData.intensity.length < 5) {
                     return;
                 }
@@ -1075,7 +1110,7 @@
                 const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
                 const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
 
-                const maxCorrectedIntensity = Math.max(...backgroundCorrected);
+                const maxCorrectedIntensity = Math.max(...backgroundCorrected) || 1;
                 const minAbsoluteHeight = (minHeightPercent / 100) * maxCorrectedIntensity;
                 
                 const noiseLevel = calculateNoiseLevel(backgroundCorrected);
@@ -1156,10 +1191,7 @@
                 });
 
                 updatePeakTable();
-
-                ui.startIndexingButton.disabled = (pickedPeaks.length < 4);
-                ui.startIndexingButton.textContent = pickedPeaks.length < 4 ? 
-                    `Need ${4 - pickedPeaks.length} more peaks` : 'Start Indexing';
+                updateStartIndexingButtonState();
             };
 
             // ====  Peak finding helper functions
@@ -1232,6 +1264,17 @@
                 ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
                 updateAllMarkers();
             };
+            
+            const updateStartIndexingButtonState = () => {
+                const needed = 4 - pickedPeaks.length;
+                if (needed > 0) {
+                    ui.startIndexingButton.disabled = true;
+                    ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`;
+                } else {
+                    ui.startIndexingButton.disabled = false;
+                    ui.startIndexingButton.textContent = 'Start Indexing';
+                }
+            };
 
             ui.peakListBody.addEventListener('change', (e) => {
                 if (e.target.classList.contains('peak-tth-input')) {
@@ -1243,6 +1286,7 @@
                     pickedPeaks[index] = {tth, d, q};
                     e.target.closest('tr').querySelector('.peak-d-input').value = d.toFixed(5);
                     updateAllMarkers();
+                    updateStartIndexingButtonState();
                 }
             });
              ui.peakListBody.addEventListener('click', (e) => {
@@ -1250,6 +1294,7 @@
                     const index = parseInt(e.target.dataset.index);
                     pickedPeaks.splice(index, 1);
                     updatePeakTable();
+                    updateStartIndexingButtonState();
                 }
             });
             
@@ -1273,11 +1318,9 @@
                     el.disabled = indexing;
                 });
 
-                const fileLabel = document.querySelector('.file-input-label');
-                if (fileLabel) {
-                    fileLabel.style.pointerEvents = indexing ? 'none' : 'auto';
-                    fileLabel.style.opacity = indexing ? '0.7' : '1';
-                }
+                ui.fileInputLabel.style.pointerEvents = indexing ? 'none' : 'auto';
+                ui.fileInputLabel.style.opacity = indexing ? '0.7' : '1';
+                
 
                 if (indexing) {
                     ui.startIndexingButton.disabled = true;
@@ -1287,8 +1330,7 @@
                     ui.progressBarContainer.classList.remove('hidden');
                     ui.progressBar.style.width = '0%';
                 } else {
-                    ui.startIndexingButton.disabled = (pickedPeaks.length === 0);
-                    ui.startIndexingButton.textContent = 'Start Indexing';
+                    updateStartIndexingButtonState();
                     ui.reportButton.textContent = 'Generate PDF Report';
                     ui.reportButton.disabled = (solutions.length === 0);
                     ui.progressBarContainer.classList.add('hidden');
@@ -1327,8 +1369,8 @@
                         const vol_i = solutions[i].volume;
                         const vol_j = solutions[j].volume;
 
-                        // If volume diff is > 0.1%, we can stop comparing with this i
-                        if (vol_j > vol_i * 1.001) break;
+                        // If volume diff is > 1%, we can stop comparing with this i
+                        if (vol_j > vol_i * 1.01) break;
 
                         // Volume diff is within 0.1%, so we must compare
                         const sym_i = symmetryOrder[solutions[i].system];
@@ -1372,6 +1414,11 @@
                     return;
                 }
 
+                if (!workerURL) {
+                    showStatus("Error: Indexing engine is not available.", "error");
+                    return;
+                }
+
                 setUIState(true);
                 solutions = [];
                 selectedSolution = null;
@@ -1387,10 +1434,6 @@
                     max_volume: parseFloat(ui.maxVolume.value),
                     impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
                 };
-
-                const workerScript = document.getElementById('indexing-worker').textContent;
-                const blob = new Blob([workerScript], { type: 'application/javascript' });
-                const workerURL = URL.createObjectURL(blob);
 
                 let completedWorkers = 0;
                 const totalWorkers = systemsToSearch.length;
@@ -1410,8 +1453,6 @@
                             activeWorkers = activeWorkers.filter(w => w !== worker);
 
                             if (completedWorkers === totalWorkers) {
-                                URL.revokeObjectURL(workerURL);
-                                
                                 // --- APPLY FINAL SIEVE ---
                                 solutions = applyFinalSieve(solutions); 
 
@@ -1450,9 +1491,12 @@
                 const dir = direction === 'asc' ? 1 : -1;
                 solutions.sort((a, b) => {
                     if (column === 'system') {
-                        return a.system.localeCompare(b.system) * dir;
+                        return (a.system || '').localeCompare(b.system || '') * dir;
                     } else {
-                        return (a[column] - b[column]) * dir;
+                        // Use nullish coalescing to handle potentially missing properties gracefully
+                        const valA = a[column] ?? -Infinity;
+                        const valB = b[column] ?? -Infinity;
+                        return (valA - valB) * dir;
                     }
                 });
             };
@@ -1581,7 +1625,7 @@
             const initializeChart = () => {
                 if (xrdChart) xrdChart.destroy();
                 const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, fullExperimentalData.intensity[i]) }));
-                const yMax = Math.max(...fullExperimentalData.intensity);
+                const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
 
                 xrdChart = new Chart(ui.chartCanvas, {
                     type: 'line',
@@ -1631,7 +1675,7 @@
                                     }
                                 },
                                 zoom: { 
-                                    wheel: { enabled: false, }, 
+                                    wheel: { enabled: true, }, 
                                     pinch: { enabled: true, }, 
                                     drag: { enabled: false, },
                                     onZoomComplete: () => {
@@ -1766,35 +1810,6 @@
                 window.addEventListener('mouseup', upHandler);
             });
             
-            ui.chartCanvas.addEventListener('wheel', e => {
-                e.preventDefault();
-
-                const chart = xrdChart;
-                if (!chart || !chart.chartArea) return;
-
-                const { left, right, top, bottom } = chart.chartArea;
-                const x = e.offsetX;
-                const y = e.offsetY;
-
-                const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-                let zoomed = false;
-
-                if (y > bottom) {
-                    chart.zoom({ x: zoomFactor }, { x, y });
-                    zoomed = true;
-                } else if (x < left) {
-                    chart.zoom({ y: zoomFactor }, { x, y });
-                    zoomed = true;
-                } else if (x >= left && x <= right && y >= top && y <= bottom) {
-                    chart.zoom({ x: zoomFactor, y: zoomFactor }, { x, y });
-                    zoomed = true;
-                }
-                
-                if (zoomed) {
-                    updateAllMarkers();
-                }
-            });
-
             ui.chartCanvas.addEventListener('contextmenu', e => {
                 e.preventDefault();
                 if (xrdChart) {
@@ -1834,11 +1849,7 @@
                 pickedPeaks.sort((a, b) => a.tth - b.tth);
 
                 updatePeakTable();
-
-                ui.startIndexingButton.disabled = (pickedPeaks.length < 4);
-                ui.startIndexingButton.textContent = pickedPeaks.length < 4 ? 
-                    `Need ${4 - pickedPeaks.length} more peaks` : 'Start Indexing';
-
+                updateStartIndexingButtonState();
                 showStatus(`Peak added at ${tth.toFixed(3)}°`, 'success', 2000);
             });
 
@@ -1869,8 +1880,9 @@
                     yPos += 5;
                     doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
                     yPos += 10;
-
-                    const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff' });
+                    
+                    showStatus('Rendering chart for PDF...', 'info', 3000);
+                    const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
                     const imgData = canvas.toDataURL('image/png');
                     const imgProps = doc.getImageProperties(imgData);
                     const pdfWidth = doc.internal.pageSize.getWidth();
@@ -2032,6 +2044,13 @@
                     document.body.style.cursor = 'default';
                 }
             };
+            
+            // Cleanup worker URL on page unload to be safe
+            window.addEventListener('beforeunload', () => {
+                if (workerURL) {
+                    URL.revokeObjectURL(workerURL);
+                }
+            });
 
         });
     </script>
