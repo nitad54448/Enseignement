@@ -715,41 +715,70 @@
                 return { tth, intensity, wavelength };
             };
 
-            const parseGsasEsdFile = (text) => {
+const parseGsasEsdFile = (text) => {
                 const lines = text.trim().split(/\r?\n/);
-                if (lines.length < 2) throw new Error("GSAS-style file is too short or invalid.");
+                let wavelength = null;
+                let startTth, stepSize;
+                let dataStartIndex = -1;
 
-                // Parse the first line for scan parameters: start, step, [end]
-                const paramsLine = lines[0].trim().split(/\s+/);
-                const startTth = parseFloat(paramsLine[0]);
-                const stepSize = parseFloat(paramsLine[1]);
+                // --- Find Wavelength, Bank Line, and Data Start ---
+                lines.forEach((line, index) => {
+                    const upperLine = line.toUpperCase();
+                    
+                    // Check for wavelength on any line, but typically the first
+                    if (upperLine.includes('WAVELENGTH')) {
+                        const match = line.match(/wavelength\s+([0-9.]+)/i);
+                        if (match && match[1]) {
+                            wavelength = parseFloat(match[1]);
+                        }
+                    }
 
-                if (isNaN(startTth) || isNaN(stepSize) || stepSize === 0) {
-                    throw new Error("Could not parse start angle and step size from the file header.");
+                    // Find the BANK line which contains the scan parameters
+                    if (upperLine.startsWith('BANK')) {
+                        const parts = line.trim().split(/\s+/);
+                        if (parts.length >= 6 && parts[4].toUpperCase() === 'CONST') {
+                            // GSAS format often stores angles in centidegrees
+                            startTth = parseFloat(parts[5]) / 100.0;
+                            stepSize = parseFloat(parts[6]) / 100.0;
+                            dataStartIndex = index + 1; // Data starts on the next line
+                        }
+                    }
+                });
+
+                if (startTth === undefined || stepSize === undefined) {
+                    throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
                 }
 
-                const intensity = [];
-                // Start reading intensities from the 2nd or 3rd line, skipping any 'BANK' line
-                let startLine = 1;
-                if (lines.length > 1 && lines[1].toUpperCase().includes('BANK')) {
-                    startLine = 2;
+                // Skip the 'STD' line if it exists
+                if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) {
+                    dataStartIndex++;
+                }
+
+                if (dataStartIndex === -1 || dataStartIndex >= lines.length) {
+                    throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines.");
                 }
                 
-                for (let i = startLine; i < lines.length; i++) {
+                // --- Parse Intensity Data ---
+                const intensity = [];
+                for (let i = dataStartIndex; i < lines.length; i++) {
                     const parts = lines[i].trim().split(/\s+/);
-                    parts.forEach(part => {
-                        const val = parseFloat(part);
+                    // Data is in pairs (e.g., '1 341'), we want the second value of each pair.
+                    for (let j = 1; j < parts.length; j += 2) {
+                        const val = parseFloat(parts[j]);
                         if (!isNaN(val)) {
                             intensity.push(val);
                         }
-                    });
+                    }
                 }
 
-                if (intensity.length === 0) throw new Error("No intensity data found in GSAS-style file.");
+                if (intensity.length === 0) {
+                    throw new Error("GSAS Parse Error: No intensity data could be parsed.");
+                }
 
                 const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
                 
-                return { tth, intensity };
+                // Return wavelength if found, otherwise it will be null
+                return { tth, intensity, wavelength };
             };
 
             const parseUxdFile = (text) => {
