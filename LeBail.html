@@ -2079,11 +2079,14 @@
             findDataset('Simulation (Manual)').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: totalSimPattern[i]}));
             findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]}));
             
-            const yMax = mainChart.options.scales.y.max / 1.1;
-            const markerHeight = -yMax * 0.05;
+            const yMinLive = mainChart.scales.y.min;
+            const negSpaceHeight = Math.abs(yMinLive);
+            const markerBottom = -(negSpaceHeight * 0.05);
+            const markerTop = -(negSpaceHeight * 0.20);
+
             findDataset('HKL Markers').data = hklList.map(hkl => ({ 
                 x: hkl.tth + params.zeroShift, 
-                y: markerHeight,
+                y: [markerTop, markerBottom],
                 hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
             }));
             mainChart.update('none');
@@ -2165,7 +2168,20 @@
                         }
                     }, 
                     plugins: {
-                        zoom: { pan: { enabled: true, mode: 'xy', threshold: 5 }, zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }}},
+                        zoom: { 
+                            pan: { 
+                                enabled: true, 
+                                mode: 'xy', 
+                                threshold: 5,
+                                onPanComplete: () => rescalePlot(false)
+                            }, 
+                            zoom: { 
+                                wheel: { enabled: false }, 
+                                pinch: { enabled: true }, 
+                                drag: { enabled: false },
+                                onZoomComplete: () => rescalePlot(false)
+                            }
+                        },
                         legend: { labels: { filter: item => item.text !== 'Difference Zero' && item.text !== 'Simulation (Manual)'}},
                         tooltip: { enabled: true, mode: 'index', intersect: false, position: 'experimentalAnchor', callbacks: {
                             title: function(tooltipItems) {
@@ -2193,12 +2209,22 @@
                                 const datasetLabel = context.dataset.label || '';
                                 if (datasetLabel === 'HKL Markers' || datasetLabel === 'Difference Zero' || datasetLabel === 'Simulation (Manual)') return null;
                                 if (datasetLabel === 'Difference') {
-                                    const yMax = mainChart.options.scales.y.max / 1.1;
-                                    const dYmax = Math.max(1, ...lastRawDifference.map(Math.abs));
-                                    const diffPlotHeightRatio = 0.33, diffPlotOffset = -yMax * (diffPlotHeightRatio / 2);
-                                    const availableAmplitude = yMax * (diffPlotHeightRatio / 2) * 0.9;
-                                    const scalingFactor = availableAmplitude / dYmax;
-                                    const realValue = (context.parsed.y - diffPlotOffset) / scalingFactor;
+                                    const yMinLive = mainChart.scales.y.min;
+                                    const negSpaceHeight = Math.abs(yMinLive);
+                                    const diffPlotSpaceTop = -(negSpaceHeight * 0.25);
+                                    const diffPlotZeroLine = (yMinLive + diffPlotSpaceTop) / 2;
+                                    const diffPlotAmplitude = Math.abs(yMinLive - diffPlotSpaceTop) / 2 * 0.95;
+                                    let dYmax = 1;
+                                    const minX = mainChart.scales.x.min;
+                                    const maxX = mainChart.scales.x.max;
+                                    for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                                        if (fullExperimentalData.tth[i] >= minX && fullExperimentalData.tth[i] <= maxX) {
+                                            dYmax = Math.max(dYmax, Math.abs(lastRawDifference[i]));
+                                        }
+                                    }
+                                    const scalingFactor = diffPlotAmplitude / dYmax;
+
+                                    const realValue = (context.parsed.y - diffPlotZeroLine) / scalingFactor;
                                     return `${datasetLabel}: ${Math.round(realValue)}`;
                                 }
                                 let label = datasetLabel ? `${datasetLabel}: ` : '';
@@ -2210,29 +2236,75 @@
                 }
             });
         }
-
-        function updatePlotRange() {
+        
+        // --- MODIFIED: This function only changes X-axis unless updateY is true ---
+        function updatePlotRange(updateY = false) {
             if(!mainChart || !fullExperimentalData || fullExperimentalData.tth.length === 0) return;
             const min = parseFloat(controls.tthMinSlider.value);
             const max = parseFloat(controls.tthMaxSlider.value);
             mainChart.options.scales.x.min = min;
             mainChart.options.scales.x.max = max;
-            let yMaxInRange = 1; 
-            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
-                if (fullExperimentalData.tth[i] >= min && fullExperimentalData.tth[i] <= max) {
-                    if (fullExperimentalData.intensity[i] > yMaxInRange) yMaxInRange = fullExperimentalData.intensity[i];
+            
+            if (updateY) {
+                let yMaxInRange = 1; 
+                for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                    if (fullExperimentalData.tth[i] >= min && fullExperimentalData.tth[i] <= max) {
+                        if (fullExperimentalData.intensity[i] > yMaxInRange) yMaxInRange = fullExperimentalData.intensity[i];
+                    }
                 }
-            }
-            const diffPlotHeightRatio = 0.33;
-            mainChart.options.scales.y.max = Math.ceil(yMaxInRange * 1.1);
-            mainChart.options.scales.y.min = -yMaxInRange * diffPlotHeightRatio;
-            const hklDataset = mainChart.data.datasets.find(d => d.label === 'HKL Markers');
-            if (hklDataset && hklDataset.data.length > 0) {
-                const new_marker_y = -yMaxInRange * 0.05;
-                hklDataset.data.forEach(point => point.y = new_marker_y);
+                const diffPlotHeightRatio = 0.33;
+                mainChart.options.scales.y.max = Math.ceil(yMaxInRange * 1.1);
+                mainChart.options.scales.y.min = -yMaxInRange * diffPlotHeightRatio;
             }
         }
         
+        // --- MODIFIED: This function now handles dynamic plots and calls updatePlotRange with a flag ---
+        function rescalePlot(updateY = false) {
+            if (!mainChart || !fullExperimentalData.tth.length) return;
+            
+            updatePlotRange(updateY); 
+            mainChart.update('none'); 
+
+            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+            
+            const yMinLive = mainChart.scales.y.min;
+            const negSpaceHeight = Math.abs(yMinLive);
+
+            // Update HKL Markers (if they exist)
+            const hklDataset = findDataset('HKL Markers');
+            if (hklDataset && hklDataset.data.length > 0) {
+                const markerBottom = -(negSpaceHeight * 0.05);
+                const markerTop = -(negSpaceHeight * 0.20);
+                hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]);
+            }
+            
+            // Update Difference Plot (if it exists)
+            if (lastRawDifference && lastRawDifference.length > 0) {
+                const diffPlotSpaceTop = -(negSpaceHeight * 0.25);
+                const diffPlotZeroLine = (yMinLive + diffPlotSpaceTop) / 2;
+                const diffPlotAmplitude = Math.abs(yMinLive - diffPlotSpaceTop) / 2 * 0.95;
+
+                let dYmax = 1;
+                const minX = mainChart.scales.x.min;
+                const maxX = mainChart.scales.x.max;
+                for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                    if (fullExperimentalData.tth[i] >= minX && fullExperimentalData.tth[i] <= maxX) {
+                        dYmax = Math.max(dYmax, Math.abs(lastRawDifference[i]));
+                    }
+                }
+                
+                const scalingFactor = diffPlotAmplitude / dYmax;
+                findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactor) + diffPlotZeroLine }));
+                findDataset('Difference Zero').data = [
+                    {x: fullExperimentalData.tth[0], y: diffPlotZeroLine},
+                    {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotZeroLine}
+                ];
+            }
+            
+            mainChart.update('none');
+        }
+
+        // --- MODIFIED: This function now uses dynamic positioning for markers and difference plot ---
         function updateChart(peakPattern, background, hklList, params) {
             if (!mainChart) return;
             const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
@@ -2243,63 +2315,49 @@
             findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]})); 
 
             lastRawDifference = fullExperimentalData.intensity.map((y, i) => y - totalCalcPattern[i]);
-            updatePlotRange(); 
-            const yMax = mainChart.options.scales.y.max / 1.1;
-            const diffPlotHeightRatio = 0.33;
+            
+            updatePlotRange(true); // Always update Y-scale after a fit
+            mainChart.update('none'); // Apply scale change
+
+            // Now draw markers and diff plot dynamically
+            const yMinLive = mainChart.scales.y.min;
+            const negSpaceHeight = Math.abs(yMinLive);
+
+            // HKL Markers
+            const markerBottom = -(negSpaceHeight * 0.05);
+            const markerTop = -(negSpaceHeight * 0.20);
+            findDataset('HKL Markers').data = hklList.map(hkl => ({ 
+                x: hkl.tth + params.zeroShift, 
+                y: [markerTop, markerBottom], // Use floating bar y-data
+                hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
+            }));
+            
+            // Difference Plot
+            const diffPlotSpaceTop = -(negSpaceHeight * 0.25);
+            const diffPlotZeroLine = (yMinLive + diffPlotSpaceTop) / 2;
+            const diffPlotAmplitude = Math.abs(yMinLive - diffPlotSpaceTop) / 2 * 0.95;
+
             let dYmax = 1;
-            const min = parseFloat(controls.tthMinSlider.value);
-            const max = parseFloat(controls.tthMaxSlider.value);
+            const minX = mainChart.scales.x.min;
+            const maxX = mainChart.scales.x.max;
             if (lastRawDifference.length > 0) {
                  for (let i = 0; i < fullExperimentalData.tth.length; i++) {
-                    if (fullExperimentalData.tth[i] >= min && fullExperimentalData.tth[i] <= max) {
+                    if (fullExperimentalData.tth[i] >= minX && fullExperimentalData.tth[i] <= maxX) {
                         dYmax = Math.max(dYmax, Math.abs(lastRawDifference[i]));
                     }
                 }
             }
-            const diffPlotOffset = -yMax * (diffPlotHeightRatio / 2);
-            const availableAmplitude = yMax * (diffPlotHeightRatio / 2) * 0.9;
-            const scalingFactor = availableAmplitude / dYmax;
-            findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactor) + diffPlotOffset }));
+            
+            const scalingFactor = diffPlotAmplitude / dYmax;
+            findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactor) + diffPlotZeroLine }));
             findDataset('Difference Zero').data = [
-                {x: fullExperimentalData.tth[0], y: diffPlotOffset},
-                {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotOffset}
+                {x: fullExperimentalData.tth[0], y: diffPlotZeroLine},
+                {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotZeroLine}
             ];
-            const markerHeight = -yMax * 0.05;
-            findDataset('HKL Markers').data = hklList.map(hkl => ({ 
-                x: hkl.tth + params.zeroShift, 
-                y: markerHeight,
-                hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
-            }));
+            
             mainChart.update('none');
         }
 
-        function rescalePlot() {
-            if (!mainChart || !fullExperimentalData.tth.length) return;
-            updatePlotRange();
-            if (lastRawDifference && lastRawDifference.length > 0) {
-                const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-                const yMaxInRange = mainChart.options.scales.y.max / 1.1;
-                const diffPlotHeightRatio = 0.33;
-                let dYmax = 1;
-                const min = parseFloat(controls.tthMinSlider.value);
-                const max = parseFloat(controls.tthMaxSlider.value);
-                for (let i = 0; i < fullExperimentalData.tth.length; i++) {
-                    if (fullExperimentalData.tth[i] >= min && fullExperimentalData.tth[i] <= max) {
-                        dYmax = Math.max(dYmax, Math.abs(lastRawDifference[i]));
-                    }
-                }
-                const diffPlotOffset = -yMaxInRange * (diffPlotHeightRatio / 2);
-                const availableAmplitude = yMaxInRange * (diffPlotHeightRatio / 2) * 0.9;
-                const scalingFactor = availableAmplitude / dYmax;
-                findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactor) + diffPlotOffset }));
-                findDataset('Difference Zero').data = [
-                    {x: fullExperimentalData.tth[0], y: diffPlotOffset},
-                    {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotOffset}
-                ];
-            }
-            mainChart.update('none');
-        }
-        
         // --- Event Listeners ---
         controls.fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -2333,9 +2391,6 @@
                     controls.wavelength.value = parsedData.wavelength.toFixed(5);
                     }
 
-
-
-
                     fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
                     lastRawDifference = [];
                     calculatedBackground = new Array(fullExperimentalData.tth.length).fill(0);
@@ -2358,21 +2413,21 @@
                         slider.min = min; slider.max = max; slider.step = step; slider.disabled = false;
                     });
                     const initialMin = Math.floor(min);
-                    const initialMax = Math.ceil(max);
-                    controls.tthMinSlider.value = initialMin;
-                    controls.tthMaxSlider.value = initialMax;
-                    controls.tthMinValue.textContent = initialMin.toFixed(2); 
-                    controls.tthMaxValue.textContent = initialMax.toFixed(2);
-                    updateAndApplyBackground(); 
-                    rescalePlot();
-                } catch (error) {
-                    alert(`Error reading file: ${error.message}`);
-                    console.error(error);
-                }
-            };
-            reader.onerror = () => { alert('Error: Could not read the selected file.'); };
-            reader.readAsText(file);
-        });
+            const initialMax = Math.ceil(max);
+            controls.tthMinSlider.value = initialMin;
+            controls.tthMaxSlider.value = initialMax;
+            controls.tthMinValue.textContent = initialMin.toFixed(2); 
+            controls.tthMaxValue.textContent = initialMax.toFixed(2);
+            updateAndApplyBackground(); 
+            rescalePlot(true); // MODIFIED: Update Y-axis on new file
+        } catch (error) {
+            alert(`Error reading file: ${error.message}`);
+            console.error(error);
+        }
+    };
+    reader.onerror = () => { alert('Error: Could not read the selected file.'); };
+    reader.readAsText(file);
+});
 
  
         
@@ -2614,6 +2669,7 @@
             controls.iterationsValue.textContent = controls.iterationsSlider.value;
         });
 
+        // --- MODIFIED: Listeners call rescalePlot with false to prevent Y-axis scaling ---
         controls.tthMinSlider.addEventListener('input', () => {
             let minVal = parseFloat(controls.tthMinSlider.value);
             let maxVal = parseFloat(controls.tthMaxSlider.value);
@@ -2622,7 +2678,7 @@
                 controls.tthMinSlider.value = minVal;
             }
             controls.tthMinValue.textContent = minVal.toFixed(2);
-            rescalePlot();
+            rescalePlot(false);
         });
 
         controls.tthMaxSlider.addEventListener('input', () => {
@@ -2633,7 +2689,7 @@
                 controls.tthMaxSlider.value = maxVal;
             }
             controls.tthMaxValue.textContent = maxVal.toFixed(2);
-            rescalePlot();
+            rescalePlot(false);
         });
         
         controls.mainChartCanvas.addEventListener('wheel', e => {
@@ -2643,14 +2699,23 @@
             const { left, right, top, bottom } = chart.chartArea;
             const x = e.offsetX, y = e.offsetY;
             const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-            if (y > bottom) chart.zoom({ x: zoomFactor }, { x, y });
-            else if (x < left) chart.zoom({ y: zoomFactor }, { x, y });
-            else if (x >= left && x <= right && y >= top && y <= bottom) chart.zoom({ x: zoomFactor, y: zoomFactor }, { x, y });
+            
+            // The onZoomComplete callback in the plugin options will handle redrawing the markers
+            if (y > bottom) { 
+                chart.zoom({ x: zoomFactor }, {x, y});
+            } else if (x < left) { 
+                chart.zoom({ y: zoomFactor }, {x, y});
+            } else if (x >= left && x <= right && y >= top && y <= bottom) { 
+                chart.zoom({ x: zoomFactor, y: zoomFactor }, {x, y});
+            }
         });
 
         controls.mainChartCanvas.addEventListener('contextmenu', e => {
             e.preventDefault();
-            if (mainChart) mainChart.resetZoom();
+            if (mainChart) {
+                mainChart.resetZoom();
+                rescalePlot(true); // Rescale fully on reset
+            }
         });
 
         controls.ballRadiusSlider.addEventListener('input', () => {
@@ -2670,3 +2735,5 @@
 
 </body>
 </html>
+
+
