@@ -193,7 +193,7 @@
             <h4>1. File Input & Help</h4>
             <ul>
                 <li><strong>Select Data File:</strong> This button opens a file dialog to load your experimental data. Supported formats include two-column ASCII (<code>.xy</code>, <code>.csv</code>, <code>.txt</code>), Rigaku (<code>.ras</code>), Bruker (<code>.xrdml</code>, <code>.brml</code>), Philips (<code>.udf</code>, <code>.uxd</code>), and GSAS (<code>.esd</code>).</li>
-                <li><strong>Help Icon (?):</strong> Displays a tooltip with basic usage instructions, chart interaction tips, and a link to download this full help guide.</li>
+                <li><strong>Help Icon (?):</strong> Displays a tooltip with basic usage instructions, chart interaction tips, and a link to this full help guide.</li>
             </ul>
 
             <h4>2. Peaks Tab</h4>
@@ -217,7 +217,7 @@
                 <li><strong>Max Volume (Å³):</strong> The maximum acceptable unit cell volume for a solution. Setting a realistic value is one of the most effective ways to speed up the search and reduce the number of false solutions.</li>
                 <li><strong>2θ Error (°):</strong> This defines the tolerance window for matching calculated peaks to observed peaks, reflecting the instrumental resolution and data quality. Use a smaller value (e.g., 0.01-0.02) for high-resolution data and a larger value (e.g., 0.04-0.06) for standard laboratory data.</li>
                 <li><strong>Impurity Peaks:</strong> The number of allowed un-indexed peaks among the first 20 observed peaks when calculating the M(20) figure of merit. Set this to 1 or 2 if you suspect minor impurities.</li>
-                <li><strong>Refine Zero-Point Error:</strong> If checked, the program will perform an iterative refinement to correct for a systematic shift in all peak positions, often caused by sample displacement or instrument misalignment. This is highly recommended for high-quality work.</li>
+                <li><strong>Refine Zero-Point Error:</strong> If checked, the program will simultaneously refine a zero-point correction along with the lattice parameters. This is highly recommended for high-quality work.</li>
                 <li><strong>Crystal Systems to Search:</strong> Checkboxes to select which symmetries to search for (Cubic, Tetragonal, Hexagonal, Orthorhombic, Monoclinic).</li>
             </ul>
             
@@ -276,7 +276,7 @@
             <p>The core of the program is the Dichotomy search algorithm, which aims to solve the fundamental equation of powder diffraction relating peak positions ($Q_{obs}$) to Miller indices ($h,k,l$) and unit cell parameters.</p>
 
             <h4>From 2θ to Q-space</h4>
-            <p>The first step is to convert the list of observed 2θ peak positions into a list of $Q$ values. $Q$ is defined as the reciprocal of the d-spacing squared, and working in Q-space linearizes the indexing equations.</p>
+            <p>The first step is to convert the list of observed 2θ peak positions into a list of $Q$ values. $Q$ is defined as the reciprocal of the d-spacing squared ($1/d^2$), and working in Q-space linearizes the indexing equations.</p>
             $$ Q_{obs} = \frac{1}{d^2} = \left( \frac{2\sin\theta}{\lambda} \right)^2 $$
             <p>The indexing problem is now to find unit cell parameters that generate a set of theoretical $Q_{calc}$ values that match the $Q_{obs}$ list.</p>
             
@@ -315,7 +315,7 @@
             <ul>
                 <li>$Q_N$ is the Q-value of the N-th (20th) <em>observed</em> peak.</li>
                 <li>$\overline{|\Delta Q|}$ is the average absolute difference between observed and calculated Q-values ($\overline{|Q_{obs} - Q_{calc}|}$) for all indexed peaks up to $Q_N$. This term measures the accuracy of the fit. A smaller average difference leads to a higher M(20).</li>
-                <li>$N_{calc}$ is the number of <em>calculated</em> theoretical peaks up to the position of $Q_N$. This term penalizes solutions that are "too dense"—that is, a cell that predicts many more lines than are actually observed. This is a crucial guard against cells that are sub-multiples of the true cell.</li>
+                <li>$N_{calc}$ is the number of <em>calculated</em>, crystallographically unique theoretical peaks up to the position of $Q_N$. This term penalizes solutions that are "too dense"—that is, a cell that predicts many more lines than are actually observed. By correctly counting only unique reflections (e.g., treating (100) and (010) as one line in a tetragonal system), this value provides a crucial guard against cells that are sub-multiples of the true cell.</li>
             </ul>
             <h4>Interpretation of M(20) Values</h4>
              <blockquote>
@@ -340,19 +340,15 @@
 
             <h3>Zero-Point Error Refinement</h3>
             <p>
-                A "zero-point error" is a common instrumental artifact caused by a slight misalignment of the sample from the center of the goniometer. It results in a systematic shift of all peak positions ($\Delta 2\theta$), which is most pronounced at low 2θ angles and can severely hamper or prevent successful indexing.
+                A "zero-point error" is a common instrumental artifact caused by a slight misalignment of the sample from the center of the goniometer. It results in a systematic shift of all peak positions ($\Delta 2\theta$), which can severely hamper or prevent successful indexing.
             </p>
             <p>
-                When the <code>Refine Zero-Point Error</code> option is enabled, the program enters an iterative loop for each promising solution:
+                When the <code>Refine Zero-Point Error</code> option is enabled, the program uses a more sophisticated approach than simple iteration. The zero-point shift is treated as an additional variable to be solved for *simultaneously* with the lattice parameters during the least-squares refinement.
             </p>
-            <ol>
-                <li>Refine the cell parameters against the current peak positions.</li>
-                <li>Calculate the average difference between observed and calculated 2θ positions ($\Delta 2\theta_{avg}$).</li>
-                <li>Treat this average difference as a temporary zero-point correction and subtract it from the original observed peak positions.</li>
-                <li>Re-index and re-refine the cell using this new, corrected list of peak positions.</li>
-            </ol>
             <p>
-                <strong>Stopping Condition:</strong> This iterative loop repeats until one of two conditions is met: a maximum of <strong>5 iterations</strong> is reached, or the calculated correction in one step falls below a convergence threshold of <strong>0.0001°</strong>. This yields both the refined cell parameters and the final calculated zero-point shift, which is reported along with the solution.
+                This is accomplished by linearizing the effect of a small shift ($\delta$) on the Q-value. The observed Q is approximated as:
+                $$ Q_{obs} \approx Q_{calc}(hkl) + \frac{\partial Q}{\partial (2\theta)} \cdot \delta $$
+                This adds one more unknown ($\delta$) and one more column to the least-squares matrix, allowing the refinement to find the optimal values for both the cell parameters and the zero-point error in a single, robust step. The final refined shift is then reported along with the solution.
             </p>
         </section>
 
@@ -376,12 +372,12 @@
                 The program uses these observed conditions to determine the Bravais lattice type (P, I, F, C, R) and suggest a list of possible space groups that are consistent with those conditions. This is a crucial step in bridging the gap from unit cell to full crystal structure determination.
             </p>
 
-            <h3>Cell Transformations & Solution Sieving</h3>
+            <h3>Advanced Search and Sieving Strategies</h3>
             <p>
-                Sometimes, a correct solution can be found in a non-conventional setting, or a lower-symmetry cell might be mathematically related to a higher-symmetry one. The program performs a final "sieving" process on the list of solutions to find these relationships and present the most likely, highest-symmetry answer.
+                To improve the chances of finding the correct solution, especially in non-standard settings, the program employs several advanced search strategies. These are not just post-processing filters; they are integrated into the worker's search routine to generate new candidate cells.
             </p>
              <h4>1. Matrix-based Cell Transformations</h4>
-            <p>The program applies a series of transformation matrices ($P$) to the metric tensor ($G$) of each solution to test for smaller, primitive cells or other common relationships ($G' = P^T G P$). Key transformations include:</p>
+            <p>The worker takes the initial set of promising solutions and applies a series of transformation matrices ($P$) to their metric tensors ($G$) to test for smaller, primitive cells or other common relationships ($G' = P^T G P$). Each new cell generated this way is treated as a fresh candidate and is subjected to a **full least-squares refinement and M(20) evaluation** to verify its quality.</p>
             <table>
                 <thead><tr><th>Transformation Name</th><th>Purpose</th><th>Transformation Matrix ($P$)</th></tr></thead>
                 <tbody>
@@ -395,24 +391,19 @@
                         <td>Finds the primitive cell within a Body-centered (I) cell.</td>
                         <td>$ \begin{pmatrix} -0.5 & 0.5 & 0.5 \\ 0.5 & -0.5 & 0.5 \\ 0.5 & 0.5 & -0.5 \end{pmatrix} $</td>
                     </tr>
-                    <tr>
-                        <td><code>c_prim</code></td>
-                        <td>Finds the primitive cell within a C-Face-centered cell.</td>
-                        <td>$ \begin{pmatrix} 0.5 & 0.5 & 0 \\ -0.5 & 0.5 & 0 \\ 0 & 0 & 1 \end{pmatrix} $</td>
-                    </tr>
                 </tbody>
             </table>
             <h4>2. HKL Divisor Analysis</h4>
             <p>
-                The program examines the list of indexed Miller indices for a given solution. If all indices in one direction (e.g., all $h$ values) share a common integer divisor greater than 1, it may indicate that the true unit cell axis is smaller. For example, if all indexed reflections have an even $h$ index, the program will test a new cell with its $a$-axis halved. If this new cell yields a high M(20), it is added as a candidate.
+                The worker examines the list of indexed Miller indices for a given solution. If all indices in one direction (e.g., all $h$ values) share a common integer divisor greater than 1, it may indicate that the true unit cell axis is smaller. For example, if all indexed reflections have an even $h$ index, the program will test a new cell with its $a$-axis halved. This new candidate is then fully refined and scored.
             </p>
             <h4>3. Orthorhombic to Hexagonal Check</h4>
             <p>
-                A hexagonal lattice can be described by a C-centered orthorhombic cell where the ratio of two axes is approximately $\sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition (e.g., $b/a \approx \sqrt{3}$). If found, it calculates the equivalent hexagonal cell and adds it to the solution list if it provides a high-quality fit.
+                A hexagonal lattice can be described by a C-centered orthorhombic cell where the ratio of two axes is approximately $\sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition (e.g., $b/a \approx \sqrt{3}$). If found, it generates the equivalent hexagonal cell and passes it through the full refinement and evaluation pipeline.
             </p>
-            <h4>4. Redundancy Check</h4>
+            <h4>4. Final Sieving</h4>
             <p>
-                After all transformations, the final list is sorted. If two solutions have very similar volumes, the one with higher symmetry and a better M(20) is preferred, and the lower-symmetry, lower-quality solution is likely discarded as redundant. This automated analysis helps to simplify the solution list and often points directly to the true, highest-symmetry description of the lattice.
+                After the worker has completed all searches and returned a comprehensive list of fully refined solutions, a final sieving process is applied. The list is sorted, and if two solutions have very similar volumes, the one with higher symmetry and a better M(20) is preferred, and the lower-quality one is discarded as redundant. This helps to simplify the final solution list.
             </p>
         </section>
         
@@ -429,14 +420,14 @@
 
             <h4>Why is my M(20) value low even if the fit looks good?</h4>
             <ul>
-                <li><strong>Incorrect Cell (Sub-multiple/Super-multiple):</strong> You may have found a cell that is a multiple or sub-multiple of the true cell. It will index some lines correctly but will be penalized in the M(20) calculation for either being too "empty" or too "dense" with calculated reflections.</li>
+                <li><strong>Incorrect Cell (Sub-multiple/Super-multiple):</strong> You may have found a cell that is a multiple or sub-multiple of the true cell. It will index some lines correctly but will be penalized in the M(20) calculation for either being too "empty" or too "dense" with calculated reflections. The program's use of unique HKLs for the $N_{calc}$ term helps to mitigate this, but it is not foolproof.</li>
                 <li><strong>High Error / Low Resolution:</strong> If your peaks are very broad, the <code>2θ Error</code> might be set too tight, causing the program to incorrectly count peaks as "un-indexed." Try slightly increasing the error value.</li>
                 <li><strong>The solution is simply wrong.</strong> A spurious solution can sometimes appear to fit a few lines by chance. Even with a decent M(20), visual inspection is key. If the calculated pattern (blue ticks) clearly misses major observed peaks (red ticks), the solution is incorrect.</li>
             </ul>
             
             <h4>What does "Derived from orth (b/a≈√3)" mean?</h4>
             <p>
-                This indicates that the program first found a valid orthorhombic solution. During the final sieving process, it noticed that the ratio of two lattice parameters (in this case, b/a) was very close to $\sqrt{3} \approx 1.732$. This is a special condition that often means the true symmetry is hexagonal. The program then tested this hypothesis, generated the equivalent hexagonal cell, and found it was also a valid (and higher-symmetry) solution, which was then added to the list.
+                This indicates that the program first found a valid orthorhombic solution. During its advanced search phase, it noticed that the ratio of two lattice parameters (in this case, b/a) was very close to $\sqrt{3} \approx 1.732$. This is a special condition that often means the true symmetry is hexagonal. The program then tested this hypothesis, generated the equivalent hexagonal cell, and found it was also a valid (and higher-symmetry) solution, which was then added to the list.
             </p>
         </section>
 
@@ -464,7 +455,7 @@
                     </li>
             </ol>
             <div class="footer">
-                <p>Help Guide Generated by Gemini 2.5 on 21 Sept 2025</p>
+                <p>Help Guide Generated by Gemini 2.5 on 23 Sept 2025</p>
             </div>
         </section>
 
