@@ -733,7 +733,7 @@
                              </select>
                         </div>
 
-                        <div id="profile-4-params-container" class="profile-controls-container hidden">
+                        <div id="profile-4-params-container" class="profile-controls-container">
                             <h3 class="profile-section-header">Gaussian Broadening</h3>
                             <label class="control-label">GU</label>
                             <input type="number" id="param-gu" value="2.0" step="0.1" class="control-input" min="0">
@@ -763,7 +763,7 @@
                             <input type="checkbox" id="fit-trns" class="fit-checkbox">
                         </div>
 
-                        <div id="profile-2-params-container" class="profile-controls-container">
+                        <div id="profile-2-params-container" class="profile-controls-container hidden">
                             <h3 class="profile-section-header">Gaussian Broadening (TCH)</h3>
                             <label class="control-label">U</label>
                             <input type="number" id="param-u" value="2.0" step="0.1" class="control-input" min="0">
@@ -1088,68 +1088,80 @@
             return { system, centering };
         }
 
-        function updateLatticeParamUI() {
-            const { system } = getSystemAndCentering();
-            const container = controls.latticeParamsContainer;
-            container.innerHTML = '';
+function updateLatticeParamUI() {
+    // 1. Create an object to store current values from the UI
+    const currentValues = {};
+    const container = controls.latticeParamsContainer;
 
-            const createInput = (name, label, value, step, isAngle = false) => {
-                const id_base = `lattice-param-${name}`;
-                const unit = isAngle ? '°' : 'Å';
-                const minAttribute = isAngle ? '' : 'min="0.001"';
-                
-                const row = document.createElement('div');
-                row.className = 'parameter-grid-3col';
-                row.innerHTML = `
-                    <label for="${id_base}" class="control-label">${label} (${unit})</label>
-                    <input type="number" id="${id_base}" value="${value}" step="${step}" class="control-input" ${minAttribute}>
-                    <input type="checkbox" id="fit-lattice-${name}" class="fit-checkbox" title="Fit this parameter" checked>
-                `;
-                container.appendChild(row);
-            };
-
-            const params = {
-                cubic: [{ name: 'a', label: 'a', value: 4.08, step: 0.001 }],
-                tetragonal: [
-                    { name: 'a', label: 'a', value: 4.0, step: 0.001 },
-                    { name: 'c', label: 'c', value: 5.0, step: 0.001 }
-                ],
-                orthorhombic: [
-                    { name: 'a', label: 'a', value: 4.0, step: 0.001 },
-                    { name: 'b', label: 'b', value: 5.0, step: 0.001 },
-                    { name: 'c', label: 'c', value: 6.0, step: 0.001 }
-                ],
-                hexagonal: [
-                    { name: 'a', label: 'a', value: 4.0, step: 0.001 },
-                    { name: 'c', label: 'c', value: 6.0, step: 0.001 }
-                ],
-                rhombohedral: [
-                    { name: 'a', label: 'a', value: 5.0, step: 0.001 },
-                    { name: 'alpha', label: 'α', value: 60.0, step: 0.01, isAngle: true }
-                ],
-                monoclinic: [
-                    { name: 'a', label: 'a', value: 4.0, step: 0.001 },
-                    { name: 'b', label: 'b', value: 5.0, step: 0.001 },
-                    { name: 'c', label: 'c', value: 6.0, step: 0.001 },
-                    { name: 'beta', label: 'β', value: 105.0, step: 0.01, isAngle: true }
-                ]
-            };
-            
-            if(params[system]) {
-                params[system].forEach(p => createInput(p.name, p.label, p.value, p.step, p.isAngle));
-            }
+    // 2. Read existing input values before they are erased
+    container.querySelectorAll('input[type="number"]').forEach(input => {
+        const name = input.id.replace('lattice-param-', ''); // e.g., 'a', 'b', 'beta'
+        if (input.value) {
+            currentValues[name] = input.value;
         }
+    });
 
+    const { system } = getSystemAndCentering();
+    container.innerHTML = ''; // Now it's safe to erase
 
+    // 3. In the helper function, prioritize the user's value over the default
+    const createInput = (name, label, defaultValue, step, isAngle = false) => {
+        // Use the preserved value (or the default if none exists)
+        const valueToUse = currentValues[name] !== undefined ? currentValues[name] : defaultValue;
+        const id_base = `lattice-param-${name}`;
+        const unit = isAngle ? '°' : 'Å';
+        const minAttribute = isAngle ? '' : 'min="0.001"';
+        
+        const row = document.createElement('div');
+        row.className = 'parameter-grid-3col';
+        // Use valueToUse to set the input's value
+        row.innerHTML = `
+            <label for="${id_base}" class="control-label">${label} (${unit})</label>
+            <input type="number" id="${id_base}" value="${valueToUse}" step="${step}" class="control-input" ${minAttribute}>
+            <input type="checkbox" id="fit-lattice-${name}" class="fit-checkbox" title="Fit this parameter" checked>
+        `;
+        container.appendChild(row);
+    };
 
+    const params = {
+        cubic: [{ name: 'a', label: 'a', value: 4.23, step: 0.001 }],
+        tetragonal: [
+            { name: 'a', label: 'a', value: 4.0, step: 0.001 },
+            { name: 'c', label: 'c', value: 5.0, step: 0.001 }
+        ],
+        orthorhombic: [
+            { name: 'a', label: 'a', value: 4.0, step: 0.001 },
+            { name: 'b', label: 'b', value: 5.0, step: 0.001 },
+            { name: 'c', label: 'c', value: 6.0, step: 0.001 }
+        ],
+        hexagonal: [
+            { name: 'a', label: 'a', value: 4.0, step: 0.001 },
+            { name: 'c', label: 'c', value: 6.0, step: 0.001 }
+        ],
+        rhombohedral: [
+            { name: 'a', label: 'a', value: 5.0, step: 0.001 },
+            { name: 'alpha', label: 'α', value: 60.0, step: 0.01, isAngle: true }
+        ],
+        monoclinic: [
+            { name: 'a', label: 'a', value: 4.0, step: 0.001 },
+            { name: 'b', label: 'b', value: 5.0, step: 0.001 },
+            { name: 'c', label: 'c', value: 6.0, step: 0.001 },
+            { name: 'beta', label: 'β', value: 105.0, step: 0.01, isAngle: true }
+        ]
+    };
+    
+    if(params[system]) {
+        params[system].forEach(p => createInput(p.name, p.label, p.value, p.step, p.isAngle));
+    }
+}
 
 
         
 
 
-        // --- All-in-one File Parsing Logic ---
+        // --- je peux rajouter des formats ici....
 
-/**
+/*
  * Detects file type based on name and content, then calls the appropriate parser.
  * This is the main function to call after a file is read.
  * @param {string} fileName - The name of the file.
@@ -1184,7 +1196,7 @@ const detectAndParseFile = (fileName, fileContent) => {
     return parseDataFile(fileContent);
 };
 
-// --- Individual Parsers ---
+// --- cherche le format de chaque fichier
 
 /** Parses generic 2-column (2-theta, intensity) data files. */
 const parseDataFile = (text) => {
@@ -1494,7 +1506,7 @@ const parsePhilipsUdfFile = (text) => {
             if (mainChart) {
                 const backgroundDataset = mainChart.data.datasets.find(d => d.label === 'Background');
                 if (backgroundDataset) {
-                    backgroundDataset.data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: calculatedBackground[i] }));
+                    backgroundDataset.data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: calculatedBackground[i] }));  //erreur dans map 2t ?
                 }
                 updatePreviewPattern();
             }
@@ -1714,7 +1726,7 @@ const parsePhilipsUdfFile = (text) => {
         reportLines.push('', `Warning: ${esdWarning}`); 
     }
     
-    // --- START: CORRECTED REFLECTIONS LIST LOGIC ---
+    // ------problème ici, dans le hkl ?
     const { system, centering } = getSystemAndCentering();
     const hklListForReport = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
     const finalWorkingData_NET = getWorkingData(true);
@@ -1723,47 +1735,44 @@ const parsePhilipsUdfFile = (text) => {
     reportLines.push('');
     reportLines.push('--- Reflections List (Integrated Intensities) ---');
     
-    // Step 1: Pre-calculate all experimental and normalized calculated intensities
+    // calculate all experimental and normalized calculated intensities
     const intensities = hklListForReport.map(hkl => {
         const peakShift = calculatePeakShift(hkl.tth, finalParams);
         const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
         const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams);
-        const fwhm = gamma_G + gamma_L; // Approximation of FWHM for integration window
+        const fwhm = gamma_G + gamma_L; // presque FWHM 
         const i_exp = getIntegratedIntensity(tthCorr, fwhm, fullExperimentalData, calculatedBackground);
         return {
-            i_calc_norm: hkl.intensity, // This is the normalized value from Le Bail extraction
+            i_calc_norm: hkl.intensity, 
             i_exp: i_exp,
             hkl_data: hkl,
             tthCorr: tthCorr
         };
     });
 
-    // Step 2: Calculate a new, dedicated intensity-based scale factor
+    // une échelle pour les intensités
     const i_calc_norm_values = intensities.map(i => i.i_calc_norm);
     const i_exp_values = intensities.map(i => i.i_exp);
     const sum_exp_calc = dot(i_exp_values, i_calc_norm_values);
     const sum_calc_sq = dot(i_calc_norm_values, i_calc_norm_values);
     const intensityScaleFactor = (sum_calc_sq > 1e-9) ? sum_exp_calc / sum_calc_sq : 1.0;
 
-    // Step 3: Generate the table using the new correct scale factor
+    // Generate the table using the new correct scale factor
     reportLines.push(['h,k,l'.padEnd(12), '2th_corr (°)' .padStart(15), 'I_calc'.padStart(12), 'I_exp'.padStart(12)].join('  '));
     reportLines.push('-'.repeat(55));
     intensities.forEach(item => {
-        if (item.i_exp > 0 || item.i_calc_norm > 0) { // Only list relevant peaks
+        if (item.i_exp > 0 || item.i_calc_norm > 0) { // Only list relevant peaks ?
             const final_i_calc = item.i_calc_norm * intensityScaleFactor;
             const line = [item.hkl_data.hkl_list[0].padEnd(12), item.tthCorr.toFixed(4).padStart(15), final_i_calc.toFixed(1).padStart(12), item.i_exp.toFixed(1).padStart(12)].join('  ');
             reportLines.push(line);
         }
     });
-    // --- END: CORRECTED REFLECTIONS LIST LOGIC ---
-
-
+ 
     reportLines.push('');
     reportLines.push('--- Point-by-Point Intensity Data ---');
     reportLines.push(['2theta'.padEnd(12), 'I_obs'.padStart(12), 'I_calc'.padStart(12), 'Difference'.padStart(12)].join('  '));
     reportLines.push('-'.repeat(60));
     
-    // Use the main pattern scale factor for the point-by-point list
     const { pattern: finalCalcPatternNet } = calculatePattern(fullExperimentalData.tth, hklListForReport, finalParams);
     let sum_obs_net_calc_net = 0, sum_calc_net_sq_main = 0;
     const y_obs_net = fullExperimentalData.intensity.map((y, i) => y - calculatedBackground[i]);
@@ -1881,7 +1890,7 @@ const parsePhilipsUdfFile = (text) => {
         }
 
         function calculateProfileWidths(tth, hkl, params) {
-    // Ensure profileType exists
+    
     const profileType = params.profileType || controls.profileSelect.value || "2";
     
     const thetaRad = tth * (Math.PI / 180) / 2;
@@ -2010,7 +2019,7 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, system, cent
     let lambda = 0.001;
     const workingData = getWorkingData(true);
 
-    // This helper function now includes the scaling step
+    // scaling step
     const calculateScaledPatternWithFixedIntensities = (p_vec, current_params, hklListWithFixedIntensities) => {
         let tempParams = JSON.parse(JSON.stringify(current_params));
         paramMapping.forEach((m, i) => m.set(tempParams, p_vec[i]));
@@ -2037,13 +2046,12 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, system, cent
         let hklList = generateHKL(Math.max(...workingData.tth), params, system, centering);
         leBailIntensityExtraction(workingData, hklList, params);
         
-        // --- START: CORRECTION FOR MAIN LOOP ---
         const unscaledPattern = calculatePattern(workingData.tth, hklList, params).pattern;
         const sum_obs_calc_main = dot(workingData.intensity, unscaledPattern);
         const sum_calc_sq_main = dot(unscaledPattern, unscaledPattern);
         const scaleFactor_main = (sum_calc_sq_main > 1e-9) ? sum_obs_calc_main / sum_calc_sq_main : 1.0;
         const currentPattern = scale(unscaledPattern, scaleFactor_main);
-        // --- END: CORRECTION FOR MAIN LOOP ---
+
 
         const residuals = subtract(workingData.intensity, currentPattern);
         const weights = workingData.intensity.map(y => 1 / Math.max(y, 1));
@@ -2064,7 +2072,7 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, system, cent
             const step = (paramMapping[i].step || 1e-5) * (Math.abs(p_plus[i]) > 1e-5 ? Math.abs(p_plus[i]) : 1);
             p_plus[i] += step;
             
-            // Use the corrected helper for the Jacobian calculation
+            //  Jacobian calculation
             const pattern_plus = calculateScaledPatternWithFixedIntensities(p_plus, params, hklList);
             const res_plus = subtract(workingData.intensity, pattern_plus);
             const weighted_res_plus = res_plus.map((r, j) => r * Math.sqrt(weights[j]));
@@ -2090,7 +2098,7 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, system, cent
 
         const p_new_vec = add(p_current_vec, p_step);
         
-        // Use the corrected helper to evaluate the new parameters
+        //  helper to evaluate the new parameters
         const new_pattern = calculateScaledPatternWithFixedIntensities(p_new_vec, params, hklList);
         const new_residuals = subtract(workingData.intensity, new_pattern);
         const weighted_new_residuals = new_residuals.map((r, i) => r * Math.sqrt(weights[i]));
@@ -2106,7 +2114,6 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, system, cent
     }
     return { params, JtJ, finalResiduals, paramMapping, ss_res: last_cost, algorithm: 'lm', fitFlags };
 }
-
 
         function leBailIntensityExtraction(exp, hklList, params) {
     // console.log(`Starting Le Bail extraction with ${hklList.length} peaks and ${exp.tth.length} data points`);
@@ -2141,7 +2148,6 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, system, cent
     
     const maxIntensity = Math.max(...hklList.map(p => p.intensity));
     // console.log(`Max intensity after extraction: ${maxIntensity}`);
-    
 }
 
 function calculateStatistics(totalWorkingData, netCalcPattern, backgroundSlice, fitFlags) {
@@ -2202,7 +2208,7 @@ function getAllParams() {
         profileType: profileType
     };
 
-    // Add profile-specific parameters with defaults
+    // Add profile-specific parameters with defaults, à vérifier avec la doc de Gsas
     if (profileType === "4") {
         Object.assign(params, {
             GU: parseFloat(controls.paramGU.value) || 2.0,
@@ -2274,7 +2280,6 @@ function getFitFlags() {
                     S220: controls.fitS220.checked, S202: controls.fitS202.checked, S022: controls.fitS022.checked,
                 });
 
-                // --- START: NEW CONSTRAINT LOGIC ---
                 // Override slave flags based on symmetry, ensuring they are NOT refined independently.
                 switch (system) {
                     case 'cubic':
@@ -2286,7 +2291,7 @@ function getFitFlags() {
                         flags.S040 = flags.S022 = false;
                         break;
                 }
-                // --- END: NEW CONSTRAINT LOGIC ---
+                // --- pas très util tout de même---
             }
             return flags;
         }
@@ -2326,8 +2331,6 @@ function calculateDeterminant(A) {
     
     return det;
 }
-
-
 
         function dot(v1, v2) { let s = 0; for(let i=0; i<v1.length; i++) s += v1[i] * v2[i]; return s; }
         function add(v1, v2) { return v1.map((x, i) => x + v2[i]); }
@@ -2503,7 +2506,6 @@ async function refineParametersSA(initialParams, fitFlags, maxIter, system, cent
             leBailIntensityExtraction(workingData, newHklList, tempParams);
             const { pattern } = calculatePattern(workingData.tth, newHklList, tempParams);
 
-            // --- START: CORRECTION ---
             // Calculate and apply the optimal scale factor
             const sum_obs_calc = dot(workingData.intensity, pattern);
             const sum_calc_sq = dot(pattern, pattern);
@@ -2515,9 +2517,7 @@ async function refineParametersSA(initialParams, fitFlags, maxIter, system, cent
             
             const diff = subtract(workingData.intensity, scaledPattern);
             const cost = dot(diff, diff);
-            // --- END: CORRECTION ---
             
-            // The console.log can be removed for cleaner output once verified
             /*
             console.log("Objective eval → params:", JSON.stringify(tempParams), 
                         "Peaks:", newHklList.length, 
@@ -2532,7 +2532,7 @@ async function refineParametersSA(initialParams, fitFlags, maxIter, system, cent
     };
 
     let bestOverallParams = JSON.parse(JSON.stringify(initialParams));
-    const LE_BAIL_CYCLES = 5; // reduce cycles for easier logging
+    const LE_BAIL_CYCLES = 10; // reduce cycles for easier logging ?
     const stepsPerCycle = Math.max(1, Math.floor(maxIter / LE_BAIL_CYCLES));
     const coolingRate = 0.99;
 
@@ -2641,9 +2641,9 @@ function updatePreviewPattern() {
                 return;
             }
 
-            // --- START: CORRECTED LOGIC ---
+
             let hklList = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering);
-            
+            lastGeneratedHklList = hklList;
             // For preview, we need placeholder intensities. We will scale the pattern later.
             hklList.forEach(p => p.intensity = 1000); 
 
@@ -2681,8 +2681,7 @@ function updatePreviewPattern() {
                 {x: fullExperimentalData.tth[0], y: diffPlotZeroLine},
                 {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotZeroLine}
             ];
-            
-            // --- END: CORRECTED LOGIC ---
+
 
             mainChart.update('none');
         }
@@ -2771,17 +2770,62 @@ function updatePreviewPattern() {
         const { system, centering } = getSystemAndCentering();
         const hklList = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering);
         lastGeneratedHklList = hklList;
-        // This is the corrected call that now passes the scaleFactor
         updateChart(peakPattern, background, hklList, params, scaleFactor);
     }
 }
 
-    function initializeChart() {
+
+/**
+ * Checks if a given 2-theta value is within a defined percentage of the total plotted range from a peak.
+ * @param {number} tth The 2-theta position of the cursor.
+ * @returns {{peak: object | null, inRegion: boolean}} An object indicating if it's in a peak region.
+ */
+function getPeakInfoAt(tth) {
+    if (!lastGeneratedHklList || lastGeneratedHklList.length === 0 || !mainChart) {
+        return { peak: null, inRegion: false };
+    }
+
+    let closestPeak = null, minDiff = Infinity;
+    const currentParams = getAllParams();
+    const zeroShift = currentParams.zeroShift || 0;
+
+    // Find the single closest peak to the cursor
+    for (const hkl of lastGeneratedHklList) {
+        const peakShift = calculatePeakShift(hkl.tth, currentParams);
+        const peakPos = hkl.tth + zeroShift + peakShift;
+        const diff = Math.abs(tth - peakPos);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestPeak = hkl;
+        }
+    }
+
+    if (closestPeak) {
+      
+        //  Check if the cursor is within N% of the total plotted X-axis range.
+        const N = 1; // in %
+        
+        // Get the total range from the sliders, not the zoomed view
+        const plottedXRange = parseFloat(controls.tthMaxSlider.value) - parseFloat(controls.tthMinSlider.value);
+        const threshold = (plottedXRange * N) / 100.0;
+        
+
+        if (minDiff < threshold) {
+            // SUCCESS: The cursor is close enough.
+            return { peak: closestPeak, inRegion: true };
+        }
+    }
+
+    // FAILURE: The cursor is too far from any peak.
+    return { peak: null, inRegion: false };
+}
+
+function initializeChart() {
     if (mainChart) mainChart.destroy();
     const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({x: t, y: fullExperimentalData.intensity[i]}));
     const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
     mainChart = new Chart(controls.mainChartCanvas, {
-        type: 'line', 
+        type: 'line',
         data: { datasets: [
             { label: 'Experimental', data: experimentalPoints, borderColor: 'rgba(107, 114, 128, 0.7)', borderWidth: 1.5, pointRadius: 0, order: 1 },
             { label: 'Simulation (Manual)', data: [], borderColor: 'rgba(249, 115, 22, 0.8)', borderWidth: 2, pointRadius: 0, borderDash: [8, 4], order: 2 },
@@ -2791,84 +2835,63 @@ function updatePreviewPattern() {
             { label: 'Difference Zero', data: [], borderColor: 'rgba(156, 163, 175, 0.8)', borderWidth: 1, pointRadius: 0, borderDash: [2, 2], order: 6 },
             { type: 'bar', label: 'HKL Markers', data: [], backgroundColor: 'rgba(22, 163, 74, 0.9)', barThickness: 2, categoryPercentage: 1.0, barPercentage: 1.0, order: 0 },
         ]},
-        options: { 
-            responsive: true, maintainAspectRatio: false, animation: false, 
-            scales: { 
+        options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            scales: {
                 x: { type: 'linear', title: { display: true, text: '2θ (degrees)', font: { size: 14 }}},
                 y: { type: 'linear', position: 'left', title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }},
                     min: -yMax * 0.3, max: Math.ceil(yMax * 1.1),
                     ticks: { callback: function(value, index, ticks) { return value >= 0 ? value.toFixed(1) : null; }}
                 }
-            }, 
+            },
             plugins: {
-                zoom: { 
-                    pan: { 
-                        enabled: true, 
-                        mode: 'xy', 
+                zoom: {
+                    pan: {
+                        enabled: true,
+                        mode: 'xy',
                         threshold: 5,
                         onPanComplete: () => rescalePlot(false)
-                    }, 
-                    zoom: { 
-                        wheel: { enabled: false }, 
-                        pinch: { enabled: true }, 
+                    },
+                    zoom: {
+                        wheel: { enabled: false },
+                        pinch: { enabled: true },
                         drag: { enabled: false },
                         onZoomComplete: () => rescalePlot(false)
                     }
                 },
                 legend: { labels: { filter: item => item.text !== 'Difference Zero' && item.text !== 'Simulation (Manual)'}},
-                tooltip: { enabled: true, mode: 'index', intersect: false, position: 'experimentalAnchor', callbacks: {
-                    title: function(tooltipItems) {
-                        if (!tooltipItems.length) return '';
-                        const tth = tooltipItems[0].parsed.x;
-                        let title = `2θ: ${tth.toFixed(2)}`;
-                        if (lastGeneratedHklList && lastGeneratedHklList.length > 0) {
-                            let closestPeak = null, minDiff = Infinity;
-                            const currentParams = getAllParams();
-                            const zeroShift = currentParams.zeroShift || 0;
-                            for (const hkl of lastGeneratedHklList) {
-                                const peakPos = hkl.tth + zeroShift;
-                                const diff = Math.abs(tth - peakPos);
-                                if (diff < minDiff) { minDiff = diff; closestPeak = hkl; }
-                            }
-                            if (closestPeak) {
-                                const { gamma_G, gamma_L } = calculateProfileWidths(closestPeak.tth, closestPeak, currentParams);
-                                const fwhm = gamma_G + gamma_L;
-                                if (minDiff < fwhm) title += `, HKL: ${closestPeak.hkl_list[0]} [m=${closestPeak.multiplicity}])`;
-                            }
-                        }
-                        return title;
-                    },
-                    label: function(context) {
-                        const datasetLabel = context.dataset.label || '';
-                        if (datasetLabel === 'HKL Markers' || datasetLabel === 'Difference Zero' || datasetLabel === 'Simulation (Manual)') return null;
-                        if (datasetLabel === 'Difference') {
-                            const yMinLive = mainChart.scales.y.min;
-                            const negSpaceHeight = Math.abs(yMinLive);
-                            const diffPlotSpaceTop = -(negSpaceHeight * 0.25);
-                            const diffPlotZeroLine = (yMinLive + diffPlotSpaceTop) / 2;
-                            const diffPlotAmplitude = Math.abs(yMinLive - diffPlotSpaceTop) / 2 * 0.95;
-                            let dYmax = 1;
-                            const minX = mainChart.scales.x.min;
-                            const maxX = mainChart.scales.x.max;
-                            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
-                                if (fullExperimentalData.tth[i] >= minX && fullExperimentalData.tth[i] <= maxX) {
-                                    dYmax = Math.max(dYmax, Math.abs(lastRawDifference[i]));
-                                }
-                            }
-                            const scalingFactor = diffPlotAmplitude / dYmax;
+                tooltip: {
+                    enabled: true,
+                    mode: 'x', // Ensures correct 2-theta coordinate lookup
+                    intersect: false,
+                    position: 'experimentalAnchor',
 
-                            const realValue = (context.parsed.y - diffPlotZeroLine) / scalingFactor;
-                            return `${datasetLabel}: ${Math.round(realValue)}`;
-                        }
-                        let label = datasetLabel ? `${datasetLabel}: ` : '';
-                        if (context.parsed.y !== null) label += Math.round(context.parsed.y);
-                        return label;
-                    }
-                }}
-            } 
+
+callbacks: {
+    title: function(tooltipItems) {
+        if (!tooltipItems.length) return null;
+        const tth = tooltipItems[0].parsed.x;
+        const peakInfo = getPeakInfoAt(tth);
+
+        // If in a peak region, show only 2-theta and HKL.
+        if (peakInfo.inRegion) {
+            const closestPeak = peakInfo.peak;
+            return `2θ: ${tth.toFixed(2)}, HKL: ${closestPeak.hkl_list[0]}`;
+        }
+        return null;
+    },
+    label: function(context) {
+        // Return null to hide all other information (intensity, background, etc.).
+        return null;
+    }
+}
+// ...
+
+                }
+            }
         }
     });
-    // Add the globalYMax property to the options for later use
+
     mainChart.options.globalYMax = yMax;
 }
 
@@ -2900,7 +2923,7 @@ function updatePreviewPattern() {
 
     const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
     
-    // --- START: FINALIZED CONSTANT SCALING LOGIC ---
+
     // Calculate all negative space geometry from the GLOBAL Y-Max.
     const globalYMax = mainChart.options.globalYMax;
     const diffPlotHeightRatio = 0.3; // This is the ratio from initializeChart()
@@ -2924,8 +2947,7 @@ function updatePreviewPattern() {
         if (!isFinite(dYmax) || dYmax === 0) {
             dYmax = 1;
         }
-        // --- END: FINALIZED CONSTANT SCALING LOGIC ---
-
+      
         const scalingFactor = diffPlotAmplitude / dYmax;
         findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactor) + diffPlotZeroLine }));
         findDataset('Difference Zero').data = [
@@ -3026,7 +3048,7 @@ async function runLeBailFit() {
     
     fitResults = results;
     const finalParams = fitResults.params;
-    enforceSymmetryConstraints(finalParams); // <-- Key addition here
+    enforceSymmetryConstraints(finalParams);
 
     const finalWorkingData_NET = getWorkingData(true);
     const hklList = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
@@ -3054,37 +3076,45 @@ async function runLeBailFit() {
 }
 
 
-
 function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0) {
     if (!mainChart) return;
     const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-    findDataset('Simulation (Manual)').data = []; 
-    
+    findDataset('Simulation (Manual)').data = [];
+
     const totalCalcPattern = peakPattern.map((y, i) => (y * scaleFactor) + background[i]);
-    
-    findDataset('Calculated').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: totalCalcPattern[i]})); 
-    findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]})); 
+
+    findDataset('Calculated').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: totalCalcPattern[i]}));
+    findDataset('Background').data = fullExperimentalData.tth.map((t, i) => ({x: t, y: background[i]}));
 
     lastRawDifference = fullExperimentalData.intensity.map((y, i) => y - totalCalcPattern[i]);
-    
+
     mainChart.update('none');
 
-    // --- START: FINALIZED CONSTANT SCALING LOGIC ---
-    // Calculate all negative space geometry from the GLOBAL Y-Max.
     const globalYMax = mainChart.options.globalYMax;
-    const diffPlotHeightRatio = 0.3; // This is the ratio from initializeChart()
+    const diffPlotHeightRatio = 0.3;
     const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio;
 
-    // Use the constant height to set HKL marker positions.
+    // --- START: HKL MARKER CORRECTION ---
     const markerBottom = -(constantNegSpaceHeight * 0.05);
     const markerTop = -(constantNegSpaceHeight * 0.20);
-    findDataset('HKL Markers').data = hklList.map(hkl => ({ 
-        x: hkl.tth + params.zeroShift, 
-        y: [markerTop, markerBottom],
-        hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
+
+    // Get the current plotting range from the sliders
+    const minTth = parseFloat(controls.tthMinSlider.value);
+    const maxTth = parseFloat(controls.tthMaxSlider.value);
+
+    // Filter the HKL list to only include markers within the selected range before mapping
+    findDataset('HKL Markers').data = hklList
+        .filter(hkl => {
+            const peakPos = hkl.tth + (params.zeroShift || 0); // Consider the zero shift
+            return peakPos >= minTth && peakPos <= maxTth;
+        })
+        .map(hkl => ({
+            x: hkl.tth + params.zeroShift,
+            y: [markerTop, markerBottom],
+            hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
     }));
-    
-    // Use the constant height for the difference plot.
+    // --- END: HKL MARKER CORRECTION ---
+
     const constantDiffPlotSpaceTop = -(constantNegSpaceHeight * 0.25);
     const diffPlotZeroLine = -constantNegSpaceHeight + (constantNegSpaceHeight - constantDiffPlotSpaceTop) / 2;
     const diffPlotAmplitude = (constantNegSpaceHeight - constantDiffPlotSpaceTop) / 2 * 0.95;
@@ -3093,15 +3123,14 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
     if (!isFinite(dYmax) || dYmax === 0) {
         dYmax = 1;
     }
-    // --- END: FINALIZED CONSTANT SCALING LOGIC ---
-    
+
     const scalingFactorForDiffPlot = diffPlotAmplitude / dYmax;
     findDataset('Difference').data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: (lastRawDifference[i] * scalingFactorForDiffPlot) + diffPlotZeroLine }));
     findDataset('Difference Zero').data = [
         {x: fullExperimentalData.tth[0], y: diffPlotZeroLine},
         {x: fullExperimentalData.tth[fullExperimentalData.tth.length-1], y: diffPlotZeroLine}
     ];
-    
+
     mainChart.update('none');
 }
 
@@ -3220,7 +3249,7 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
         const pageHeight = doc.internal.pageSize.getHeight();
         const contentWidth = pageWidth - 2 * margin;
         
-        // --- Page 1: Title and Chart (Unchanged) ---
+        // --- Page 1: Title and Chart 
         doc.setFontSize(18);
         doc.text('Le Bail Refinement Report', pageWidth/2, 15, { align: 'center' });
         doc.setFontSize(10);
@@ -3242,7 +3271,7 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
             doc.setFontSize(12); doc.text('Chart capture failed', margin, 50);
         }
         
-        // --- START: FULLY REVISED PAGE 2 ---
+        // --- page 2, résultats
         doc.addPage();
         let yPos = 20;
         const finalParams = { ...fitResults.params };
@@ -3256,7 +3285,7 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
         };
         const addHeader = (text) => { yPos += 4; addText(text, 14, true); yPos += 2; };
 
-        // Calculate ESDs if LM algorithm was used
+        //  ESDs si LM
         let esds = {};
         let esdWarning = null;
         if (fitResults.algorithm === 'lm' && fitResults.JtJ) {
@@ -3278,7 +3307,7 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
             }
         }
 
-        // --- Refinement Statistics Section ---
+        // ---  Statistics Section ---
         addHeader('Refinement Statistics');
         addText(`Rp (%): ${fitResults.stats.r_p.toFixed(2)}`);
         addText(`Rwp (%): ${fitResults.stats.rwp.toFixed(2)}`);
@@ -3343,10 +3372,9 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
                 addText(`${nameStr}${valStr}${fitStr}${esdStr}`, 8, false, 'Courier');
             } 
         });
-        // --- END: FULLY REVISED PAGE 2 ---
+        
 
-
-        // --- Page 3: Reflections List (Unchanged from previous fix) ---
+        // --- Page 3: Reflections List , problème pour d'autres systèmes, à vérifier
         doc.addPage();
         yPos = 20;
         addHeader('Peak List (Top 20 Reflections)');
@@ -3381,7 +3409,7 @@ function updateChart(peakPattern, background, hklList, params, scaleFactor = 1.0
             addText(line, 8, false, 'Courier');
         });
 
-        // --- Save the final PDF ---
+        // --- save PDF ---
         doc.save(`${baseFilename}.pdf`);
         
     } catch (error) {
