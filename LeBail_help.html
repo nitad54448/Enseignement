@@ -133,6 +133,14 @@
             padding-bottom: 8px;
             border-bottom: 1px solid var(--system-gray-5);
         }
+        
+        #content-area h4 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            color: var(--system-secondary-label);
+        }
 
         code {
             background-color: var(--system-gray-6);
@@ -171,7 +179,6 @@
                 <li><a href="#parameters">Parameter Guide</a></li>
                 <li><a href="#parameters-crystal" class="sub-link">Crystal & Lattice</a></li>
                 <li><a href="#parameters-instrumental" class="sub-link">Instrumental</a></li>
-                <li><a href="#parameters-profile2" class="sub-link">Profile Function #2</a></li>
                 <li><a href="#parameters-profile4" class="sub-link">Profile Function #4</a></li>
                 <li><a href="#parameters-profile3" class="sub-link">Profile Function #3</a></li>
                 <li><a href="#strategy">Refinement Strategy</a></li>
@@ -188,7 +195,7 @@
                     This document provides a detailed guide to the browser-based Le Bail Fitting tool. The program is designed for crystallographers and material scientists who need to perform whole-pattern powder diffraction decomposition to determine accurate lattice parameters, integrated intensities, and profile shape parameters.
                 </p>
                 <p>
-                    The tool implements the iterative procedure proposed by A. Le Bail and utilizes three specific GSAS-style profile functions for robust and flexible peak shape modeling: **Profile Function #2** (TCH pseudo-Voigt), **Profile Function #3** (Stephens Anisotropy), and **Profile Function #4** (Simple pseudo-Voigt). It is intended as an accessible, rapid analysis tool for researchers familiar with the principles of powder diffraction.
+                    The tool implements the iterative procedure proposed by A. Le Bail and utilizes GSAS-style profile functions for robust and flexible peak shape modeling. The available models are a **Simple pseudo-Voigt (Profile Function #4)** and a comprehensive **Anisotropy model (Profile Function #3)**, which combines the classic TCH pseudo-Voigt for isotropic broadening with the Stephens model for anisotropic effects. It is intended as an accessible, rapid analysis tool for researchers familiar with the principles of powder diffraction.
                 </p>
             </section>
             
@@ -260,7 +267,7 @@
             
             <section id="parameters">
                 <h2>Parameter Guide</h2>
-                <p>This section details the refinable parameters available in the tool.</p>
+                <p>This section details the refinable parameters available in the tool's profile functions.</p>
 
                 <h3 id="parameters-crystal">Crystal System & Lattice</h3>
                 <p>
@@ -273,19 +280,6 @@
                     <li><code>Zero</code>: The $2\theta$ zero-point error of the instrument. This is a constant offset applied to all calculated peak positions.</li>
                 </ul>
 
-                <h3 id="parameters-profile2">Profile Function #2 (TCH pseudo-Voigt)</h3>
-                <p>
-                    The Thompson-Cox-Hastings (TCH) pseudo-Voigt is a sophisticated profile function that convolutes Gaussian and Lorentzian functions. The Full-Width at Half-Maximum (FWHM) of the Gaussian ($H_G$) and Lorentzian ($H_L$) components have an angular dependence given by:
-                    $$ H_G^2 = U \tan^2\theta + V \tan\theta + W $$
-                    $$ H_L = X \tan\theta + Y / \cos\theta $$
-                </p>
-                <ul>
-                    <li><code>W</code>: The primary instrumental resolution term, related to the Caglioti formula. It should be positive.</li>
-                    <li><code>U, V</code>: The Gaussian strain ($U$) and instrumental ($V$) broadening terms. $U$ should be positive; $V$ is often negative.</li>
-                    <li><code>Y, X</code>: The Lorentzian crystallite size ($Y$) and strain ($X$) broadening terms, based on the Scherrer and Stokes-Wilson formulae, respectively.</li>
-                    <li><code>S/L, H/L</code>: Asymmetry parameters that correct for peak shape distortions. <code>S/L</code> primarily models sample displacement/transparency, while <code>H/L</code> models axial divergence.</li>
-                </ul>
-
                 <h3 id="parameters-profile4">Profile Function #4 (Simple pseudo-Voigt)</h3>
                 <p>
                     This is a simpler pseudo-Voigt implementation where the Gaussian and Lorentzian components are mixed linearly via a refined mixing parameter, $\eta$.
@@ -293,16 +287,40 @@
                     $$ H_L = LX / \cos\theta $$
                 </p>
                 <ul>
-                    <li><code>GU, GV, GW, GP</code>: Describe the Gaussian broadening.</li>
-                    <li><code>LX</code>: Describes the Lorentzian (size) broadening.</li>
-                    <li><code>eta</code>: The Lorentzian mixing parameter in the pseudo-Voigt function.</li>
+                    <li><code>GU, GV, GW, GP</code>: Describe the Gaussian broadening from strain and instrumental effects.</li>
+                    <li><code>LX</code>: Describes the Lorentzian (crystallite size) broadening.</li>
+                    <li><code>eta</code>: The Lorentzian mixing parameter in the pseudo-Voigt function (0=pure Gaussian, 1=pure Lorentzian).</li>
                     <li><code>shft</code>: A peak position shift parameter due to sample displacement.</li>
                     <li><code>trns</code>: A peak position shift parameter due to sample transparency.</li>
                 </ul>
-
-                <h3 id="parameters-profile3">Profile Function #3 (Stephens Anisotropy)</h3>
+                
+                <h3 id="parameters-profile3">Profile Function #3 (Anisotropy / TCH)</h3>
                 <p>
-                    This function is an extension to Profile Function #2. It adds terms to the Lorentzian FWHM ($H_L$) to model anisotropic microstrain, where peak widths vary depending on the crystallographic direction $(hkl)$. This can be caused by directional differences in elasticity or dislocation densities.
+                    This powerful and flexible function combines two models: the isotropic **Thompson-Cox-Hastings (TCH) pseudo-Voigt** for general peak shape and the **Stephens model** for anisotropic (direction-dependent) strain broadening.
+                </p>
+                <div class="note">
+                    <b>Tip:</b> To use this as a standard isotropic TCH profile (equivalent to the classic GSAS Profile Function #2), simply keep all the Stephens <code>S_hkl</code> parameters (<code>S400</code>, <code>S040</code>, etc.) fixed at a value of zero.
+                </div>
+                
+                <h4>Isotropic Broadening (TCH Model)</h4>
+                <p>The Full-Width at Half-Maximum (FWHM) of the Gaussian ($H_G$) and Lorentzian ($H_L$) components have an angular dependence given by:
+                    $$ H_G^2 = U \tan^2\theta + V \tan\theta + W $$
+                    $$ H_L = X \tan\theta + Y / \cos\theta $$
+                </p>
+                <ul>
+                    <li><code>W</code>: The primary instrumental resolution term, related to the Caglioti formula. It must be positive.</li>
+                    <li><code>U, V</code>: The Gaussian strain ($U$) and instrumental ($V$) broadening terms. $U$ must be positive; $V$ is often negative.</li>
+                    <li><code>Y, X</code>: The Lorentzian crystallite size ($Y$) and strain ($X$) broadening terms, based on the Scherrer and Stokes-Wilson formulae, respectively.</li>
+                </ul>
+                
+                <h4>Peak Asymmetry</h4>
+                 <ul>
+                    <li><code>S/L, H/L</code>: Asymmetry parameters that correct for peak shape distortions. <code>S/L</code> primarily models sample displacement/transparency, while <code>H/L</code> models axial divergence.</li>
+                </ul>
+
+                <h4>Anisotropic Broadening (Stephens Model)</h4>
+                <p>
+                    This model adds terms to the Lorentzian FWHM ($H_L$) to account for anisotropic microstrain, where peak widths vary depending on the crystallographic direction $(hkl)$.
                 </p>
                 <p>
                     The refinable parameters are the coefficients <code>S400, S040, S004, S220, S202, S022</code> in a symmetry-adapted spherical harmonic expansion. The number of independent parameters is determined by the crystal's Laue group symmetry. This tool automatically disables and links parameters based on the selected crystal system to enforce these constraints. For example, in a **cubic** system, only `S400` and `S220` are independent.
@@ -320,9 +338,9 @@
                     <li><b>Initial Setup:</b> Load the data and set the desired $2\theta$ range for refinement using the sliders.</li>
                     <li><b>Background:</b> Go to the "Background" tab and manually adjust the "Ball Radius" and "Smoothing" sliders to get a reasonable background subtraction. The goal is a flat base for the net pattern.</li>
                     <li><b>Basics First:</b> Begin by refining only the most essential parameters: **Lattice Parameter(s)** and **Zero Shift**. Use a fixed, simple profile shape (e.g., default U,V,W,X,Y values with their fit checkboxes unticked). Use the **Levenberg-Marquardt** algorithm for this.</li>
-                    <li><b>Refine Gaussian Shape:</b> Once the peak positions are correct, enable the fit for the primary Gaussian broadening parameters: **U, V, and W**. Run the refinement again.</li>
-                    <li><b>Introduce Lorentzian & Asymmetry:</b> Add the Lorentzian size parameter **X** and the primary asymmetry parameter **S/L** to the refinement. This will correct the majority of the remaining peak shape mismatch.</li>
-                    <li><b>Final Polish:</b> For the highest quality fits, you can now add the remaining parameters, such as the size/strain parameter **Y** and, if necessary, the anisotropic Stephens parameters.</li>
+                    <li><b>Refine Gaussian Shape:</b> Once the peak positions are correct, enable the fit for the primary Gaussian broadening parameters: **U, V, and W** (or GU, GV, GW). Run the refinement again.</li>
+                    <li><b>Introduce Lorentzian & Asymmetry:</b> Add the Lorentzian size/strain parameters **X** and **Y** (or LX) and the primary asymmetry parameter **S/L** to the refinement. This will correct the majority of the remaining peak shape mismatch.</li>
+                    <li><b>Final Polish:</b> For the highest quality fits, you can now add the remaining parameters. If your peaks show directional broadening, carefully introduce the **anisotropic Stephens parameters**.</li>
                     <li><b>When to Use SA:</b> If at any stage the fit converges to a solution that is clearly incorrect (e.g., a very poor visual fit despite low R-factors), switch to **Simulated Annealing** for one cycle to escape the false minimum, then switch back to LM to finish the refinement.</li>
                 </ol>
             </section>
@@ -346,7 +364,7 @@
                     <li><b>Difference Plot (Visual Check):</b> This is the most important indicator of a good fit. The red difference curve should be a flat line of random, uncorrelated noise centered on zero. Any systematic features, such as "M-shaped" wiggles around the peaks or broad humps, indicate a deficiency in your model (e.g., incorrect peak shape, asymmetry, or background). **Always trust a critical visual inspection over the R-factors.**</li>
                 </ul>
             </section>
-            
+
             <hr>
 
             <section id="references">
