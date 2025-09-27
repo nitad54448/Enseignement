@@ -890,8 +890,8 @@
         <canvas id="main-chart"></canvas>
     </div>
 
-    <div style="position: absolute; bottom: 6px; right: 12px; font-size: 12px; color: var(--system-secondary-label);">
-        NitaD, Univ Paris-Saclay, 19 Sept 2025
+    <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
+        2.0.3
     </div>
 </div>
 
@@ -1023,7 +1023,7 @@
             let startIndex = fullExperimentalData.tth.findIndex(t => t >= minTth); if (startIndex === -1) startIndex = 0;
             let endIndex = fullExperimentalData.tth.findIndex(t => t > maxTth); if (endIndex === -1) endIndex = fullExperimentalData.tth.length;
             workingDataCache.tth = fullExperimentalData.tth.slice(startIndex, endIndex); workingDataCache.intensity = fullExperimentalData.intensity.slice(startIndex, endIndex); workingDataCache.background = calculatedBackground.slice(startIndex, endIndex); workingDataCache.isValid = true;
-            console.log("Working data cache updated:", { range: `${minTth.toFixed(2)} - ${maxTth.toFixed(2)}°`, points: workingDataCache.tth.length, startIndex, endIndex, intensity_length: workingDataCache.intensity.length, background_length: workingDataCache.background.length });
+            //console.log("Working data cache updated:", { range: `${minTth.toFixed(2)} - ${maxTth.toFixed(2)}°`, points: workingDataCache.tth.length, startIndex, endIndex, intensity_length: workingDataCache.intensity.length, background_length: workingDataCache.background.length });
             if (workingDataCache.tth.length !== workingDataCache.background.length) console.error("CRITICAL ERROR: Mismatch in cached data lengths!");
         }
 
@@ -1057,7 +1057,9 @@
         function applyAsymmetry(x, x0, tth_peak, params) { if (params.profileType === "4" || (!params.SL && !params.HL)) return x - x0; const delta_2theta = x - x0; if (Math.abs(delta_2theta) < 1e-9) return 0; const theta_rad = tth_peak * (Math.PI / 180) / 2.0; if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-6) return delta_2theta; const cot_theta = 1.0 / Math.tan(theta_rad); const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0); const asymmetry_factor = 1.0 - (asymmetry_param / 100.0) * Math.sign(delta_2theta) * delta_2theta; return delta_2theta / Math.max(1e-6, asymmetry_factor); }
         function calculatePattern(tthAxis, hklList, params) { const pattern = new Float32Array(tthAxis.length).fill(0); const n_points = tthAxis.length; hklList.forEach(peak => { if (peak.intensity === 0) return; const basePos = peak.tth + params.zeroShift; const shift = calculatePeakShift(basePos, params); const peakPos = basePos + shift; const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params); const window = 8 * Math.max(0.01, gamma_G + gamma_L); const min_tth = peakPos - window; const max_tth = peakPos + window; let startIndex = 0; while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++; for (let i = startIndex; i < n_points; i++) { const current_tth = tthAxis[i]; if (current_tth > max_tth) break; pattern[i] += peak.intensity * pseudoVoigt(current_tth, peakPos, basePos, gamma_G, gamma_L, params); } }); return pattern; }
         function updateHklPositions(hklList, params, system) { const { a, b, c, alpha, beta, gamma, lambda } = params; if (!a || !lambda || a <= 0) return; const deg2rad = Math.PI / 180; const sin_b = Math.sin((beta || 90) * deg2rad); const cos_b = Math.cos((beta || 90) * deg2rad); hklList.forEach(peak => { const [h, k, l] = peak.hkl_list[0].replace(/[()]/g, '').split(',').map(Number); let inv_d_sq = 0; switch(system) { case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break; case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break; case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break; case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break; case 'monoclinic': inv_d_sq = (1/(sin_b*sin_b)) * ( (h*h)/(a*a) + (k*k*sin_b*sin_b)/(b*b) + (l*l)/(c*c) - (2*h*l*cos_b)/(a*c) ); break; case 'rhombohedral': const term1 = (h*h + k*k + l*l) * Math.sin(alpha*deg2rad)**2; const term2 = 2 * (h*k + k*l + l*h) * (Math.cos(alpha*deg2rad)**2 - Math.cos(alpha*deg2rad)); const denominator = a*a * (1 - 3*Math.cos(alpha*deg2rad)**2 + 2*Math.cos(alpha*deg2rad)**3); if(Math.abs(denominator) > 1e-9) inv_d_sq = (term1 + term2) / denominator; break; } if (inv_d_sq > 1e-9) { const sinThetaSq = (lambda*lambda / 4) * inv_d_sq; if (sinThetaSq <= 1 && sinThetaSq > 0) { peak.tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI); peak.d = 1 / Math.sqrt(inv_d_sq); } } }); }
-        function leBailIntensityExtraction(expData, hklList, params) { console.log(`leBailIntensityExtraction called with data lengths: tth=${expData.tth.length}, intensity=${expData.intensity.length}, background=${expData.background.length}`); if (expData.tth.length !== expData.background.length || expData.tth.length !== expData.intensity.length) { console.error("CRITICAL ERROR in leBailIntensityExtraction: Mismatched array lengths in input data!"); alert("Internal error: Data array mismatch during intensity extraction. Check console."); return; } hklList.forEach(p => p.intensity = 0); for(let i = 0; i < expData.tth.length; i++) { let totalProfileAtPoint = 0; const contributingPeaks = []; hklList.forEach((peak, peakIdx) => { const basePos = peak.tth + params.zeroShift; const shift = calculatePeakShift(basePos, params); const peakPos = basePos + shift; const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params); const window = 8 * Math.max(0.01, gamma_G, gamma_L); if(Math.abs(expData.tth[i] - peakPos) < window) { const profileVal = pseudoVoigt(expData.tth[i], peakPos, basePos, gamma_G, gamma_L, params); totalProfileAtPoint += profileVal; contributingPeaks.push({idx: peakIdx, val: profileVal}); } }); if(totalProfileAtPoint > 1e-9) { const obsIntensityNet = expData.intensity[i] - (expData.background[i] || 0); if (obsIntensityNet < 0) continue; contributingPeaks.forEach(p => { hklList[p.idx].intensity += obsIntensityNet * (p.val / totalProfileAtPoint); }); } } }
+        function leBailIntensityExtraction(expData, hklList, params) { 
+          //  console.log(`leBailIntensityExtraction called with data lengths: tth=${expData.tth.length}, intensity=${expData.intensity.length}, background=${expData.background.length}`);
+             if (expData.tth.length !== expData.background.length || expData.tth.length !== expData.intensity.length) { console.error("CRITICAL ERROR in leBailIntensityExtraction: Mismatched array lengths in input data!"); alert("Internal error: Data array mismatch during intensity extraction. Check console."); return; } hklList.forEach(p => p.intensity = 0); for(let i = 0; i < expData.tth.length; i++) { let totalProfileAtPoint = 0; const contributingPeaks = []; hklList.forEach((peak, peakIdx) => { const basePos = peak.tth + params.zeroShift; const shift = calculatePeakShift(basePos, params); const peakPos = basePos + shift; const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params); const window = 8 * Math.max(0.01, gamma_G, gamma_L); if(Math.abs(expData.tth[i] - peakPos) < window) { const profileVal = pseudoVoigt(expData.tth[i], peakPos, basePos, gamma_G, gamma_L, params); totalProfileAtPoint += profileVal; contributingPeaks.push({idx: peakIdx, val: profileVal}); } }); if(totalProfileAtPoint > 1e-9) { const obsIntensityNet = expData.intensity[i] - (expData.background[i] || 0); if (obsIntensityNet < 0) continue; contributingPeaks.forEach(p => { hklList[p.idx].intensity += obsIntensityNet * (p.val / totalProfileAtPoint); }); } } }
         function calculateStatistics(workingData, netCalcPattern, fitFlags) { const y_obs_total = workingData.intensity; const y_bkg = workingData.background; const N = y_obs_total.length; if (N === 0 || y_obs_total.length !== netCalcPattern.length || y_obs_total.length !== y_bkg.length) { console.error("Statistics calculation error: Mismatched array lengths.", {obs: y_obs_total.length, calc: netCalcPattern.length, bkg: y_bkg.length}); return { r_p: -1, rwp: -1, chi2: -1, scaleFactor: 1, sum_w_res_sq: 0 }; } const y_obs_net = y_obs_total.map((y, i) => Math.max(0, y - y_bkg[i])); let sum_obs_net_calc_net = dot(y_obs_net, netCalcPattern); let sum_calc_net_sq = dot(netCalcPattern, netCalcPattern); const scaleFactor = sum_calc_net_sq > 1e-9 ? Math.max(0, sum_obs_net_calc_net / sum_calc_net_sq) : 1.0; const y_calc_total = netCalcPattern.map((y, i) => (scaleFactor * y) + y_bkg[i]); const weights = y_obs_total.map(y => 1 / Math.max(y, 1)); let sum_w_res_sq = 0, sum_w_obs_sq = 0, sum_abs_res = 0, sum_abs_obs = 0; for (let i = 0; i < N; i++) { const res = y_obs_total[i] - y_calc_total[i]; sum_w_res_sq += weights[i] * res * res; sum_w_obs_sq += weights[i] * y_obs_total[i] * y_obs_total[i]; sum_abs_res += Math.abs(res); sum_abs_obs += Math.abs(y_obs_total[i]); } const r_p = sum_abs_obs > 0 ? 100 * (sum_abs_res / sum_abs_obs) : 0; const rwp = sum_w_obs_sq > 0 ? 100 * Math.sqrt(sum_w_res_sq / sum_w_obs_sq) : 0; const P = getParameterMapping(fitFlags).paramMapping.length; const degreesOfFreedom = Math.max(1, N - P); const chi2 = sum_w_res_sq / degreesOfFreedom; return { r_p, rwp, chi2, scaleFactor, sum_w_res_sq }; }
 
         async function refineParametersLM(initialParams, fitFlags, maxIter, system, centering, progressCallback) {
@@ -1102,7 +1104,7 @@
             
             let last_cost = Infinity, JtJ, finalResiduals;
             for (let iter = 0; iter < maxIter; iter++) {
-                console.group(`LM Iteration: ${iter + 1}`);
+                //console.group(`LM Iteration: ${iter + 1}`);
 
                 updateHklPositions(hklList, params, system);
                 const unscaledPattern = calculatePattern(workingData.tth, hklList, params);
@@ -1187,8 +1189,214 @@
             return { params, JtJ, finalResiduals, paramMapping, ss_res: last_cost, algorithm: 'lm', fitFlags };
         }
 
-        async function refineParametersSA(initialParams, fitFlags, maxIter, system, centering, progressCallback) { const { paramMapping } = getParameterMapping(fitFlags); if (!paramMapping || paramMapping.length === 0) return { params: initialParams, algorithm: 'sa', paramMapping, fitFlags }; const workingData = getWorkingData(); const workingDataNet = { tth: workingData.tth, intensity: workingData.intensity.map((y, i) => Math.max(0, y - workingData.background[i])) }; console.log("SA refinement starting with working data points:", workingData.tth.length); const objective = (p_vec, params_template) => { const tempParams = JSON.parse(JSON.stringify(params_template)); paramMapping.forEach((m, i) => { if (m.set) m.set(tempParams, p_vec[i]); }); if ((tempParams.a && tempParams.a <= 0) || (tempParams.profileType !== "4" && tempParams.W <= 0)) return 1e12; try { const newHklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering); if (!newHklList || newHklList.length === 0) return 1e12; leBailIntensityExtraction(workingData, newHklList, tempParams); const pattern = calculatePattern(workingData.tth, newHklList, tempParams); const sum_obs_calc = dot(workingDataNet.intensity, pattern); const sum_calc_sq = dot(pattern, pattern); if (sum_calc_sq < 1e-9) return 1e12; const scaleFactor = sum_obs_calc / sum_calc_sq; const scaledPattern = scale(pattern, scaleFactor); const diff = subtract(workingDataNet.intensity, scaledPattern); const cost = dot(diff, diff); return isFinite(cost) ? cost : 1e12; } catch (err) { console.error("Objective function error:", err); return 1e12; } }; let bestOverallParams = JSON.parse(JSON.stringify(initialParams)); const LE_BAIL_CYCLES = 10; const stepsPerCycle = Math.max(1, Math.floor(maxIter / LE_BAIL_CYCLES)); const coolingRate = 0.99; for (let cycle = 0; cycle < LE_BAIL_CYCLES; cycle++) { let hklListFixed = generateHKL(Math.max(...workingData.tth), bestOverallParams, system, centering); leBailIntensityExtraction(workingData, hklListFixed, bestOverallParams); let current_x = paramMapping.map(m => m.get(bestOverallParams)); let current_cost = objective(current_x, bestOverallParams); let best_x_cycle = current_x.slice(); let best_cost_cycle = current_cost; let T = 1.0; for (let step = 0; step < stepsPerCycle; step++) { const neighbor_x = current_x.map((val, idx) => { const mapping = paramMapping[idx]; const stepSize = (mapping.step || 0.1) * T; let newVal = val + (Math.random() - 0.5) * 2 * stepSize; if (mapping.set) { let tmp = {}; mapping.set(tmp, newVal); newVal = tmp[mapping.name]; } return newVal; }); const neighbor_cost = objective(neighbor_x, bestOverallParams); const deltaE = neighbor_cost - current_cost; if (deltaE < 0 || Math.exp(-deltaE / T) > Math.random()) { current_x = neighbor_x.slice(); current_cost = neighbor_cost; } if (current_cost < best_cost_cycle) { best_x_cycle = current_x.slice(); best_cost_cycle = current_cost; } T *= coolingRate; if (T < 1e-8) break; if (progressCallback) { const progress = (cycle * stepsPerCycle + step) / (LE_BAIL_CYCLES * stepsPerCycle); let tmpParams = JSON.parse(JSON.stringify(bestOverallParams)); paramMapping.forEach((m, j) => { if (m.set) m.set(tmpParams, best_x_cycle[j]); }); await progressCallback(progress, tmpParams); } } paramMapping.forEach((m, i) => { if (m.set) m.set(bestOverallParams, best_x_cycle[i]); }); } return { params: bestOverallParams, algorithm: 'sa', paramMapping, fitFlags }; }
-        async function runLeBailFit() { if (isFitting) return; isFitting = true; fitResults = null; setUIState(true); if (mainChart) { const manualSimDataset = mainChart.data.datasets.find(d => d.label === 'Simulation (Manual)'); if (manualSimDataset) manualSimDataset.data = []; } await new Promise(resolve => setTimeout(resolve, 10)); const fitFlags = getFitFlags(); let params = getAllParams(); const { system, centering } = getSystemAndCentering(); const maxIterations = parseInt(controls.iterationsSlider.value); const algorithm = controls.algorithmSelect.value; const progressCallback = async (progress, currentParams) => { controls.progressBar.style.width = `${progress * 100}%`; await new Promise(resolve => setTimeout(resolve, 0)); }; const LE_BAIL_CYCLES = 5; let lastRwp = Infinity; let lastSuccessfulResults = {}; for (let cycle = 1; cycle <= LE_BAIL_CYCLES; cycle++) { console.group(`--- Le Bail Cycle ${cycle}/${LE_BAIL_CYCLES} ---`); let cycleParams = JSON.parse(JSON.stringify(params)); const workingDataForCycle = getWorkingData(); console.log(`Cycle ${cycle} using ${workingDataForCycle.tth.length} data points for calculation.`); if (workingDataForCycle.tth.length === 0) { alert("Error: No data in the selected 2-theta range. Aborting fit."); break; } let results; if (algorithm === 'lm') { results = await refineParametersLM(cycleParams, fitFlags, maxIterations, system, centering, progressCallback); } else if (algorithm === 'sa') { results = await refineParametersSA(cycleParams, fitFlags, maxIterations, system, centering, progressCallback); } params = results.params; enforceSymmetryConstraints(params); const hklListForStats = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering); leBailIntensityExtraction(workingDataForCycle, hklListForStats, params); const netPattern_working = calculatePattern(workingDataForCycle.tth, hklListForStats, params); const stats = calculateStatistics(workingDataForCycle, netPattern_working, fitFlags); lastSuccessfulResults = { hklList: hklListForStats, stats: stats, lmResults: results }; console.log(`Cycle ${cycle} complete. Rwp: ${stats.rwp.toFixed(4)}`); if (cycle > 1 && Math.abs(lastRwp - stats.rwp) < 1e-3) { console.log("Le Bail process has converged."); console.groupEnd(); break; } lastRwp = stats.rwp; console.groupEnd(); } const finalParams = params; const finalHklList = lastSuccessfulResults.hklList; const finalStats = lastSuccessfulResults.stats; const finalNetPattern_full = calculatePattern(fullExperimentalData.tth, finalHklList, finalParams); fitResults = { ...lastSuccessfulResults.lmResults, params: finalParams, stats: finalStats, ss_res: finalStats.sum_w_res_sq }; updateUI(finalParams, fitResults.stats, finalNetPattern_full, calculatedBackground, finalStats.scaleFactor); isFitting = false; setUIState(false); }
+        async function refineParametersSA(initialParams, fitFlags, maxIter, system, centering, progressCallback) {
+    const {
+        paramMapping
+    } = getParameterMapping(fitFlags);
+    if (!paramMapping || paramMapping.length === 0) return {
+        params: initialParams,
+        algorithm: 'sa',
+        paramMapping,
+        fitFlags
+    };
+
+    const workingData = getWorkingData();
+    const workingDataNet = {
+        tth: workingData.tth,
+        intensity: workingData.intensity.map((y, i) => Math.max(0, y - workingData.background[i]))
+    };
+    // console.log("SA refinement starting with working data points:", workingData.tth.length);
+
+    const objective = (p_vec, params_template) => {
+        const tempParams = JSON.parse(JSON.stringify(params_template));
+        paramMapping.forEach((m, i) => {
+            if (m.set) m.set(tempParams, p_vec[i]);
+        });
+
+        if ((tempParams.a && tempParams.a <= 0) || (tempParams.profileType !== "4" && tempParams.W <= 0)) return 1e12;
+
+        try {
+            const newHklList = generateHKL(Math.max(...workingData.tth), tempParams, system, centering);
+            if (!newHklList || newHklList.length === 0) return 1e12;
+
+            leBailIntensityExtraction(workingData, newHklList, tempParams);
+            const pattern = calculatePattern(workingData.tth, newHklList, tempParams);
+            const sum_obs_calc = dot(workingDataNet.intensity, pattern);
+            const sum_calc_sq = dot(pattern, pattern);
+
+            if (sum_calc_sq < 1e-9) return 1e12;
+
+            const scaleFactor = sum_obs_calc / sum_calc_sq;
+            const scaledPattern = scale(pattern, scaleFactor);
+            const diff = subtract(workingDataNet.intensity, scaledPattern);
+            const cost = dot(diff, diff);
+
+            return isFinite(cost) ? cost : 1e12;
+        } catch (err) {
+            // console.error("Objective function error:", err);
+            return 1e12;
+        }
+    };
+
+    let bestOverallParams = JSON.parse(JSON.stringify(initialParams));
+    const LE_BAIL_CYCLES = 10;
+    const stepsPerCycle = Math.max(1, Math.floor(maxIter / LE_BAIL_CYCLES));
+    const coolingRate = 0.99;
+
+    for (let cycle = 0; cycle < LE_BAIL_CYCLES; cycle++) {
+        let hklListFixed = generateHKL(Math.max(...workingData.tth), bestOverallParams, system, centering);
+        leBailIntensityExtraction(workingData, hklListFixed, bestOverallParams);
+
+        let current_x = paramMapping.map(m => m.get(bestOverallParams));
+        let current_cost = objective(current_x, bestOverallParams);
+        let best_x_cycle = current_x.slice();
+        let best_cost_cycle = current_cost;
+        let T = 1.0;
+
+        for (let step = 0; step < stepsPerCycle; step++) {
+            const neighbor_x = current_x.map((val, idx) => {
+                const mapping = paramMapping[idx];
+                const stepSize = (mapping.step || 0.1) * T;
+                let newVal = val + (Math.random() - 0.5) * 2 * stepSize;
+                if (mapping.set) {
+                    let tmp = {};
+                    mapping.set(tmp, newVal);
+                    newVal = tmp[mapping.name];
+                }
+                return newVal;
+            });
+
+            const neighbor_cost = objective(neighbor_x, bestOverallParams);
+            const deltaE = neighbor_cost - current_cost;
+
+            if (deltaE < 0 || Math.exp(-deltaE / T) > Math.random()) {
+                current_x = neighbor_x.slice();
+                current_cost = neighbor_cost;
+            }
+
+            if (current_cost < best_cost_cycle) {
+                best_x_cycle = current_x.slice();
+                best_cost_cycle = current_cost;
+            }
+
+            T *= coolingRate;
+            if (T < 1e-8) break;
+
+            if (progressCallback) {
+                const progress = (cycle * stepsPerCycle + step) / (LE_BAIL_CYCLES * stepsPerCycle);
+                let tmpParams = JSON.parse(JSON.stringify(bestOverallParams));
+                paramMapping.forEach((m, j) => {
+                    if (m.set) m.set(tmpParams, best_x_cycle[j]);
+                });
+                await progressCallback(progress, tmpParams);
+            }
+        }
+        paramMapping.forEach((m, i) => {
+            if (m.set) m.set(bestOverallParams, best_x_cycle[i]);
+        });
+    }
+
+    return {
+        params: bestOverallParams,
+        algorithm: 'sa',
+        paramMapping,
+        fitFlags
+    };
+}
+
+
+async function runLeBailFit() {
+    if (isFitting) return;
+    isFitting = true;
+    fitResults = null;
+    setUIState(true);
+
+    if (mainChart) {
+        const manualSimDataset = mainChart.data.datasets.find(d => d.label === 'Simulation (Manual)');
+        if (manualSimDataset) manualSimDataset.data = [];
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const fitFlags = getFitFlags();
+    let params = getAllParams();
+    const {
+        system,
+        centering
+    } = getSystemAndCentering();
+    const maxIterations = parseInt(controls.iterationsSlider.value);
+    const algorithm = controls.algorithmSelect.value;
+
+    const progressCallback = async (progress, currentParams) => {
+        controls.progressBar.style.width = `${progress * 100}%`;
+        await new Promise(resolve => setTimeout(resolve, 0));
+    };
+
+    const LE_BAIL_CYCLES = 5;
+    let lastRwp = Infinity;
+    let lastSuccessfulResults = {};
+
+    for (let cycle = 1; cycle <= LE_BAIL_CYCLES; cycle++) {
+        // console.group(`--- Le Bail Cycle ${cycle}/${LE_BAIL_CYCLES} ---`);
+        let cycleParams = JSON.parse(JSON.stringify(params));
+        const workingDataForCycle = getWorkingData();
+        // console.log(`Cycle ${cycle} using ${workingDataForCycle.tth.length} data points for calculation.`);
+
+        if (workingDataForCycle.tth.length === 0) {
+            alert("Error: No data in the selected 2-theta range. Aborting fit.");
+            break;
+        }
+
+        let results;
+        if (algorithm === 'lm') {
+            results = await refineParametersLM(cycleParams, fitFlags, maxIterations, system, centering, progressCallback);
+        } else if (algorithm === 'sa') {
+            results = await refineParametersSA(cycleParams, fitFlags, maxIterations, system, centering, progressCallback);
+        }
+
+        params = results.params;
+        enforceSymmetryConstraints(params);
+
+        const hklListForStats = generateHKL(Math.max(...fullExperimentalData.tth), params, system, centering);
+        leBailIntensityExtraction(workingDataForCycle, hklListForStats, params);
+        const netPattern_working = calculatePattern(workingDataForCycle.tth, hklListForStats, params);
+        const stats = calculateStatistics(workingDataForCycle, netPattern_working, fitFlags);
+
+        lastSuccessfulResults = {
+            hklList: hklListForStats,
+            stats: stats,
+            lmResults: results
+        };
+
+        // console.log(`Cycle ${cycle} complete. Rwp: ${stats.rwp.toFixed(4)}`);
+
+        if (cycle > 1 && Math.abs(lastRwp - stats.rwp) < 1e-3) {
+            // console.log("Le Bail process has converged.");
+            // console.groupEnd();
+            break;
+        }
+        lastRwp = stats.rwp;
+        // console.groupEnd();
+    }
+
+    const finalParams = params;
+    const finalHklList = lastSuccessfulResults.hklList;
+    const finalStats = lastSuccessfulResults.stats;
+    const finalNetPattern_full = calculatePattern(fullExperimentalData.tth, finalHklList, finalParams);
+
+    fitResults = {
+        ...lastSuccessfulResults.lmResults,
+        params: finalParams,
+        stats: finalStats,
+        ss_res: finalStats.sum_w_res_sq
+    };
+
+    updateUI(finalParams, fitResults.stats, finalNetPattern_full, calculatedBackground, finalStats.scaleFactor);
+    isFitting = false;
+    setUIState(false);
+}
+
+
         const getAllParams = () => { const profileType = controls.profileSelect.value; let params = { lambda: parseFloat(controls.wavelength.value), zeroShift: parseFloat(controls.zeroShift.value), profileType: profileType }; document.querySelectorAll('#lattice-parameters-container input[type="number"]').forEach(input => { if (input.id.startsWith('lattice-param-')) { const paramName = input.id.replace('lattice-param-', ''); params[paramName] = parseFloat(input.value); } }); const { system } = getSystemAndCentering(); switch(system) { case 'cubic': case 'tetragonal': case 'orthorhombic': params.alpha = params.beta = params.gamma = 90; break; case 'hexagonal': params.alpha = params.beta = 90; params.gamma = 120; break; case 'monoclinic': params.alpha = params.gamma = 90; break; } if (profileType === "4") { Object.assign(params, { GU: parseFloat(controls.paramGU.value) || 2.5, GV: parseFloat(controls.paramGV.value) || -2.8, GW: parseFloat(controls.paramGW.value) || 1.6, GP: parseFloat(controls.paramGP.value) || 0.0, LX: parseFloat(controls.paramLX.value) || .10, eta: parseFloat(controls.paramEta.value) || 1., shft: parseFloat(controls.paramShft.value) || 0.0, trns: parseFloat(controls.paramTrns.value) || 0.0 }); } else { Object.assign(params, { U: parseFloat(controls.paramU.value) || 2.0, V: parseFloat(controls.paramV.value) || -1.0, W: parseFloat(controls.paramW.value) || 1.0, X: parseFloat(controls.paramX.value) || 1.0, Y: parseFloat(controls.paramY.value) || 0.5, SL: parseFloat(controls.paramSL.value) || 0.0, HL: parseFloat(controls.paramHL.value) || 0.0, S400: parseFloat(controls.paramS400.value) || 0.0, S040: parseFloat(controls.paramS040.value) || 0.0, S004: parseFloat(controls.paramS004.value) || 0.0, S220: parseFloat(controls.paramS220.value) || 0.0, S202: parseFloat(controls.paramS202.value) || 0.0, S022: parseFloat(controls.paramS022.value) || 0.0 }); } return params; };
         const getFitFlags = () => { const profileType = controls.profileSelect.value; const { system } = getSystemAndCentering(); let flags = { a: document.getElementById('fit-lattice-a')?.checked, b: document.getElementById('fit-lattice-b')?.checked, c: document.getElementById('fit-lattice-c')?.checked, alpha: document.getElementById('fit-lattice-alpha')?.checked, beta: document.getElementById('fit-lattice-beta')?.checked, gamma: document.getElementById('fit-lattice-gamma')?.checked, zeroShift: controls.fitZeroShift.checked, }; if (profileType === "4") { Object.assign(flags, { GU: controls.fitGU.checked, GV: controls.fitGV.checked, GW: controls.fitGW.checked, GP: controls.fitGP.checked, LX: controls.fitLX.checked, eta: controls.fitEta.checked, shft: controls.fitShft.checked, trns: controls.fitTrns.checked, }); } else { Object.assign(flags, { U: controls.fitU.checked, V: controls.fitV.checked, W: controls.fitW.checked, X: controls.fitX.checked, Y: controls.fitY.checked, SL: controls.fitSL.checked, HL: controls.fitHL.checked, }); } if (profileType === "3") { Object.assign(flags, { S400: controls.fitS400.checked, S040: controls.fitS040.checked, S004: controls.fitS004.checked, S220: controls.fitS220.checked, S202: controls.fitS202.checked, S022: controls.fitS022.checked, }); switch (system) { case 'cubic': flags.S040 = flags.S004 = flags.S202 = flags.S022 = false; break; case 'hexagonal': case 'tetragonal': case 'rhombohedral': flags.S040 = flags.S022 = false; break; } } return flags; };
         const dot = (v1, v2) => { let s = 0; for(let i=0; i<v1.length; i++) s += v1[i] * v2[i]; return s; }; const add = (v1, v2) => v1.map((x, i) => x + v2[i]); const subtract = (v1, v2) => v1.map((x, i) => x - v2[i]); const scale = (v, s) => v.map(x => x * s); const transpose = (m) => { if (!m || m.length === 0 || !Array.isArray(m[0])) return m.map(x => [x]); return m[0].map((_, colIndex) => m.map(row => row[colIndex])); }; const multiply = (A, B) => { if (!Array.isArray(B[0])) return A.map(row => dot(row, B)); const Bt = transpose(B); return A.map(rowA => Bt.map(colB => dot(rowA, colB))); }; const solve = (A, b) => { const n = A.length; const Ab = A.map((row, i) => [...row, b[i]]); for (let i = 0; i < n; i++) { let max = i; for (let k = i + 1; k < n; k++) if (Math.abs(Ab[k][i]) > Math.abs(Ab[max][i])) max = k; [Ab[i], Ab[max]] = [Ab[max], Ab[i]]; if (Math.abs(Ab[i][i]) < 1e-12) continue; for (let k = i + 1; k < n; k++) { const factor = Ab[k][i] / Ab[i][i]; if (!isFinite(factor)) continue; for (let j = i; j < n + 1; j++) Ab[k][j] -= factor * Ab[i][j]; } } const x = new Array(n).fill(0); for (let i = n - 1; i >= 0; i--) { let sum = 0; for (let j = i + 1; j < n; j++) sum += Ab[i][j] * x[j]; if (Math.abs(Ab[i][i]) > 1e-12) x[i] = (Ab[i][n] - sum) / Ab[i][i]; } return x; };
@@ -1380,7 +1588,7 @@
                 ? "Simple pVoigt"
                 : "TCH w/ Anisotropy";
 
-            reportLines.push('==============================================================', '            Le Bail Refinement Report', '==============================================================', `Report Generated: ${now.toLocaleString()}`, `Data File: ${controls.fileName.textContent}`, '', '--- Refinement Statistics ---', `Rp (%):      ${stats.r_p.toFixed(2)}`, `Rwp (%):     ${stats.rwp.toFixed(2)}`, `χ² (GOF):    ${stats.chi2.toFixed(3)}`, `Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`, `Profile:     ${profileName} (#${finalParams.profileType})`, '');
+            reportLines.push('==============================================================', '            Le Bail Refinement Report', '==============================================================', 'Program used: nitad54448.github.io/Enseignement/LeBail.html', 'Program Version: 2.0.3, 27 sept 2025', `Report Generated: ${now.toLocaleString()}`, `Data File: ${controls.fileName.textContent}`, '', '--- Refinement Statistics ---', `Rp (%):      ${stats.r_p.toFixed(2)}`, `Rwp (%):     ${stats.rwp.toFixed(2)}`, `χ² (GOF):    ${stats.chi2.toFixed(3)}`, `Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`, `Profile:     ${profileName} (#${finalParams.profileType})`, '');
             
             let esds = {}; let esdWarning = null;
             if (fitResults.algorithm === 'lm' && fitResults.JtJ) {
@@ -1464,117 +1672,219 @@
         
         controls.saveDataButton.addEventListener('click', () => { if (!fitResults) { alert("Please run a refinement before saving data."); return; } const originalText = controls.saveDataButton.textContent; controls.saveDataButton.textContent = 'Saving...'; controls.saveDataButton.disabled = true; try { const textContent = generateTextReportContent(); const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_'); downloadTextFile(textContent, `LeBail-Data-${timestamp}.txt`); } catch (error) { console.error("Failed to save data:", error); alert("An error occurred while saving the data file."); } finally { controls.saveDataButton.textContent = 'Save Report'; controls.saveDataButton.disabled = false; } });
         
-controls.reportButton.addEventListener('click', async () => { 
-            if (!fitResults || typeof fitResults.params !== 'object' || fitResults.params === null) { 
-                alert("Cannot generate report: Fit results are missing or invalid."); 
-                return; 
-            } 
-            const originalText = controls.reportButton.textContent; 
-            controls.reportButton.textContent = 'Generating...'; 
-            controls.reportButton.disabled = true; 
-            try { 
-                if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) throw new Error('jsPDF library is not loaded properly'); 
-                const now = new Date(); 
-                const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`; 
-                const baseFilename = `LeBail-Report-${timestamp}`; 
-                const { jsPDF } = window.jspdf; 
-                const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }); 
-                const margin = 15; 
-                const pageWidth = doc.internal.pageSize.getWidth(); 
-                const pageHeight = doc.internal.pageSize.getHeight(); 
-                const contentWidth = pageWidth - 2 * margin; 
-                doc.setFontSize(18); 
-                doc.text('Le Bail Refinement Report', pageWidth/2, 15, { align: 'center' }); 
-                doc.setFontSize(10); 
-                doc.text(`Report Generated: ${now.toLocaleString()}`, margin, 25); 
-                doc.text(`Data File: ${controls.fileName.textContent}`, margin, 30); 
-                try { 
-                    if (controls.mainChartCanvas && typeof html2canvas !== 'undefined') { 
-                        const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff', scale: 1, logging: false }); 
-                        const mainImgData = chartCanvas.toDataURL('image/png'); 
-                        const mainImgProps = doc.getImageProperties(mainImgData); 
-                        const mainImgHeight = Math.min((mainImgProps.height * contentWidth) / mainImgProps.width, 150); 
-                        doc.addImage(mainImgData, 'PNG', margin, 40, contentWidth, mainImgHeight); 
-                    } else { 
-                        doc.setFontSize(12); 
-                        doc.text('Chart capture not available', margin, 50); 
-                    } 
-                } catch (chartError) { 
-                    console.warn('Chart capture failed:', chartError); 
-                    doc.setFontSize(12); doc.text('Chart capture failed', margin, 50); 
-                } 
-                doc.addPage(); 
-                let yPos = 20; 
-                const finalParams = { ...fitResults.params }; 
-                const fitFlags = fitResults.fitFlags; 
-                const addText = (text, fontSize = 9, isBold = false, font = 'Helvetica') => { if (yPos > pageHeight - 20) { doc.addPage(); yPos = 20; } doc.setFont(font, isBold ? 'bold' : 'normal'); doc.setFontSize(fontSize); doc.text(text, margin, yPos); yPos += fontSize * 0.5 + 1; }; 
-                const addHeader = (text) => { yPos += 4; addText(text, 14, true); yPos += 2; }; 
-                let esds = {}; 
-                let esdWarning = null; 
-                if (fitResults.algorithm === 'lm' && fitResults.JtJ) { 
-                    const workingDataForStats = getWorkingData(); 
-                    const N = workingDataForStats.intensity.length; 
-                    const P = fitResults.paramMapping.length; 
-                    if (N > P && fitResults.ss_res !== undefined) { 
-                        const reduced_chi_sq = fitResults.ss_res / (N - P); 
-                        const cov_matrix = matrixInverse(fitResults.JtJ); 
-                        if (cov_matrix) { 
-                            fitResults.paramMapping.forEach((p, i) => { if (cov_matrix[i] && cov_matrix[i][i] !== undefined) esds[p.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i])); }); 
-                        } else { 
-                            esdWarning = 'ESD calculation failed (unstable refinement).'; 
-                        } 
-                    } 
-                } 
-                addHeader('Refinement Statistics'); 
-                addText(`Rp (%): ${fitResults.stats.r_p.toFixed(2)}`); 
-                addText(`Rwp (%): ${fitResults.stats.rwp.toFixed(2)}`); 
-                addText(`Chi² (GOF): ${fitResults.stats.chi2.toFixed(3)}`); 
-                addText(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`); 
-                
-                // This block determines the correct profile name
-                const profileName = finalParams.profileType === "4"
-                    ? "Simple pVoigt"
-                    : "TCH w/ Anisotropy";
-                addText(`Profile: ${profileName} (#${finalParams.profileType})`); 
+controls.reportButton.addEventListener('click', async () => {
+    if (!fitResults || typeof fitResults.params !== 'object' || fitResults.params === null) {
+        alert("Cannot generate report: Fit results are missing or invalid.");
+        return;
+    }
 
-                if (esdWarning) addText(esdWarning, 8); 
-                addHeader('Structural & Instrumental Parameters'); 
-                const allParams = [ { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd_name: 'a' }, { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd_name: 'b' }, { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd_name: 'c' }, { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd_name: 'alpha' }, { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd_name: 'beta' }, { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd_name: 'gamma' }, { name: 'Radiation (Å)', value: finalParams.lambda, flag: false, esd_name: null }, { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd_name: 'zeroShift' }, ]; 
-                if (finalParams.profileType === "4") { allParams.push( { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd_name: 'GU' }, { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd_name: 'GV' }, { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd_name: 'GW' }, { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd_name: 'GP' }, { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd_name: 'LX' }, { name: 'eta', value: finalParams.eta, flag: fitFlags.eta, esd_name: 'eta' }, { name: 'shft', value: finalParams.shft, flag: fitFlags.shft, esd_name: 'shft' }, { name: 'trns', value: finalParams.trns, flag: fitFlags.trns, esd_name: 'trns' } ); } 
-                else { allParams.push( { name: 'U', value: finalParams.U, flag: fitFlags.U, esd_name: 'U' }, { name: 'V', value: finalParams.V, flag: fitFlags.V, esd_name: 'V' }, { name: 'W', value: finalParams.W, flag: fitFlags.W, esd_name: 'W' }, { name: 'X', value: finalParams.X, flag: fitFlags.X, esd_name: 'X' }, { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd_name: 'Y' }, { name: 'S/L', value: finalParams.SL, flag: fitFlags.SL, esd_name: 'SL' }, { name: 'H/L', value: finalParams.HL, flag: fitFlags.HL, esd_name: 'HL' } ); if (finalParams.profileType === "3") { allParams.push( { name: 'S400', value: finalParams.S400, flag: fitFlags.S400, esd_name: 'S400' }, { name: 'S040', value: finalParams.S040, flag: fitFlags.S040, esd_name: 'S040' }, { name: 'S004', value: finalParams.S004, flag: fitFlags.S004, esd_name: 'S004' }, { name: 'S220', value: finalParams.S220, flag: fitFlags.S220, esd_name: 'S220' }, { name: 'S202', value: finalParams.S202, flag: fitFlags.S202, esd_name: 'S202' }, { name: 'S022', value: finalParams.S022, flag: fitFlags.S022, esd_name: 'S022' } ); } } 
-                const selectedOption = controls.bravaisLattice.options[controls.bravaisLattice.selectedIndex]; 
-                addText(`System: ${selectedOption.text}`, 9, false, 'Courier'); 
-                yPos += 2; 
-                const header = 'Parameter'.padEnd(20) + 'Value'.padStart(15) + 'Fitted'.padStart(8) + 'ESD'.padStart(15); 
-                addText(header, 8, true, 'Courier'); 
-                addText('-'.repeat(header.length), 8, false, 'Courier'); 
-                allParams.forEach(p => { if (p.value !== undefined && p.value !== null && !isNaN(p.value)) { const nameStr = p.name.padEnd(20); const valStr = p.value.toExponential(6).padStart(15); const fitStr = (p.flag === undefined ? ' ' : (p.flag ? 'Yes' : 'No')).padStart(8); const esdStr = (p.flag && esds[p.esd_name]) ? `(${esds[p.esd_name].toExponential(2)})`.padStart(15) : '-'.padStart(15); addText(`${nameStr}${valStr}${fitStr}${esdStr}`, 8, false, 'Courier'); } }); 
-                doc.addPage(); 
-                yPos = 20; 
-                addHeader('Peak List (Top 20 Reflections)'); 
-                const hklListForReport = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, getSystemAndCentering().system, getSystemAndCentering().centering); 
-                leBailIntensityExtraction({ tth: fullExperimentalData.tth, intensity: fullExperimentalData.intensity, background: calculatedBackground }, hklListForReport, finalParams); 
-                const reflectionsForPdf = hklListForReport.map(hkl => { const peakShift = calculatePeakShift(hkl.tth, finalParams); const tthCorr = hkl.tth + finalParams.zeroShift + peakShift; const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams); const fwhm = gamma_G + gamma_L; const i_exp = getIntegratedIntensity(tthCorr, fwhm, fullExperimentalData, calculatedBackground); return { i_calc_norm: hkl.intensity, i_exp: i_exp, hkl_string: hkl.hkl_list[0], d: hkl.d, tthCorr: tthCorr }; }); 
-                const i_calc_norm_values = reflectionsForPdf.map(i => i.i_calc_norm); 
-                const i_exp_values = reflectionsForPdf.map(i => i.i_exp); 
-                const sum_exp_calc = dot(i_exp_values, i_calc_norm_values); 
-                const sum_calc_sq = dot(i_calc_norm_values, i_calc_norm_values); 
-                const intensityScaleFactor = (sum_calc_sq > 1e-9) ? sum_exp_calc / sum_calc_sq : 1.0; 
-                const topPeaks = reflectionsForPdf.sort((a, b) => b.i_calc_norm - a.i_calc_norm).slice(0, 20); 
-                const peakListHeader = 'HKL         2-theta(°)  d(Å)      I_calc      I_exp'; 
-                addText(peakListHeader, 8, true, 'Courier'); 
-                addText('-'.repeat(peakListHeader.length + 2), 8, false, 'Courier'); 
-                topPeaks.forEach(peak => { const final_i_calc = peak.i_calc_norm * intensityScaleFactor; const line = `${peak.hkl_string.padEnd(12)}${peak.tthCorr.toFixed(3).padStart(10)}${peak.d.toFixed(4).padStart(8)}${final_i_calc.toFixed(1).padStart(10)}${peak.i_exp.toFixed(1).padStart(10)}`; addText(line, 8, false, 'Courier'); }); 
-                doc.save(`${baseFilename}.pdf`); 
-            } catch (error) { 
-                console.error("Failed to generate report:", error); 
-                alert(`An error occurred while generating the report: ${error.message}`); 
-            } finally { 
-                controls.reportButton.textContent = 'Generate PDF'; 
-                controls.reportButton.disabled = false; 
-            } 
+    const originalText = controls.reportButton.textContent;
+    controls.reportButton.textContent = 'Generating...';
+    controls.reportButton.disabled = true;
+
+    try {
+        if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF) {
+            throw new Error('jsPDF library is not loaded properly');
+        }
+
+        // --- 1. SETUP DOCUMENT & SINGLE POSITION VARIABLE ---
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const margin = 15;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const contentWidth = pageWidth - 2 * margin;
+        
+        // Use a single variable for the Y position throughout the document.
+        let yPosition = 0;
+
+        // --- 2. CREATE PAGE 1: HEADER AND PLOT ---
+        doc.setFontSize(18);
+        doc.text('Le Bail Refinement Report', pageWidth / 2, 20, { align: 'center' });
+        
+        doc.setFontSize(10);
+        yPosition = 30; // Set starting position for the text block
+
+        doc.text('Program used: nitad54448.github.io/Enseignement/LeBail.html', margin, yPosition);
+        yPosition += 5;
+        doc.text('Program Version: 2.0.3, 27 sept 2025', margin, yPosition);
+        yPosition += 5;
+        const now = new Date();
+        doc.text(`Report Generated: ${now.toLocaleString()}`, margin, yPosition);
+        yPosition += 5;
+        doc.text(`Data File: ${controls.fileName.textContent}`, margin, yPosition);
+        yPosition += 15; // Add extra space before the plot
+
+        try {
+            if (controls.mainChartCanvas && typeof html2canvas !== 'undefined') {
+                const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff', scale: 2, logging: false });
+                const mainImgData = chartCanvas.toDataURL('image/png', 0.95);
+                const mainImgProps = doc.getImageProperties(mainImgData);
+                const mainImgHeight = Math.min((mainImgProps.height * contentWidth) / mainImgProps.width, 150);
+                
+                // FIX: Use the dynamic yPosition instead of a hardcoded value
+                doc.addImage(mainImgData, 'PNG', margin, yPosition, contentWidth, mainImgHeight);
+                yPosition += mainImgHeight; // Advance position after the image
+            } else {
+                doc.setFontSize(12);
+                doc.text('Chart capture not available', margin, yPosition);
+                yPosition += 10;
+            }
+        } catch (chartError) {
+            console.warn('Chart capture failed:', chartError);
+            doc.setFontSize(12);
+            doc.text('Chart capture failed', margin, yPosition);
+            yPosition += 10;
+        }
+        
+        // --- 3. CREATE SUBSEQUENT PAGES: DATA & LISTS ---
+        doc.addPage();
+        yPosition = 20; // Reset position for the new page
+
+        // Helper function to add text and handle page breaks automatically
+        const addText = (text, fontSize = 9, isBold = false, font = 'Helvetica') => {
+            if (yPosition > pageHeight - 20) { // Check if a new page is needed
+                doc.addPage();
+                yPosition = 20;
+            }
+            doc.setFont(font, isBold ? 'bold' : 'normal');
+            doc.setFontSize(fontSize);
+            doc.text(text, margin, yPosition);
+            yPosition += fontSize * 0.5 + 2; // Spacing for the next line
+        };
+        
+        const addHeader = (text) => {
+            yPosition += 5;
+            addText(text, 14, true);
+            yPosition += 3;
+        };
+
+        // --- ESD Calculation ---
+        let esds = {};
+        let esdWarning = null;
+        if (fitResults.algorithm === 'lm' && fitResults.JtJ) {
+            const N = getWorkingData().intensity.length;
+            const P = fitResults.paramMapping.length;
+            if (N > P && fitResults.ss_res !== undefined) {
+                const reduced_chi_sq = fitResults.ss_res / (N - P);
+                const cov_matrix = matrixInverse(fitResults.JtJ);
+                if (cov_matrix) {
+                    fitResults.paramMapping.forEach((p, i) => {
+                        if (cov_matrix[i] && cov_matrix[i][i] !== undefined) {
+                            esds[p.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i]));
+                        }
+                    });
+                } else {
+                    esdWarning = 'ESD calculation failed (unstable refinement).';
+                }
+            }
+        }
+
+        // --- Add Refinement Statistics ---
+        addHeader('Refinement Statistics');
+        addText(`Rp (%): ${fitResults.stats.r_p.toFixed(2)}`);
+        addText(`Rwp (%): ${fitResults.stats.rwp.toFixed(2)}`);
+        addText(`Chi² (GOF): ${fitResults.stats.chi2.toFixed(3)}`);
+        addText(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
+        const profileName = fitResults.params.profileType === "4" ? "Simple pVoigt" : "TCH w/ Anisotropy";
+        addText(`Profile: ${profileName} (#${fitResults.params.profileType})`);
+        if (esdWarning) addText(esdWarning, 8);
+
+        // --- Add Structural & Instrumental Parameters ---
+        addHeader('Structural & Instrumental Parameters');
+        const finalParams = fitResults.params;
+        const fitFlags = fitResults.fitFlags;
+        const allParams = [
+            { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd_name: 'a' },
+            { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd_name: 'b' },
+            { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd_name: 'c' },
+            { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd_name: 'alpha' },
+            { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd_name: 'beta' },
+            { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd_name: 'gamma' },
+            { name: 'Radiation (Å)', value: finalParams.lambda, flag: false },
+            { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd_name: 'zeroShift' },
+        ];
+        // Add profile-specific parameters
+        if (finalParams.profileType === "4") {
+            allParams.push(
+                { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd_name: 'GU' },
+                { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd_name: 'GV' },
+                { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd_name: 'GW' },
+                { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd_name: 'GP' },
+                { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd_name: 'LX' },
+                { name: 'eta', value: finalParams.eta, flag: fitFlags.eta, esd_name: 'eta' }
+            );
+        } else {
+             allParams.push(
+                { name: 'U', value: finalParams.U, flag: fitFlags.U, esd_name: 'U' },
+                { name: 'V', value: finalParams.V, flag: fitFlags.V, esd_name: 'V' },
+                { name: 'W', value: finalParams.W, flag: fitFlags.W, esd_name: 'W' },
+                { name: 'X', value: finalParams.X, flag: fitFlags.X, esd_name: 'X' },
+                { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd_name: 'Y' }
+            );
+        }
+        
+        const selectedOption = controls.bravaisLattice.options[controls.bravaisLattice.selectedIndex];
+        addText(`System: ${selectedOption.text}`, 9, false, 'Courier');
+        yPosition += 2;
+
+        const header = 'Parameter'.padEnd(20) + 'Value'.padStart(15) + 'Fitted'.padStart(8) + 'ESD'.padStart(15);
+        addText(header, 8, true, 'Courier');
+        addText('-'.repeat(header.length + 5), 8, false, 'Courier');
+        
+        allParams.forEach(p => {
+            if (p.value !== undefined && p.value !== null && !isNaN(p.value)) {
+                const nameStr = p.name.padEnd(20);
+                const valStr = p.value.toExponential(6).padStart(15);
+                const fitStr = (p.flag ? 'Yes' : 'No').padStart(8);
+                const esdStr = (p.flag && esds[p.esd_name]) ? `(${esds[p.esd_name].toExponential(2)})`.padStart(15) : '-'.padStart(15);
+                addText(`${nameStr}${valStr}${fitStr}${esdStr}`, 8, false, 'Courier');
+            }
         });
-        // Initial UI setup on page load
+
+// --- Add Peak List ---
+        // Let the addText function create a new page automatically if needed.
+        addHeader('Peak List (Top 20 Reflections)');
+        const { system, centering } = getSystemAndCentering();
+        const hklListForReport = generateHKL(Math.max(...fullExperimentalData.tth), finalParams, system, centering);
+        
+        // FIX: Reconstruct the data object correctly with the 'background' property.
+        const dataForExtraction = {
+            tth: fullExperimentalData.tth,
+            intensity: fullExperimentalData.intensity,
+            background: calculatedBackground 
+        };
+        leBailIntensityExtraction(dataForExtraction, hklListForReport, finalParams);
+        
+        const reflectionsForPdf = hklListForReport.map(hkl => {
+            const peakShift = calculatePeakShift(hkl.tth, finalParams);
+            const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+            return { i_calc_norm: hkl.intensity, hkl_string: hkl.hkl_list[0], d: hkl.d, tthCorr: tthCorr };
+        });
+
+        const topPeaks = reflectionsForPdf.sort((a, b) => b.i_calc_norm - a.i_calc_norm).slice(0, 20);
+        const peakListHeader = 'HKL'.padEnd(12) + '2-theta(°)'.padStart(10) + 'd(Å)'.padStart(10) + 'I_calc'.padStart(12);
+        addText(peakListHeader, 8, true, 'Courier');
+        addText('-'.repeat(peakListHeader.length), 8, false, 'Courier');
+
+        topPeaks.forEach(peak => {
+            const line = `${peak.hkl_string.padEnd(12)}${peak.tthCorr.toFixed(4).padStart(10)}${peak.d.toFixed(4).padStart(10)}${peak.i_calc_norm.toFixed(2).padStart(12)}`;
+            addText(line, 8, false, 'Courier');
+        });
+
+        // --- 4. SAVE THE DOCUMENT ---
+        const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        doc.save(`LeBail-Report-${timestamp}.pdf`);
+
+    } catch (error) {
+        console.error("Failed to generate report:", error);
+        alert(`An error occurred while generating the report: ${error.message}`);
+    } finally {
+        controls.reportButton.textContent = originalText;
+        controls.reportButton.disabled = false;
+    }
+});
+
         updateUIForSystemChange();
     });
 
