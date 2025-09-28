@@ -676,6 +676,11 @@
                                 <option value="monoclinic_P">Monoclinic (P)</option>
                             </select>
                         </div>
+                        <div class="parameter-grid-2col">
+                            <label for="laue-class-select" class="control-label">Laue Class</label>
+                            <select id="laue-class-select" class="control-select">
+                                </select>
+                        </div>
                         <div id="lattice-parameters-container">
                         </div>
                     </div>
@@ -903,6 +908,7 @@
             fileInput: document.getElementById('file-input'),
             fileName: document.getElementById('file-name'),
             bravaisLattice: document.getElementById('bravais-lattice'),
+            laueClassSelect: document.getElementById('laue-class-select'),
             latticeParamsContainer: document.getElementById('lattice-parameters-container'),
             wavelength: document.getElementById('wavelength'),
             zeroShift: document.getElementById('zero-shift'),
@@ -953,6 +959,8 @@
             ballRadiusValue: document.getElementById('ball-radius-value'),
             smoothingWidthSlider: document.getElementById('smoothing-width-slider'),
             smoothingWidthValue: document.getElementById('smoothing-width-value'),
+        
+        
         };
 
         // --- Global State ---
@@ -991,6 +999,31 @@
         function saveProfileState(profileId) { const state = {}; const container = document.getElementById((profileId === '4') ? 'simple-pvoigt-params-container' : 'anisotropy-params-container'); if (container) container.querySelectorAll('input[type="number"], input[type="checkbox"]').forEach(input => { state[input.id] = (input.type === 'checkbox') ? input.checked : input.value; }); profileParamCache[profileId] = state; }
         function restoreProfileState(profileId) { const state = profileParamCache[profileId]; if (!state || Object.keys(state).length === 0) return; const container = document.getElementById((profileId === '4') ? 'simple-pvoigt-params-container' : 'anisotropy-params-container'); if (container) container.querySelectorAll('input[type="number"], input[type="checkbox"]').forEach(input => { if (state[input.id] !== undefined) input.type === 'checkbox' ? (input.checked = state[input.id]) : (input.value = state[input.id]); }); }
         
+        // Data mapping systems to their possible Laue classes
+        const laueClassMap = {
+            'cubic': [{ value: 'm-3m', text: 'm-3m' }, { value: 'm-3', text: 'm-3' }],
+            'hexagonal': [{ value: '6/mmm', text: '6/mmm' }, { value: '6/m', text: '6/m' }],
+            'rhombohedral': [{ value: '-3m', text: '-3m (Rhom. axes)' }, { value: '-3', text: '-3 (Rhom. axes)' }],
+            'tetragonal': [{ value: '4/mmm', text: '4/mmm' }, { value: '4/m', text: '4/m' }],
+            'orthorhombic': [{ value: 'mmm', text: 'mmm' }],
+            'monoclinic': [{ value: '2/m', text: '2/m' }],
+        };
+
+        function updateLaueClassUI() {
+            const { system } = getSystemAndCentering();
+            const laueOptions = laueClassMap[system] || [];
+            controls.laueClassSelect.innerHTML = ''; // Clear existing options
+
+            laueOptions.forEach(opt => {
+                const option = document.createElement('option');
+                option.value = opt.value;
+                option.textContent = opt.text;
+                controls.laueClassSelect.appendChild(option);
+            });
+             // Trigger a preview update when the laue class changes
+            updatePreviewPattern();
+        }
+
         function updateLatticeParamUI() {
             const currentValues = {}; const container = controls.latticeParamsContainer;
             container.querySelectorAll('input[type="number"]').forEach(input => { const name = input.id.replace('lattice-param-', ''); if (input.value) currentValues[name] = input.value; });
@@ -1003,10 +1036,15 @@
             if(params[system]) params[system].forEach(p => createInput(p.name, p.label, p.value, p.step, p.isAngle));
         }
 
+
         function updateUIForSystemChange() {
             updateLatticeParamUI();
+            updateLaueClassUI(); // This now calls both functions
             updateStephensAnisotropyUI();
         }
+
+        // This event listener remains largely the same, but now correctly triggers all UI updates.
+        controls.bravaisLattice.addEventListener('change', updateUIForSystemChange);
 
         const detectAndParseFile = (fileName, fileContent) => {
     const name = fileName.toLowerCase();
@@ -1116,82 +1154,121 @@
             if (mainChart) { const backgroundDataset = mainChart.data.datasets.find(d => d.label === 'Background'); if (backgroundDataset) backgroundDataset.data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: calculatedBackground[i] })); updatePreviewPattern(); }
         }
 
-        /**
- * Calculates the multiplicity for a given canonical h,k,l in a specific crystal system.
- *
- * @param {number} h - The canonical h Miller index.
- * @param {number} k - The canonical k Miller index.
- * @param {number} l - The canonical l Miller index.
- * @param {string} system - The crystal system.
- * @param {string} centering - The lattice centering.
- * @returns {{multiplicity: number, canonical_hkl_obj: number[]}} - An object with the results.
- */
-function getMultiplicityAndCanonicalHKL(h, k, l, system, centering) {
-    const canonical_hkl_obj = [h, k, l];
-    let multiplicity = 1;
-    const systemKey = system.toLowerCase();
-
-    // The logic below assumes a canonical h,k,l has been provided.
+        function getMultiplicityAndCanonicalHKL(h, k, l, system, centering, laueClass) {
+    // This function assumes h,k,l is already in its canonical form as generated by the new generateHKL.
+    // Its main job is now to calculate the correct multiplicity based on the Laue class.
     
-    switch (systemKey) {
-        case 'cubic': { // Laue group m-3m, assumes h>=k>=l>=0
-            if (h > k && k > l && l > 0) multiplicity = 48;
-            else if ((h === k && k > l && l > 0) || (h > k && k === l && l > 0)) multiplicity = 24;
-            else if (h > k && k > 0 && l === 0) multiplicity = 24;
-            else if (h === k && k === l && l > 0) multiplicity = 8;
-            else if (h === k && k > 0 && l === 0) multiplicity = 12;
-            else if (h > 0 && k === 0 && l === 0) multiplicity = 6;
+    if (h === 0 && k === 0 && l === 0) {
+        return { multiplicity: 1, canonical_hkl_obj: [0, 0, 0] };
+    }
+
+    let m = 0;
+
+    switch (laueClass) {
+        case 'm-3m': // Cubic, h>=k>=l>=0
+            if (h > k && k > l && l > 0) m = 48;
+            else if (h === k && k > l && l > 0) m = 24; // hhl
+            else if (h > k && k === l && l > 0) m = 24; // hll
+            else if (h > k && k > 0 && l === 0) m = 24; // hk0
+            else if (h === k && k === l && l > 0) m = 8;  // hhh
+            else if (h === k && k > 0 && l === 0) m = 12; // hh0
+            else if (h > 0 && k === 0 && l === 0) m = 6;  // h00
             break;
-        }
-        case 'hexagonal': { // Logic for Laue Group 6/m (e.g., for space group P6), assumes h>=k>=0, l>=0
-            if (l === 0) { // Reflections on the l=0 plane ({hk0})
-                multiplicity = 6;
-            } else if (h === 0 && k === 0) { // Reflections on the c-axis ({00l})
-                multiplicity = 2;
-            } else { // All other general reflections
-                multiplicity = 12;
+
+        case 'm-3': // Cubic, h>=k>=l>=0
+            if (h > k && k > l && l > 0) m = 24;      // hkl
+            else if (h === k && k > l && l > 0) m = 12; // hhl
+            else if (h > k && k === l && l > 0) m = 12; // hll
+            else if (h > k && k > 0 && l === 0) m = 12; // hk0
+            else if (h === k && k === l && l > 0) m = 8;  // hhh
+            else if (h === k && k > 0 && l === 0) m = 6;  // hh0
+            else if (h > 0 && k === 0 && l === 0) m = 6;  // h00
+            break;
+        
+        case '6/mmm': // Hexagonal, h>=k>=0, l>=0
+            if (l > 0) {
+                if (h > k && k > 0) m = 24;        // hkl
+                else if (h === k && k > 0) m = 12; // hhl
+                else if (h > 0 && k === 0) m = 12; // h0l
+                else if (h === 0 && k === 0) m = 2; // 00l
+            } else { // l = 0
+                if (h > k && k > 0) m = 12;        // hk0
+                else if (h === k && k > 0) m = 6;  // hh0
+                else if (h > 0 && k === 0) m = 6;  // h00
             }
             break;
-        }
-        case 'tetragonal': { // Laue group 4/mmm, assumes h>=k>=0, l>=0
-            if (h > k && k > 0 && l > 0) multiplicity = 16;
-            else if (h === k && k > 0 && l > 0) multiplicity = 8;
-            else if (h > 0 && k === 0 && l > 0) multiplicity = 8;
-            else if (h > k && k > 0 && l === 0) multiplicity = 8;
-            else if (h === k && k > 0 && l === 0) multiplicity = 4;
-            else if (h > 0 && k === 0 && l === 0) multiplicity = 4;
-            else if (h === 0 && k === 0 && l > 0) multiplicity = 2;
+
+        case '6/m': // Hexagonal, h>=k>=0, l>=0
+             if (l > 0) {
+                if (h > 0 || k > 0) m = 12; // hkl, hhl, h0l
+                else m = 2; // 00l
+             } else { // l=0
+                if (h > 0 || k > 0) m = 6; // hk0, hh0, h00
+             }
             break;
-        }
-        case 'orthorhombic': { // Laue group mmm, assumes h,k,l >= 0
-            if (h > 0 && k > 0 && l > 0) multiplicity = 8;
-            else if (h > 0 && k > 0 && l === 0) multiplicity = 4;
-            else if (h > 0 && k === 0 && l > 0) multiplicity = 4;
-            else if (h === 0 && k > 0 && l > 0) multiplicity = 4;
-            else multiplicity = 2; // Two indices are zero
+
+        case '-3m': // Rhombohedral, h>=k>=l
+             if (h > k && k > l) m = 12;
+             else if (h === k && k > l) m = 6;
+             else if (h > k && k === l) m = 6;
+             else if (h === k && k === l) m = 2;
+             break;
+
+        case '-3': // Rhombohedral, hkl
+            m = 6; // General
+            if (h === k && k === l) m = 2; // hhh
             break;
-        }
-        case 'monoclinic': { // Laue group 2/m, assumes k>=0
-            if (k > 0 && h !== 0 && l !== 0) multiplicity = 4;
-            else multiplicity = 2; // On a special plane (h0l) or axis (0k0)
+
+
+        case '4/mmm': // Tetragonal, h>=k>=0, l>=0
+            if (l > 0) {
+                if (h > k && k > 0) m = 16;       // hkl
+                else if (h === k && k > 0) m = 8;  // hhl
+                else if (h > 0 && k === 0) m = 8;  // h0l
+                else if (h === 0 && k === 0) m = 2;// 00l
+            } else { // l = 0
+                if (h > k && k > 0) m = 8;         // hk0
+                else if (h === k && k > 0) m = 4;  // hh0
+                else if (h > 0 && k === 0) m = 4;  // h00
+            }
             break;
-        }
-        case 'triclinic': { // Laue group -1
-            multiplicity = 2;
+
+        case '4/m': // CORRECTED: Tetragonal, h>=k>=0, l>=0
+            if (l > 0) {
+                if (h > k && k > 0) m = 8;         // hkl
+                else if (h === k && k > 0) m = 4;  // hhl
+                else if (h > 0 && k === 0) m = 8;  // h0l
+                else if (h === 0 && k === 0) m = 2;// 00l
+            } else { // l = 0
+                if (h > k && k > 0) m = 4;         // hk0
+                else if (h === k && k > 0) m = 4;  // hh0
+                else if (h > 0 && k === 0) m = 4;  // h00
+            }
             break;
-        }
+
+        case 'mmm': // Orthorhombic, h>=0, k>=0, l>=0
+            if (h > 0 && k > 0 && l > 0) m = 8;
+            else if ((h > 0 && k > 0 && l === 0) || (h > 0 && k === 0 && l > 0) || (h === 0 && k > 0 && l > 0)) m = 4;
+            else m = 2; // Two zeros
+            break;
+
+        case '2/m': // Monoclinic, k>=0, l>=0. If k=0, h>=0. If l=0, h>=0.
+            if (k > 0 || l > 0) m = 4;
+            else if (h > 0) m = 2; // h00
+            break;
+
+        default: // Triclinic (-1)
+            m = 2;
+            break;
     }
 
-    if (h === 0 && k === 0 && l === 0) {
-        multiplicity = 1;
-    }
-
-    return { multiplicity, canonical_hkl_obj };
+    return { multiplicity: m, canonical_hkl_obj: [h, k, l] };
 }
 
-    function generateHKL(maxTth, params, system, centering) {
-    const { a, b, c, alpha, beta, gamma, lambda } = params;
-    if (!a || !lambda || a <= 0 || lambda <= 0) {
+        function generateHKL(maxTth, params, system, centering) {
+    // This function now uses the Laue class to generate only the canonical reflections from the start.
+    const { a, b, c, alpha, beta, gamma, lambda, laueClass } = params;
+    if (!a || !lambda || a <= 0 || lambda <= 0 || !laueClass) {
         return [];
     }
 
@@ -1199,90 +1276,53 @@ function getMultiplicityAndCanonicalHKL(h, k, l, system, centering) {
     const maxIndex = Math.ceil(2 * maxDimension / lambda * Math.sin(maxTth * Math.PI / 360)) + 5;
     
     let uniqueReflections = [];
-    
-    // ========================================================================
-    // FINAL ARCHITECTURE: Directly generate unique canonical reflections.
-    // ========================================================================
-    if (system === 'cubic') {
-        // Loop h>=k>=l>=0 to generate only canonical reflections
-        for (let l = 0; l < maxIndex; l++) {
-            for (let k = l; k < maxIndex; k++) {
-                for (let h = k; h < maxIndex; h++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                    let allowed = (centering === 'F') ? ((h + k) % 2 === 0 && (k + l) % 2 === 0) :
-                                  (centering === 'I') ? ((h + k + l) % 2 === 0) : true;
-                    if (allowed) uniqueReflections.push({ h, k, l });
-                }
-            }
-        }
-    } else if (system === 'tetragonal') {
-        // Loop h>=k>=0 and l>=0
-        for (let l = 0; l < maxIndex; l++) {
-            for (let k = 0; k < maxIndex; k++) {
-                for (let h = k; h < maxIndex; h++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                     let allowed = (centering === 'I') ? ((h + k + l) % 2 === 0) : true;
-                     if (allowed) uniqueReflections.push({ h, k, l });
-                }
-            }
-        }
-    } else if (system === 'orthorhombic') {
-        // Loop h,k,l >= 0
-        for (let l = 0; l < maxIndex; l++) {
-            for (let k = 0; k < maxIndex; k++) {
-                for (let h = 0; h < maxIndex; h++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                    let allowed = (centering === 'F') ? ((h + k) % 2 === 0 && (k + l) % 2 === 0) :
-                                  (centering === 'I') ? ((h + k + l) % 2 === 0) :
-                                  (centering === 'C') ? ((h + k) % 2 === 0) : true;
-                    if (allowed) uniqueReflections.push({ h, k, l });
-                }
-            }
-        }
-    } else if (system === 'hexagonal') {
-        const seen = new Set();
-        // Loop l>=0, h>=k>=0
-        for (let l = 0; l < maxIndex; l++) {
-            for (let h = 0; h < maxIndex; h++) {
-                for (let k = 0; k <= h; k++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                    if (centering === 'R' && (-h + k + l) % 3 !== 0) continue;
-                    const S = h * h + h * k + k * k;
-                    const key = `${S}_${l*l}`;
-                    if (!seen.has(key)) {
-                        uniqueReflections.push({ h, k, l });
-                        seen.add(key);
-                    }
-                }
-            }
-        }
-    } else {
-        // Fallback for low-symmetry systems (monoclinic, triclinic)
-        const allReflections = [];
-        const maxOtherIndex = Math.floor(maxIndex / 2);
-        for (let h = -maxOtherIndex; h <= maxOtherIndex; h++) {
-            for (let k = -maxOtherIndex; k <= maxOtherIndex; k++) {
-                for (let l = -maxOtherIndex; l <= maxOtherIndex; l++) {
-                    if (h === 0 && k === 0 && l === 0) continue;
-                     let allowed = (centering === 'C') ? ((h + k) % 2 === 0) : true;
-                     if(allowed) allReflections.push({h, k, l});
-                }
-            }
-        }
-        const seenCanonical = new Set();
-        allReflections.forEach(({h,k,l}) => {
-             const { canonical_hkl_obj } = getMultiplicityAndCanonicalHKL(h, k, l, system, centering);
-             const key = canonical_hkl_obj.join(',');
-             if (!seenCanonical.has(key)) {
-                 uniqueReflections.push({ h: canonical_hkl_obj[0], k: canonical_hkl_obj[1], l: canonical_hkl_obj[2] });
-                 seenCanonical.add(key);
-             }
-        });
+    const maxOtherIndex = Math.floor(maxIndex / 1.5);
+
+    const loopAndAdd = (h, k, l) => {
+        if (h === 0 && k === 0 && l === 0) return;
+         let allowed = true;
+         // Apply centering conditions
+         switch (centering) {
+             case 'F': allowed = ((h + k) % 2 === 0 && (k + l) % 2 === 0); break;
+             case 'I': allowed = ((h + k + l) % 2 === 0); break;
+             case 'C': allowed = ((h + k) % 2 === 0); break;
+             case 'R': // R-centering for hexagonal axes
+                 if (system === 'hexagonal' || system === 'rhombohedral') allowed = ((-h + k + l) % 3 === 0);
+                 break;
+         }
+         if (allowed) uniqueReflections.push({ h, k, l });
+    };
+
+    switch (laueClass) {
+        case 'm-3m': // Cubic, h>=k>=l>=0
+        case 'm-3':
+            for (let l = 0; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '6/mmm': // Hexagonal, h>=k>=0, l>=0
+        case '6/m':
+            for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '-3m': // Rhombohedral, h>=k>=l
+            for (let l = -maxOtherIndex; l < maxOtherIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '-3': // Rhombohedral, hkl general
+            for (let h = 0; h < maxIndex; h++) for (let k = -maxOtherIndex; k < maxOtherIndex; k++) for (let l = -maxOtherIndex; l < maxOtherIndex; l++) loopAndAdd(h, k, l);
+            break;
+        case '4/mmm': // Tetragonal, h>=k>=0, l>=0
+        case '4/m':   // CORRECTED: Both tetragonal classes use the same canonical generation for d-spacing.
+            for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case 'mmm': // Orthorhombic, h>=0, k>=0, l>=0
+            for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = 0; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '2/m': // Monoclinic k>=0, l>=0. if k=0, h>=0. if l=0, h>=0
+            for (let k = 0; k < maxIndex; k++) for (let l = 0; l < maxIndex; l++) for (let h = -maxOtherIndex; h < maxIndex; h++) if (!((k === 0 && h < 0) || (l === 0 && h < 0))) loopAndAdd(h, k, l);
+            break;
+        default: // Triclinic (-1): h any, k>=0. if k=0, l>=0
+            for (let k = 0; k < maxIndex; k++) for (let h = -maxOtherIndex; h < maxIndex; h++) for (let l = -maxOtherIndex; l < maxIndex; l++) if (!(k > 0 || l < 0)) loopAndAdd(h, k, l);
+            break;
     }
 
-    // ========================================================================
-    // STEP 2: Calculate positions for the final, clean, unique list.
-    // ========================================================================
     const finalReflections = [];
     const deg2rad = Math.PI / 180;
     const alpha_rad = (alpha || 90) * deg2rad;
@@ -1291,12 +1331,12 @@ function getMultiplicityAndCanonicalHKL(h, k, l, system, centering) {
     for (const { h, k, l } of uniqueReflections) {
         let inv_d_sq = 0;
         switch (system) {
-            case 'cubic': { /* ... as before ... */ inv_d_sq = (h * h + k * k + l * l) / (a * a); break; }
-            case 'tetragonal': { /* ... as before ... */ const c_tet = c || a; inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c_tet * c_tet); break; }
-            case 'orthorhombic': { /* ... as before ... */ const b_orth = b || a; const c_orth = c || a; inv_d_sq = (h * h) / (a * a) + (k * k) / (b_orth * b_orth) + (l * l) / (c_orth * c_orth); break; }
-            case 'hexagonal': { /* ... as before ... */ const c_hex = c || a; inv_d_sq = 4 * (h * h + h * k + k * k) / (3 * a * a) + (l * l) / (c_hex * c_hex); break; }
-            case 'rhombohedral': { /* ... as before ... */ const cos_alpha_rhomb = Math.cos(alpha_rad); const sin_alpha_rhomb = Math.sin(alpha_rad); const term1 = (h*h + k*k + l*l) * sin_alpha_rhomb * sin_alpha_rhomb; const term2 = 2 * (h*k + k*l + l*h) * (cos_alpha_rhomb*cos_alpha_rhomb - cos_alpha_rhomb); const denominator = a*a * (1 - 3*cos_alpha_rhomb*cos_alpha_rhomb + 2*cos_alpha_rhomb*cos_alpha_rhomb*cos_alpha_rhomb); if (Math.abs(denominator) < 1e-12) continue; inv_d_sq = (term1 + term2) / denominator; break; }
-            case 'monoclinic': { /* ... as before ... */ const b_mono = b || a; const c_mono = c || a; const sin_beta = Math.sin(beta_rad); const cos_beta = Math.cos(beta_rad); inv_d_sq = (1 / (sin_beta * sin_beta)) * ((h * h) / (a * a) + (l * l) / (c_mono * c_mono) - (2 * h * l * cos_beta) / (a * c_mono)) + (k * k) / (b_mono * b_mono); break; }
+            case 'cubic': { inv_d_sq = (h * h + k * k + l * l) / (a * a); break; }
+            case 'tetragonal': { const c_tet = c || a; inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c_tet * c_tet); break; }
+            case 'orthorhombic': { const b_orth = b || a; const c_orth = c || a; inv_d_sq = (h * h) / (a * a) + (k * k) / (b_orth * b_orth) + (l * l) / (c_orth * c_orth); break; }
+            case 'hexagonal': { const c_hex = c || a; inv_d_sq = 4 * (h * h + h * k + k * k) / (3 * a * a) + (l * l) / (c_hex * c_hex); break; }
+            case 'rhombohedral': { const cos_alpha_rhomb = Math.cos(alpha_rad); const sin_alpha_rhomb = Math.sin(alpha_rad); const term1 = (h*h + k*k + l*l) * sin_alpha_rhomb * sin_alpha_rhomb; const term2 = 2 * (h*k + k*l + l*h) * (cos_alpha_rhomb*cos_alpha_rhomb - cos_alpha_rhomb); const denominator = a*a * (1 - 3*cos_alpha_rhomb*cos_alpha_rhomb + 2*cos_alpha_rhomb*cos_alpha_rhomb*cos_alpha_rhomb); if (Math.abs(denominator) < 1e-12) continue; inv_d_sq = (term1 + term2) / denominator; break; }
+            case 'monoclinic': { const b_mono = b || a; const c_mono = c || a; const sin_beta = Math.sin(beta_rad); const cos_beta = Math.cos(beta_rad); inv_d_sq = (1 / (sin_beta * sin_beta)) * ((h * h) / (a * a) + (l * l) / (c_mono * c_mono) - (2 * h * l * cos_beta) / (a * c_mono)) + (k * k) / (b_mono * b_mono); break; }
         }
 
         if (inv_d_sq <= 1e-12) continue;
@@ -1306,7 +1346,7 @@ function getMultiplicityAndCanonicalHKL(h, k, l, system, centering) {
         if (tth > maxTth) continue;
 
         const d = 1 / Math.sqrt(inv_d_sq);
-        const { multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, system, centering);
+        const { multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, system, centering, laueClass);
 
         finalReflections.push({ tth, d, hkl_list: [`(${h},${k},${l})`], multiplicity, intensity: 0, h_orig: h, k_orig: k, l_orig: l });
     }
@@ -1762,7 +1802,7 @@ async function runLeBailFit() {
 }
 
 
-        const getAllParams = () => { const profileType = controls.profileSelect.value; let params = { lambda: parseFloat(controls.wavelength.value), zeroShift: parseFloat(controls.zeroShift.value), profileType: profileType }; document.querySelectorAll('#lattice-parameters-container input[type="number"]').forEach(input => { if (input.id.startsWith('lattice-param-')) { const paramName = input.id.replace('lattice-param-', ''); params[paramName] = parseFloat(input.value); } }); const { system } = getSystemAndCentering(); switch(system) { case 'cubic': case 'tetragonal': case 'orthorhombic': params.alpha = params.beta = params.gamma = 90; break; case 'hexagonal': params.alpha = params.beta = 90; params.gamma = 120; break; case 'monoclinic': params.alpha = params.gamma = 90; break; } if (profileType === "4") { Object.assign(params, { GU: parseFloat(controls.paramGU.value) || 2.5, GV: parseFloat(controls.paramGV.value) || -2.8, GW: parseFloat(controls.paramGW.value) || 1.6, GP: parseFloat(controls.paramGP.value) || 0.0, LX: parseFloat(controls.paramLX.value) || .10, eta: parseFloat(controls.paramEta.value) || 1., shft: parseFloat(controls.paramShft.value) || 0.0, trns: parseFloat(controls.paramTrns.value) || 0.0 }); } else { Object.assign(params, { U: parseFloat(controls.paramU.value) || 2.0, V: parseFloat(controls.paramV.value) || -1.0, W: parseFloat(controls.paramW.value) || 1.0, X: parseFloat(controls.paramX.value) || 1.0, Y: parseFloat(controls.paramY.value) || 0.5, SL: parseFloat(controls.paramSL.value) || 0.0, HL: parseFloat(controls.paramHL.value) || 0.0, S400: parseFloat(controls.paramS400.value) || 0.0, S040: parseFloat(controls.paramS040.value) || 0.0, S004: parseFloat(controls.paramS004.value) || 0.0, S220: parseFloat(controls.paramS220.value) || 0.0, S202: parseFloat(controls.paramS202.value) || 0.0, S022: parseFloat(controls.paramS022.value) || 0.0 }); } return params; };
+        const getAllParams = () => { const profileType = controls.profileSelect.value; let params = { lambda: parseFloat(controls.wavelength.value), zeroShift: parseFloat(controls.zeroShift.value), profileType: profileType, laueClass: controls.laueClassSelect.value}; document.querySelectorAll('#lattice-parameters-container input[type="number"]').forEach(input => { if (input.id.startsWith('lattice-param-')) { const paramName = input.id.replace('lattice-param-', ''); params[paramName] = parseFloat(input.value); } }); const { system } = getSystemAndCentering(); switch(system) { case 'cubic': case 'tetragonal': case 'orthorhombic': params.alpha = params.beta = params.gamma = 90; break; case 'hexagonal': params.alpha = params.beta = 90; params.gamma = 120; break; case 'monoclinic': params.alpha = params.gamma = 90; break; } if (profileType === "4") { Object.assign(params, { GU: parseFloat(controls.paramGU.value) || 2.5, GV: parseFloat(controls.paramGV.value) || -2.8, GW: parseFloat(controls.paramGW.value) || 1.6, GP: parseFloat(controls.paramGP.value) || 0.0, LX: parseFloat(controls.paramLX.value) || .10, eta: parseFloat(controls.paramEta.value) || 1., shft: parseFloat(controls.paramShft.value) || 0.0, trns: parseFloat(controls.paramTrns.value) || 0.0 }); } else { Object.assign(params, { U: parseFloat(controls.paramU.value) || 2.0, V: parseFloat(controls.paramV.value) || -1.0, W: parseFloat(controls.paramW.value) || 1.0, X: parseFloat(controls.paramX.value) || 1.0, Y: parseFloat(controls.paramY.value) || 0.5, SL: parseFloat(controls.paramSL.value) || 0.0, HL: parseFloat(controls.paramHL.value) || 0.0, S400: parseFloat(controls.paramS400.value) || 0.0, S040: parseFloat(controls.paramS040.value) || 0.0, S004: parseFloat(controls.paramS004.value) || 0.0, S220: parseFloat(controls.paramS220.value) || 0.0, S202: parseFloat(controls.paramS202.value) || 0.0, S022: parseFloat(controls.paramS022.value) || 0.0 }); } return params; };
         const getFitFlags = () => { const profileType = controls.profileSelect.value; const { system } = getSystemAndCentering(); let flags = { a: document.getElementById('fit-lattice-a')?.checked, b: document.getElementById('fit-lattice-b')?.checked, c: document.getElementById('fit-lattice-c')?.checked, alpha: document.getElementById('fit-lattice-alpha')?.checked, beta: document.getElementById('fit-lattice-beta')?.checked, gamma: document.getElementById('fit-lattice-gamma')?.checked, zeroShift: controls.fitZeroShift.checked, }; if (profileType === "4") { Object.assign(flags, { GU: controls.fitGU.checked, GV: controls.fitGV.checked, GW: controls.fitGW.checked, GP: controls.fitGP.checked, LX: controls.fitLX.checked, eta: controls.fitEta.checked, shft: controls.fitShft.checked, trns: controls.fitTrns.checked, }); } else { Object.assign(flags, { U: controls.fitU.checked, V: controls.fitV.checked, W: controls.fitW.checked, X: controls.fitX.checked, Y: controls.fitY.checked, SL: controls.fitSL.checked, HL: controls.fitHL.checked, }); } if (profileType === "3") { Object.assign(flags, { S400: controls.fitS400.checked, S040: controls.fitS040.checked, S004: controls.fitS004.checked, S220: controls.fitS220.checked, S202: controls.fitS202.checked, S022: controls.fitS022.checked, }); switch (system) { case 'cubic': flags.S040 = flags.S004 = flags.S202 = flags.S022 = false; break; case 'hexagonal': case 'tetragonal': case 'rhombohedral': flags.S040 = flags.S022 = false; break; } } return flags; };
         const dot = (v1, v2) => { let s = 0; for(let i=0; i<v1.length; i++) s += v1[i] * v2[i]; return s; }; const add = (v1, v2) => v1.map((x, i) => x + v2[i]); const subtract = (v1, v2) => v1.map((x, i) => x - v2[i]); const scale = (v, s) => v.map(x => x * s); const transpose = (m) => { if (!m || m.length === 0 || !Array.isArray(m[0])) return m.map(x => [x]); return m[0].map((_, colIndex) => m.map(row => row[colIndex])); }; const multiply = (A, B) => { if (!Array.isArray(B[0])) return A.map(row => dot(row, B)); const Bt = transpose(B); return A.map(rowA => Bt.map(colB => dot(rowA, colB))); }; const solve = (A, b) => { const n = A.length; const Ab = A.map((row, i) => [...row, b[i]]); for (let i = 0; i < n; i++) { let max = i; for (let k = i + 1; k < n; k++) if (Math.abs(Ab[k][i]) > Math.abs(Ab[max][i])) max = k; [Ab[i], Ab[max]] = [Ab[max], Ab[i]]; if (Math.abs(Ab[i][i]) < 1e-12) continue; for (let k = i + 1; k < n; k++) { const factor = Ab[k][i] / Ab[i][i]; if (!isFinite(factor)) continue; for (let j = i; j < n + 1; j++) Ab[k][j] -= factor * Ab[i][j]; } } const x = new Array(n).fill(0); for (let i = n - 1; i >= 0; i--) { let sum = 0; for (let j = i + 1; j < n; j++) sum += Ab[i][j] * x[j]; if (Math.abs(Ab[i][i]) > 1e-12) x[i] = (Ab[i][n] - sum) / Ab[i][i]; } return x; };
         function calculateDeterminant(A) { const n = A.length; if (n === 1) return A[0][0]; if (n === 2) return A[0][0] * A[1][1] - A[0][1] * A[1][0]; const U = A.map(row => [...row]); let det = 1; for (let i = 0; i < n; i++) { let maxRow = i; for (let k = i + 1; k < n; k++) if (Math.abs(U[k][i]) > Math.abs(U[maxRow][i])) maxRow = k; if (maxRow !== i) { [U[i], U[maxRow]] = [U[maxRow], U[i]]; det *= -1; } if (Math.abs(U[i][i]) < 1e-15) return 0; det *= U[i][i]; for (let k = i + 1; k < n; k++) { const factor = U[k][i] / U[i][i]; for (let j = i; j < n; j++) U[k][j] -= factor * U[i][j]; } } return det; }
@@ -1947,13 +1987,13 @@ async function runLeBailFit() {
             if (!fitResults || typeof fitResults.params !== 'object' || fitResults.params === null) return "Error: Fit results missing.";
             const reportLines = []; const now = new Date(); const finalParams = fitResults.params; const fitFlags = fitResults.fitFlags; const algorithm = fitResults.algorithm; const stats = fitResults.stats;
             
-            // This block determines the correct profile name
+// This block determines the correct profile name and add Laue class (changement le 28 sept, v 2.1)
             const profileName = finalParams.profileType === "4"
                 ? "Simple pVoigt"
                 : "TCH w/ Anisotropy";
 
-            reportLines.push('==============================================================', '            Le Bail Refinement Report', '==============================================================', 'Program used: nitad54448.github.io/Enseignement/LeBail.html', 'Program Version: 2.0.4, 28 sept 2025', `Report Generated: ${now.toLocaleString()}`, `Data File: ${controls.fileName.textContent}`, '', '--- Refinement Statistics ---', `Rp (%):      ${stats.r_p.toFixed(2)}`, `Rwp (%):     ${stats.rwp.toFixed(2)}`, `χ² (GOF):    ${stats.chi2.toFixed(3)}`, `Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`, `Profile:     ${profileName} (#${finalParams.profileType})`, '');
-            
+            reportLines.push('==============================================================', '            Le Bail Refinement Report', '==============================================================', 'Program used: nitad54448.github.io/Enseignement/LeBail.html', 'Program Version: 2.1, 28 sept 2025', `Report Generated: ${now.toLocaleString()}`, `Data File: ${controls.fileName.textContent}`, '', '--- Refinement Statistics ---', `Rp (%):      ${stats.r_p.toFixed(2)}`, `Rwp (%):     ${stats.rwp.toFixed(2)}`, `χ² (GOF):    ${stats.chi2.toFixed(3)}`, `Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`, `Profile:     ${profileName} (#${finalParams.profileType})`, `Laue Class:  ${finalParams.laueClass}`, '');
+
             let esds = {}; let esdWarning = null;
             if (fitResults.algorithm === 'lm' && fitResults.JtJ) {
                 const workingDataForStats = getWorkingData();
@@ -2071,7 +2111,7 @@ controls.reportButton.addEventListener('click', async () => {
 
         doc.text('Program used: nitad54448.github.io/Enseignement/LeBail.html', margin, yPosition);
         yPosition += 5;
-        doc.text('Program Version: 2.0.4, 28 sept 2025', margin, yPosition);
+        doc.text('Program Version: 2.1, 28 sept 2025', margin, yPosition);
         yPosition += 5;
         const now = new Date();
         doc.text(`Report Generated: ${now.toLocaleString()}`, margin, yPosition);
@@ -2152,6 +2192,7 @@ controls.reportButton.addEventListener('click', async () => {
         addText(`Algorithm: ${fitResults.algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`);
         const profileName = fitResults.params.profileType === "4" ? "Simple pVoigt" : "TCH w/ Anisotropy";
         addText(`Profile: ${profileName} (#${fitResults.params.profileType})`);
+        addText(`Laue Class: ${fitResults.params.laueClass}`);
         if (esdWarning) addText(esdWarning, 8);
 
         // --- Add Structural & Instrumental Parameters ---
