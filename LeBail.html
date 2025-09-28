@@ -1116,14 +1116,306 @@
             if (mainChart) { const backgroundDataset = mainChart.data.datasets.find(d => d.label === 'Background'); if (backgroundDataset) backgroundDataset.data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: calculatedBackground[i] })); updatePreviewPattern(); }
         }
 
-        function getMultiplicityAndCanonicalHKL(h, k, l, system) { let H = Math.abs(h), K = Math.abs(k), L = Math.abs(l); let canonical_hkl = `(${H},${K},${L})`; let multiplicity = 1; switch (system) { case 'cubic': [H, K, L] = [H, K, L].sort((a, b) => b - a); canonical_hkl = `(${H},${K},${L})`; if (H > K && K > L && L > 0) multiplicity = 48; else if (H === K && K > L && L > 0) multiplicity = 24; else if (H > K && K === L && L > 0) multiplicity = 24; else if (H > K && K > 0 && L === 0) multiplicity = 24; else if (H === K && K > 0 && L === 0) multiplicity = 12; else if (H === K && K === L && L > 0) multiplicity = 8; else if (H > 0 && K === 0 && L === 0) multiplicity = 6; break; case 'hexagonal': case 'rhombohedral': canonical_hkl = `(${H},${K},${L})`; if (H > 0 && K > 0 && L > 0 && H !== K) multiplicity = 24; else if (H > 0 && K > 0 && L > 0) multiplicity = 12; else if (H > 0 && K > 0 && L === 0 && H !== K) multiplicity = 12; else if (H > 0 && K === 0 && L > 0) multiplicity = 12; else if (H > 0 && K === H && L === 0) multiplicity = 6; else if (H > 0 && K === 0 && L === 0) multiplicity = 6; else if (H === 0 && K === 0 && L > 0) multiplicity = 2; break; case 'tetragonal': if (K > H) [H, K] = [K, H]; canonical_hkl = `(${H},${K},${L})`; if (H > K && K > 0 && L > 0) multiplicity = 16; else if (H === K && K > 0 && L > 0) multiplicity = 8; else if (H > 0 && K === 0 && L > 0) multiplicity = 8; else if (H > K && K > 0 && L === 0) multiplicity = 8; else if (H === K && K > 0 && L === 0) multiplicity = 4; else if (H > 0 && K === 0 && L === 0) multiplicity = 4; else if (H === 0 && K === 0 && L > 0) multiplicity = 2; break; case 'orthorhombic': canonical_hkl = `(${H},${K},${L})`; if (H > 0 && K > 0 && L > 0) multiplicity = 8; else if (H > 0 && K > 0 && L === 0) multiplicity = 4; else if (H > 0 && K === 0 && L > 0) multiplicity = 4; else if (H === 0 && K > 0 && L > 0) multiplicity = 4; else if (H > 0 && K === 0 && L === 0) multiplicity = 2; else if (H === 0 && K > 0 && L === 0) multiplicity = 2; else if (H === 0 && K === 0 && L > 0) multiplicity = 2; break; case 'monoclinic': canonical_hkl = `(${H},${K},${L})`; if (H > 0 && L > 0) multiplicity = (K > 0) ? 4 : 2; else if (H > 0 || L > 0) multiplicity = (K > 0) ? 4 : 2; else if (K > 0) multiplicity = 2; break; } return { canonical_hkl, multiplicity }; }
-        function generateHKL(maxTth, params, system, centering) { const { a, b, c, alpha, beta, gamma, lambda } = params; if (!a || !lambda || a <= 0) return []; const reflections = new Map(); const maxIndex = Math.ceil(2 * Math.max(a || 0, b || 0, c || 0) / lambda * Math.sin(maxTth / 2 * Math.PI / 180)) + 2; const deg2rad = Math.PI / 180; const sin_b = Math.sin((beta || 90) * deg2rad); const cos_b = Math.cos((beta || 90) * deg2rad); for (let h = -maxIndex; h <= maxIndex; h++) { for (let k = -maxIndex; k <= maxIndex; k++) { for (let l = 0; l <= maxIndex; l++) { if (h === 0 && k === 0 && l === 0) continue; let allowed = false; switch(centering) { case 'P': allowed = true; break; case 'I': allowed = (h + k + l) % 2 === 0; break; case 'F': allowed = (h % 2 === k % 2) && (k % 2 === l % 2); break; case 'C': allowed = (h + k) % 2 === 0; break; case 'R': if (system === 'hexagonal') allowed = (-h + k + l) % 3 === 0; else allowed = true; break; default: allowed = true; } if (!allowed) continue; let inv_d_sq = 0; switch(system) { case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break; case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break; case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break; case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break; case 'monoclinic': inv_d_sq = (1/(sin_b*sin_b)) * ( (h*h)/(a*a) + (k*k*sin_b*sin_b)/(b*b) + (l*l)/(c*c) - (2*h*l*cos_b)/(a*c) ); break; case 'rhombohedral': const term1 = (h*h + k*k + l*l) * Math.sin(alpha*deg2rad)**2; const term2 = 2 * (h*k + k*l + l*h) * (Math.cos(alpha*deg2rad)**2 - Math.cos(alpha*deg2rad)); const denominator = a*a * (1 - 3*Math.cos(alpha*deg2rad)**2 + 2*Math.cos(alpha*deg2rad)**3); if(Math.abs(denominator) < 1e-9) continue; inv_d_sq = (term1 + term2) / denominator; break; } if (inv_d_sq <= 0) continue; const sinThetaSq = (lambda*lambda / 4) * inv_d_sq; if (sinThetaSq <= 1) { const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI); if (tth > maxTth * 1.05) continue; const d = 1 / Math.sqrt(inv_d_sq); const key = Math.round(tth * 1000); if (!reflections.has(key)) { const { canonical_hkl, multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, system); reflections.set(key, { tth: tth, d: d, hkl_list: [canonical_hkl], multiplicity: multiplicity, intensity: 0 }); } } } } } return Array.from(reflections.values()).sort((a, b) => a.tth - b.tth); }
+        /**
+ * Calculates the multiplicity for a given canonical h,k,l in a specific crystal system.
+ *
+ * @param {number} h - The canonical h Miller index.
+ * @param {number} k - The canonical k Miller index.
+ * @param {number} l - The canonical l Miller index.
+ * @param {string} system - The crystal system.
+ * @param {string} centering - The lattice centering.
+ * @returns {{multiplicity: number, canonical_hkl_obj: number[]}} - An object with the results.
+ */
+function getMultiplicityAndCanonicalHKL(h, k, l, system, centering) {
+    const canonical_hkl_obj = [h, k, l];
+    let multiplicity = 1;
+    const systemKey = system.toLowerCase();
+
+    // The logic below assumes a canonical h,k,l has been provided.
+    
+    switch (systemKey) {
+        case 'cubic': { // Laue group m-3m, assumes h>=k>=l>=0
+            if (h > k && k > l && l > 0) multiplicity = 48;
+            else if ((h === k && k > l && l > 0) || (h > k && k === l && l > 0)) multiplicity = 24;
+            else if (h > k && k > 0 && l === 0) multiplicity = 24;
+            else if (h === k && k === l && l > 0) multiplicity = 8;
+            else if (h === k && k > 0 && l === 0) multiplicity = 12;
+            else if (h > 0 && k === 0 && l === 0) multiplicity = 6;
+            break;
+        }
+        case 'hexagonal': { // Logic for Laue Group 6/m (e.g., for space group P6), assumes h>=k>=0, l>=0
+            if (l === 0) { // Reflections on the l=0 plane ({hk0})
+                multiplicity = 6;
+            } else if (h === 0 && k === 0) { // Reflections on the c-axis ({00l})
+                multiplicity = 2;
+            } else { // All other general reflections
+                multiplicity = 12;
+            }
+            break;
+        }
+        case 'tetragonal': { // Laue group 4/mmm, assumes h>=k>=0, l>=0
+            if (h > k && k > 0 && l > 0) multiplicity = 16;
+            else if (h === k && k > 0 && l > 0) multiplicity = 8;
+            else if (h > 0 && k === 0 && l > 0) multiplicity = 8;
+            else if (h > k && k > 0 && l === 0) multiplicity = 8;
+            else if (h === k && k > 0 && l === 0) multiplicity = 4;
+            else if (h > 0 && k === 0 && l === 0) multiplicity = 4;
+            else if (h === 0 && k === 0 && l > 0) multiplicity = 2;
+            break;
+        }
+        case 'orthorhombic': { // Laue group mmm, assumes h,k,l >= 0
+            if (h > 0 && k > 0 && l > 0) multiplicity = 8;
+            else if (h > 0 && k > 0 && l === 0) multiplicity = 4;
+            else if (h > 0 && k === 0 && l > 0) multiplicity = 4;
+            else if (h === 0 && k > 0 && l > 0) multiplicity = 4;
+            else multiplicity = 2; // Two indices are zero
+            break;
+        }
+        case 'monoclinic': { // Laue group 2/m, assumes k>=0
+            if (k > 0 && h !== 0 && l !== 0) multiplicity = 4;
+            else multiplicity = 2; // On a special plane (h0l) or axis (0k0)
+            break;
+        }
+        case 'triclinic': { // Laue group -1
+            multiplicity = 2;
+            break;
+        }
+    }
+
+    if (h === 0 && k === 0 && l === 0) {
+        multiplicity = 1;
+    }
+
+    return { multiplicity, canonical_hkl_obj };
+}
+
+    function generateHKL(maxTth, params, system, centering) {
+    const { a, b, c, alpha, beta, gamma, lambda } = params;
+    if (!a || !lambda || a <= 0 || lambda <= 0) {
+        return [];
+    }
+
+    const maxDimension = Math.max(a || 0, b || a, c || a);
+    const maxIndex = Math.ceil(2 * maxDimension / lambda * Math.sin(maxTth * Math.PI / 360)) + 5;
+    
+    let uniqueReflections = [];
+    
+    // ========================================================================
+    // FINAL ARCHITECTURE: Directly generate unique canonical reflections.
+    // ========================================================================
+    if (system === 'cubic') {
+        // Loop h>=k>=l>=0 to generate only canonical reflections
+        for (let l = 0; l < maxIndex; l++) {
+            for (let k = l; k < maxIndex; k++) {
+                for (let h = k; h < maxIndex; h++) {
+                    if (h === 0 && k === 0 && l === 0) continue;
+                    let allowed = (centering === 'F') ? ((h + k) % 2 === 0 && (k + l) % 2 === 0) :
+                                  (centering === 'I') ? ((h + k + l) % 2 === 0) : true;
+                    if (allowed) uniqueReflections.push({ h, k, l });
+                }
+            }
+        }
+    } else if (system === 'tetragonal') {
+        // Loop h>=k>=0 and l>=0
+        for (let l = 0; l < maxIndex; l++) {
+            for (let k = 0; k < maxIndex; k++) {
+                for (let h = k; h < maxIndex; h++) {
+                    if (h === 0 && k === 0 && l === 0) continue;
+                     let allowed = (centering === 'I') ? ((h + k + l) % 2 === 0) : true;
+                     if (allowed) uniqueReflections.push({ h, k, l });
+                }
+            }
+        }
+    } else if (system === 'orthorhombic') {
+        // Loop h,k,l >= 0
+        for (let l = 0; l < maxIndex; l++) {
+            for (let k = 0; k < maxIndex; k++) {
+                for (let h = 0; h < maxIndex; h++) {
+                    if (h === 0 && k === 0 && l === 0) continue;
+                    let allowed = (centering === 'F') ? ((h + k) % 2 === 0 && (k + l) % 2 === 0) :
+                                  (centering === 'I') ? ((h + k + l) % 2 === 0) :
+                                  (centering === 'C') ? ((h + k) % 2 === 0) : true;
+                    if (allowed) uniqueReflections.push({ h, k, l });
+                }
+            }
+        }
+    } else if (system === 'hexagonal') {
+        const seen = new Set();
+        // Loop l>=0, h>=k>=0
+        for (let l = 0; l < maxIndex; l++) {
+            for (let h = 0; h < maxIndex; h++) {
+                for (let k = 0; k <= h; k++) {
+                    if (h === 0 && k === 0 && l === 0) continue;
+                    if (centering === 'R' && (-h + k + l) % 3 !== 0) continue;
+                    const S = h * h + h * k + k * k;
+                    const key = `${S}_${l*l}`;
+                    if (!seen.has(key)) {
+                        uniqueReflections.push({ h, k, l });
+                        seen.add(key);
+                    }
+                }
+            }
+        }
+    } else {
+        // Fallback for low-symmetry systems (monoclinic, triclinic)
+        const allReflections = [];
+        const maxOtherIndex = Math.floor(maxIndex / 2);
+        for (let h = -maxOtherIndex; h <= maxOtherIndex; h++) {
+            for (let k = -maxOtherIndex; k <= maxOtherIndex; k++) {
+                for (let l = -maxOtherIndex; l <= maxOtherIndex; l++) {
+                    if (h === 0 && k === 0 && l === 0) continue;
+                     let allowed = (centering === 'C') ? ((h + k) % 2 === 0) : true;
+                     if(allowed) allReflections.push({h, k, l});
+                }
+            }
+        }
+        const seenCanonical = new Set();
+        allReflections.forEach(({h,k,l}) => {
+             const { canonical_hkl_obj } = getMultiplicityAndCanonicalHKL(h, k, l, system, centering);
+             const key = canonical_hkl_obj.join(',');
+             if (!seenCanonical.has(key)) {
+                 uniqueReflections.push({ h: canonical_hkl_obj[0], k: canonical_hkl_obj[1], l: canonical_hkl_obj[2] });
+                 seenCanonical.add(key);
+             }
+        });
+    }
+
+    // ========================================================================
+    // STEP 2: Calculate positions for the final, clean, unique list.
+    // ========================================================================
+    const finalReflections = [];
+    const deg2rad = Math.PI / 180;
+    const alpha_rad = (alpha || 90) * deg2rad;
+    const beta_rad = (beta || 90) * deg2rad;
+
+    for (const { h, k, l } of uniqueReflections) {
+        let inv_d_sq = 0;
+        switch (system) {
+            case 'cubic': { /* ... as before ... */ inv_d_sq = (h * h + k * k + l * l) / (a * a); break; }
+            case 'tetragonal': { /* ... as before ... */ const c_tet = c || a; inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c_tet * c_tet); break; }
+            case 'orthorhombic': { /* ... as before ... */ const b_orth = b || a; const c_orth = c || a; inv_d_sq = (h * h) / (a * a) + (k * k) / (b_orth * b_orth) + (l * l) / (c_orth * c_orth); break; }
+            case 'hexagonal': { /* ... as before ... */ const c_hex = c || a; inv_d_sq = 4 * (h * h + h * k + k * k) / (3 * a * a) + (l * l) / (c_hex * c_hex); break; }
+            case 'rhombohedral': { /* ... as before ... */ const cos_alpha_rhomb = Math.cos(alpha_rad); const sin_alpha_rhomb = Math.sin(alpha_rad); const term1 = (h*h + k*k + l*l) * sin_alpha_rhomb * sin_alpha_rhomb; const term2 = 2 * (h*k + k*l + l*h) * (cos_alpha_rhomb*cos_alpha_rhomb - cos_alpha_rhomb); const denominator = a*a * (1 - 3*cos_alpha_rhomb*cos_alpha_rhomb + 2*cos_alpha_rhomb*cos_alpha_rhomb*cos_alpha_rhomb); if (Math.abs(denominator) < 1e-12) continue; inv_d_sq = (term1 + term2) / denominator; break; }
+            case 'monoclinic': { /* ... as before ... */ const b_mono = b || a; const c_mono = c || a; const sin_beta = Math.sin(beta_rad); const cos_beta = Math.cos(beta_rad); inv_d_sq = (1 / (sin_beta * sin_beta)) * ((h * h) / (a * a) + (l * l) / (c_mono * c_mono) - (2 * h * l * cos_beta) / (a * c_mono)) + (k * k) / (b_mono * b_mono); break; }
+        }
+
+        if (inv_d_sq <= 1e-12) continue;
+        const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+        if (sinThetaSq > 1 || sinThetaSq <= 0) continue;
+        const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+        if (tth > maxTth) continue;
+
+        const d = 1 / Math.sqrt(inv_d_sq);
+        const { multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, system, centering);
+
+        finalReflections.push({ tth, d, hkl_list: [`(${h},${k},${l})`], multiplicity, intensity: 0, h_orig: h, k_orig: k, l_orig: l });
+    }
+
+    finalReflections.sort((a, b) => a.tth - b.tth);
+    return finalReflections;
+}
+
         function calculatePeakShift(tth, params) { if (params.profileType === "4") { const thetaRad = tth * (Math.PI / 180) / 2; const cosTheta = Math.cos(thetaRad); const sin2Theta = Math.sin(2 * thetaRad); const displacementShift = -(params.shft / 1000) * cosTheta * (180 / Math.PI); const transparencyShift = params.trns * sin2Theta * (180 / Math.PI); return displacementShift + transparencyShift; } else { return 0; } }
         function calculateProfileWidths(tth, hkl, params) { const profileType = params.profileType || controls.profileSelect.value || "2"; const thetaRad = tth * (Math.PI / 180) / 2; const tanTheta = Math.tan(thetaRad); const cosTheta = Math.cos(thetaRad); let gamma_G_sq, gamma_L; if (profileType === "4") { gamma_G_sq = (params.GU || 0) * tanTheta * tanTheta + (params.GV || 0) * tanTheta + (params.GW || 1) + (params.GP || 0) / (cosTheta * cosTheta); gamma_L = (params.LX || 1) / cosTheta; } else { gamma_G_sq = (params.U || 0) * tanTheta * tanTheta + (params.V || 0) * tanTheta + (params.W || 1); gamma_L = (params.X || 0) * tanTheta + (params.Y || 0) / cosTheta; } if (profileType === "3" && hkl) { const d_inv_sq = 1 / (hkl.d * hkl.d); const [h_val, k_val, l_val] = hkl.hkl_list[0].replace(/[()]/g, '').split(',').map(Number); const h2 = h_val*h_val, k2=k_val*k_val, l2=l_val*l_val; let H_aniso = (params.S400 || 0) * h2*h2 + (params.S040 || 0) * k2*k2 + (params.S004 || 0) * l2*l2 + (params.S220 || 0) * h2*k2 + (params.S202 || 0) * h2*l2 + (params.S022 || 0) * k2*l2; H_aniso *= d_inv_sq * d_inv_sq; gamma_L += Math.abs(H_aniso) / 1000; } const gamma_G = Math.sqrt(Math.max(1e-6, gamma_G_sq)); return { gamma_G, gamma_L }; }
         function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) { if (gamma_G <= 1e-6 && gamma_L <= 1e-6) return 0.0; let currentEta = params.eta || 0.5; if (params.profileType !== "4") { const fwhm_pow5 = Math.pow(gamma_G, 5) + 2.69269 * Math.pow(gamma_G, 4) * gamma_L + 2.42843 * Math.pow(gamma_G, 3) * gamma_L*gamma_L + 4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) + 0.07842 * gamma_G * Math.pow(gamma_L, 4) + Math.pow(gamma_L, 5); const fwhm = Math.pow(fwhm_pow5, 0.2); if (fwhm > 1e-6) { const ratio = gamma_L / fwhm; currentEta = 1.36603 * ratio - 0.47719 * (ratio*ratio) + 0.11116 * (ratio*ratio*ratio); currentEta = Math.max(0, Math.min(1, currentEta)); } } const corrected_delta = applyAsymmetry(x, x0, tth_peak, params); const fwhm_g_to_sigma = 1 / (2 * Math.sqrt(2 * Math.log(2))); const sigma = gamma_G * fwhm_g_to_sigma; const normalizedGaussian = sigma > 1e-9 ? Math.exp(-0.5 * (corrected_delta * corrected_delta) / (sigma * sigma)) : (Math.abs(corrected_delta) < 1e-6 ? 1 : 0); const hwhm_l = gamma_L / 2.0; const normalizedLorentzian = hwhm_l > 1e-9 ? (hwhm_l * hwhm_l) / (corrected_delta * corrected_delta + (hwhm_l * hwhm_l)) : (Math.abs(corrected_delta) < 1e-6 ? 1 : 0); if (gamma_L < 1e-6) return normalizedGaussian; if (gamma_G < 1e-6) return normalizedLorentzian; return currentEta * normalizedLorentzian + (1 - currentEta) * normalizedGaussian; }
         function applyAsymmetry(x, x0, tth_peak, params) { if (params.profileType === "4" || (!params.SL && !params.HL)) return x - x0; const delta_2theta = x - x0; if (Math.abs(delta_2theta) < 1e-9) return 0; const theta_rad = tth_peak * (Math.PI / 180) / 2.0; if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-6) return delta_2theta; const cot_theta = 1.0 / Math.tan(theta_rad); const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0); const asymmetry_factor = 1.0 - (asymmetry_param / 100.0) * Math.sign(delta_2theta) * delta_2theta; return delta_2theta / Math.max(1e-6, asymmetry_factor); }
         function calculatePattern(tthAxis, hklList, params) { const pattern = new Float32Array(tthAxis.length).fill(0); const n_points = tthAxis.length; hklList.forEach(peak => { if (peak.intensity === 0) return; const basePos = peak.tth + params.zeroShift; const shift = calculatePeakShift(basePos, params); const peakPos = basePos + shift; const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params); const window = 8 * Math.max(0.01, gamma_G + gamma_L); const min_tth = peakPos - window; const max_tth = peakPos + window; let startIndex = 0; while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++; for (let i = startIndex; i < n_points; i++) { const current_tth = tthAxis[i]; if (current_tth > max_tth) break; pattern[i] += peak.intensity * pseudoVoigt(current_tth, peakPos, basePos, gamma_G, gamma_L, params); } }); return pattern; }
-        function updateHklPositions(hklList, params, system) { const { a, b, c, alpha, beta, gamma, lambda } = params; if (!a || !lambda || a <= 0) return; const deg2rad = Math.PI / 180; const sin_b = Math.sin((beta || 90) * deg2rad); const cos_b = Math.cos((beta || 90) * deg2rad); hklList.forEach(peak => { const [h, k, l] = peak.hkl_list[0].replace(/[()]/g, '').split(',').map(Number); let inv_d_sq = 0; switch(system) { case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break; case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break; case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break; case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break; case 'monoclinic': inv_d_sq = (1/(sin_b*sin_b)) * ( (h*h)/(a*a) + (k*k*sin_b*sin_b)/(b*b) + (l*l)/(c*c) - (2*h*l*cos_b)/(a*c) ); break; case 'rhombohedral': const term1 = (h*h + k*k + l*l) * Math.sin(alpha*deg2rad)**2; const term2 = 2 * (h*k + k*l + l*h) * (Math.cos(alpha*deg2rad)**2 - Math.cos(alpha*deg2rad)); const denominator = a*a * (1 - 3*Math.cos(alpha*deg2rad)**2 + 2*Math.cos(alpha*deg2rad)**3); if(Math.abs(denominator) > 1e-9) inv_d_sq = (term1 + term2) / denominator; break; } if (inv_d_sq > 1e-9) { const sinThetaSq = (lambda*lambda / 4) * inv_d_sq; if (sinThetaSq <= 1 && sinThetaSq > 0) { peak.tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI); peak.d = 1 / Math.sqrt(inv_d_sq); } } }); }
+
+        function updateHklPositions(hklList, params, system) {
+    const { a, b, c, alpha, beta, gamma, lambda } = params;
+    
+    if (!a || !lambda || a <= 0 || lambda <= 0) {
+        console.warn("Invalid parameters for HKL position update");
+        return;
+    }
+    
+    // Convert angles to radians
+    const deg2rad = Math.PI / 180;
+    const alpha_rad = (alpha || 90) * deg2rad;
+    const beta_rad = (beta || 90) * deg2rad;
+    
+    // Precompute trigonometric values
+    const cos_alpha = Math.cos(alpha_rad);
+    const cos_beta = Math.cos(beta_rad);
+    const sin_alpha = Math.sin(alpha_rad);
+    const sin_beta = Math.sin(beta_rad);
+    
+    hklList.forEach(peak => {
+        // Use original indices if available, otherwise parse from canonical HKL
+        let h, k, l;
+        if (peak.h_orig !== undefined) {
+            h = peak.h_orig;
+            k = peak.k_orig;
+            l = peak.l_orig;
+        } else {
+            // Parse from canonical HKL string
+            const match = peak.hkl_list[0].match(/\((-?\d+),(-?\d+),(-?\d+)\)/);
+            if (!match) {
+                console.warn("Could not parse HKL string:", peak.hkl_list[0]);
+                return;
+            }
+            h = parseInt(match[1]);
+            k = parseInt(match[2]);
+            l = parseInt(match[3]);
+        }
+        
+        let inv_d_sq = 0;
+        
+        switch(system) {
+            case 'cubic':
+                inv_d_sq = (h*h + k*k + l*l) / (a*a);
+                break;
+                
+            case 'tetragonal':
+                const c_tet = c || a;
+                inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c_tet*c_tet);
+                break;
+                
+            case 'orthorhombic':
+                const b_orth = b || a;
+                const c_orth = c || a;
+                inv_d_sq = (h*h)/(a*a) + (k*k)/(b_orth*b_orth) + (l*l)/(c_orth*c_orth);
+                break;
+                
+            case 'hexagonal':
+                const c_hex = c || a;
+                inv_d_sq = 4 * (h*h + h*k + k*k) / (3 * a*a) + (l*l) / (c_hex*c_hex);
+                break;
+                
+            case 'rhombohedral':
+                const cos_alpha_rhomb = cos_alpha;
+                const sin_alpha_rhomb = sin_alpha;
+                const term1 = (h*h + k*k + l*l) * sin_alpha_rhomb * sin_alpha_rhomb;
+                const term2 = 2 * (h*k + k*l + l*h) * (cos_alpha_rhomb*cos_alpha_rhomb - cos_alpha_rhomb);
+                const denominator = a*a * (1 - 3*cos_alpha_rhomb*cos_alpha_rhomb + 2*cos_alpha_rhomb*cos_alpha_rhomb*cos_alpha_rhomb);
+                
+                if (Math.abs(denominator) > 1e-12) {
+                    inv_d_sq = (term1 + term2) / denominator;
+                }
+                break;
+                
+            case 'monoclinic':
+                const b_mono = b || a;
+                const c_mono = c || a;
+                inv_d_sq = (1/(sin_beta*sin_beta)) * (
+                    (h*h)/(a*a) + 
+                    (k*k*sin_beta*sin_beta)/(b_mono*b_mono) + 
+                    (l*l)/(c_mono*c_mono) - 
+                    (2*h*l*cos_beta)/(a*c_mono)
+                );
+                break;
+        }
+        
+        if (inv_d_sq > 1e-12) {
+            const sinThetaSq = (lambda*lambda / 4) * inv_d_sq;
+            if (sinThetaSq <= 1 && sinThetaSq > 0) {
+                peak.tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                peak.d = 1 / Math.sqrt(inv_d_sq);
+            }
+        }
+    });
+}
+
         function leBailIntensityExtraction(expData, hklList, params) { 
           //  console.log(`leBailIntensityExtraction called with data lengths: tth=${expData.tth.length}, intensity=${expData.intensity.length}, background=${expData.background.length}`);
              if (expData.tth.length !== expData.background.length || expData.tth.length !== expData.intensity.length) { console.error("CRITICAL ERROR in leBailIntensityExtraction: Mismatched array lengths in input data!"); alert("Internal error: Data array mismatch during intensity extraction. Check console."); return; } hklList.forEach(p => p.intensity = 0); for(let i = 0; i < expData.tth.length; i++) { let totalProfileAtPoint = 0; const contributingPeaks = []; hklList.forEach((peak, peakIdx) => { const basePos = peak.tth + params.zeroShift; const shift = calculatePeakShift(basePos, params); const peakPos = basePos + shift; const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params); const window = 8 * Math.max(0.01, gamma_G, gamma_L); if(Math.abs(expData.tth[i] - peakPos) < window) { const profileVal = pseudoVoigt(expData.tth[i], peakPos, basePos, gamma_G, gamma_L, params); totalProfileAtPoint += profileVal; contributingPeaks.push({idx: peakIdx, val: profileVal}); } }); if(totalProfileAtPoint > 1e-9) { const obsIntensityNet = expData.intensity[i] - (expData.background[i] || 0); if (obsIntensityNet < 0) continue; contributingPeaks.forEach(p => { hklList[p.idx].intensity += obsIntensityNet * (p.val / totalProfileAtPoint); }); } } }
@@ -1272,8 +1564,7 @@
         tth: workingData.tth,
         intensity: workingData.intensity.map((y, i) => Math.max(0, y - workingData.background[i]))
     };
-    // console.log("SA refinement starting with working data points:", workingData.tth.length);
-
+    
     const objective = (p_vec, params_template) => {
         const tempParams = JSON.parse(JSON.stringify(params_template));
         paramMapping.forEach((m, i) => {
@@ -1300,7 +1591,6 @@
 
             return isFinite(cost) ? cost : 1e12;
         } catch (err) {
-            // console.error("Objective function error:", err);
             return 1e12;
         }
     };
@@ -1309,17 +1599,23 @@
     const LE_BAIL_CYCLES = 10;
     const stepsPerCycle = Math.max(1, Math.floor(maxIter / LE_BAIL_CYCLES));
     const coolingRate = 0.99;
+    
+    //
+    // --- THIS IS THE FIX ---
+    // The temperature 'T' is now initialized *before* the main loop starts.
+    //
+    let T = 1.0; 
+    let current_x = paramMapping.map(m => m.get(bestOverallParams));
+    let current_cost = objective(current_x, bestOverallParams);
 
     for (let cycle = 0; cycle < LE_BAIL_CYCLES; cycle++) {
         let hklListFixed = generateHKL(Math.max(...workingData.tth), bestOverallParams, system, centering);
         leBailIntensityExtraction(workingData, hklListFixed, bestOverallParams);
 
-        let current_x = paramMapping.map(m => m.get(bestOverallParams));
-        let current_cost = objective(current_x, bestOverallParams);
+        // 'T' is no longer reset inside this loop.
         let best_x_cycle = current_x.slice();
         let best_cost_cycle = current_cost;
-        let T = 1.0;
-
+        
         for (let step = 0; step < stepsPerCycle; step++) {
             const neighbor_x = current_x.map((val, idx) => {
                 const mapping = paramMapping[idx];
@@ -1346,7 +1642,7 @@
                 best_cost_cycle = current_cost;
             }
 
-            T *= coolingRate;
+            T *= coolingRate; // Temperature now cools continuously.
             if (T < 1e-8) break;
 
             if (progressCallback) {
@@ -1361,6 +1657,9 @@
         paramMapping.forEach((m, i) => {
             if (m.set) m.set(bestOverallParams, best_x_cycle[i]);
         });
+        
+        // Break the outer loop if temperature gets too low
+        if (T < 1e-8) break;
     }
 
     return {
@@ -1370,7 +1669,6 @@
         fitFlags
     };
 }
-
 
 async function runLeBailFit() {
     if (isFitting) return;
@@ -1654,7 +1952,7 @@ async function runLeBailFit() {
                 ? "Simple pVoigt"
                 : "TCH w/ Anisotropy";
 
-            reportLines.push('==============================================================', '            Le Bail Refinement Report', '==============================================================', 'Program used: nitad54448.github.io/Enseignement/LeBail.html', 'Program Version: 2.0.3, 27 sept 2025', `Report Generated: ${now.toLocaleString()}`, `Data File: ${controls.fileName.textContent}`, '', '--- Refinement Statistics ---', `Rp (%):      ${stats.r_p.toFixed(2)}`, `Rwp (%):     ${stats.rwp.toFixed(2)}`, `χ² (GOF):    ${stats.chi2.toFixed(3)}`, `Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`, `Profile:     ${profileName} (#${finalParams.profileType})`, '');
+            reportLines.push('==============================================================', '            Le Bail Refinement Report', '==============================================================', 'Program used: nitad54448.github.io/Enseignement/LeBail.html', 'Program Version: 2.0.4, 28 sept 2025', `Report Generated: ${now.toLocaleString()}`, `Data File: ${controls.fileName.textContent}`, '', '--- Refinement Statistics ---', `Rp (%):      ${stats.r_p.toFixed(2)}`, `Rwp (%):     ${stats.rwp.toFixed(2)}`, `χ² (GOF):    ${stats.chi2.toFixed(3)}`, `Algorithm:   ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`, `Profile:     ${profileName} (#${finalParams.profileType})`, '');
             
             let esds = {}; let esdWarning = null;
             if (fitResults.algorithm === 'lm' && fitResults.JtJ) {
@@ -1773,7 +2071,7 @@ controls.reportButton.addEventListener('click', async () => {
 
         doc.text('Program used: nitad54448.github.io/Enseignement/LeBail.html', margin, yPosition);
         yPosition += 5;
-        doc.text('Program Version: 2.0.3, 27 sept 2025', margin, yPosition);
+        doc.text('Program Version: 2.0.4, 28 sept 2025', margin, yPosition);
         yPosition += 5;
         const now = new Date();
         doc.text(`Report Generated: ${now.toLocaleString()}`, margin, yPosition);
