@@ -178,8 +178,9 @@
                 <li><a href="#algorithms-lm" class="sub-link">Levenberg-Marquardt</a></li>
                 <li><a href="#algorithms-sa" class="sub-link">Simulated Annealing</a></li>
                 <li><a href="#parameters">Parameter Guide</a></li>
-                <li><a href="#parameters-crystal" class="sub-link">Crystal & Lattice</a></li>
+                <li><a href="#parameters-crystal" class="sub-link">Crystal & Space Group</a></li>
                 <li><a href="#parameters-instrumental" class="sub-link">Instrumental</a></li>
+                <li><a href="#parameters-background" class="sub-link">Background</a></li>
                 <li><a href="#parameters-profile4" class="sub-link">Profile Function #4</a></li>
                 <li><a href="#parameters-profile3" class="sub-link">Profile Function #3</a></li>
                 <li><a href="#strategy">Refinement Strategy</a></li>
@@ -208,9 +209,9 @@
                     The analysis begins by loading a powder diffraction data file. The application attempts to automatically parse a variety of common instrument formats. If a specific format is not recognized, it will fall back to a generic two-column parser.
                 </p>
                 <ul>
-                    <li><b>Supported Formats:</b> The tool has dedicated parsers for Bruker (<code>.brml</code>, <code>.uxd</code>), PANalytical (<code>.xrdml</code>), Rigaku (<code>.ras</code>), Philips (<code>.udf</code>), GSAS (now supporting both <code>.esd</code> with intensity-uncertainty pairs and intensity-only bank/XRA formats), and various two-column ASCII formats (<code>.csv</code>, <code>.xy</code>, <code>.txt</code>).</li>
+                    <li><b>Supported Formats:</b> The tool has dedicated parsers for Bruker (<code>.brml</code>, <code>.uxd</code>), PANalytical (<code>.xrdml</code>), Rigaku (<code>.ras</code>), Philips (<code>.udf</code>), GSAS (supporting both intensity-only bank/XRA format and <code>.esd</code> with intensity-uncertainty pairs), and various two-column ASCII formats (<code>.csv</code>, <code>.xy</code>, <code>.txt</code>).</li>
                     <li><b>Generic Fallback:</b> For unrecognized formats, the parser will attempt to read the data as two-column, space/comma/semicolon-delimited text (2-theta, Intensity). Lines starting with <code>#</code> or <code>//</code> are ignored.</li>
-                    <li><b>Wavelength Detection:</b> For instrument-specific formats, the tool will attempt to read the K-alpha1 wavelength from the file header and automatically populate the "Radiation (Å)" field. This should always be verified by the user.</li>
+                    <li><b>Wavelength Detection:</b> For instrument-specific formats, the tool will attempt to read the K-alpha1 wavelength from the file header and automatically populate the "Radiation 1 (Å)" field. This should always be verified by the user.</li>
                 </ul>
             </section>
 
@@ -230,6 +231,7 @@
                     </li>
                     <li><b>Reset View:</b> To return to the default view, simply <strong>right-click</strong> anywhere on the chart.</li>
                     <li><b>Peak Information:</b> Hover your mouse near a calculated Bragg peak position (the small green tick marks below the pattern) to display a tooltip containing the Miller indices (hkl) for that reflection.</li>
+                    <li><b>Set Background Anchor:</b> Hold down the <strong>Ctrl</strong> key and <strong>click</strong> on the chart. The nearest experimental data point will be added as a background anchor point. This gives the point a higher weight in the refinement, forcing the background curve to pass near it.</li>
                 </ul>
             </section>
             
@@ -287,18 +289,32 @@
             
             <section id="parameters">
                 <h2>Parameter Guide</h2>
-                <p>This section details the refinable parameters available in the tool's profile functions.</p>
+                <p>This section details the refinable parameters available in the tool.</p>
 
-                <h3 id="parameters-crystal">Crystal System & Lattice</h3>
+                <h3 id="parameters-crystal">Crystal System & Space Group</h3>
                 <p>
                     The "System" dropdown menu allows you to select the Bravais lattice type. This choice determines which lattice parameters ($a$, $b$, $c$, $\alpha$, $\beta$, $\gamma$) are available for input and refinement, automatically applying the necessary constraints (e.g., for a cubic system, $a=b=c$ and $\alpha=\beta=\gamma=90^\circ$).
+                </p>
+                <p>
+                    The **Space Group** dropdown is filtered based on your choice of system. Selecting a space group is crucial as it determines the reflection conditions used to generate the list of allowed Miller indices ($hkl$).
                 </p>
 
                 <h3 id="parameters-instrumental">Instrumental Parameters</h3>
                 <ul>
-                    <li><code>Wavelength</code>: The X-ray wavelength in Angstroms (Å). This is typically fixed.</li>
+                    <li><code>Radiation 1 (Å)</code>: The primary X-ray wavelength (e.g., K-alpha1). This is typically fixed.</li>
+                    <li><code>Radiation 2 (Å)</code>: The secondary X-ray wavelength (e.g., K-alpha2). Set to zero or equal to Radiation 1 if not needed.</li>
+                    <li><code>Ratio (I₂/I₁)</code>: The intensity ratio of the secondary to the primary wavelength. A value of ~0.5 is typical for Cu K-alpha radiation. Set to 0 to disable the doublet calculation.</li>
                     <li><code>Zero</code>: The $2\theta$ zero-point error of the instrument. This is a constant offset applied to all calculated peak positions.</li>
                 </ul>
+
+                <h3 id="parameters-background">Background Parameters</h3>
+                <p>The background is modeled on the "Background" tab using a combination of refinable functions.</p>
+                 <ul>
+                    <li><b>Chebyshev Polynomial:</b> A flexible 6-term polynomial ($B_0$ to $B_5$) used to model the overall background shape. $B_0$ controls the average height, while higher-order terms model the curvature.</li>
+                    <li><b>Amorphous Hump:</b> A Lorentzian-shaped peak used to model broad features from amorphous sample holders or components. It is defined by its <code>Height</code>, <code>Position</code>, and <code>FWHM</code>.</li>
+                    <li><b>Anchor Points:</b> You can manually force the background to pass through specific points. By <strong>Ctrl+Clicking</strong> on the chart, you add an anchor point which is given a high weight during refinement. These points can be managed in the "Background" tab.</li>
+                </ul>
+
 
                 <h3 id="parameters-profile4">Profile Function #4 (Simple pseudo-Voigt)</h3>
                 <p>
@@ -355,8 +371,8 @@
                     A sequential and strategic approach to refinement is more stable and likely to yield a physically meaningful result than enabling all parameters at once.
                 </p>
                 <ol>
-                    <li><b>Initial Setup:</b> Load the data and set the desired $2\theta$ range for refinement using the sliders.</li>
-                    <li><b>Background:</b> Go to the "Background" tab and manually adjust the "Ball Radius" and "Smoothing" sliders to get a reasonable background subtraction. The goal is a flat base for the net pattern.</li>
+                    <li><b>Initial Setup:</b> Load the data, select the correct crystal system and space group, and set the desired $2\theta$ range for refinement using the sliders.</li>
+                    <li><b>Background:</b> Go to the "Background" tab. Model the background by refining the Chebyshev coefficients (start with just B0 and B1). Alternatively, for complex backgrounds, <strong>Ctrl+Click</strong> on the chart in background regions to define anchor points.</li>
                     <li><b>Basics First:</b> Begin by refining only the most essential parameters: <strong>Lattice Parameter(s)</strong> and <strong>Zero Shift</strong>. Use a fixed, simple profile shape (e.g., default U,V,W,X,Y values with their fit checkboxes unticked). Use the <strong>Levenberg-Marquardt</strong> algorithm for this.</li>
                     <li><b>Refine Gaussian Shape:</b> Once the peak positions are correct, enable the fit for the primary Gaussian broadening parameters: <strong>U, V, and W</strong> (or GU, GV, GW). Run the refinement again.</li>
                     <li><b>Introduce Lorentzian & Asymmetry:</b> Add the Lorentzian size/strain parameters <strong>X</strong> and <strong>Y</strong> (or LX) and the primary asymmetry parameter <strong>S/L</strong> to the refinement. This will correct the majority of the remaining peak shape mismatch.</li>
@@ -382,6 +398,15 @@
                         </ul>
                     </li>
                     <li><b>Difference Plot (Visual Check):</b> This is the most important indicator of a good fit. The red difference curve should be a flat line of random, uncorrelated noise centered on zero. Any systematic features, such as "M-shaped" wiggles around the peaks or broad humps, indicate a deficiency in your model (e.g., incorrect peak shape, asymmetry, or background). <strong>Always trust a critical visual inspection over the R-factors.</strong></li>
+                </ul>
+
+                <h4>Exporting Results</h4>
+                <p>
+                    After a successful refinement, you can export the results using the buttons at the bottom of the control panel.
+                </p>
+                <ul>
+                    <li><b>Save Report:</b> Generates a comprehensive plain text (<code>.txt</code>) file containing all refinement statistics, final parameter values with their estimated standard deviations (ESDs, for LM fits), and a detailed point-by-point list of the observed vs. calculated pattern.</li>
+                    <li><b>Generate PDF:</b> Creates a formatted PDF document containing a high-quality image of the final fit plot, summary tables of parameters and statistics, and a list of extracted intensities. This is suitable for inclusion in reports or lab notebooks.</li>
                 </ul>
             </section>
 
@@ -425,7 +450,7 @@
                     This browser-based Le Bail fitting tool was developed by Nita Dragoe from Université Paris-Saclay. An old version was written in Visual Basic and Fortran and reported in Dragoe, N. (2001). "PowderV2: a suite of applications for powder X-ray diffraction calculations". <em>Journal of Applied Crystallography</em>, 34, 535.
                 </p>
                 <p>
-                    Last Updated: 28 September 2025, version 2.0.4<br>
+                    Last Updated: 30 September 2025, version 2.1.<br>
                     This documentation was generated by Gemini 2.5.
                 </p>
                 <div class="note">
