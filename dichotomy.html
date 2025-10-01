@@ -774,219 +774,86 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- FILE PARSING LOGIC ---
-    const parseDataFile = (text) => {
-        const lines = text.trim().split(/\r?\n/);
-        const tth = [], intensity = [];
-        lines.forEach(line => {
-            if (line.startsWith('#') || line.startsWith('//') || line.trim() === '') return;
-            const parts = line.trim().split(/[\s,;]+/);
-            if (parts.length >= 2) {
-                const x = parseFloat(parts[0]);
-                const y = parseFloat(parts[1]);
-                if (!isNaN(x) && !isNaN(y)) {
-                    tth.push(x);
-                    intensity.push(y);
-                }
-            }
-        });
-        return { tth, intensity };
-    };
 
-    const parseXrdmlFile = (xmlString) => {
-         const parser = new DOMParser();
-         const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-         if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); }
-         let wavelength = null;
-         const kAlpha1Node = xmlDoc.querySelector("kAlpha1");
-         if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent);
-         const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts");
-         if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file.");
-         const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
-         const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]');
-         if (!positionsNode) throw new Error("Could not find <positions> in XRDML file.");
-         const startPosNode = positionsNode.querySelector("startPosition");
-         const endPosNode = positionsNode.querySelector("endPosition");
-         if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML.");
-         const startPos = parseFloat(startPosNode.textContent);
-         const endPos = parseFloat(endPosNode.textContent);
-         const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1));
-         return { tth, intensity, wavelength };
-    };
+        const detectAndParseFile = (fileName, fileContent) => {
+    const name = fileName.toLowerCase();
+    const lines = fileContent.trim().split(/\r?\n/);
+    const firstLine = lines.length > 0 ? lines[0].trim() : '';
     
-    const parseBrukerBrmlFile = (xmlString) => {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-        if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); }
-        let wavelength = null;
-        const wlNode = xmlDoc.querySelector('usedWavelength');
-        if (wlNode) {
-            const kAlpha1 = wlNode.getAttribute('kAlpha1');
-            if (kAlpha1) wavelength = parseFloat(kAlpha1);
-        }
-        const intensityNode = xmlDoc.querySelector("dataPoints > counts");
-        if (!intensityNode) throw new Error("No <counts> data found in BRML file.");
-        const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number);
-        const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]');
-        const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]');
-        if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file.");
-        const startPos = parseFloat(startPosNode.textContent);
-        const stepSize = parseFloat(stepSizeNode.textContent);
-        const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize);
-        return { tth, intensity, wavelength };
-    };
+    if (name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION')) return parseUxdFile(fileContent);
+    if (name.endsWith('.xrdml') || (fileContent.includes('<?xml') && fileContent.includes('<xrdMeasurement'))) return parseXrdmlFile(fileContent);
+    if (name.endsWith('.brml') || (fileContent.includes('<?xml') && fileContent.includes('<RawDataFile'))) return parseBrukerBrmlFile(fileContent);
+    if (name.endsWith('.ras') || fileContent.toUpperCase().includes('*RAS_HEADER_START')) return parseRigakuRasFile(fileContent);
+    if (name.endsWith('.udf')) return parsePhilipsUdfFile(fileContent);
 
-    const parseRigakuRasFile = (text) => {
-        const lines = text.trim().split(/\r?\n/);
-        const tth = [], intensity = [];
-        let inDataSection = false;
-        let wavelength = null;
-        for (const line of lines) {
-            const upperLine = line.toUpperCase();
-            if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) {
-                const parts = line.trim().split(/\s+/);
-                if (parts.length > 1) {
-                    const wl = parseFloat(parts[1]);
-                    if (!isNaN(wl)) wavelength = wl;
-                }
-            }
-            if (upperLine.startsWith('*RAS_INT_START')) {
-                inDataSection = true;
-                continue;
-            }
-            if (upperLine.startsWith('*RAS_INT_END')) { break; }
-            if (inDataSection) {
-                const parts = line.trim().split(/[\s,]+/);
-                if (parts.length >= 2) {
-                    const x = parseFloat(parts[0]);
-                    const y = parseFloat(parts[1]);
-                    if (!isNaN(x) && !isNaN(y)) {
-                        tth.push(x);
-                        intensity.push(y);
-                    }
-                }
-            }
+    // New, more robust GSAS detection logic
+    const bankLine = lines.find(line => line.trim().toUpperCase().startsWith('BANK'));
+    if (bankLine) {
+        // XRA format has 'STD' on the same line as 'BANK'
+        if (bankLine.toUpperCase().includes('STD')) {
+            return parseGsasXraFile(fileContent);
         }
-        if (tth.length === 0) throw new Error("No data found in RAS file data section.");
-        return { tth, intensity, wavelength };
-    };
+        // Otherwise, assume it's the ESD format (Y, sigY pairs)
+        return parseGsasEsdFile(fileContent);
+    }
 
-    const parseGsasEsdFile = (text) => {
-        const lines = text.trim().split(/\r?\n/);
-        let wavelength = null;
-        let startTth, stepSize;
-        let dataStartIndex = -1;
-        lines.forEach((line, index) => {
-            const upperLine = line.toUpperCase();
-            if (upperLine.includes('WAVELENGTH')) {
-                const match = line.match(/wavelength\s+([0-9.]+)/i);
-                if (match && match[1]) {
-                    wavelength = parseFloat(match[1]);
-                }
-            }
-            if (upperLine.startsWith('BANK')) {
-                const parts = line.trim().split(/\s+/);
-                if (parts.length >= 6 && parts[4].toUpperCase() === 'CONST') {
-                    startTth = parseFloat(parts[5]) / 100.0;
-                    stepSize = parseFloat(parts[6]) / 100.0;
-                    dataStartIndex = index + 1;
-                }
-            }
-        });
-        if (startTth === undefined || stepSize === undefined) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
-        if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) {
-            dataStartIndex++;
+    // Fallback to generic two-column parser
+    return parseDataFile(fileContent);
+};
+        
+        const parseDataFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; lines.forEach(line => { if (line.startsWith('#') || line.startsWith('//') || line.trim() === '') return; const parts = line.trim().split(/[\s,;]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } }); return { tth, intensity }; };
+        const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1)); return { tth, intensity, wavelength }; };
+        const parseBrukerBrmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in BRML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
+        const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
+        const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); if (parts.length >= 6 && parts[4].toUpperCase() === 'CONST') { startTth = parseFloat(parts[5]) / 100.0; stepSize = parseFloat(parts[6]) / 100.0; dataStartIndex = index + 1; } } }); if (startTth === undefined || stepSize === undefined) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        
+        const parseGsasXraFile = (text) => {
+    const lines = text.trim().split(/\r?\n/);
+    let wavelength = null;
+    let startTth, stepSize;
+    let dataStartIndex = -1;
+    lines.forEach((line, index) => {
+        const upperLine = line.toUpperCase();
+        if (upperLine.includes('WAVELENGTH')) {
+            const match = line.match(/wavelength\s+([0-9.]+)/i);
+            if (match && match[1]) wavelength = parseFloat(match[1]);
         }
-        if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines.");
-        const intensity = [];
-        for (let i = dataStartIndex; i < lines.length; i++) {
-            const parts = lines[i].trim().split(/\s+/);
-            for (let j = 1; j < parts.length; j += 2) {
-                const val = parseFloat(parts[j]);
-                if (!isNaN(val)) {
-                    intensity.push(val);
-                }
+        if (upperLine.startsWith('BANK')) {
+            const parts = line.trim().split(/\s+/);
+            // This format has CONST at index 4, start at 5, step at 6
+            if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') {
+                startTth = parseFloat(parts[5]) / 100.0;
+                stepSize = parseFloat(parts[6]) / 100.0;
+                dataStartIndex = index + 1; // Data starts on the next line
             }
         }
-        if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed.");
-        const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
-        return { tth, intensity, wavelength };
-    };
+    });
 
-    const parseUxdFile = (text) => {
-        const lines = text.trim().split(/\r?\n/);
-        const intensity = [];
-        let startTth, stepSize, wavelength;
-        let inDataSection = false;
-        for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (inDataSection) {
-                const parts = trimmedLine.split(/\s+/);
-                parts.forEach(part => {
-                    const val = parseFloat(part);
-                    if (!isNaN(val)) {
-                        intensity.push(val);
-                    }
-                });
-            } else {
-                if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7));
-                else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10));
-                else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5));
-                else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true;
-            }
-        }
-        if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE parameters in UXD file.");
-        if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file.");
-        const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
-        return { tth, intensity, wavelength };
-    };
+    if (startTth === undefined || stepSize === undefined) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
+    if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS XRA Parse Error: Found scan parameters but no subsequent data lines.");
 
-    const parsePhilipsUdfFile = (text) => {
-        const lines = text.trim().split(/\r?\n/);
-        const tth = [], intensity = [];
-        let inDataSection = false;
-        let wavelength = null;
-        for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (trimmedLine.toUpperCase().startsWith('LAMBDA')) {
-                const parts = trimmedLine.split('=');
-                if (parts.length > 1) wavelength = parseFloat(parts[1]);
-            }
-            if (trimmedLine.toUpperCase() === '[DATA]') {
-                inDataSection = true;
-                continue;
-            }
-            if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') {
-                inDataSection = false;
-            }
-            if (inDataSection) {
-                const parts = trimmedLine.split(/,/).map(p => p.trim());
-                if(parts.length >= 2) {
-                    const x = parseFloat(parts[0]);
-                    const y = parseFloat(parts[1]);
-                    if (!isNaN(x) && !isNaN(y)) {
-                        tth.push(x);
-                        intensity.push(y);
-                    }
-                }
-            }
+    const intensity = [];
+    for (let i = dataStartIndex; i < lines.length; i++) {
+        // Ignore blank lines that might be at the end of the file
+        if (lines[i].trim() === '') continue;
+        const parts = lines[i].trim().split(/\s+/);
+        // This loop reads every value, as XRA format is intensity-only
+        for (let j = 0; j < parts.length; j++) {
+            const val = parseFloat(parts[j]);
+            if (!isNaN(val)) intensity.push(val);
         }
-        if (tth.length === 0) throw new Error("No [Data] section found in UDF file.");
-        return { tth, intensity, wavelength };
-    };
+    }
+    if (intensity.length === 0) throw new Error("GSAS XRA Parse Error: No intensity data could be parsed.");
+    const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
+    return { tth, intensity, wavelength };
+};
+        
+        const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
 
-    const detectAndParseFile = (fileName, fileContent) => {
-        const name = fileName.toLowerCase();
-        const lines = fileContent.trim().split(/\r?\n/);
-        const firstLine = lines.length > 0 ? lines[0].trim() : '';
-        if (name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION')) return parseUxdFile(fileContent);
-        if (name.endsWith('.xrdml') || (fileContent.includes('<?xml') && fileContent.includes('<xrdMeasurement'))) return parseXrdmlFile(fileContent);
-        if (name.endsWith('.brml') || (fileContent.includes('<?xml') && fileContent.includes('<RawDataFile'))) return parseBrukerBrmlFile(fileContent);
-        if (name.endsWith('.ras') || fileContent.toUpperCase().includes('*RAS_HEADER_START')) return parseRigakuRasFile(fileContent);
-        if (name.endsWith('.udf')) return parsePhilipsUdfFile(fileContent);
-        if (lines.length > 2 && lines[1].toUpperCase().includes('BANK')) return parseGsasEsdFile(fileContent);
-        return parseDataFile(fileContent);
-    };
+
+
+
 
     ui.fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
