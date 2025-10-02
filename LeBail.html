@@ -2102,7 +2102,60 @@ function updateSpaceGroupUI() {
 
         function calculatePeakShift(tth, params) { if (params.profileType === "4") { const thetaRad = tth * (Math.PI / 180) / 2; const cosTheta = Math.cos(thetaRad); const sin2Theta = Math.sin(2 * thetaRad); const displacementShift = -(params.shft / 1000) * cosTheta * (180 / Math.PI); const transparencyShift = params.trns * sin2Theta * (180 / Math.PI); return displacementShift + transparencyShift; } else { return 0; } }
         function calculateProfileWidths(tth, hkl, params) { const profileType = params.profileType || controls.profileSelect.value || "2"; const thetaRad = tth * (Math.PI / 180) / 2; const tanTheta = Math.tan(thetaRad); const cosTheta = Math.cos(thetaRad); let gamma_G_sq, gamma_L; if (profileType === "4") { gamma_G_sq = (params.GU || 0) * tanTheta * tanTheta + (params.GV || 0) * tanTheta + (params.GW || 1) + (params.GP || 0) / (cosTheta * cosTheta); gamma_L = (params.LX || 1) / cosTheta; } else { gamma_G_sq = (params.U || 0) * tanTheta * tanTheta + (params.V || 0) * tanTheta + (params.W || 1); gamma_L = (params.X || 0) * tanTheta + (params.Y || 0) / cosTheta; } if (profileType === "3" && hkl) { const d_inv_sq = 1 / (hkl.d * hkl.d); const [h_val, k_val, l_val] = hkl.hkl_list[0].replace(/[()]/g, '').split(',').map(Number); const h2 = h_val*h_val, k2=k_val*k_val, l2=l_val*l_val; let H_aniso = (params.S400 || 0) * h2*h2 + (params.S040 || 0) * k2*k2 + (params.S004 || 0) * l2*l2 + (params.S220 || 0) * h2*k2 + (params.S202 || 0) * h2*l2 + (params.S022 || 0) * k2*l2; H_aniso *= d_inv_sq * d_inv_sq; gamma_L += Math.abs(H_aniso) / 1000; } const gamma_G = Math.sqrt(Math.max(1e-6, gamma_G_sq)); return { gamma_G, gamma_L }; }
-        function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) { if (gamma_G <= 1e-6 && gamma_L <= 1e-6) return 0.0; let currentEta = params.eta || 0.5; if (params.profileType !== "4") { const fwhm_pow5 = Math.pow(gamma_G, 5) + 2.69269 * Math.pow(gamma_G, 4) * gamma_L + 2.42843 * Math.pow(gamma_G, 3) * gamma_L*gamma_L + 4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) + 0.07842 * gamma_G * Math.pow(gamma_L, 4) + Math.pow(gamma_L, 5); const fwhm = Math.pow(fwhm_pow5, 0.2); if (fwhm > 1e-6) { const ratio = gamma_L / fwhm; currentEta = 1.36603 * ratio - 0.47719 * (ratio*ratio) + 0.11116 * (ratio*ratio*ratio); currentEta = Math.max(0, Math.min(1, currentEta)); } } const corrected_delta = applyAsymmetry(x, x0, tth_peak, params); const fwhm_g_to_sigma = 1 / (2 * Math.sqrt(2 * Math.log(2))); const sigma = gamma_G * fwhm_g_to_sigma; const normalizedGaussian = sigma > 1e-9 ? Math.exp(-0.5 * (corrected_delta * corrected_delta) / (sigma * sigma)) : (Math.abs(corrected_delta) < 1e-6 ? 1 : 0); const hwhm_l = gamma_L / 2.0; const normalizedLorentzian = hwhm_l > 1e-9 ? (hwhm_l * hwhm_l) / (corrected_delta * corrected_delta + (hwhm_l * hwhm_l)) : (Math.abs(corrected_delta) < 1e-6 ? 1 : 0); if (gamma_L < 1e-6) return normalizedGaussian; if (gamma_G < 1e-6) return normalizedLorentzian; return currentEta * normalizedLorentzian + (1 - currentEta) * normalizedGaussian; }
+     
+        function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) {
+    if (gamma_G <= 1e-6 && gamma_L <= 1e-6) return 0.0;
+    
+    let currentEta = params.eta || 0.5;
+    if (params.profileType !== "4") {
+        const fwhm_pow5 = Math.pow(gamma_G, 5) + 2.69269 * Math.pow(gamma_G, 4) * gamma_L + 2.42843 * Math.pow(gamma_G, 3) * gamma_L*gamma_L + 4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) + 0.07842 * gamma_G * Math.pow(gamma_L, 4) + Math.pow(gamma_L, 5);
+        const fwhm = Math.pow(fwhm_pow5, 0.2);
+        if (fwhm > 1e-6) {
+            const ratio = gamma_L / fwhm;
+            currentEta = 1.36603 * ratio - 0.47719 * (ratio*ratio) + 0.11116 * (ratio*ratio*ratio);
+            currentEta = Math.max(0, Math.min(1, currentEta));
+        }
+    }
+    
+    const corrected_delta = applyAsymmetry(x, x0, tth_peak, params);
+    
+    // --- Gaussian Component ---
+    const fwhm_g_to_sigma = 1 / (2 * Math.sqrt(2 * Math.log(2)));
+    const sigma = gamma_G * fwhm_g_to_sigma;
+    let normalizedGaussian = 0;
+    if (sigma > 1e-9) {
+        // NEW: Normalization constant for the Gaussian
+        const norm_g = 1 / (sigma * Math.sqrt(2 * Math.PI)); 
+        // MODIFIED: Apply the normalization constant
+        normalizedGaussian = norm_g * Math.exp(-0.5 * (corrected_delta * corrected_delta) / (sigma * sigma));
+    } else {
+        normalizedGaussian = (Math.abs(corrected_delta) < 1e-6 ? Infinity : 0); // Effectively a dirac delta
+    }
+
+    // --- Lorentzian Component ---
+    const hwhm_l = gamma_L / 2.0;
+    let normalizedLorentzian = 0;
+    if (hwhm_l > 1e-9) {
+        // NEW: Normalization constant for the Lorentzian
+        const norm_l = 1 / (Math.PI * hwhm_l); 
+        // MODIFIED: Apply the normalization constant
+        normalizedLorentzian = norm_l * (hwhm_l * hwhm_l) / (corrected_delta * corrected_delta + (hwhm_l * hwhm_l));
+    } else {
+        normalizedLorentzian = (Math.abs(corrected_delta) < 1e-6 ? Infinity : 0);
+    }
+    
+    // Failsafe for dirac deltas
+    if (!isFinite(normalizedGaussian) || !isFinite(normalizedLorentzian)) {
+        return (Math.abs(corrected_delta) < 1e-6) ? Infinity : 0;
+    }
+    
+    if (gamma_L < 1e-6) return normalizedGaussian;
+    if (gamma_G < 1e-6) return normalizedLorentzian;
+    
+    return currentEta * normalizedLorentzian + (1 - currentEta) * normalizedGaussian;
+}
+
+     
         function applyAsymmetry(x, x0, tth_peak, params) { if (params.profileType === "4" || (!params.SL && !params.HL)) return x - x0; const delta_2theta = x - x0; if (Math.abs(delta_2theta) < 1e-9) return 0; const theta_rad = tth_peak * (Math.PI / 180) / 2.0; if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-6) return delta_2theta; const cot_theta = 1.0 / Math.tan(theta_rad); const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0); const asymmetry_factor = 1.0 - (asymmetry_param / 100.0) * Math.sign(delta_2theta) * delta_2theta; return delta_2theta / Math.max(1e-6, asymmetry_factor); }
 
         function calculatePattern(tthAxis, hklList, params) {
