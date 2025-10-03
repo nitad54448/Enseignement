@@ -2044,58 +2044,43 @@ function updateSpaceGroupUI() {
         function calculatePeakShift(tth, params) { if (params.profileType === "4") { const thetaRad = tth * (Math.PI / 180) / 2; const cosTheta = Math.cos(thetaRad); const sin2Theta = Math.sin(2 * thetaRad); const displacementShift = -(params.shft / 1000) * cosTheta * (180 / Math.PI); const transparencyShift = params.trns * sin2Theta * (180 / Math.PI); return displacementShift + transparencyShift; } else { return 0; } }
         function calculateProfileWidths(tth, hkl, params) { const profileType = params.profileType || controls.profileSelect.value || "2"; const thetaRad = tth * (Math.PI / 180) / 2; const tanTheta = Math.tan(thetaRad); const cosTheta = Math.cos(thetaRad); let gamma_G_sq, gamma_L; if (profileType === "4") { gamma_G_sq = (params.GU || 0) * tanTheta * tanTheta + (params.GV || 0) * tanTheta + (params.GW || 1) + (params.GP || 0) / (cosTheta * cosTheta); gamma_L = (params.LX || 1) / cosTheta; } else { gamma_G_sq = (params.U || 0) * tanTheta * tanTheta + (params.V || 0) * tanTheta + (params.W || 1); gamma_L = (params.X || 0) * tanTheta + (params.Y || 0) / cosTheta; } if (profileType === "3" && hkl) { const d_inv_sq = 1 / (hkl.d * hkl.d); const [h_val, k_val, l_val] = hkl.hkl_list[0].replace(/[()]/g, '').split(',').map(Number); const h2 = h_val*h_val, k2=k_val*k_val, l2=l_val*l_val; let H_aniso = (params.S400 || 0) * h2*h2 + (params.S040 || 0) * k2*k2 + (params.S004 || 0) * l2*l2 + (params.S220 || 0) * h2*k2 + (params.S202 || 0) * h2*l2 + (params.S022 || 0) * k2*l2; H_aniso *= d_inv_sq * d_inv_sq; gamma_L += Math.abs(H_aniso) / 1000; } const gamma_G = Math.sqrt(Math.max(1e-6, gamma_G_sq)); return { gamma_G, gamma_L }; }
      
+
         function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) {
-    if (gamma_G <= 1e-6 && gamma_L <= 1e-6) return 0.0;
-    
+    if (gamma_G <= 1e-9 && gamma_L <= 1e-9) return 0.0;
+
     let currentEta = params.eta || 0.5;
+    // TCH eta calculation is always performed unless profileType is "4" (Simple pVoigt)
     if (params.profileType !== "4") {
-        const fwhm_pow5 = Math.pow(gamma_G, 5) + 2.69269 * Math.pow(gamma_G, 4) * gamma_L + 2.42843 * Math.pow(gamma_G, 3) * gamma_L*gamma_L + 4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) + 0.07842 * gamma_G * Math.pow(gamma_L, 4) + Math.pow(gamma_L, 5);
+        const fwhm_pow5 = Math.pow(gamma_G, 5) + 2.69269 * Math.pow(gamma_G, 4) * gamma_L + 2.42843 * Math.pow(gamma_G, 3) * gamma_L * gamma_L + 4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) + 0.07842 * gamma_G * Math.pow(gamma_L, 4) + Math.pow(gamma_L, 5);
         const fwhm = Math.pow(fwhm_pow5, 0.2);
-        if (fwhm > 1e-6) {
+        if (fwhm > 1e-9) {
             const ratio = gamma_L / fwhm;
-            currentEta = 1.36603 * ratio - 0.47719 * (ratio*ratio) + 0.11116 * (ratio*ratio*ratio);
+            currentEta = 1.36603 * ratio - 0.47719 * (ratio * ratio) + 0.11116 * Math.pow(ratio, 3);
             currentEta = Math.max(0, Math.min(1, currentEta));
         }
     }
-    
+
     const corrected_delta = applyAsymmetry(x, x0, tth_peak, params);
-    
-    // --- Gaussian Component ---
-    const fwhm_g_to_sigma = 1 / (2 * Math.sqrt(2 * Math.log(2)));
-    const sigma = gamma_G * fwhm_g_to_sigma;
-    let normalizedGaussian = 0;
-    if (sigma > 1e-9) {
-        // NEW: Normalization constant for the Gaussian
-        const norm_g = 1 / (sigma * Math.sqrt(2 * Math.PI)); 
-        // MODIFIED: Apply the normalization constant
-        normalizedGaussian = norm_g * Math.exp(-0.5 * (corrected_delta * corrected_delta) / (sigma * sigma));
-    } else {
-        normalizedGaussian = (Math.abs(corrected_delta) < 1e-6 ? Infinity : 0); // Effectively a dirac delta
-    }
 
-    // --- Lorentzian Component ---
-    const hwhm_l = gamma_L / 2.0;
-    let normalizedLorentzian = 0;
-    if (hwhm_l > 1e-9) {
-        // NEW: Normalization constant for the Lorentzian
-        const norm_l = 1 / (Math.PI * hwhm_l); 
-        // MODIFIED: Apply the normalization constant
-        normalizedLorentzian = norm_l * (hwhm_l * hwhm_l) / (corrected_delta * corrected_delta + (hwhm_l * hwhm_l));
-    } else {
-        normalizedLorentzian = (Math.abs(corrected_delta) < 1e-6 ? Infinity : 0);
+    // --- Gaussian Component (un-normalized height) ---
+    const Cg = 4 * Math.log(2); // 2.772588722
+    const gaussianShape = Math.exp(-Cg * Math.pow(corrected_delta / gamma_G, 2));
+
+    // --- Lorentzian Component (un-normalized height) ---
+    const lorentzianShape = 1 / (1 + 4 * Math.pow(corrected_delta / gamma_L, 2));
+
+    // --- Dirac Delta Handling ---
+    // Your point is valid. Returning a very large number is safer than Infinity.
+    if (gamma_G <= 1e-9 && gamma_L <= 1e-9) {
+        return Math.abs(corrected_delta) < 1e-6 ? 1e10 : 0.0;
     }
-    
-    // Failsafe for dirac deltas
-    if (!isFinite(normalizedGaussian) || !isFinite(normalizedLorentzian)) {
-        return (Math.abs(corrected_delta) < 1e-6) ? Infinity : 0;
-    }
-    
-    if (gamma_L < 1e-6) return normalizedGaussian;
-    if (gamma_G < 1e-6) return normalizedLorentzian;
-    
-    return currentEta * normalizedLorentzian + (1 - currentEta) * normalizedGaussian;
+    if (gamma_G <= 1e-9) return lorentzianShape;
+    if (gamma_L <= 1e-9) return gaussianShape;
+
+    // The final pseudo-Voigt shape is a simple linear mix
+    // This ensures that at delta=0, the height is exactly 1.
+    return currentEta * lorentzianShape + (1 - currentEta) * gaussianShape;
 }
-
      
         function applyAsymmetry(x, x0, tth_peak, params) { if (params.profileType === "4" || (!params.SL && !params.HL)) return x - x0; const delta_2theta = x - x0; if (Math.abs(delta_2theta) < 1e-9) return 0; const theta_rad = tth_peak * (Math.PI / 180) / 2.0; if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-6) return delta_2theta; const cot_theta = 1.0 / Math.tan(theta_rad); const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0); const asymmetry_factor = 1.0 - (asymmetry_param / 100.0) * Math.sign(delta_2theta) * delta_2theta; return delta_2theta / Math.max(1e-6, asymmetry_factor); }
 
@@ -2907,38 +2892,49 @@ function updateSpaceGroupUI() {
             mainChart.update('none');
         }        
 
-     function rescalePlot(updateY = false) { 
-            if (!mainChart || !workingData.isValid) return; 
-            
-            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label); 
-            const globalYMax = mainChart.options.globalYMax; 
-            const diffPlotHeightRatio = 0.3; 
-            const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio; 
+        function rescalePlot(updateY = false) {
+            if (!mainChart || !workingData.isValid) return;
+
+            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+            const globalYMax = mainChart.options.globalYMax;
+            const diffPlotHeightRatio = 0.3;
+            const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio;
 
             // Draw HKL Markers if they exist
-            const hklDataset = findDataset('HKL Markers'); 
-            if (hklDataset && hklDataset.data.length > 0) { 
-                const markerBottom = -(constantNegSpaceHeight * 0.05); 
-                const markerTop = -(constantNegSpaceHeight * 0.20); 
-                hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]); 
-            } 
+            const hklDataset = findDataset('HKL Markers');
+            if (hklDataset && hklDataset.data.length > 0) {
+                const markerBottom = -(constantNegSpaceHeight * 0.05);
+                const markerTop = -(constantNegSpaceHeight * 0.20);
+                hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]);
+            }
 
-            // Draw the Difference Plot if the data for it exists
-            if (workingData.lastRawDifference && workingData.lastRawDifference.length > 0) { 
-                const constantDiffPlotSpaceTop = -(constantNegSpaceHeight * 0.25); 
-                const diffPlotZeroLine = -constantNegSpaceHeight + (constantNegSpaceHeight - constantDiffPlotSpaceTop) / 2; 
-                
-                findDataset('Difference').data = workingData.tth.map((t, i) => ({ x: t, y: (workingData.lastRawDifference[i]) + diffPlotZeroLine })); 
-                findDataset('Difference Zero').data = [ {x: workingData.tth[0], y: diffPlotZeroLine}, {x: workingData.tth[workingData.tth.length-1], y: diffPlotZeroLine} ]; 
+            // --- CORRECTED DIFFERENCE PLOT LOGIC ---
+            const experimentalData = findDataset('Experimental').data;
+            const calculatedData = findDataset('Calculated').data;
+
+            // Ensure both datasets have data to prevent errors
+            if (experimentalData.length > 0 && calculatedData.length > 0 && experimentalData.length === calculatedData.length) {
+                const constantDiffPlotSpaceTop = -(constantNegSpaceHeight * 0.25);
+                const diffPlotZeroLine = -constantNegSpaceHeight + (constantNegSpaceHeight - constantDiffPlotSpaceTop) / 2;
+
+                // Calculate the difference directly from the plotted data
+                findDataset('Difference').data = experimentalData.map((expPoint, i) => {
+                    const calcPoint = calculatedData[i];
+                    const difference = expPoint.y - calcPoint.y;
+                    return { x: expPoint.x, y: difference + diffPlotZeroLine };
+                });
+
+                findDataset('Difference Zero').data = [
+                    { x: experimentalData[0].x, y: diffPlotZeroLine },
+                    { x: experimentalData[experimentalData.length - 1].x, y: diffPlotZeroLine }
+                ];
             } else {
-                // If there's no difference data, ensure the plot is empty
+                // If there's no data or a mismatch, ensure the plot is empty
                 findDataset('Difference').data = [];
                 findDataset('Difference Zero').data = [];
             }
-            
-            // Do not call mainChart.update() here, the calling function will do it.
         }
-        
+
         function getIntegratedIntensity(tth_peak, fwhm, expData, bkgData, multiplier = 2.0) { if (!expData || expData.tth.length === 0 || fwhm <= 0) return 0; const window = fwhm * multiplier; const tth_min = tth_peak - window / 2; const tth_max = tth_peak + window / 2; let integrated_intensity = 0; let startIndex = expData.tth.findIndex(t => t >= tth_min); if(startIndex === -1) return 0; if(startIndex > 0) startIndex--; for (let i = startIndex; i < expData.tth.length; i++) { const current_tth = expData.tth[i]; if (current_tth > tth_max && i > startIndex) break; if (current_tth < tth_min) continue; if (i > startIndex) { const prev_tth = expData.tth[i-1]; const net_intensity = expData.intensity[i] - (bkgData[i] || 0); const prev_net_intensity = expData.intensity[i-1] - (bkgData[i-1] || 0); const step_width = current_tth - prev_tth; integrated_intensity += (net_intensity + prev_net_intensity) / 2 * step_width; } } return Math.max(0, integrated_intensity); }
         
         function downloadTextFile(content, filename) {
