@@ -197,7 +197,7 @@
                     This document provides a detailed guide to the browser-based Le Bail Fitting tool. The program is designed for crystallographers and material scientists who need to perform whole-pattern powder diffraction decomposition to determine accurate lattice parameters, integrated intensities, and profile shape parameters.
                 </p>
                 <p>
-                    The tool implements the iterative procedure proposed by A. Le Bail and utilizes GSAS-style profile functions for robust and flexible peak shape modeling. The available models are a <strong>Simple pseudo-Voigt (Profile Function #4)</strong> and a comprehensive <strong>Anisotropy model (Profile Function #3)</strong>, which combines the classic TCH pseudo-Voigt for isotropic broadening with the Stephens model for anisotropic effects. It is intended as an accessible, rapid analysis tool for researchers familiar with the principles of powder diffraction.
+                    The tool implements the iterative procedure proposed in the 90's by Armel Le Bail, a CNRS researcher, and utilizes GSAS-style profile functions for robust and flexible peak shape modeling. The available models are a <strong>Simple pseudo-Voigt (Profile Function #4)</strong> and a comprehensive <strong>Anisotropy model (Profile Function #3)</strong>, which combines the classic TCH pseudo-Voigt for isotropic broadening with the Stephens model for anisotropic effects. It is intended as an accessible, rapid analysis tool for researchers familiar with the principles of powder diffraction.
                 </p>
             </section>
             
@@ -221,17 +221,17 @@
                 <h2>Chart Interactions</h2>
                 <p>The results plot is interactive, allowing for detailed inspection of the fit once data is loaded.</p>
                 <ul>
-                    <li><b>Pan:</b> Click and drag anywhere on the plot area to pan the view horizontally and vertically.</li>
-                    <li><b>Differential Zoom:</b> Use your mouse wheel to zoom in and out. The zoom behavior depends on your cursor's position:
+                    <li><b>Pan:</b> Click and drag anywhere on the plot area to pan the view. This allows you to explore the <strong>entire loaded dataset</strong>, even parts outside of the currently selected fit range.</li>
+                    <li><b>Differential Zoom:</b> Use your mouse wheel to zoom. The zoom is anchored to your cursor position and its behavior depends on where the cursor is:
                         <ul>
                             <li><b>Over the main plot area:</b> Zooms both the $2\theta$ and Intensity axes simultaneously.</li>
                             <li><b>Over the Intensity axis (left):</b> Zooms only the vertical Intensity axis.</li>
                             <li><b>Over the $2\theta$ axis (bottom):</b> Zooms only the horizontal $2\theta$ axis.</li>
                         </ul>
                     </li>
-                    <li><b>Reset View:</b> To return to the default view, simply <strong>right-click</strong> anywhere on the chart.</li>
-                    <li><b>Peak Information:</b> Hover your mouse near a calculated Bragg peak position (the small green tick marks below the pattern) to display a tooltip containing the Miller indices (hkl) for that reflection.</li>
-                    <li><b>Set Background Anchor:</b> Hold down the <strong>Ctrl</strong> key and <strong>click</strong> on the chart. The nearest experimental data point will be added as a background anchor point. This gives the point a higher weight in the refinement, forcing the background curve to pass near it.</li>
+                    <li><b>Reset View:</b> To reset the zoom and pan, <strong>right-click</strong> anywhere on the chart. This will reset the view to the <strong>range currently selected by the 2θ sliders</strong>, not the full data range.</li>
+                    <li><b>Peak Information:</b> Hover your mouse near a calculated Bragg peak position (the green tick marks) to display a tooltip with the Miller indices (hkl).</li>
+                    <li><b>Set Background Anchor:</b> Hold down the <strong>Ctrl</strong> key and <strong>click</strong> on the chart. The nearest experimental data point will be added as a background anchor point.</li>
                 </ul>
             </section>
             
@@ -275,8 +275,11 @@
                     SA is a probabilistic, global optimization method inspired by the metallurgical process of annealing. The algorithm explores the parameter space more broadly. Initially, at a high "temperature" ($T$), it has a significant probability of accepting a new set of parameters even if it results in a worse fit ($\Delta E > 0$). This probability is governed by the Metropolis criterion, $P(\text{accept}) \approx e^{-\Delta E / T}$. This ability allows it to "jump out" of local minima.
                 </p>
                 <p>
-                    As the refinement progresses, $T$ is slowly lowered, and the algorithm becomes more selective, eventually settling into what is hopefully the global minimum.
+                    As the refinement progresses, $T$ is slowly lowered according to a cooling schedule, and the algorithm becomes more selective, eventually settling into what is hopefully the global minimum.
                 </p>
+                <div class="note" style="padding: 12px; margin-top: 12px; margin-bottom: 8px;">
+                    <strong>Tuning the "Jumpiness":</strong> If you find the SA fit is too erratic, you can make it more conservative by lowering its <strong>initial temperature</strong>. This is done by editing a single line in the <code>refineParametersSA</code> function in the page's HTML source. Reducing the multiplier in <code>let T = current_cost * 0.1;</code> to a smaller value like <code>0.02</code> will make the algorithm less likely to accept "bad" moves, leading to a smoother convergence. You do not need to change the final temperature (`T_min`) when you do this, as the cooling schedule is calculated automatically based on your start/end temperatures and the number of steps.
+                </div>
                 <p>
                     <b>Strengths:</b> More robust at finding a globally reasonable solution, especially when the initial parameters are uncertain or when LM gets trapped in a false minimum.
                 </p>
@@ -320,7 +323,7 @@
                  <ul>
                     <li><b>Chebyshev Polynomial:</b> A flexible 6-term polynomial ($B_0$ to $B_5$) used to model the overall background shape. $B_0$ controls the average height, while higher-order terms model the curvature.</li>
                     <li><b>Amorphous Hump:</b> A Lorentzian-shaped peak used to model broad features from amorphous sample holders or components. It is defined by its <code>Height</code>, <code>Position</code>, and <code>FWHM</code>.</li>
-                    <li><b>Anchor Points:</b> You can manually force the background to pass through specific points. By <strong>Ctrl+Clicking</strong> on the chart, you add an anchor point which is given a high weight during refinement. These points can be managed in the "Background" tab.</li>
+                    <li><b>Anchor Points:</b> You can manually force the background to pass through specific points. By <strong>Ctrl+Clicking</strong> on the chart, you add an anchor point which is given a high weight during refinement. The weight is calculated as $w_i = 1 / \max(y_i, \text{floor})$, where the <strong>floor</strong> is set to 0.1% of the maximum intensity in the fitting range. The anchor point's weight is then boosted by a large multiplier. This ensures numerical stability while strongly guiding the background curve.</li>
                 </ul>
 
 
@@ -391,6 +394,9 @@
                     <li><b>Final Polish:</b> For the highest quality fits, you can now add the remaining parameters. If your peaks show directional broadening, carefully introduce the <strong>anisotropic Stephens parameters</strong>.</li>
                     <li><b>When to Use SA:</b> If at any stage the fit converges to a solution that is clearly incorrect (e.g., a very poor visual fit despite low R-factors), switch to <strong>Simulated Annealing</strong> for one cycle to escape the false minimum, then switch back to LM to finish the refinement.</li>
                 </ol>
+                <div class="note">
+                    <strong>Warning on Stability:</strong> Avoid refining too many parameters simultaneously, especially those that can be highly correlated (e.g., lattice parameters and the zero-shift, or multiple peak shape parameters like GU and GV). This can lead to an unstable refinement, physically meaningless results, or "singular matrix" errors in the LM algorithm. The recommended sequential strategy helps to avoid these issues.
+                </div>
             </section>
             
             <hr>
@@ -462,8 +468,8 @@
                     This browser-based Le Bail fitting tool was developed by Nita Dragoe from Université Paris-Saclay. An old version was written in Visual Basic and Fortran and reported in Dragoe, N. (2001). "PowderV2: a suite of applications for powder X-ray diffraction calculations". <em>Journal of Applied Crystallography</em>, 34, 535.
                 </p>
                 <p>
-                    Last Updated: 02 October 2025, version 2.2.<br>
-                    This documentation was generated by Gemini 2.5.
+                    Last Updated: 05 October 2025, version 2.3.<br>
+                    This documentation was generated by an AI assistant.
                 </p>
                 <div class="note">
                     <strong>Note:</strong> This application is intended for educational and rapid analysis purposes. While it implements robust and standard algorithms, it is not a substitute for dedicated, peer-reviewed refinement software packages like GSAS-II, FullProf, or TOPAS for publication-quality analysis.
