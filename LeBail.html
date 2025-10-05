@@ -663,7 +663,7 @@
     <span class="help-icon">?</span>
 
     <div class="tooltip-content">
-    <h4>LeBail Fit version 2.3</h4>
+    <h4>LeBail Fit version 2.4</h4>
     <p>Determine unit cell parameters using the LeBail method. <a href="LeBail_help.html" target="_blank" style="color: #6495ED;">Method Guide &rarr;</a></p>
     <hr>
     <h4>Supported File Formats:</h4>
@@ -773,7 +773,7 @@
 
                        <div style="padding-top: 16px; border-top: 1px solid var(--system-separator);">
                             <h2 style="margin-bottom: 6px;">Background Anchor Points</h2>
-                            <p class="control-label" style="margin-bottom: 16px;">Use <b>Ctrl+Click</b> on the chart to select an experimental data point as a background anchor. This gives the point a higher weight during SA refinement.</p>
+                            <p class="control-label" style="margin-bottom: 16px;">Use <b>Ctrl+Click</b> on the chart to select an experimental data point as a background anchor. This gives the point a higher weight during refinement.</p>
                             
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                  <label for="show-anchors-checkbox" class="control-label" style="margin-bottom:0;">Show Anchors on Chart</label>
@@ -833,29 +833,29 @@
 <div id="anisotropy-params-container" class="profile-controls-container hidden">
     <h3 class="profile-section-header">Isotropic Gaussian (TCH)</h3>
     <label class="control-label">U</label>
-    <input type="number" id="param-u" value="1.64" step="0.1" class="control-input" min="0">
+    <input type="number" id="param-u" value="0.05" step="0.1" class="control-input" min="0">
     <input type="checkbox" id="fit-u" class="fit-checkbox">
     <label class="control-label">V</label>
-    <input type="number" id="param-v" value="-1.32" step="0.1" class="control-input">
+    <input type="number" id="param-v" value="-0.06" step="0.1" class="control-input">
     <input type="checkbox" id="fit-v" class="fit-checkbox" >
     <label class="control-label">W</label>
-    <input type="number" id="param-w" value="0.026" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-w" value="0.018" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-w" class="fit-checkbox" >
     
     <h3 class="profile-section-header">Isotropic Lorentzian (TCH)</h3>
     <label class="control-label">X</label>
-    <input type="number" id="param-x" value="0.120" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-x" value="0.10" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-x" class="fit-checkbox" >
     <label class="control-label">Y</label>
-    <input type="number" id="param-y" value="0.06" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-y" value="0.03" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-y" class="fit-checkbox" >
 
         <h3 class="profile-section-header">Peak Asymmetry</h3>
     <label class="control-label">S/L</label>
-    <input type="number" id="param-sl" value="0.0" step="0.001" class="control-input">
+    <input type="number" id="param-sl" value="0.074" step="0.001" class="control-input">
     <input type="checkbox" id="fit-sl" class="fit-checkbox">
     <label class="control-label">H/L</label>
-    <input type="number" id="param-hl" value="0.0" step="0.001" class="control-input">
+    <input type="number" id="param-hl" value="0.044" step="0.001" class="control-input">
     <input type="checkbox" id="fit-hl" class="fit-checkbox" >
 
 
@@ -964,7 +964,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        2.3, 05 Oct 2025
+        2.4, 05 Oct 2025
     </div>
 </div>
 
@@ -2482,7 +2482,13 @@ function estimateBackgroundParameters(tth, intensity) {
 
 
         function leBailIntensityExtraction(expData, hklList, params) {
-    if (expData.tth.length !== expData.background.length || expData.tth.length !== expData.intensity.length) {
+    
+            const startIndex = workingData.startIndex;
+const slicedAnchorIndices = new Set(
+    backgroundAnchors.map(a => a.index - startIndex)
+);
+    
+            if (expData.tth.length !== expData.background.length || expData.tth.length !== expData.intensity.length) {
         console.error("CRITICAL ERROR in leBailIntensityExtraction: Mismatched array lengths!");
         return;
     }
@@ -2495,6 +2501,8 @@ function estimateBackgroundParameters(tth, intensity) {
     hklList.forEach(p => p.intensity = 0);
 
     for (let i = 0; i < expData.tth.length; i++) {
+       
+        if (slicedAnchorIndices.has(i)) continue;
         let totalProfileAtPoint = 0;
         const contributingPeaks = [];
 
@@ -3647,30 +3655,39 @@ controls.spaceGroupSelect.addEventListener('change', () => {
 
 
         controls.mainChartCanvas.addEventListener('click', e => {
-            if (e.ctrlKey && mainChart) {
-                e.preventDefault();
-                e.stopPropagation();
+    if (e.ctrlKey && mainChart) {
+        e.preventDefault();
+        e.stopPropagation();
 
-                const rect = controls.mainChartCanvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                
-                const tthValue = mainChart.scales.x.getValueForPixel(x);
-                const closestPoint = findClosestExperimentalPoint(tthValue);
+        // --- NEW: Store the current Y-axis zoom level ---
+        const currentYMin = mainChart.scales.y.min;
+        const currentYMax = mainChart.scales.y.max;
 
-                if (closestPoint) {
-                    // Prevent adding the same point twice
-                    const isAlreadyAdded = backgroundAnchors.some(a => a.index === closestPoint.index);
-                    if (!isAlreadyAdded) {
-                        backgroundAnchors.push(closestPoint);
-                        backgroundAnchors.sort((a, b) => a.tth - b.tth); 
-                        renderAnchorList();
-                        updateBackgroundForPreview();
-                    }
-                }
+        const rect = controls.mainChartCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        
+        const tthValue = mainChart.scales.x.getValueForPixel(x);
+        const closestPoint = findClosestExperimentalPoint(tthValue);
+
+        if (closestPoint) {
+            const isAlreadyAdded = backgroundAnchors.some(a => a.index === closestPoint.index);
+            if (!isAlreadyAdded) {
+                backgroundAnchors.push(closestPoint);
+                backgroundAnchors.sort((a, b) => a.tth - b.tth); 
+                renderAnchorList();
+                // This call will still trigger the unwanted Y-axis change
+                updateBackgroundForPreview();
             }
-        });
+        }
 
-
+        // --- NEW: Forcefully restore the Y-axis to its previous state ---
+        mainChart.options.scales.y.min = currentYMin;
+        mainChart.options.scales.y.max = currentYMax;
+        
+        // Apply the restored zoom level
+        mainChart.update('none');
+    }
+});
       
         const controlsPanel = document.getElementById('controls-panel');
         controlsPanel.addEventListener('input', (event) => {
