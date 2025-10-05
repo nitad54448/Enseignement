@@ -3063,7 +3063,7 @@ function estimateBackgroundParameters(tth, intensity) {
                 })
                 .map(hkl => ({
                     x: hkl.tth + params.zeroShift,
-                    y: [markerTop, markerBottom],
+   //                 y: [markerTop, markerBottom], on laisse l'autre HKL marker position
                     hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
                 }));
             
@@ -3308,15 +3308,29 @@ function estimateBackgroundParameters(tth, intensity) {
     }
     mainChart.options.scales.y.min = -constantNegSpaceHeight;
     
-    // Draw HKL Markers from 0 down
+    
+    // Draw HKL Markers with a fixed pixel height
     const hklDataset = findDataset('HKL Markers');
     if (hklDataset && hklDataset.data.length > 0) {
-    const HKL_MARKER_HEIGHT_RATIO = 0.04; // Adjustable: 3-4% should be ok   
-    const markerBottom = -(globalYMax * 0.005); 
-    const markerTop = markerBottom - (globalYMax * HKL_MARKER_HEIGHT_RATIO);
+        //PIXELS
+        const HKL_MARKER_PIXEL_HEIGHT = 30; // e.g., 30 pixels tall
 
-    hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]);
-}
+        const y_scale = mainChart.scales.y;
+        
+        // Find the data value that corresponds to the zero-line on the chart
+        const zeroLineValue = 0; 
+
+        // Get the pixel position of the zero line and calculate the top pixel
+        const bottomPixel = y_scale.getPixelForValue(zeroLineValue);
+        const topPixel = bottomPixel + HKL_MARKER_PIXEL_HEIGHT; // Subtract for upward direction
+
+        // Convert these pixel positions back to data values for the chart
+        const markerBottom = zeroLineValue;
+        const markerTop = y_scale.getValueForPixel(topPixel);
+
+        hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]);
+    }
+
 
     // --- Plot TRUE difference from the stored `lastRawDifference` array ---
     if (diffData.length > 0 && diffData.length === workingData.tth.length) {
@@ -3552,15 +3566,13 @@ function estimateBackgroundParameters(tth, intensity) {
             }
 
 
+            updateWorkingData();
+            updatePlotRange(true);
+            generateMasterHklList();      
+            updateBackgroundForPreview();
+            rescalePlot(false); 
+            mainChart.update('none');
 
-
-
-                    updateWorkingData();
-                    updateBackgroundForPreview();
-                    updatePlotRange(true);
-                    generateMasterHklList();
-                    rescalePlot(false);
-                    generateMasterHklList();
 
                     mainChart.update('none');  // This commits all changes to the display
 
