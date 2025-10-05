@@ -3424,7 +3424,6 @@ function estimateBackgroundParameters(tth, intensity) {
     ];
 
     // --- Parameter Tables ---
-    // ... (ESD calculation remains the same)
     let esds = {};
     let esdWarning = null;
     if (fitResults.algorithm === 'lm' && fitResults.JtJ && fitResults.paramMapping) {
@@ -3441,12 +3440,15 @@ function estimateBackgroundParameters(tth, intensity) {
                 });
             } else { esdWarning = 'Matrix inversion failed (parameter correlation).'; }
         } else { esdWarning = "N <= P, cannot calculate reliable errors."; }
-    } else { esdWarning = "ESDs only available for Levenberg-Marquardt."; }
+    } else if (fitResults.algorithm !== 'lm') { 
+        esdWarning = "ESDs only available for Levenberg-Marquardt."; 
+    }
 
     const paramWidths = [24, 18, 10, 18];
     const paramHeader = formatLine(['Parameter', 'Value', 'Fitted', 'ESD'], paramWidths);
     const paramLines = [];
-    const paramGroups = { /* ... (paramGroups definition remains the same) ... */ };
+    const paramGroups = {};
+    
     // This part is unchanged, just including it for completeness
     paramGroups['Structural & Instrumental'] = [ { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd: 'a' }, { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd: 'b' }, { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd: 'c' }, { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd: 'alpha' }, { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd: 'beta' }, { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd: 'gamma' }, { name: 'Radiation 1 (Å)', value: finalParams.lambda }, { name: 'Radiation 2 (Å)', value: finalParams.lambda2 }, { name: 'Ratio (I2/I1)', value: finalParams.ratio }, { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd: 'zeroShift' }, { name: '2theta Min (°)', value: parseFloat(controls.tthMinSlider.value) }, { name: '2theta Max (°)', value: parseFloat(controls.tthMaxSlider.value) }];
     paramGroups['Profile Parameters'] = [];
@@ -3461,7 +3463,13 @@ function estimateBackgroundParameters(tth, intensity) {
             if (p.value !== undefined && !isNaN(p.value)) {
                 const valStr = p.value.toExponential(6);
                 const fitStr = (p.flag === undefined) ? '' : (p.flag ? 'Yes' : 'No');
-                const esdStr = (p.flag && esds[p.esd]) ? `(${esds[p.esd].toExponential(2)})` : '';
+
+                // *** FIX: Check that the esd value exists and is a number before formatting it ***
+                const esdValue = esds[p.esd];
+                const esdStr = (p.flag && typeof esdValue === 'number' && isFinite(esdValue)) 
+                    ? `(${esdValue.toExponential(2)})` 
+                    : '';
+                
                 paramLines.push(formatLine([p.name, valStr, fitStr, esdStr], paramWidths));
             }
         });
@@ -3497,7 +3505,7 @@ function estimateBackgroundParameters(tth, intensity) {
     const dataSection = [];
     if (format === 'full') {
         dataSection.push('', '--- Point-by-Point Intensity Data (Fitted Range Only) ---',
-            ['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'), // SINGLE TAB FOR EXPORT
+            ['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'),
             '-----------------------------------------------------');
         
         const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
@@ -3509,13 +3517,13 @@ function estimateBackgroundParameters(tth, intensity) {
                 workingData.intensity[i].toFixed(2),
                 i_calc.toFixed(2),
                 (workingData.intensity[i] - i_calc).toFixed(2)
-            ].join('\t')); // SINGLE TAB FOR EXPORT
+            ].join('\t'));
         }
     }
     
     return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
 }
-        
+
 
         // --- EVENT LISTENERS ---
 
