@@ -663,7 +663,7 @@
     <span class="help-icon">?</span>
 
     <div class="tooltip-content">
-    <h4>LeBail Fit version 2.5</h4>
+    <h4>LeBail Fit version 2.6</h4>
     <p>Determine unit cell parameters using the LeBail method. <a href="LeBail_help.html" target="_blank" style="color: #6495ED;">Method Guide &rarr;</a></p>
     <hr>
     <h4>Supported File Formats:</h4>
@@ -964,7 +964,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        2.5, 05 Oct 2025
+        2.6, 06 Oct 2025
     </div>
 </div>
 
@@ -1074,6 +1074,7 @@ if (tooltipContainer && tooltipContent) {
         let calculatedBackground = [];
         let workingDataCache = { tth: [], intensity: [], background: [], isValid: false };
         let fitResults = null;
+        let lastFitResultsCache = null; //changement le 6 oct
         let mainChart;
         let isFitting = false;
         let lastGeneratedHklList = [];
@@ -2492,6 +2493,7 @@ function estimateBackgroundParameters(tth, intensity) {
                     ss_res: lastRefinementCycleResults ? lastRefinementCycleResults.ss_res : null
                 };
 
+                lastFitResultsCache = JSON.parse(JSON.stringify(fitResults)); // copie dans le global, version 2.6
                 updateUI(fitResults.params, fitResults.stats, finalNetPatternForUI, finalBackgroundForUI, fitResults.stats.scaleFactor, fitResults.hklList);
 
                 isFitting = false;
@@ -3032,7 +3034,7 @@ function estimateBackgroundParameters(tth, intensity) {
         function calculateDeterminant(A) { const n = A.length; if (n === 1) return A[0][0]; if (n === 2) return A[0][0] * A[1][1] - A[0][1] * A[1][0]; const U = A.map(row => [...row]); let det = 1; for (let i = 0; i < n; i++) { let maxRow = i; for (let k = i + 1; k < n; k++) if (Math.abs(U[k][i]) > Math.abs(U[maxRow][i])) maxRow = k; if (maxRow !== i) { [U[i], U[maxRow]] = [U[maxRow], U[i]]; det *= -1; } if (Math.abs(U[i][i]) < 1e-15) return 0; det *= U[i][i]; for (let k = i + 1; k < n; k++) { const factor = U[k][i] / U[i][i]; for (let j = i; j < n; j++) U[k][j] -= factor * U[i][j]; } } return det; }
         function matrixInverse(A) { const n = A.length; if (n === 0) return []; const det = calculateDeterminant(A); if (Math.abs(det) < 1e-15) { console.warn("Matrix is singular or near-singular, determinant =", det); return null; } const augmented = A.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]); for (let i = 0; i < n; i++) { let maxRow = i; for (let j = i + 1; j < n; j++) if (Math.abs(augmented[j][i]) > Math.abs(augmented[maxRow][i])) maxRow = j; [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]]; if (Math.abs(augmented[i][i]) < 1e-15) { console.warn("Zero pivot encountered during matrix inversion"); return null; } const pivot = augmented[i][i]; for (let j = 0; j < 2 * n; j++) augmented[i][j] /= pivot; for (let j = 0; j < n; j++) { if (i !== j) { const factor = augmented[j][i]; for (let k = 0; k < 2 * n; k++) augmented[j][k] -= factor * augmented[i][k]; } } } return augmented.map(row => row.slice(n)); }
         function enforceSymmetryConstraints(params) { const { system } = getSystemAndCentering(); switch (system) { case 'cubic': if (params.S400 !== undefined) params.S040 = params.S004 = params.S400; if (params.S220 !== undefined) params.S202 = params.S022 = params.S220; break; case 'hexagonal': case 'tetragonal': case 'rhombohedral': if (params.S400 !== undefined) params.S040 = params.S400; if (params.S202 !== undefined) params.S022 = params.S202; break; } }
-        
+
         function updatePreviewPattern() {
             if (!mainChart || !workingData.isValid || isFitting) return;
 
@@ -3040,14 +3042,32 @@ function estimateBackgroundParameters(tth, intensity) {
             const params = getAllParams();
             if (isNaN(params.lambda) || params.lambda <= 0 || isNaN(params.a) || params.a <= 0) return;
             
-            let hklList = JSON.parse(JSON.stringify(masterHklList));
             const selectedSg = spaceGroups.find(sg => sg.number === parseInt(controls.spaceGroupSelect.value, 10));
             if (!selectedSg) return;
-            
+
+            // Generate HKL list with updated positions based on current UI values
+            let hklList = JSON.parse(JSON.stringify(masterHklList));
             updateHklPositions(hklList, params, selectedSg.system);
-            lastGeneratedHklList = hklList;
+            lastGeneratedHklList = hklList; // For tooltips
+
+            // 6 oct
+            if (lastFitResultsCache && lastFitResultsCache.hklList) {
+                // Create a map of HKL strings to intensities for efficient lookup
+                const intensityMap = new Map(
+                    lastFitResultsCache.hklList.map(p => [p.hkl_list[0], p.intensity])
+                );
+                
+                // Apply the stored intensities from the last successful fit
+                hklList.forEach(p => {
+                    p.intensity = intensityMap.get(p.hkl_list[0]) || 0;
+                });
+            } else {
+                // Fallback for when no fit has been run yet
+                hklList.forEach(p => p.intensity = 1000); 
+            }
             
-                        const globalYMax = mainChart.options.globalYMax; 
+            // HKL markers update (no change here)
+            const globalYMax = mainChart.options.globalYMax; 
             const diffPlotHeightRatio = 0.2; 
             const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio;
             const markerBottom = -(constantNegSpaceHeight * 0.05); 
@@ -3063,13 +3083,10 @@ function estimateBackgroundParameters(tth, intensity) {
                 })
                 .map(hkl => ({
                     x: hkl.tth + params.zeroShift,
-   //                 y: [markerTop, markerBottom], on laisse l'autre HKL marker position
                     hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
                 }));
-            
-            hklList.forEach(p => p.intensity = 1000);
 
-            // Calculate patterns and difference based on workingData
+            // Calculate patterns and difference using the (now fixed) intensities
             const background_sliced = calculateTotalBackground(workingData.tth, params);
             const unscaledPeakPattern_sliced = calculatePattern(workingData.tth, hklList, params);
             const y_obs_net_sliced = workingData.intensity.map((y, i) => Math.max(0, y - background_sliced[i]));
@@ -3079,12 +3096,10 @@ function estimateBackgroundParameters(tth, intensity) {
             const scaleFactor = (sum_calc_sq > 1e-9) ? sum_obs_calc / sum_calc_sq : 1.0;
             const totalCalcPattern = unscaledPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
             
-            // Store the newly calculated difference in the workingData object
             workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
 
-            // Set the data for the plot lines
             findDataset('Simulation (Manual)').data = workingData.tth.map((t, i) => ({ x: t, y: totalCalcPattern[i] }));
-            findDataset('Calculated').data = []; // Hide the blue 'Calculated' line during preview
+            findDataset('Calculated').data = [];
         }
 
         function setUIState(fitting) { isFitting = fitting; controls.fitButton.disabled = fitting; controls.reportButton.disabled = fitting; controls.saveDataButton.disabled = fitting; controls.fitButton.textContent = fitting ? 'Refining...' : 'Run Refinement'; controls.progressBarContainer.classList.toggle('hidden', !fitting); document.body.style.cursor = fitting ? 'wait' : 'default'; if (fitting) { controls.rpResult.textContent = '...'; controls.rwpResult.textContent = '...'; controls.chi2Result.textContent = '...'; } if (!fitting) { controls.progressBar.style.width = '0%'; if(fitResults) { controls.reportButton.disabled = false; controls.saveDataButton.disabled = false; } controls.rwpResult.parentElement.parentElement.querySelectorAll('.result-card').forEach(c => c.style.background = ''); } }
@@ -3366,148 +3381,150 @@ function estimateBackgroundParameters(tth, intensity) {
         }
 
 
-        // report, fait appel au calcul de surface de voigt
+        // report, ne fait plus appel au calcul de surface de voigt, 6 oct
         function generateReportContent(format = 'summary') {
-    if (!fitResults || !fitResults.params || !workingData.isValid) {
-        return "Error: Fit results are not available.";
-    }
+            if (!fitResults || !fitResults.params || !workingData.isValid) {
+                return "Error: Fit results are not available.";
+            }
 
-    const now = new Date();
-    const { params: finalParams, stats, fitFlags, hklList, algorithm } = fitResults;
-    const mainScaleFactor = stats.scaleFactor || 1.0;
-    
-    // --- Helper function for consistent table formatting ---
-    const formatLine = (cols, widths) => {
-        return cols.map((col, i) => (col || '-').padEnd(widths[i])).join(' ');
-    };
+            const now = new Date();
+            const { params: finalParams, stats, fitFlags, hklList, algorithm } = fitResults;
+            const mainScaleFactor = stats.scaleFactor || 1.0;
+            
+            // --- Helper function for consistent table formatting ---
+            const formatLine = (cols, widths) => {
+                return cols.map((col, i) => (col || '-').padEnd(widths[i])).join(' ');
+            };
 
-    // --- Report Header ---
-    const header = [
-        'Le Bail Refinement Report',
-        '========================================================================',
-        '',
-        `LeBail Fit, version 2.5`,
-        `https://nitad54448.github.io/Enseignement/LeBail.html`,
-        `Report Generated: ${now.toLocaleString()}`,
-        `Data File: ${controls.fileName.textContent}`,
-        ''
-    ];
+            // --- Report Header ---
+            const header = [
+                'Le Bail Refinement Report',
+                '========================================================================',
+                '',
+                `LeBail Fit, version 2.6`,
+                `https://nitad54448.github.io/Enseignement/LeBail.html`,
+                `Report Generated: ${now.toLocaleString()}`,
+                `Data File: ${controls.fileName.textContent}`,
+                ''
+            ];
 
-    // --- Refinement Statistics ---
-    const profileName = finalParams.profileType === "4" ? "Simple pVoigt" : "TCH w/ Anisotropy";
-    const selectedSg = spaceGroups.find(sg => sg.number === parseInt(controls.spaceGroupSelect.value, 10));
-    const spaceGroupName = selectedSg ? `${selectedSg.number} – ${selectedSg.name}` : 'N/A';
-    
-    const statsSection = [
-        '--- Refinement Statistics ---',
-        `Rp (%):       ${stats.r_p.toFixed(3)}`,
-        `Rwp (%):      ${stats.rwp.toFixed(3)}`,
-        `χ² (GOF):     ${stats.chi2.toFixed(3)}`,
-        `Algorithm:    ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`,
-        `Profile:      ${profileName} (#${finalParams.profileType})`,
-        `Space Group:  ${spaceGroupName}`,
-        ''
-    ];
+            // --- Refinement Statistics ---
+            const profileName = finalParams.profileType === "4" ? "Simple pVoigt" : "TCH w/ Anisotropy";
+            const selectedSg = spaceGroups.find(sg => sg.number === parseInt(controls.spaceGroupSelect.value, 10));
+            const spaceGroupName = selectedSg ? `${selectedSg.number} – ${selectedSg.name}` : 'N/A';
+            
+            const statsSection = [
+                '--- Refinement Statistics ---',
+                `Rp (%):       ${stats.r_p.toFixed(3)}`,
+                `Rwp (%):      ${stats.rwp.toFixed(3)}`,
+                `χ² (GOF):     ${stats.chi2.toFixed(3)}`,
+                `Algorithm:    ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`,
+                `Profile:      ${profileName} (#${finalParams.profileType})`,
+                `Space Group:  ${spaceGroupName}`,
+                ''
+            ];
 
-    // --- Parameter Tables ---
-    let esds = {};
-    let esdWarning = null;
-    if (fitResults.algorithm === 'lm' && fitResults.JtJ && fitResults.paramMapping) {
-        const N = workingData.intensity.length;
-        const P = fitResults.paramMapping.length;
-        if (N > P && fitResults.ss_res !== undefined) {
-            const reduced_chi_sq = fitResults.ss_res / (N - P);
-            const cov_matrix = matrixInverse(fitResults.JtJ);
-            if (cov_matrix) {
-                fitResults.paramMapping.forEach((p_map, i) => {
-                    if (cov_matrix[i] && cov_matrix[i][i] !== undefined) {
-                        esds[p_map.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i])) * p_map.scale;
+            // --- Parameter Tables ---
+            let esds = {};
+            let esdWarning = null;
+            if (fitResults.algorithm === 'lm' && fitResults.JtJ && fitResults.paramMapping) {
+                const N = workingData.intensity.length;
+                const P = fitResults.paramMapping.length;
+                if (N > P && fitResults.ss_res !== undefined) {
+                    const reduced_chi_sq = fitResults.ss_res / (N - P);
+                    const cov_matrix = matrixInverse(fitResults.JtJ);
+                    if (cov_matrix) {
+                        fitResults.paramMapping.forEach((p_map, i) => {
+                            if (cov_matrix[i] && cov_matrix[i][i] !== undefined) {
+                                esds[p_map.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i])) * p_map.scale;
+                            }
+                        });
+                    } else { esdWarning = 'Matrix inversion failed (parameter correlation).'; }
+                } else { esdWarning = "N <= P, cannot calculate reliable errors."; }
+            } else if (fitResults.algorithm !== 'lm') { 
+                esdWarning = "ESDs only available for Levenberg-Marquardt."; 
+            }
+
+            const paramWidths = [24, 18, 10, 18];
+            const paramHeader = formatLine(['Parameter', 'Value', 'Fitted', 'ESD'], paramWidths);
+            const paramLines = [];
+            const paramGroups = {};
+            
+            paramGroups['Structural & Instrumental'] = [ { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd: 'a' }, { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd: 'b' }, { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd: 'c' }, { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd: 'alpha' }, { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd: 'beta' }, { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd: 'gamma' }, { name: 'Radiation 1 (Å)', value: finalParams.lambda }, { name: 'Radiation 2 (Å)', value: finalParams.lambda2 }, { name: 'Ratio (I2/I1)', value: finalParams.ratio }, { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd: 'zeroShift' }, { name: '2theta Min (°)', value: parseFloat(controls.tthMinSlider.value) }, { name: '2theta Max (°)', value: parseFloat(controls.tthMaxSlider.value) }];
+            paramGroups['Profile Parameters'] = [];
+            paramGroups['Background Parameters'] = [];
+            if (finalParams.profileType === "4") { paramGroups['Profile Parameters'].push(...[ { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd: 'GU' }, { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd: 'GV' }, { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd: 'GW' }, { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd: 'GP' }, { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd: 'LX' }, { name: 'eta (Mixing)', value: finalParams.eta, flag: fitFlags.eta, esd: 'eta' }, { name: 'shft (Displ.)', value: finalParams.shft, flag: fitFlags.shft, esd: 'shft' }, { name: 'trns (Transp.)', value: finalParams.trns, flag: fitFlags.trns, esd: 'trns' } ]); } else { paramGroups['Profile Parameters'].push(...[ { name: 'U', value: finalParams.U, flag: fitFlags.U, esd: 'U' }, { name: 'V', value: finalParams.V, flag: fitFlags.V, esd: 'V' }, { name: 'W', value: finalParams.W, flag: fitFlags.W, esd: 'W' }, { name: 'X', value: finalParams.X, flag: fitFlags.X, esd: 'X' }, { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd: 'Y' }, { name: 'S/L (Asymm)', value: finalParams.SL, flag: fitFlags.SL, esd: 'SL' }, { name: 'H/L (Asymm)', value: finalParams.HL, flag: fitFlags.HL, esd: 'HL' } ]); if (finalParams.profileType === "3") { paramGroups['Profile Parameters'].push(...[ { name: 'S400', value: finalParams.S400, flag: fitFlags.S400, esd: 'S400' }, { name: 'S040', value: finalParams.S040, flag: fitFlags.S040, esd: 'S040' }, { name: 'S004', value: finalParams.S004, flag: fitFlags.S004, esd: 'S004' }, { name: 'S220', value: finalParams.S220, flag: fitFlags.S220, esd: 'S220' }, { name: 'S202', value: finalParams.S202, flag: fitFlags.S202, esd: 'S202' }, { name: 'S022', value: finalParams.S022, flag: fitFlags.S022, esd: 'S022' } ]); } }
+            for (let i = 0; i < 6; i++) { paramGroups['Background Parameters'].push({ name: `B${i}`, value: finalParams[`B${i}`], flag: fitFlags[`B${i}`], esd: `B${i}` }); }
+            paramGroups['Background Parameters'].push(...[ { name: 'Hump Height', value: finalParams.hump_H, flag: fitFlags.hump_H, esd: 'hump_H' }, { name: 'Hump Position', value: finalParams.hump_P, flag: fitFlags.hump_P, esd: 'hump_P' }, { name: 'Hump FWHM', value: finalParams.hump_W, flag: fitFlags.hump_W, esd: 'hump_W' } ]);
+
+            for (const groupName in paramGroups) {
+                paramLines.push(`--- ${groupName} ---`, paramHeader, '-'.repeat(paramHeader.length));
+                paramGroups[groupName].forEach(p => {
+                    if (p.value !== undefined && !isNaN(p.value)) {
+                        const valStr = p.value.toExponential(6);
+                        const fitStr = (p.flag === undefined) ? '' : (p.flag ? 'Yes' : 'No');
+                        
+                        const esdValue = esds[p.esd];
+                        const esdStr = (p.flag && typeof esdValue === 'number' && isFinite(esdValue)) 
+                            ? `(${esdValue.toExponential(2)})` 
+                            : '';
+                        
+                        paramLines.push(formatLine([p.name, valStr, fitStr, esdStr], paramWidths));
                     }
                 });
-            } else { esdWarning = 'Matrix inversion failed (parameter correlation).'; }
-        } else { esdWarning = "N <= P, cannot calculate reliable errors."; }
-    } else if (fitResults.algorithm !== 'lm') { 
-        esdWarning = "ESDs only available for Levenberg-Marquardt."; 
-    }
-
-    const paramWidths = [24, 18, 10, 18];
-    const paramHeader = formatLine(['Parameter', 'Value', 'Fitted', 'ESD'], paramWidths);
-    const paramLines = [];
-    const paramGroups = {};
-    
-    paramGroups['Structural & Instrumental'] = [ { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd: 'a' }, { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd: 'b' }, { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd: 'c' }, { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd: 'alpha' }, { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd: 'beta' }, { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd: 'gamma' }, { name: 'Radiation 1 (Å)', value: finalParams.lambda }, { name: 'Radiation 2 (Å)', value: finalParams.lambda2 }, { name: 'Ratio (I2/I1)', value: finalParams.ratio }, { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd: 'zeroShift' }, { name: '2theta Min (°)', value: parseFloat(controls.tthMinSlider.value) }, { name: '2theta Max (°)', value: parseFloat(controls.tthMaxSlider.value) }];
-    paramGroups['Profile Parameters'] = [];
-    paramGroups['Background Parameters'] = [];
-    if (finalParams.profileType === "4") { paramGroups['Profile Parameters'].push(...[ { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd: 'GU' }, { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd: 'GV' }, { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd: 'GW' }, { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd: 'GP' }, { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd: 'LX' }, { name: 'eta (Mixing)', value: finalParams.eta, flag: fitFlags.eta, esd: 'eta' }, { name: 'shft (Displ.)', value: finalParams.shft, flag: fitFlags.shft, esd: 'shft' }, { name: 'trns (Transp.)', value: finalParams.trns, flag: fitFlags.trns, esd: 'trns' } ]); } else { paramGroups['Profile Parameters'].push(...[ { name: 'U', value: finalParams.U, flag: fitFlags.U, esd: 'U' }, { name: 'V', value: finalParams.V, flag: fitFlags.V, esd: 'V' }, { name: 'W', value: finalParams.W, flag: fitFlags.W, esd: 'W' }, { name: 'X', value: finalParams.X, flag: fitFlags.X, esd: 'X' }, { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd: 'Y' }, { name: 'S/L (Asymm)', value: finalParams.SL, flag: fitFlags.SL, esd: 'SL' }, { name: 'H/L (Asymm)', value: finalParams.HL, flag: fitFlags.HL, esd: 'HL' } ]); if (finalParams.profileType === "3") { paramGroups['Profile Parameters'].push(...[ { name: 'S400', value: finalParams.S400, flag: fitFlags.S400, esd: 'S400' }, { name: 'S040', value: finalParams.S040, flag: fitFlags.S040, esd: 'S040' }, { name: 'S004', value: finalParams.S004, flag: fitFlags.S004, esd: 'S004' }, { name: 'S220', value: finalParams.S220, flag: fitFlags.S220, esd: 'S220' }, { name: 'S202', value: finalParams.S202, flag: fitFlags.S202, esd: 'S202' }, { name: 'S022', value: finalParams.S022, flag: fitFlags.S022, esd: 'S022' } ]); } }
-    for (let i = 0; i < 6; i++) { paramGroups['Background Parameters'].push({ name: `B${i}`, value: finalParams[`B${i}`], flag: fitFlags[`B${i}`], esd: `B${i}` }); }
-    paramGroups['Background Parameters'].push(...[ { name: 'Hump Height', value: finalParams.hump_H, flag: fitFlags.hump_H, esd: 'hump_H' }, { name: 'Hump Position', value: finalParams.hump_P, flag: fitFlags.hump_P, esd: 'hump_P' }, { name: 'Hump FWHM', value: finalParams.hump_W, flag: fitFlags.hump_W, esd: 'hump_W' } ]);
-
-    for (const groupName in paramGroups) {
-        paramLines.push(`--- ${groupName} ---`, paramHeader, '-'.repeat(paramHeader.length));
-        paramGroups[groupName].forEach(p => {
-            if (p.value !== undefined && !isNaN(p.value)) {
-                const valStr = p.value.toExponential(6);
-                const fitStr = (p.flag === undefined) ? '' : (p.flag ? 'Yes' : 'No');
-                
-                // THIS IS THE CORRECTED LOGIC THAT PREVENTS THE CRASH
-                const esdValue = esds[p.esd];
-                const esdStr = (p.flag && typeof esdValue === 'number' && isFinite(esdValue)) 
-                    ? `(${esdValue.toExponential(2)})` 
-                    : '';
-                
-                paramLines.push(formatLine([p.name, valStr, fitStr, esdStr], paramWidths));
+                paramLines.push('');
             }
-        });
-        paramLines.push('');
-    }
-    if (esdWarning) paramLines.push(`NOTE: ${esdWarning}`);
+            if (esdWarning) paramLines.push(`NOTE: ${esdWarning}`);
 
-    // --- Reflections List --- (No changes needed here)
-    const reflectionsSection = [];
-    if (hklList && hklList.length > 0) {
-        const reflWidths = [15, 18, 18, 18];
-        const reflHeader = formatLine(['h,k,l', '2th_corr (°)', 'I_calc', 'I_exp'], reflWidths);
-        reflectionsSection.push('', '--- Reflections List (Integrated Intensities) ---', reflHeader, '-'.repeat(reflHeader.length));
-        
-        const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
-        hklList.filter(hkl => hkl.tth && hkl.tth >= workingData.tth[0] && hkl.tth <= workingData.tth[workingData.tth.length - 1])
-            .forEach(hkl => {
-                const peakShift = calculatePeakShift(hkl.tth, finalParams);
-                const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
-                const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams);
-                const i_exp = getIntegratedIntensity(tthCorr, Math.sqrt(gamma_G*gamma_G + gamma_L*gamma_L), workingData, finalBkg);
-                const profileArea = getPseudoVoigtArea(gamma_G, gamma_L, finalParams);
-                const scaled_i_calc_area = hkl.intensity * profileArea * mainScaleFactor;
-                if (i_exp > 0.1 || scaled_i_calc_area > 0.1) {
-                    reflectionsSection.push(formatLine([
-                        hkl.hkl_list[0], tthCorr.toFixed(4), scaled_i_calc_area.toFixed(1), i_exp.toFixed(1)
-                    ], reflWidths));
+            // --- Reflections List ---
+            const reflectionsSection = [];
+            if (hklList && hklList.length > 0) {
+                const reflWidths = [15, 18, 18, 18];
+                const reflHeader = formatLine(['h,k,l', '2th_corr (°)', 'I_calc', 'I_exp'], reflWidths);
+                reflectionsSection.push('', '--- Reflections List (Integrated Intensities) ---', reflHeader, '-'.repeat(reflHeader.length));
+                
+                const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
+                hklList.filter(hkl => hkl.tth && hkl.tth >= workingData.tth[0] && hkl.tth <= workingData.tth[workingData.tth.length - 1])
+                    .forEach(hkl => {
+                        const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                        const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+                        const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams);
+                        const i_exp = getIntegratedIntensity(tthCorr, Math.sqrt(gamma_G*gamma_G + gamma_L*gamma_L), workingData, finalBkg);
+                        
+                        // *mainscaleFactor ?
+                        const scaled_i_calc_area = hkl.intensity * mainScaleFactor;
+
+                        if (i_exp > 0.1 || scaled_i_calc_area > 0.1) {
+                            reflectionsSection.push(formatLine([
+                                hkl.hkl_list[0], tthCorr.toFixed(4), scaled_i_calc_area.toFixed(1), i_exp.toFixed(1)
+                            ], reflWidths));
+                        }
+                    });
+            }
+
+            // --- Point-by-Point Data (for 'full' report) ---
+            const dataSection = [];
+            if (format === 'full') {
+                dataSection.push('', '--- Point-by-Point Intensity Data (Fitted Range Only) ---',
+                    ['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'),
+                    '-----------------------------------------------------');
+                
+                const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
+                const finalNetPattern = calculatePattern(workingData.tth, hklList, finalParams);
+                for (let i = 0; i < workingData.tth.length; i++) {
+                    const i_calc = (finalNetPattern[i] * mainScaleFactor) + finalBkg[i];
+                    dataSection.push([
+                        workingData.tth[i].toFixed(4),
+                        workingData.intensity[i].toFixed(2),
+                        i_calc.toFixed(2),
+                        (workingData.intensity[i] - i_calc).toFixed(2)
+                    ].join('\t'));
                 }
-            });
-    }
-
-    // --- Point-by-Point Data (for 'full' report) --- (No changes needed here)
-    const dataSection = [];
-    if (format === 'full') {
-        dataSection.push('', '--- Point-by-Point Intensity Data (Fitted Range Only) ---',
-            ['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'),
-            '-----------------------------------------------------');
-        
-        const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
-        const finalNetPattern = calculatePattern(workingData.tth, hklList, finalParams);
-        for (let i = 0; i < workingData.tth.length; i++) {
-            const i_calc = (finalNetPattern[i] * mainScaleFactor) + finalBkg[i];
-            dataSection.push([
-                workingData.tth[i].toFixed(4),
-                workingData.intensity[i].toFixed(2),
-                i_calc.toFixed(2),
-                (workingData.intensity[i] - i_calc).toFixed(2)
-            ].join('\t'));
+            }
+            
+            return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
         }
-    }
-    
-    return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
-}
+
 
         // --- EVENT LISTENERS ---
 
@@ -3676,33 +3693,45 @@ controls.spaceGroupSelect.addEventListener('change', () => {
     }
 });
       
+
+    // FINAL, CORRECTED EVENT LISTENER BLOCK
         const controlsPanel = document.getElementById('controls-panel');
-        controlsPanel.addEventListener('input', (event) => {
+
+        const handleValueChange = (event) => {
+            if (!mainChart || isFitting) return;
+
             const target = event.target;
-
-            // Exit if the chart doesn't exist yet or if fitting is in progress.
-            if (!mainChart || isFitting) {
-                return;
-            }
             
-            // Ignore controls that have their own specific listeners or shouldn't trigger a live preview.
-            if (target.id.startsWith('tth-') || target.id === 'iterations-slider' || target.id === 'algorithm-select') {
+            // Ignore controls that have their own dedicated listeners that handle redrawing
+            if (target.id.startsWith('tth-') || target.id === 'iterations-slider' || target.id === 'algorithm-select' || target.id === 'show-anchors-checkbox') {
                 return;
             }
 
-            // For parameters that change the hkl positions, regenerate the list first.
+            // For parameters that change hkl positions, the master list must be regenerated
             if (target.id === 'wavelength' || target.id.startsWith('lattice-param-')) {
-                generateMasterHklList(); // This internally calls updatePreviewPattern
-            } else {
-                // For all other parameters (profile, background, etc.), just update the preview.
+                generateMasterHklList(); // This function internally calls updatePreviewPattern
+            } else if (target.id.startsWith('param-b') || target.id.startsWith('param-hump')) {
+                // Background changes also require a preview update
+                 updateBackgroundForPreview(); // This also calls updatePreviewPattern
+            }
+            else {
+                // For all other value changes (e.g., profile parameters)
                 updatePreviewPattern();
             }
 
-            // After any calculation, redraw the chart to show the changes.
             rescalePlot(false);
             mainChart.update('none');
-});
-        
+        };
+
+        // Attach the listener ONLY to elements that represent a VALUE change.
+        // This deliberately ignores checkboxes.
+        controlsPanel.querySelectorAll('input[type="number"], select').forEach(el => {
+            el.addEventListener('input', handleValueChange); // <<< THIS LINE IS NOW CORRECT
+        });
+
+
+
+
         controls.iterationsSlider.addEventListener('input', () => controls.iterationsValue.textContent = controls.iterationsSlider.value);
         
 
