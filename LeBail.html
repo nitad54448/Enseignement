@@ -1822,10 +1822,12 @@ workingData.weights = workingData.intensity.map((y, i) => {
             return evaluateNode(ruleNode);
         }
 
-        // 3. MASTER HKL LIST GENERATION
+        // master HKL
+
         function generateMasterHklList() {
             if (fullExperimentalData.tth.length === 0 || spaceGroups.length === 0) {
                 masterHklList = [];
+                updatePreviewPattern(); // Ensure preview is cleared
                 return;
             }
 
@@ -1834,26 +1836,25 @@ workingData.weights = workingData.intensity.map((y, i) => {
             if (!selectedSg) {
                 masterHklList = [];
                 console.error("Cannot generate HKL list: selected space group not found.");
+                updatePreviewPattern();
                 return;
             }
 
-            // Use the full range of the data to not miss any reflections, add buffer
             const maxTth = Math.max(...fullExperimentalData.tth) + 2.0;
-            const params = getAllParams(); // Needed for lambda and an estimate of cell size
+            const params = getAllParams(); 
 
             const fullList = generateHKL(maxTth, params, selectedSg);
             
-            // Store a simplified version containing only the immutable information
+            // This function's only job is to update the global 'masterHklList'
             masterHklList = fullList.map(peak => ({
                 hkl_list: peak.hkl_list,
                 multiplicity: peak.multiplicity,
-                // Store the original h,k,l for accurate position recalculation
                 h_orig: peak.h_orig,
                 k_orig: peak.k_orig,
                 l_orig: peak.l_orig
             }));
             
-            // Trigger a preview update with the new list
+            // After the master list is updated, trigger a preview redraw
             updatePreviewPattern();
         }
 
@@ -3715,44 +3716,67 @@ controls.spaceGroupSelect.addEventListener('change', () => {
     }
 });
       
+    // --- FINAL, COMPLETE EVENT LISTENER BLOCK ---
 
-    // FINAL, CORRECTED EVENT LISTENER BLOCK
-        const controlsPanel = document.getElementById('controls-panel');
-
-        const handleValueChange = (event) => {
+        // This function regenerates the HKL list and updates the plot.
+        const handleHklRecalculation = () => {
             if (!mainChart || isFitting) return;
-
-            const target = event.target;
-            
-            // Ignore controls that have their own dedicated listeners that handle redrawing
-            if (target.id.startsWith('tth-') || target.id === 'iterations-slider' || target.id === 'algorithm-select' || target.id === 'show-anchors-checkbox') {
-                return;
-            }
-
-            // For parameters that change hkl positions, the master list must be regenerated
-            if (target.id === 'wavelength' || target.id.startsWith('lattice-param-')) {
-                generateMasterHklList(); // This function internally calls updatePreviewPattern
-            } else if (target.id.startsWith('param-b') || target.id.startsWith('param-hump')) {
-                // Background changes also require a preview update
-                 updateBackgroundForPreview(); // This also calls updatePreviewPattern
-            }
-            else {
-                // For all other value changes (e.g., profile parameters)
-                updatePreviewPattern();
-            }
-
+            generateMasterHklList(); // This also triggers a preview update internally
+            rescalePlot(false);
+            mainChart.update('none');
+        };
+        
+        // This function handles simple preview updates that DON'T require HKL recalculation.
+        const handleSimplePreviewUpdate = () => {
+            if (!mainChart || isFitting) return;
+            updatePreviewPattern();
             rescalePlot(false);
             mainChart.update('none');
         };
 
-        // Attach the listener ONLY to elements that represent a VALUE change.
-        // This deliberately ignores checkboxes.
-        controlsPanel.querySelectorAll('input[type="number"], select').forEach(el => {
-            el.addEventListener('input', handleValueChange); // <<< THIS LINE IS NOW CORRECT
+        // --- Attach Listeners to Specific Controls ---
+
+        // 1. Critical HKL Triggers: System, Space Group, and Wavelength
+        document.getElementById('bravais-lattice').addEventListener('change', handleHklRecalculation);
+        document.getElementById('space-group-select').addEventListener('change', handleHklRecalculation);
+        document.getElementById('wavelength').addEventListener('input', handleHklRecalculation);
+
+        // 2. Lattice Parameters (using EVENT DELEGATION for dynamic elements)
+        const latticeParamsContainer = document.getElementById('lattice-parameters-container');
+        if (latticeParamsContainer) {
+            // Listener for number inputs (a, b, c...)
+            latticeParamsContainer.addEventListener('input', (event) => {
+                if (event.target && event.target.type === 'number' && event.target.id.startsWith('lattice-param-')) {
+                    handleHklRecalculation();
+                }
+            });
+            // Listener for fit checkboxes
+            latticeParamsContainer.addEventListener('change', (event) => {
+                if (event.target && event.target.type === 'checkbox' && event.target.id.startsWith('fit-lattice-')) {
+                    handleHklRecalculation();
+                }
+            });
+        }
+
+        // 3. Profile Parameters
+        const controlsPanel = document.getElementById('controls-panel');
+        controlsPanel.querySelectorAll('#simple-pvoigt-params-container input, #anisotropy-params-container input').forEach(el => {
+            el.addEventListener('input', handleSimplePreviewUpdate);
+        });
+        document.getElementById('profile-function-select').addEventListener('change', handleSimplePreviewUpdate);
+        
+        // 4. Background Parameters
+        controlsPanel.querySelectorAll('#background-params-container input, #tab-panel-background .profile-controls-container input').forEach(el => {
+             el.addEventListener('input', updateBackgroundForPreview);
         });
 
+        // 5. Zero Shift
+        document.getElementById('zero-shift').addEventListener('input', handleSimplePreviewUpdate);
+        document.getElementById('fit-zero-shift').addEventListener('change', handleSimplePreviewUpdate);
 
+        // --- END: FINAL, COMPLETE EVENT LISTENER BLOCK ---
 
+ 
 
         controls.iterationsSlider.addEventListener('input', () => controls.iterationsValue.textContent = controls.iterationsSlider.value);
         
