@@ -507,6 +507,7 @@
             margin-bottom: 0;
         }
         
+        /* --- TOOLTIP AND SCROLLBAR FIX --- */
         .help-tooltip-container { 
             position: relative; 
             display: inline-block; 
@@ -843,10 +844,10 @@
     
     <h3 class="profile-section-header">Isotropic Lorentzian (TCH)</h3>
     <label class="control-label">X</label>
-    <input type="number" id="param-x" value="0.10" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-x" value="0.0" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-x" class="fit-checkbox" >
     <label class="control-label">Y</label>
-    <input type="number" id="param-y" value="0.01" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-y" value="0.0" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-y" class="fit-checkbox" >
 
         <h3 class="profile-section-header">Peak Asymmetry</h3>
@@ -2199,7 +2200,29 @@ function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) {
     }
 }
 
-        function applyAsymmetry(x, x0, tth_peak, params) { if (params.profileType === "4" || (!params.SL && !params.HL)) return x - x0; const delta_2theta = x - x0; if (Math.abs(delta_2theta) < 1e-9) return 0; const theta_rad = tth_peak * (Math.PI / 180) / 2.0; if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-6) return delta_2theta; const cot_theta = 1.0 / Math.tan(theta_rad); const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0); const asymmetry_factor = 1.0 - (asymmetry_param / 100.0) * Math.sign(delta_2theta) * delta_2theta; return delta_2theta / Math.max(1e-6, asymmetry_factor); }
+function applyAsymmetry(x, x0, tth_peak, params) {
+            // Return early if not using TCH profile or if both params are zero
+            if (params.profileType === "4" || (!params.SL && !params.HL)) {
+                return x - x0;
+            }
+        
+            const delta_2theta = x - x0;
+            if (Math.abs(delta_2theta) < 1e-9) return 0;
+        
+            const theta_rad = tth_peak * (Math.PI / 180) / 2.0;
+            // Avoid division by zero if tan(theta) is undefined (at 90 degrees), 1e-6 modifié en 1e-5 le 6 oct
+            if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-5) {
+                return delta_2theta;
+            }
+        
+            const cot_theta = 1.0 / Math.tan(theta_rad);
+            const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0);
+            
+            // dans GSAS il y a un facteur 100, de mémoire, à svérifier
+            const asymmetry_factor = 1.0 - asymmetry_param * Math.sign(delta_2theta) * delta_2theta;
+            
+            return delta_2theta / Math.max(1e-6, asymmetry_factor);
+        }
 
 
     function calculatePattern(tthAxis, hklList, params) {
