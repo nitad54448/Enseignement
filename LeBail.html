@@ -2115,32 +2115,43 @@ function calculateProfileWidths(tth, hkl, params) {
 
 
 
-// pour calculer les surfaces des pics, pour les rapports
+// pour calculer les surfaces des pics, pour les rapports, erreur dans l'Anistropy avant la version 2.6
 function getPseudoVoigtArea(gamma_G, gamma_L, params) {
-    // Area of a Gaussian with FWHM = H_G is H_G * sqrt(pi / (4*ln(2)))
-    const area_G = gamma_G * 1.0644677; // Pre-calculated constant
-    // Area of a Lorentzian with FWHM = H_L is H_L * pi / 2
-    const area_L = gamma_L * 1.5707963; // Pre-calculated constant
+            // Area of a Gaussian with FWHM = H is H * sqrt(pi / (4*ln(2)))
+            const GAUSS_AREA_CONST = 1.0644677;
+            // Area of a Lorentzian with FWHM = H is H * pi / 2
+            const LORENTZ_AREA_CONST = 1.5707963;
 
-    let currentEta;
-    if (params.profileType === "4") {
-        currentEta = params.eta || 0.5;
-    } else { // TCH profile logic to find its internal eta
-        const fwhm_pow5 = Math.pow(gamma_G, 5) +
-                          2.69269 * Math.pow(gamma_G, 4) * gamma_L +
-                          2.42843 * Math.pow(gamma_G, 3) * Math.pow(gamma_L, 2) +
-                          4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) +
-                          0.07842 * gamma_G * Math.pow(gamma_L, 4) +
-                          Math.pow(gamma_L, 5);
-        const fwhm = Math.max(1e-9, Math.pow(fwhm_pow5, 0.2));
-        const ratio = gamma_L / fwhm;
-        const eta_calc = 1.36603 * ratio - 0.47719 * (ratio * ratio) + 0.11116 * Math.pow(ratio, 3);
-        currentEta = Math.max(0, Math.min(1, eta_calc));
-    }
+            if (params.profileType === "4") {
+                // For Simple pVoigt, the area is a simple mix of the two component areas
+                const area_G = gamma_G * GAUSS_AREA_CONST;
+                const area_L = gamma_L * LORENTZ_AREA_CONST;
+                const currentEta = params.eta || 0.5;
+                return currentEta * area_L + (1 - currentEta) * area_G;
 
-    // The area of the pseudo-Voigt is the linear combination of the two areas
-    return currentEta * area_L + (1 - currentEta) * area_G;
-}
+            } else {
+                // --- CORRECTED LOGIC FOR TCH PROFILE ---
+                // 1. Calculate the combined FWHM and eta exactly as done in the pseudoVoigt function
+                const fwhm_pow5 = Math.pow(gamma_G, 5) +
+                                2.69269 * Math.pow(gamma_G, 4) * gamma_L +
+                                2.42843 * Math.pow(gamma_G, 3) * Math.pow(gamma_L, 2) +
+                                4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) +
+                                0.07842 * gamma_G * Math.pow(gamma_L, 4) +
+                                Math.pow(gamma_L, 5);
+                const fwhm = Math.max(1e-9, Math.pow(fwhm_pow5, 0.2));
+                
+                const ratio = gamma_L / fwhm;
+                const eta_calc = 1.36603 * ratio - 0.47719 * (ratio * ratio) + 0.11116 * Math.pow(ratio, 3);
+                const currentEta = Math.max(0, Math.min(1, eta_calc));
+
+                // 2. Calculate the area of a pV shape using the COMBINED FWHM and COMBINED eta.
+                // This is now mathematically consistent with the shape function.
+                const area_G_combined = fwhm * GAUSS_AREA_CONST;
+                const area_L_combined = fwhm * LORENTZ_AREA_CONST;
+                
+                return currentEta * area_L_combined + (1 - currentEta) * area_G_combined;
+            }
+        }
 
 
         //  pseudoVoigt function with proper profile handling
