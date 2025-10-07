@@ -3348,25 +3348,37 @@ function setUIState(fitting) {
             }
         }
 
+        //updateChart, sans Y auto zoom, le 7 oct 25
         function updateChart(netPeakPattern_sliced, background_sliced, hklList, params, scaleFactor = 1.0) {
-            if (!mainChart) return;
-            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-            
-            // Clear the manual simulation line
-            findDataset('Simulation (Manual)').data = [];
+    if (!mainChart) return;
 
-            // Calculate the final total pattern and the difference
-            const totalCalcPattern = netPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
-            workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
+    // 1. Store the current Y-axis zoom level before making any changes
+    const currentYMin = mainChart.scales.y.min;
+    const currentYMax = mainChart.scales.y.max;
 
-            // Set the data for the plot lines
-            findDataset('Calculated').data = workingData.tth.map((t, i) => ({x: t, y: totalCalcPattern[i]}));
-            findDataset('Background').data = workingData.tth.map((t, i) => ({x: t, y: background_sliced[i]}));
-            
-            // Now that all data is ready, update the plot visuals
-            rescalePlot(); 
-            mainChart.update('none');
-        }
+    const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+    
+    // Clear the manual simulation line
+    findDataset('Simulation (Manual)').data = [];
+
+    // Calculate the final total pattern and the difference
+    const totalCalcPattern = netPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
+    workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
+
+    // Set the data for the plot lines
+    findDataset('Calculated').data = workingData.tth.map((t, i) => ({x: t, y: totalCalcPattern[i]}));
+    findDataset('Background').data = workingData.tth.map((t, i) => ({x: t, y: background_sliced[i]}));
+    
+    // This is still called to position the difference plot correctly relative to the zero-line
+    rescalePlot(); 
+
+    // 2. Forcefully re-apply the stored zoom level to the chart's options
+    mainChart.options.scales.y.min = currentYMin;
+    mainChart.options.scales.y.max = currentYMax;
+
+    // 3. Update the chart, which will now use preserved zoom level
+    mainChart.update('none');
+}
 
         function getPeakInfoAt(tth) {
             if (!lastGeneratedHklList || lastGeneratedHklList.length === 0 || !mainChart) return { peak: null, inRegion: false };
