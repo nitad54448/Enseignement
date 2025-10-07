@@ -492,6 +492,41 @@
             grid-column: 1 / -1; 
         }
         
+
+        /* CSS for Toast Notifications */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 10px;
+            pointer-events: none; /* Allow clicking through the container */
+        }
+        .toast {
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            font-size: 15px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            opacity: 0;
+            transform: translateX(100%); /* Start off-screen to the right */
+            transition: all 0.4s cubic-bezier(0.21, 1.02, 0.73, 1); /* Smooth slide and fade */
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .toast.error {
+            background-color: #ff453a; /* systemRed */
+        }
+        .toast.success {
+            background-color: #34c759; /* systemGreen */
+        }
+
+
         
         .bottom-actions > .control-group {
             display: grid; 
@@ -923,7 +958,7 @@
                      <div class="slider-group">
                          <label class="control-label">Max Iterations</label>
                          <div class="slider-value-track">
-                            <input type="range" id="iterations-slider" min="2" max="200" value="120" step="1" class="custom-slider">
+                            <input type="range" id="iterations-slider" min="1" max="400" value="120" step="1" class="custom-slider">
                             <span id="iterations-value" class="slider-value-display">120</span>
                          </div>
                      </div>
@@ -2373,41 +2408,51 @@ function applyAsymmetry(x, x0, tth_peak, params) {
 }
 
 function redrawFitForNewRange() {
-    // First, update the working data to the new slider range
-    updateWorkingData();
+            if (!mainChart) return; // Guard clause
 
-    // If no fit has been run yet, just show a manual preview pattern
-    if (!fitResults) {
-        updatePreviewPattern();
-        updatePlotRange(true);
-        rescalePlot(false);
-        mainChart.update('none');
-        return;
-    }
+            // 1. Store the current Y-axis zoom state *before* any changes are made.
+            const currentYMin = mainChart.scales.y.min;
+            const currentYMax = mainChart.scales.y.max;
 
-    // --- A fit exists, so redraw the fit results in the new range ---
-    const params = fitResults.params;
-    const scaleFactor = fitResults.stats.scaleFactor;
-    
-    // Recalculate the background and peak pattern for the new, sliced data range
-    const background_sliced = calculateTotalBackground(workingData.tth, params);
-    const unscaledPeakPattern_sliced = calculatePattern(workingData.tth, fitResults.hklList, params);
-    const totalCalcPattern = unscaledPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
-    
-    // Recalculate and store the difference for the new range
-    workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
-    
-    // Update the chart datasets with the newly calculated sliced patterns
-    const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-    findDataset('Calculated').data = workingData.tth.map((t, i) => ({ x: t, y: totalCalcPattern[i] }));
-    findDataset('Background').data = workingData.tth.map((t, i) => ({ x: t, y: background_sliced[i] }));
-    findDataset('Simulation (Manual)').data = []; // Ensure the manual preview line is hidden
+            // 2. Update the working data to the new range defined by the sliders.
+            updateWorkingData();
 
-    // update the plot's view and redraw the difference plot
-    updatePlotRange(true);
-    rescalePlot(false);
-}
+            // 3. Recalculate the pattern to be displayed based on whether a fit has been run.
+            if (!fitResults) {
+                // If no fit, just update the manual preview pattern.
+                updatePreviewPattern();
+            } else {
+                // If a fit exists, recalculate the fitted pattern for the new, sliced range.
+                const params = fitResults.params;
+                const scaleFactor = fitResults.stats.scaleFactor;
+                
+                const background_sliced = calculateTotalBackground(workingData.tth, params);
+                const unscaledPeakPattern_sliced = calculatePattern(workingData.tth, fitResults.hklList, params);
+                const totalCalcPattern = unscaledPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
+                
+                workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
+                
+                const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+                findDataset('Calculated').data = workingData.tth.map((t, i) => ({ x: t, y: totalCalcPattern[i] }));
+                findDataset('Background').data = workingData.tth.map((t, i) => ({ x: t, y: background_sliced[i] }));
+                findDataset('Simulation (Manual)').data = [];
+            }
+            
+            // 4. Call rescalePlot. This will position the difference plot but also undesirably change y.min.
+            rescalePlot(false);
+            
+            // 5. Explicitly set the final axis limits for the update.
+            // Set the X-axis to match the sliders, resetting any X-axis zoom.
+            mainChart.options.scales.x.min = parseFloat(controls.tthMinSlider.value);
+            mainChart.options.scales.x.max = parseFloat(controls.tthMaxSlider.value);
 
+            // Restore the original, preserved Y-axis zoom. This overrides the change made by rescalePlot.
+            mainChart.options.scales.y.min = currentYMin;
+            mainChart.options.scales.y.max = currentYMax;
+            
+            // 6. Apply all changes to the chart in a single, non-animated update.
+            mainChart.update('none');
+        }
 
 // pour pas commencer avec un bruit de fond débile
 function estimateBackgroundParameters(tth, intensity) {
@@ -2745,18 +2790,10 @@ function calculateStatistics(workingData, netCalcPattern, fitFlags, finalBackgro
 
 // 
 async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, system, progressCallback, refinementMode) {
-   // console.group(`--- STARTING REFINEMENT: Levenberg-Marquardt (${refinementMode} mode) ---`);
-
     const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
     if (paramMapping.length === 0) {
-     //   console.error("NO PARAMETERS TO REFINE. Aborting.");
-     //   console.groupEnd();
         return { params: initialParams, hklList: hklList, ss_res: 0 };
     }
-    //console.log(`Refining ${paramMapping.length} parameters.`);
-    //console.log("Initial profile/lattice params:", JSON.parse(JSON.stringify(initialParams)));
-    //console.log("Initial HKL Intensities (first 5):", hklList.slice(0, 5).map(h => h.intensity.toFixed(2)));
-
 
     let params = initialParams;
     let workingHklList = hklList;
@@ -2766,109 +2803,159 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, sys
     
     const y_obs = workingData.intensity;
     const sqrt_weights = workingData.weights.map(w => Math.sqrt(w));
+    const n_points = y_obs.length;
+    const n_params = paramMapping.length;
 
-    const costFunction = (p_obj, hkl_list_obj) => {
-        updateHklPositions(hkl_list_obj, p_obj, system);
-        const y_bkg = calculateTotalBackground(workingData.tth, p_obj);
-        const netCalcPattern = calculatePattern(workingData.tth, hkl_list_obj, p_obj);
-        const scaleFactor = (refinementMode === 'pawley') ? 1.0 : (() => {
+    // Pre-allocate arrays to avoid repeated allocations
+    const residuals = new Array(n_points);
+    const y_calc_total = new Array(n_points);
+    const y_calc_baseline = new Array(n_points);
+    const jacobian_col = new Array(n_points);
+    
+    // Calculate total pattern (includes scale factor calculation for Le Bail)
+    const calculateTotalPattern = (targetArray) => {
+        updateHklPositions(workingHklList, params, system);
+        const y_bkg = calculateTotalBackground(workingData.tth, params);
+        const netCalcPattern = calculatePattern(workingData.tth, workingHklList, params);
+        
+        let scaleFactor = 1.0;
+        if (refinementMode === 'le-bail') {
             let num = 0, den = 0;
-            for (let i = 0; i < y_obs.length; i++) {
+            for (let i = 0; i < n_points; i++) {
                 const y_obs_net = y_obs[i] - y_bkg[i];
                 num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
                 den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
             }
-            return (den > 1e-9) ? num / den : 1.0;
-        })();
-        return netCalcPattern.map((y, i) => (scaleFactor * y) + y_bkg[i]);
+            scaleFactor = (den > 1e-9) ? num / den : 1.0;
+        }
+        
+        for (let i = 0; i < n_points; i++) {
+            targetArray[i] = (scaleFactor * netCalcPattern[i]) + y_bkg[i];
+        }
+        return scaleFactor;
     };
 
     for (let iter = 0; iter < maxIter; iter++) {
-       // console.group(`LM Iteration: ${iter}`);
-        const y_calc_total = costFunction(params, workingHklList);
-        if (y_calc_total.some(isNaN)) {
-            console.error("FATAL: costFunction returned NaN in base calculation. Aborting.", {params, workingHklList});
-        //    console.groupEnd(); break;
+        // Calculate baseline pattern
+        calculateTotalPattern(y_calc_baseline);
+        
+        // Calculate residuals and cost
+        let cost = 0;
+        for (let i = 0; i < n_points; i++) {
+            residuals[i] = (y_obs[i] - y_calc_baseline[i]) * sqrt_weights[i];
+            cost += residuals[i] * residuals[i];
         }
 
-        const residuals = y_obs.map((y, i) => (y - y_calc_total[i]) * sqrt_weights[i]);
-        const cost = dot(residuals, residuals);
-        
-        //console.log(`Current Cost: ${cost.toExponential(4)}`);
-
+        // Check convergence
         if (iter > 0 && Math.abs(ss_res - cost) < 1e-9 * ss_res) {
-          //  console.log("Convergence reached. Stopping refinement.");
-          //  console.groupEnd(); break;
+            break;
         }
         ss_res = cost;
 
-        const p_current_vec = paramMapping.map(m => m.get(params, workingHklList));
-        const jacobian_unscaled = [];
+        // Calculate Jacobian using finite differences
+        const jacobian_T = []; // Store as columns (transposed)
         
-        //console.log("Calculating Jacobian matrix...");
-        for (let i = 0; i < p_current_vec.length; i++) {
-            let tempParams = JSON.parse(JSON.stringify(params));
-            let tempHklList = JSON.parse(JSON.stringify(workingHklList));
-            const p_plus = [...p_current_vec];
-            const fd_step = paramMapping[i].fd_step || 1e-5;
-            p_plus[i] += fd_step;
-            paramMapping.forEach((m, j) => m.set(tempParams, tempHklList, p_plus[j]));
-            const final_pattern_plus = costFunction(tempParams, tempHklList);
-            if (final_pattern_plus.some(isNaN)) {
-                 console.error(`FATAL: costFunction returned NaN during Jacobian calculation for param #${i} (${paramMapping[i].name}). Aborting.`);
-                 console.groupEnd(); iter = maxIter; break; // Break outer loop
+        for (let p = 0; p < n_params; p++) {
+            const mapping = paramMapping[p];
+            const originalValue = mapping.get(params, workingHklList);
+            const fd_step = mapping.fd_step || 1e-5;
+            
+            // Perturb parameter
+            mapping.set(params, workingHklList, originalValue + fd_step);
+            
+            // Recalculate pattern
+            calculateTotalPattern(y_calc_total);
+            
+            // Calculate derivative column: dy_calc/dp (weighted)
+            for (let i = 0; i < n_points; i++) {
+                jacobian_col[i] = (y_calc_total[i] - y_calc_baseline[i]) / fd_step * sqrt_weights[i];
             }
-            jacobian_unscaled.push(scale(subtract(final_pattern_plus, y_calc_total), 1 / fd_step));
+            
+            // Restore original value
+            mapping.set(params, workingHklList, originalValue);
+            
+            // Store column (make a copy)
+            jacobian_T.push([...jacobian_col]);
         }
-        if (iter >= maxIter) break; // Check if inner loop aborted
 
-        const Jm_T = jacobian_unscaled.map(col => col.map((val, i) => val * sqrt_weights[i]));
-        const Jm = transpose(Jm_T);
-        finalJtJ = multiply(Jm_T, Jm); 
-        const Jtr = multiply(Jm_T, residuals);
-
-        const A_lm = JSON.parse(JSON.stringify(finalJtJ));
-        for (let i = 0; i < A_lm.length; i++) { if(A_lm[i]) A_lm[i][i] *= (1.0 + lambda); }
+        // Calculate JtJ and Jtr efficiently
+        const JtJ = new Array(n_params);
+        const Jtr = new Array(n_params);
         
-      //  console.log(`Solving ${A_lm.length}x${A_lm.length} matrix system with lambda = ${lambda.toExponential(2)}`);
+        for (let i = 0; i < n_params; i++) {
+            JtJ[i] = new Array(n_params);
+            let jtr_val = 0;
+            
+            // Jtr = J^T * residuals
+            for (let k = 0; k < n_points; k++) {
+                jtr_val += jacobian_T[i][k] * residuals[k];
+            }
+            Jtr[i] = jtr_val;
+            
+            // JtJ = J^T * J
+            for (let j = 0; j < n_params; j++) {
+                let sum = 0;
+                for (let k = 0; k < n_points; k++) {
+                    sum += jacobian_T[i][k] * jacobian_T[j][k];
+                }
+                JtJ[i][j] = sum;
+            }
+        }
+        
+        finalJtJ = JtJ;
+
+        // Apply Levenberg-Marquardt damping
+        const A_lm = new Array(n_params);
+        for (let i = 0; i < n_params; i++) {
+            A_lm[i] = [...JtJ[i]];
+            A_lm[i][i] *= (1.0 + lambda);
+        }
+
+        // Solve for parameter step: (JtJ + λI) * Δp = Jtr
         const p_step = solve(A_lm, Jtr);
-
-        if (p_step.some(isNaN)) {
-            console.error("FATAL: LM step resulted in NaN. Matrix is likely singular. Aborting refinement.", { p_step: p_step.slice(0,10) });
-            console.groupEnd(); break;
+        
+        if (p_step.some(v => !isFinite(v))) {
+            break;
         }
 
-        const p_new_vec = add(p_current_vec, p_step);
-        let newParams = JSON.parse(JSON.stringify(params));
-        let newHklList = JSON.parse(JSON.stringify(workingHklList));
-        paramMapping.forEach((m, i) => m.set(newParams, newHklList, p_new_vec[i]));
+        // Apply step to get new parameters
+        const p_current = paramMapping.map(m => m.get(params, workingHklList));
+        const p_new = p_current.map((val, i) => val + p_step[i]);
         
-        const new_y_calc_total = costFunction(newParams, newHklList);
-        const new_residuals = new_y_calc_total.some(isNaN) ? [NaN] : new_y_calc_total.map((y, i) => (y_obs[i] - y) * sqrt_weights[i]);
-        const new_cost = dot(new_residuals, new_residuals);
+        // Store current state (only copy when needed)
+        const oldParams = JSON.parse(JSON.stringify(params));
+        const oldHklList = JSON.parse(JSON.stringify(workingHklList));
         
-       // console.log(`Proposed New Cost: ${new_cost.toExponential(4)}`);
+        // Set new parameters
+        paramMapping.forEach((m, i) => m.set(params, workingHklList, p_new[i]));
+        
+        // Calculate new cost
+        calculateTotalPattern(y_calc_total);
+        let new_cost = 0;
+        for (let i = 0; i < n_points; i++) {
+            const res = (y_obs[i] - y_calc_total[i]) * sqrt_weights[i];
+            new_cost += res * res;
+        }
 
+        // Accept or reject step
         if (new_cost < cost && isFinite(new_cost)) {
-        //    console.log("%cStep ACCEPTED. Cost improved.", "color: green;");
-            params = newParams;
-            workingHklList = newHklList;
             lambda = Math.max(1e-9, lambda / 2);
         } else {
-         //   console.warn("Step REJECTED. Cost did not improve or was NaN.");
+            // Restore old state
+            params = oldParams;
+            workingHklList = oldHklList;
             lambda = Math.min(1e9, lambda * 2);
         }
+        
         if (progressCallback) await progressCallback((iter + 1) / maxIter);
-     //   console.groupEnd();
     }
-  //  console.log("--- FINISHED REFINEMENT: Levenberg-Marquardt ---");
-   // console.log("Final profile/lattice params:", params);
-    // console.log("Final HKL Intensities (first 5):", workingHklList.slice(0, 5).map(h => h.intensity));
-   // console.groupEnd();
+
     return { params, hklList: workingHklList, JtJ: finalJtJ, paramMapping, ss_res, algorithm: 'lm', fitFlags };
 }
 
 
+
+    
     async function refineParametersSA(initialParams, fitFlags, maxIter, hklList, system, progressCallback, refinementMode) {
    // console.group(`--- STARTING REFINEMENT: Simulated Annealing (${refinementMode} mode) ---`);
     const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
@@ -2996,6 +3083,7 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, sys
         ss_res: best_cost
     };
 }
+
 
 
         const getAllParams = () => {
@@ -3585,7 +3673,35 @@ function setUIState(fitting) {
             document.body.removeChild(element);
         }
 
-function generateReportContent(format = 'summary') {
+
+        function showToast(message, type = 'error', duration = 4000) {
+            let container = document.getElementById('toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toast-container';
+                document.body.appendChild(container);
+            }
+
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+
+            container.appendChild(toast);
+
+            // Trigger the slide-in animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+
+            // Set a timer to hide and then remove the toast
+            setTimeout(() => {
+                toast.classList.remove('show');
+                // Remove the element from the DOM after the fade-out transition completes
+                toast.addEventListener('transitionend', () => toast.remove());
+            }, duration);
+        }
+
+        function generateReportContent(format = 'summary') {
     if (!fitResults || !fitResults.params || !workingData.isValid) {
         return "Error: Fit results are not available.";
     }
@@ -3647,7 +3763,6 @@ function generateReportContent(format = 'summary') {
         esdWarning = "ESDs only available for Levenberg-Marquardt."; 
     }
 
-    // (The parameter table generation remains the same as your provided code)
     const paramWidths = [24, 18, 10, 18];
     const paramHeader = formatLine(['Parameter', 'Value', 'Fitted', 'ESD'], paramWidths);
     const paramLines = [];
@@ -3658,10 +3773,13 @@ function generateReportContent(format = 'summary') {
     if (finalParams.profileType === "4") { paramGroups['Profile Parameters'].push(...[ { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd: 'GU' }, { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd: 'GV' }, { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd: 'GW' }, { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd: 'GP' }, { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd: 'LX' }, { name: 'eta (Mixing)', value: finalParams.eta, flag: fitFlags.eta, esd: 'eta' }, { name: 'shft (Displ.)', value: finalParams.shft, flag: fitFlags.shft, esd: 'shft' }, { name: 'trns (Transp.)', value: finalParams.trns, flag: fitFlags.trns, esd: 'trns' } ]); } else { paramGroups['Profile Parameters'].push(...[ { name: 'U', value: finalParams.U, flag: fitFlags.U, esd: 'U' }, { name: 'V', value: finalParams.V, flag: fitFlags.V, esd: 'V' }, { name: 'W', value: finalParams.W, flag: fitFlags.W, esd: 'W' }, { name: 'X', value: finalParams.X, flag: fitFlags.X, esd: 'X' }, { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd: 'Y' }, { name: 'S/L (Asymm)', value: finalParams.SL, flag: fitFlags.SL, esd: 'SL' }, { name: 'H/L (Asymm)', value: finalParams.HL, flag: fitFlags.HL, esd: 'HL' } ]); if (finalParams.profileType === "3") { paramGroups['Profile Parameters'].push(...[ { name: 'S400', value: finalParams.S400, flag: fitFlags.S400, esd: 'S400' }, { name: 'S040', value: finalParams.S040, flag: fitFlags.S040, esd: 'S040' }, { name: 'S004', value: finalParams.S004, flag: fitFlags.S004, esd: 'S004' }, { name: 'S220', value: finalParams.S220, flag: fitFlags.S220, esd: 'S220' }, { name: 'S202', value: finalParams.S202, flag: fitFlags.S202, esd: 'S202' }, { name: 'S022', value: finalParams.S022, flag: fitFlags.S022, esd: 'S022' } ]); } }
     for (let i = 0; i < 6; i++) { paramGroups['Background Parameters'].push({ name: `B${i}`, value: finalParams[`B${i}`], flag: fitFlags[`B${i}`], esd: `B${i}` }); }
     paramGroups['Background Parameters'].push(...[ { name: 'Hump Height', value: finalParams.hump_H, flag: fitFlags.hump_H, esd: 'hump_H' }, { name: 'Hump Position', value: finalParams.hump_P, flag: fitFlags.hump_P, esd: 'hump_P' }, { name: 'Hump FWHM', value: finalParams.hump_W, flag: fitFlags.hump_W, esd: 'hump_W' } ]);
+    
     for (const groupName in paramGroups) {
         paramLines.push(`--- ${groupName} ---`, paramHeader, '-'.repeat(paramHeader.length));
         paramGroups[groupName].forEach(p => {
-            if (p.value !== undefined && !isNaN(p.value)) {
+            // *** THIS IS THE FIX ***
+            // Added 'p.value != null' to correctly handle cases where a parameter might be null.
+            if (p.value != null && !isNaN(p.value)) {
                 const valStr = p.value.toExponential(6);
                 const fitStr = (p.flag === undefined) ? '' : (p.flag ? 'Yes' : 'No');
                 const esdValue = esds[p.esd];
@@ -3690,7 +3808,6 @@ function generateReportContent(format = 'summary') {
                 
                 const scaled_i_calc_area = hkl.intensity * mainScaleFactor;
                 
-                // Get ESD for intensity in Pawley mode
                 const hkl_name = `I_(${hkl.h_orig},${hkl.k_orig},${hkl.l_orig})`;
                 const esd_I_val = esds[hkl_name];
                 const esd_I_str = (refinementMode === 'pawley' && typeof esd_I_val === 'number' && isFinite(esd_I_val))
@@ -4063,29 +4180,26 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
         
         controls.paramS400.addEventListener('input', updateStephensAnisotropyUI); controls.fitS400.addEventListener('change', updateStephensAnisotropyUI); controls.paramS220.addEventListener('input', updateStephensAnisotropyUI); controls.fitS220.addEventListener('change', updateStephensAnisotropyUI); controls.paramS202.addEventListener('input', updateStephensAnisotropyUI); controls.fitS202.addEventListener('change', updateStephensAnisotropyUI);
 
-
-        controls.saveDataButton.addEventListener('click', () => {
-            if (!fitResults) {
-                alert("Please run a refinement before saving data.");
-                return;
-            }
-            const originalText = controls.saveDataButton.textContent;
-            controls.saveDataButton.textContent = 'Saving...';
-            controls.saveDataButton.disabled = true;
-            try {
-                // MODIFIED: Calls the new central function to get the full report text.
-                const textContent = generateReportContent('full');
-                const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
-                downloadTextFile(textContent, `LeBail-Data-${timestamp}.txt`);
-            } catch (error) {
-              //  console.error("Failed to save data:", error);
-                alert("An error occurred while saving the data file.");
-            } finally {
-                controls.saveDataButton.textContent = 'Save Report';
-                controls.saveDataButton.disabled = false;
-            }
-        });
-
+    controls.saveDataButton.addEventListener('click', () => {
+    if (!fitResults) {
+        showToast("Please run a refinement before saving data.", 'error');
+        return;
+    }
+    const originalText = controls.saveDataButton.textContent;
+    controls.saveDataButton.textContent = 'Saving...';
+    controls.saveDataButton.disabled = true;
+    try {
+        const textContent = generateReportContent('full');
+        const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+        downloadTextFile(textContent, `LeBail-Data-${timestamp}.txt`);
+        showToast("Report saved successfully!", 'success');
+    } catch (error) {
+        console.error("Failed to save data:", error);
+    } finally {
+        controls.saveDataButton.textContent = 'Save Report';
+        controls.saveDataButton.disabled = false;
+    }
+});
 
         controls.reportButton.addEventListener('click', async () => {
     if (!fitResults) {
