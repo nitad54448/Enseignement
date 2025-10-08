@@ -1025,7 +1025,8 @@
 <script>
     document.addEventListener('DOMContentLoaded', () => {      
 
-        //DOM Content
+        const CALCULATION_WINDOW_MULTIPLIER = 20.0;
+        const PEAK_HEIGHT_CUTOFF = 0.005; // 0.01 Corresponds to 1%
  
 const tooltipContainer = document.querySelector('.help-tooltip-container');
 const tooltipContent = document.querySelector('.tooltip-content');
@@ -1132,6 +1133,7 @@ if (tooltipContainer && tooltipContent) {
         let backgroundAnchors = []; // Stores {tth, y} objects
         const HIGH_WEIGHT_MULTIPLIER = 50.0
          let masterHklList = [];
+         let hklIndexCache = {}; //ajouté le 8 oct, on met en cache les hkl
 
 
           const spaceGroups = [
@@ -1873,8 +1875,9 @@ workingData.weights = workingData.intensity.map((y, i) => {
             return evaluateNode(ruleNode);
         }
 
-        // master HKL
-    function generateMasterHklList() {
+        // master HKL, 1.0.3 et ensuite
+        // This function now uses the cache to get raw indices and then calculates positions.
+function generateMasterHklList() {
     if (fullExperimentalData.tth.length === 0 || spaceGroups.length === 0) {
         masterHklList = [];
         updatePreviewPattern();
@@ -1891,73 +1894,85 @@ workingData.weights = workingData.intensity.map((y, i) => {
     }
 
     const maxTth = Math.max(...fullExperimentalData.tth) + 2.0;
-    const params = getAllParams(); 
+    const params = getAllParams();
 
-    const fullList = generateHKL(maxTth, params, selectedSg);
-    
-    
-    // We must copy ALL necessary properties from the generated list.
-    masterHklList = fullList.map(peak => ({
-        hkl_list: peak.hkl_list,
-        multiplicity: peak.multiplicity,
-        h_orig: peak.h_orig,
-        k_orig: peak.k_orig,
-        l_orig: peak.l_orig,
-        tth: peak.tth,             
-        d: peak.d,                
-        intensity: peak.intensity || 0 
-    }));
-    
+    // 1. Get raw HKL indices. This is the key step that uses the new caching function.
+    const rawHklIndices = generateAndCacheHklIndices(selectedSg, maxTth, params);
+
+    // 2. Create a deep copy to work with, so we don't modify the cached version.
+    let workingHklList = JSON.parse(JSON.stringify(rawHklIndices));
+
+    // 3. Calculate the 2-theta positions for the current parameters.
+    updateHklPositions(workingHklList, params, selectedSg.system);
+
+    // 4. Filter out peaks that are outside the range, sort them, and assign to the global list.
+    masterHklList = workingHklList
+        .filter(peak => peak.tth !== null && peak.tth <= maxTth)
+        .sort((a, b) => a.tth - b.tth);
+
+    // Add a default intensity property for preview purposes
+    masterHklList.forEach(peak => {
+        peak.intensity = peak.intensity || 0;
+    });
+
     updatePreviewPattern();
 }
 
         //  2-THETA UPDATE FUNCTION
-
-        function updateHklPositions(hklList, params, system) {
+function updateHklPositions(hklList, params, system) {
             const { a, b, c, alpha, beta, lambda } = params;
             if (!a || !lambda || a <= 0 || lambda <= 0) return;
             
             const deg2rad = Math.PI / 180;
-            const alpha_rad = (alpha || 90) * deg2rad;
-            const beta_rad = (beta || 90) * deg2rad;
-            const cos_alpha = Math.cos(alpha_rad);
-            const cos_beta = Math.cos(beta_rad);
-            const sin_beta = Math.sin(beta_rad);
+            const lambda_sq_over_4 = (lambda * lambda) / 4.0;
+            const a_sq = a * a;
+
+            // Pre-calculate system-specific constants outside the loop
+            let b_sq, c_sq, sin_beta_sq, cos_beta;
+            if (system === 'monoclinic') {
+                const beta_rad = (beta || 90) * deg2rad;
+                sin_beta_sq = Math.sin(beta_rad);
+                sin_beta_sq *= sin_beta_sq;
+                cos_beta = Math.cos(beta_rad);
+                b_sq = (b || a) * (b || a);
+                c_sq = (c || a) * (c || a);
+            }
 
             hklList.forEach(peak => {
                 if (!peak || peak.h_orig === undefined) return;
                 const h = peak.h_orig;
                 const k = peak.k_orig;
                 const l = peak.l_orig;
+                const h2 = h * h;
+                const k2 = k * k;
+                const l2 = l * l;
                 
                 let inv_d_sq = 0;
                 switch(system) {
                     case 'cubic': 
-                        inv_d_sq = (h*h + k*k + l*l) / (a*a); 
+                        inv_d_sq = (h2 + k2 + l2) / a_sq; 
                         break;
                     case 'tetragonal': 
-                        const c_tet = c || a;
-                        inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c_tet*c_tet); 
+                        c_sq = (c || a) * (c || a);
+                        inv_d_sq = (h2 + k2) / a_sq + l2 / c_sq; 
                         break;
                     case 'orthorhombic': 
-                        const b_orth = b || a;
-                        const c_orth = c || a;
-                        inv_d_sq = (h*h)/(a*a) + (k*k)/(b_orth*b_orth) + (l*l)/(c_orth*c_orth); 
+                        b_sq = (b || a) * (b || a);
+                        c_sq = (c || a) * (c || a);
+                        inv_d_sq = h2/a_sq + k2/b_sq + l2/c_sq; 
                         break;
-                case 'hexagonal': 
-                case 'rhombohedral': // Rhombohedral system uses the hexagonal formula
-                    const c_hex = c || a;
-                    inv_d_sq = 4 * (h*h + h*k + k*k) / (3 * a*a) + (l*l) / (c_hex*c_hex); 
-                    break;
+                    case 'hexagonal': 
+                    case 'rhombohedral':
+                        c_sq = (c || a) * (c || a);
+                        inv_d_sq = 4 * (h2 + h*k + k2) / (3 * a_sq) + l2 / c_sq; 
+                        break;
                     case 'monoclinic':
-                        const b_mono = b || a;
-                        const c_mono = c || a;
-                        inv_d_sq = (1/(sin_beta*sin_beta)) * ((h*h)/(a*a) + (k*k*sin_beta*sin_beta)/(b_mono*b_mono) + (l*l)/(c_mono*c_mono) - (2*h*l*cos_beta)/(a*c_mono));
+                        inv_d_sq = (1/sin_beta_sq) * (h2/a_sq + k2*sin_beta_sq/b_sq + l2/c_sq - (2*h*l*cos_beta)/(a*c));
                         break;
                 }
                 
                 if (inv_d_sq > 1e-12) {
-                    const sinThetaSq = (lambda*lambda / 4) * inv_d_sq;
+                    const sinThetaSq = lambda_sq_over_4 * inv_d_sq;
                     if (sinThetaSq <= 1 && sinThetaSq > 0) {
                         peak.tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
                         peak.d = 1 / Math.sqrt(inv_d_sq);
@@ -1971,6 +1986,7 @@ workingData.weights = workingData.intensity.map((y, i) => {
                 }
             });
         }
+
 
         function updateBackgroundForPreview() {
             if (fullExperimentalData.tth.length === 0 || isFitting) return;
@@ -2036,92 +2052,9 @@ workingData.weights = workingData.intensity.map((y, i) => {
             return { multiplicity: m, canonical_hkl_obj: [h, k, l] };
         }
 
+    function calculatePeakShift(tth, params) { if (params.profileType === "4") { const thetaRad = tth * (Math.PI / 180) / 2; const cosTheta = Math.cos(thetaRad); const sin2Theta = Math.sin(2 * thetaRad); const displacementShift = -(params.shft / 1000) * cosTheta * (180 / Math.PI); const transparencyShift = params.trns * sin2Theta * (180 / Math.PI); return displacementShift + transparencyShift; } else { return 0; } }
 
-            function generateHKL(maxTth, params, selectedSg) {
-            const { a, b, c, alpha, beta, lambda } = params;
-            const { system, laue_class } = selectedSg;
-
-            if (!a || !lambda || a <= 0 || lambda <= 0 || !laue_class) {
-                return [];
-            }
-
-            const maxDimension = Math.max(a || 0, b || a, c || a);
-            const maxIndex = Math.ceil(2 * maxDimension / lambda * Math.sin(maxTth * Math.PI / 360)) + 5;
-            
-            let uniqueReflections = [];
-            const maxOtherIndex = Math.floor(maxIndex / 1.5);
-
-            const loopAndAdd = (h, k, l) => {
-                if (h === 0 && k === 0 && l === 0) return;
-                if (isReflectionAllowed(h, k, l, selectedSg)) {
-                    uniqueReflections.push({ h, k, l });
-                }
-            };
-            // generates the asymmetric unit of reflections
-            switch (laue_class) {
-                case 'm-3m': case 'm-3':
-                    for (let l = 0; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
-                    break;
-                case '6/mmm': case '6/m':
-                    for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
-                    break;
-                case '-3m': case '-3':
-                    for (let l = -maxOtherIndex; l < maxOtherIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
-                    break;
-                case '4/mmm': case '4/m':
-                    for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
-                    break;
-                case 'mmm':
-                    for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = 0; h < maxIndex; h++) loopAndAdd(h, k, l);
-                    break;
-                case '2/m':
-                    for (let k = 0; k < maxIndex; k++) for (let l = 0; l < maxIndex; l++) for (let h = -maxOtherIndex; h < maxIndex; h++) if (!((k === 0 && h < 0) || (l === 0 && h < 0))) loopAndAdd(h, k, l);
-                    break;
-                case '-1':
-                    for (let k = 0; k < maxIndex; k++) for (let h = -maxOtherIndex; h < maxIndex; h++) for (let l = -maxOtherIndex; l < maxIndex; l++) if (!(k > 0 || l < 0)) loopAndAdd(h, k, l);
-                    break;
-                default:
-                    console.warn(`Unknown laue class: ${laue_class}. Using default hkl generation.`);
-                    for (let h = 0; h < maxIndex; h++) for (let k = 0; k < maxIndex; k++) for (let l = 0; l < maxIndex; l++) loopAndAdd(h, k, l);
-                    break;
-            }
-
-            const finalReflections = [];
-            const deg2rad = Math.PI / 180;
-            const alpha_rad = (alpha || 90) * deg2rad;
-            const beta_rad = (beta || 90) * deg2rad;
-
-            for (const { h, k, l } of uniqueReflections) {
-                let inv_d_sq = 0;
-                switch (system) {
-                    case 'cubic': { inv_d_sq = (h * h + k * k + l * l) / (a * a); break; }
-                    case 'tetragonal': { const c_tet = c || a; inv_d_sq = (h * h + k * k) / (a * a) + (l * l) / (c_tet * c_tet); break; }
-                    case 'orthorhombic': { const b_orth = b || a; const c_orth = c || a; inv_d_sq = (h * h) / (a * a) + (k * k) / (b_orth * b_orth) + (l * l) / (c_orth * c_orth); break; }
-                    case 'hexagonal': { const c_hex = c || a; inv_d_sq = 4 * (h * h + h * k + k * k) / (3 * a * a) + (l * l) / (c_hex * c_hex); break; }
-                    case 'rhombohedral': { const cos_alpha_rhomb = Math.cos(alpha_rad); const term1 = (h*h + k*k + l*l) * Math.pow(Math.sin(alpha_rad), 2); const term2 = 2 * (h*k + k*l + l*h) * (cos_alpha_rhomb*cos_alpha_rhomb - cos_alpha_rhomb); const denominator = a*a * (1 - 3*cos_alpha_rhomb*cos_alpha_rhomb + 2*Math.pow(cos_alpha_rhomb, 3)); if (Math.abs(denominator) > 1e-12) { inv_d_sq = (term1 + term2) / denominator; } break; }
-                    case 'monoclinic': { const b_mono = b || a; const c_mono = c || a; const sin_beta = Math.sin(beta_rad); const cos_beta = Math.cos(beta_rad); inv_d_sq = (1 / (sin_beta * sin_beta)) * ((h * h) / (a * a) + (k * k * sin_beta * sin_beta) / (b_mono * b_mono) + (l * l) / (c_mono * c_mono) - (2 * h * l * cos_beta) / (a * c_mono)); break; }
-                }
-
-                if (inv_d_sq <= 1e-12) continue;
-                const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
-                if (sinThetaSq > 1 || sinThetaSq <= 0) continue;
-                
-                const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-                if (tth > maxTth) continue;
-
-                const d = 1 / Math.sqrt(inv_d_sq);
-                const { multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, laue_class);
-                finalReflections.push({ tth, d, hkl_list: [`(${h},${k},${l})`], multiplicity, intensity: 0, h_orig: h, k_orig: k, l_orig: l });
-            }
-
-            finalReflections.sort((a, b) => a.tth - b.tth);
-            return finalReflections;
-        }
-
-        function calculatePeakShift(tth, params) { if (params.profileType === "4") { const thetaRad = tth * (Math.PI / 180) / 2; const cosTheta = Math.cos(thetaRad); const sin2Theta = Math.sin(2 * thetaRad); const displacementShift = -(params.shft / 1000) * cosTheta * (180 / Math.PI); const transparencyShift = params.trns * sin2Theta * (180 / Math.PI); return displacementShift + transparencyShift; } else { return 0; } }
-
-        // REPLACE your entire calculateProfileWidths function with this
-function calculateProfileWidths(tth, hkl, params) {
+    function calculateProfileWidths(tth, hkl, params) {
     const profileType = params.profileType || controls.profileSelect.value || "4";
     const thetaRad = tth * (Math.PI / 180) / 2;
     // Prevent division by zero or tan(Infinity) at 90 degrees
@@ -2312,95 +2245,86 @@ function applyAsymmetry(x, x0, tth_peak, params) {
         }
 
         function calculatePattern(tthAxis, hklList, params) {
-        const pattern = new Array(tthAxis.length).fill(0);
-        const n_points = tthAxis.length;
-        const deg2rad = Math.PI / 180;
+            const pattern = new Array(tthAxis.length).fill(0);
+            const n_points = tthAxis.length;
+            const deg2rad = Math.PI / 180;
 
-        // --- Calculate K-alpha 1 pattern ---
-        hklList.forEach(peak => {
-            if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
-
-            // K-alpha 1 position and widths
-            const basePos1 = peak.tth + params.zeroShift;
-            const shift1 = calculatePeakShift(basePos1, params);
-            const peakPos1 = basePos1 + shift1;
-            const { gamma_G, gamma_L } = calculateProfileWidths(basePos1, peak, params);
-
-            // *** FIX: Calculate the true mathematical area of the shape function ***
-            const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
-
-            // Determine the calculation window
-            const window = 20 * Math.max(0.01, gamma_G + gamma_L);
-            const min_tth = peakPos1 - window;
-            const max_tth = peakPos1 + window;
-
-            let startIndex = 0;
-            while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++;
-
-            // Add the peak shape to the pattern
-            for (let i = startIndex; i < n_points; i++) {
-                const current_tth = tthAxis[i];
-                if (current_tth > max_tth) break;
-
-                const intensityAtPoint = pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
-                
-                // *** FIX: Normalize the shape by its area before scaling by integrated intensity ***
-                if (shapeArea1 > 1e-9) {
-                    pattern[i] += peak.intensity * (intensityAtPoint / shapeArea1);
-                }
-            }
-        });
-
-        // --- Calculate and Add K-alpha 2 pattern ---
-        const doubletEnabled = params.ratio > 0 && params.lambda2 > 0 && Math.abs(params.lambda - params.lambda2) > 1e-6;
-        if (doubletEnabled) {
-            const lambdaRatio = params.lambda2 / params.lambda;
-
+            // --- Calculate K-alpha 1 pattern ---
             hklList.forEach(peak => {
                 if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
 
-                // Calculate K-alpha 2 position from K-alpha 1
-                const sinTheta1 = Math.sin(peak.tth * deg2rad / 2.0);
-                if (Math.abs(sinTheta1) >= 1) return;
-                
-                const sinTheta2 = sinTheta1 * lambdaRatio;
-                if (Math.abs(sinTheta2) >= 1) return;
+                const basePos1 = peak.tth + params.zeroShift;
+                const shift1 = calculatePeakShift(basePos1, params);
+                const peakPos1 = basePos1 + shift1;
+                const { gamma_G, gamma_L } = calculateProfileWidths(basePos1, peak, params);
+                const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
 
-                const tth2 = 2 * Math.asin(sinTheta2) / deg2rad;
-                const basePos2 = tth2 + params.zeroShift;
-                const shift2 = calculatePeakShift(basePos2, params);
-                const peakPos2 = basePos2 + shift2;
+                // Use a generous window to find all points that might be above the cutoff
+                const window = CALCULATION_WINDOW_MULTIPLIER * Math.max(0.01, gamma_G + gamma_L);
+                const min_tth = peakPos1 - window;
+                const max_tth = peakPos1 + window;
 
-                const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
-                
-                // *** FIX: Calculate the area for the K-alpha 2 shape function ***
-                const shapeArea2 = getPseudoVoigtArea(gamma_G2, gamma_L2, params);
+                let startIndex = 0;
+                while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++;
 
-                const window2 = 8 * Math.max(0.01, gamma_G2, gamma_L2);
-                const min_tth2 = peakPos2 - window2;
-                const max_tth2 = peakPos2 + window2;
-
-                let startIndex2 = 0;
-                while(startIndex2 < n_points && tthAxis[startIndex2] < min_tth2) startIndex2++;
-
-                for (let i = startIndex2; i < n_points; i++) {
+                for (let i = startIndex; i < n_points; i++) {
                     const current_tth = tthAxis[i];
-                    if (current_tth > max_tth2) break;
+                    if (current_tth > max_tth) break;
 
-                    const intensityAtPoint = pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
+                    const intensityAtPoint = pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
 
-                    // *** FIX: Normalize the shape and apply the intensity ratio ***
-                    if (shapeArea2 > 1e-9) {
-                        pattern[i] += peak.intensity * params.ratio * (intensityAtPoint / shapeArea2);
+                    // *** NEW: Only include points where the peak height is above the cutoff threshold ***
+                    if (intensityAtPoint > PEAK_HEIGHT_CUTOFF) {
+                        if (shapeArea1 > 1e-9) {
+                            pattern[i] += peak.intensity * (intensityAtPoint / shapeArea1);
+                        }
                     }
                 }
             });
+
+            // --- Calculate and Add K-alpha 2 pattern ---
+            const doubletEnabled = params.ratio > 0 && params.lambda2 > 0 && Math.abs(params.lambda - params.lambda2) > 1e-6;
+            if (doubletEnabled) {
+                const lambdaRatio = params.lambda2 / params.lambda;
+                hklList.forEach(peak => {
+                    if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
+
+                    const sinTheta1 = Math.sin(peak.tth * deg2rad / 2.0);
+                    if (Math.abs(sinTheta1 * lambdaRatio) >= 1) return;
+                    
+                    const tth2 = 2 * Math.asin(sinTheta1 * lambdaRatio) / deg2rad;
+                    const basePos2 = tth2 + params.zeroShift;
+                    const shift2 = calculatePeakShift(basePos2, params);
+                    const peakPos2 = basePos2 + shift2;
+                    const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
+                    const shapeArea2 = getPseudoVoigtArea(gamma_G2, gamma_L2, params);
+
+                    const window2 = CALCULATION_WINDOW_MULTIPLIER * Math.max(0.01, gamma_G2 + gamma_L2);
+                    const min_tth2 = peakPos2 - window2;
+                    const max_tth2 = peakPos2 + window2;
+
+                    let startIndex2 = 0;
+                    while(startIndex2 < n_points && tthAxis[startIndex2] < min_tth2) startIndex2++;
+
+                    for (let i = startIndex2; i < n_points; i++) {
+                        const current_tth = tthAxis[i];
+                        if (current_tth > max_tth2) break;
+
+                        const intensityAtPoint = pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
+                        
+                        // *** NEW: Apply the same height cutoff logic for the K-alpha 2 peak ***
+                        if (intensityAtPoint > PEAK_HEIGHT_CUTOFF) {
+                            if (shapeArea2 > 1e-9) {
+                                pattern[i] += peak.intensity * params.ratio * (intensityAtPoint / shapeArea2);
+                            }
+                        }
+                    }
+                });
+            }
+            return pattern;
         }
 
-        return pattern;
-    }
-
-function redrawFitForNewRange() {
+        function redrawFitForNewRange() {
             if (!mainChart) return; // Guard clause
 
             // 1. Store the current Y-axis zoom state *before* any changes are made.
@@ -3449,6 +3373,111 @@ function getParameterMapping(fitFlags, initialParams, hklList, refinementMode) {
     return { paramMapping };
 }
 
+
+/**
+ * Clears the cached HKL index list for the currently selected space group.
+ * This forces a full recalculation on the next request.
+ */
+function invalidateHklCache() {
+    const selectedSgNumber = parseInt(controls.spaceGroupSelect.value, 10);
+    if (selectedSgNumber && hklIndexCache[selectedSgNumber]) {
+        delete hklIndexCache[selectedSgNumber];
+    }
+}
+
+/**
+ * Generates the list of raw HKL indices {h, k, l, multiplicity}.
+ * Checks the cache first. If the list is not cached for the given space group,
+ * it performs the expensive loop calculations and stores the result in the cache.
+ * @returns {Array} A list of raw HKL reflection objects.
+ */
+function generateAndCacheHklIndices(spaceGroup, maxTth, params) {
+    const sgNumber = spaceGroup.number;
+    // 1. Check the cache first! If found, return the cached list immediately.
+    if (hklIndexCache[sgNumber]) {
+        return hklIndexCache[sgNumber];
+    }
+
+    // 2. If not in cache, perform the expensive generation
+    const { a, lambda } = params;
+    const { system, laue_class } = spaceGroup;
+    if (!a || !lambda || a <= 0 || lambda <= 0 || !laue_class) return [];
+
+    const maxDimension = Math.max(params.a || 0, params.b || params.a, params.c || params.a);
+    const maxIndex = Math.ceil(2 * maxDimension / lambda * Math.sin(maxTth * Math.PI / 360)) + 5;
+    
+    let rawReflections = [];
+
+    const loopAndAdd = (h, k, l) => {
+        if (h === 0 && k === 0 && l === 0) return;
+        if (isReflectionAllowed(h, k, l, spaceGroup)) {
+            const { multiplicity } = getMultiplicityAndCanonicalHKL(h, k, l, laue_class);
+            // NOTE: We only store raw index data, NOT position (tth, d).
+            rawReflections.push({
+                h_orig: h,
+                k_orig: k,
+                l_orig: l,
+                hkl_list: [`(${h},${k},${l})`],
+                multiplicity: multiplicity
+            });
+        }
+    };
+
+    // This is the computationally intensive block
+    switch (laue_class) {
+        case 'm-3m': case 'm-3':
+            for (let l = 0; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '6/mmm': case '6/m':
+            for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '-3m': case '-3':
+            for (let l = -maxIndex; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '4/mmm': case '4/m':
+            for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case 'mmm':
+            for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = 0; h < maxIndex; h++) loopAndAdd(h, k, l);
+            break;
+        case '2/m':
+            for (let k = 0; k < maxIndex; k++) for (let l = 0; l < maxIndex; l++) for (let h = -maxIndex; h < maxIndex; h++) if (!((k === 0 && h < 0) || (l === 0 && h < 0))) loopAndAdd(h, k, l);
+            break;
+        case '-1':
+            for (let k = 0; k < maxIndex; k++) for (let h = -maxIndex; h < maxIndex; h++) for (let l = -maxIndex; l < maxIndex; l++) if (!(k > 0 || l < 0)) loopAndAdd(h, k, l);
+            break;
+        default:
+            for (let h = 0; h < maxIndex; h++) for (let k = 0; k < maxIndex; k++) for (let l = 0; l < maxIndex; l++) loopAndAdd(h, k, l);
+            break;
+    }
+
+    // 3. Store the newly generated list in the cache before returning it.
+    hklIndexCache[sgNumber] = rawReflections;
+    return rawReflections;
+}
+
+/**
+ * Creates a debounced function that delays invoking `func` until after `wait`
+ * milliseconds have elapsed since the last time the debounced function was invoked.
+ * @param {Function} func The function to debounce.
+ * @param {number} wait The number of milliseconds to delay.
+ * @returns {Function} Returns the new debounced function.
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+};
+
+
+
+
         const dot = (v1, v2) => { let s = 0; for(let i=0; i<v1.length; i++) s += v1[i] * v2[i]; return s; }; const add = (v1, v2) => v1.map((x, i) => x + v2[i]); const subtract = (v1, v2) => v1.map((x, i) => x - v2[i]); const scale = (v, s) => v.map(x => x * s); const transpose = (m) => { if (!m || m.length === 0 || !Array.isArray(m[0])) return m.map(x => [x]); return m[0].map((_, colIndex) => m.map(row => row[colIndex])); }; const multiply = (A, B) => { if (!Array.isArray(B[0])) return A.map(row => dot(row, B)); const Bt = transpose(B); return A.map(rowA => Bt.map(colB => dot(rowA, colB))); }; 
         const solve = (A, b) => { const n = A.length; const Ab = A.map((row, i) => [...row, b[i]]); for (let i = 0; i < n; i++) { let max = i; for (let k = i + 1; k < n; k++) if (Math.abs(Ab[k][i]) > Math.abs(Ab[max][i])) max = k; [Ab[i], Ab[max]] = [Ab[max], Ab[i]]; if (Math.abs(Ab[i][i]) < 1e-12) continue; for (let k = i + 1; k < n; k++) { const factor = Ab[k][i] / Ab[i][i]; if (!isFinite(factor)) continue; for (let j = i; j < n + 1; j++) Ab[k][j] -= factor * Ab[i][j]; } } const x = new Array(n).fill(0); for (let i = n - 1; i >= 0; i--) { let sum = 0; for (let j = i + 1; j < n; j++) sum += Ab[i][j] * x[j]; if (Math.abs(Ab[i][i]) > 1e-12) x[i] = (Ab[i][n] - sum) / Ab[i][i]; } return x; };
         function calculateDeterminant(A) { const n = A.length; if (n === 1) return A[0][0]; if (n === 2) return A[0][0] * A[1][1] - A[0][1] * A[1][0]; const U = A.map(row => [...row]); let det = 1; for (let i = 0; i < n; i++) { let maxRow = i; for (let k = i + 1; k < n; k++) if (Math.abs(U[k][i]) > Math.abs(U[maxRow][i])) maxRow = k; if (maxRow !== i) { [U[i], U[maxRow]] = [U[maxRow], U[i]]; det *= -1; } if (Math.abs(U[i][i]) < 1e-15) return 0; det *= U[i][i]; for (let k = i + 1; k < n; k++) { const factor = U[k][i] / U[i][i]; for (let j = i; j < n; j++) U[k][j] -= factor * U[i][j]; } } return det; }
@@ -3897,40 +3926,82 @@ function setUIState(fitting) {
         }
 
         /**
-         * Numerically integrates the net experimental intensity over a window around a peak.
-         * @param {number} tth_peak - The 2-theta position of the peak.
-         * @param {number} fwhm - The correctly calculated FWHM of the peak.
-         * @param {object} expData - The working experimental data object.
-         * @param {Array<number>} bkgData - The calculated background for the working data range.
-         * @param {number} [multiplier=8.0] - The number of FWHM widths to integrate over. A larger value is more accurate.
-         * @returns {number} The integrated observed intensity.
+         * Calculates the observed integrated intensity for all peaks by partitioning the net
+         * experimental intensity at each point according to the calculated profile shapes.
+         * This correctly handles overlapping reflections.
+         * @param {Array<object>} hklList - The list of HKL reflections.
+         * @param {object} params - The final refined parameters object.
+         * @param {object} expData - The working experimental data {tth, intensity}.
+         * @returns {Map<string, number>} A map where keys are HKL strings and values are the calculated I_obs.
          */
-        function getIntegratedIntensity(tth_peak, fwhm, expData, bkgData, multiplier = 12.0) {
-            if (!expData || expData.tth.length === 0 || fwhm <= 0) return 0;
-            
-            const window = fwhm * multiplier;
-            const tth_min = tth_peak - window / 2;
-            const tth_max = tth_peak + window / 2;
-            
-            let integrated_intensity = 0;
-            let startIndex = expData.tth.findIndex(t => t >= tth_min);
-            if(startIndex === -1) return 0;
-            if(startIndex > 0) startIndex--; 
-            
-            for (let i = startIndex; i < expData.tth.length; i++) {
-                const current_tth = expData.tth[i];
-                if (current_tth > tth_max && i > startIndex) break;
-                if (current_tth < tth_min) continue;
+        function calculateAllObservedIntensities(hklList, params, expData) {
+            const n_points = expData.tth.length;
+            if (n_points === 0) return new Map();
 
-                if (i > startIndex) {
-                    const prev_tth = expData.tth[i-1];
-                    const net_intensity = expData.intensity[i] - (bkgData[i] || 0);
-                    const prev_net_intensity = expData.intensity[i-1] - (bkgData[i-1] || 0);
-                    const step_width = current_tth - prev_tth;
-                    integrated_intensity += (net_intensity + prev_net_intensity) / 2 * step_width;
+            const peak_profiles = new Array(hklList.length);
+            const total_profile_sum = new Array(n_points).fill(0);
+
+            // 1. Pre-calculate the theoretical shape (profile) for every peak
+            hklList.forEach((peak, j) => {
+                const current_peak_profile = new Array(n_points).fill(0);
+                if (!peak.tth) {
+                    peak_profiles[j] = current_peak_profile;
+                    return;
                 }
-            } 
-            return Math.max(0, integrated_intensity);
+                
+                const basePos = peak.tth + params.zeroShift;
+                const shift = calculatePeakShift(basePos, params);
+                const peakPos = basePos + shift;
+                const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params);
+
+                const window = CALCULATION_WINDOW_MULTIPLIER * Math.max(0.01, gamma_G + gamma_L);
+                const min_tth = peakPos - window;
+                const max_tth = peakPos + window;
+
+                let startIndex = 0;
+                while(startIndex < n_points && expData.tth[startIndex] < min_tth) startIndex++;
+
+                for (let i = startIndex; i < n_points; i++) {
+                    const current_tth = expData.tth[i];
+                    if (current_tth > max_tth) break;
+                    
+                    const profile_val = pseudoVoigt(current_tth, peakPos, basePos, gamma_G, gamma_L, params);
+                    if (profile_val > PEAK_HEIGHT_CUTOFF) {
+                        current_peak_profile[i] = profile_val;
+                        total_profile_sum[i] += profile_val;
+                    }
+                }
+                peak_profiles[j] = current_peak_profile;
+            });
+
+            // 2. Partition the experimental intensity and integrate
+            const finalBkg = calculateTotalBackground(expData.tth, params);
+            const i_obs_map = new Map();
+
+            for (let i = 1; i < n_points; i++) {
+                const step_width = expData.tth[i] - expData.tth[i-1];
+                const prev_y_obs_net = expData.intensity[i-1] - finalBkg[i-1];
+                const current_y_obs_net = expData.intensity[i] - finalBkg[i];
+
+                hklList.forEach((peak, j) => {
+                    const hkl_string = peak.hkl_list[0];
+                    if (!i_obs_map.has(hkl_string)) {
+                        i_obs_map.set(hkl_string, 0);
+                    }
+
+                    const prev_fraction = total_profile_sum[i-1] > 1e-9 ? peak_profiles[j][i-1] / total_profile_sum[i-1] : 0;
+                    const current_fraction = total_profile_sum[i] > 1e-9 ? peak_profiles[j][i] / total_profile_sum[i] : 0;
+                    
+                    const prev_partitioned_I = prev_y_obs_net * prev_fraction;
+                    const current_partitioned_I = current_y_obs_net * current_fraction;
+                    
+                    const trapezoid_area = (prev_partitioned_I + current_partitioned_I) / 2 * step_width;
+                    if (trapezoid_area > 0) {
+                        i_obs_map.set(hkl_string, i_obs_map.get(hkl_string) + trapezoid_area);
+                    }
+                });
+            }
+            return i_obs_map;
         }
 
         function generateReportContent(format = 'summary') {
@@ -3951,8 +4022,8 @@ function setUIState(fitting) {
                 `${modeName} Refinement Report`,
                 '========================================================================',
                 '',
-                `Powder5, version 07102025`,
-                `https://nitad54448.github.io/Enseignement/powder5.html`,
+                `Powder5, version 08102025`,
+                `https://nitad54448.github.io/Enseignement/powder5_en_cours.html`,
                 `Report Generated: ${now.toLocaleString()}`,
                 `Data File: ${controls.fileName.textContent}`,
                 ''
@@ -4034,15 +4105,16 @@ function setUIState(fitting) {
                 const reflHeader = formatLine(['h,k,l', '2th_corr (°)', i_calc_header, 'ESD(I)', 'I_obs'], reflWidths);
                 reflectionsSection.push('', '--- Reflections List (Integrated Intensities) ---', reflHeader, '-'.repeat(reflHeader.length));
                 
-                const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
+                // *** NEW: Calculate all I_obs values at once using the intensity partitioning method ***
+                const i_obs_map = calculateAllObservedIntensities(hklList, finalParams, workingData);
+
                 hklList.filter(hkl => hkl.tth && hkl.tth >= workingData.tth[0] && hkl.tth <= workingData.tth[workingData.tth.length - 1])
                     .forEach(hkl => {
                         const peakShift = calculatePeakShift(hkl.tth, finalParams);
                         const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
-                        const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams);
                         
-                        // *** THE KEY CORRECTION: Using the correct FWHM calculation for I_obs ***
-                        const i_obs = getIntegratedIntensity(tthCorr, getPeakFWHM(gamma_G, gamma_L), workingData, finalBkg);
+                        // *** NEW: Look up the correctly partitioned I_obs value ***
+                        const i_obs = i_obs_map.get(hkl.hkl_list[0]) || 0;
                         
                         const scaled_i_calc_area = hkl.intensity * mainScaleFactor;
                         
@@ -4082,8 +4154,84 @@ function setUIState(fitting) {
             return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
         }
 
-        // --- EVENT LISTENERS ---
+        // --- EVENT LISTENERS, 8 oct, version 1.0.3
 
+        document.getElementById('le-bail-button').addEventListener('click', () => runFit('le-bail'));
+        document.getElementById('pawley-button').addEventListener('click', () => runFit('pawley'));
+
+
+        // Helper function to handle a full HKL list recalculation, including cache invalidation.
+        // The new debounce utility function
+        /**
+         * Creates a debounced function that delays invoking `func` until after `wait`
+         * milliseconds have elapsed since the last time the debounced function was invoked.
+         * @param {Function} func The function to debounce.
+         * @param {number} wait The number of milliseconds to delay.
+         * @returns {Function} Returns the new debounced function.
+         */
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        };
+
+        // Helper function to handle a full HKL list recalculation, including cache invalidation.
+        const handleFullHklRecalculation = () => {
+            if (!mainChart || isFitting) return;
+            invalidateHklCache();
+            generateMasterHklList();
+            rescalePlot(false);
+            mainChart.update('none');
+        };
+
+        // Create a debounced version of the handler for frequent input events.
+        const debouncedHklRecalculation = debounce(handleFullHklRecalculation, 400); // 400ms delay
+
+        // Helper function for simple preview updates that DON'T require HKL recalculation.
+        const handleSimplePreviewUpdate = () => {
+            if (!mainChart || isFitting) return;
+            updatePreviewPattern();
+            rescalePlot(false);
+            mainChart.update('none');
+        };
+
+        // --- Attach Listeners to Specific Controls ---
+        // 1. Triggers for FULL Recalculation (these invalidate the cache)
+        // These are for single-click events, so they use the direct handler.
+        document.getElementById('bravais-lattice').addEventListener('change', handleFullHklRecalculation);
+        document.getElementById('space-group-select').addEventListener('change', handleFullHklRecalculation);
+        document.getElementById('wavelength').addEventListener('input', handleFullHklRecalculation);
+        
+        // Use event delegation for dynamically created lattice parameter inputs.
+        // it now calls the debounced handler.
+        document.getElementById('lattice-parameters-container').addEventListener('input', (event) => {
+            if (event.target && event.target.type === 'number' && event.target.id.startsWith('lattice-param-')) {
+                debouncedHklRecalculation();
+            }
+        });
+        
+        // 2. Triggers for SIMPLE Preview Update (these use the cached HKLs)
+        const controlsPanel = document.getElementById('controls-panel');
+        controlsPanel.querySelectorAll('#simple-pvoigt-params-container input, #anisotropy-params-container input').forEach(el => {
+            el.addEventListener('input', handleSimplePreviewUpdate);
+        });
+        document.getElementById('profile-function-select').addEventListener('change', handleSimplePreviewUpdate);
+        document.getElementById('zero-shift').addEventListener('input', handleSimplePreviewUpdate);
+        document.getElementById('fit-zero-shift').addEventListener('change', handleSimplePreviewUpdate);
+
+        // 3. Background parameters have their own dedicated updater function
+        document.getElementById('tab-panel-background').addEventListener('input', (e) => {
+            if (e.target.id === 'show-anchors-checkbox') return;
+            updateBackgroundForPreview();
+        });
+
+        // 4. Main File Input: Clears the ENTIRE cache and sets up the application
         controls.fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -4092,6 +4240,10 @@ function setUIState(fitting) {
                 try {
                     const parsedData = detectAndParseFile(file.name, evt.target.result);
                     if (!parsedData || parsedData.tth.length === 0) throw new Error("No valid data points parsed.");
+
+                    // *** CLEAR THE ENTIRE CACHE ON NEW FILE LOAD ***
+                    hklIndexCache = {}; 
+                    
                     if (parsedData.wavelength) controls.wavelength.value = parsedData.wavelength.toFixed(5);
                     
                     fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
@@ -4108,12 +4260,10 @@ function setUIState(fitting) {
                     
                     initializeChart();
                     
-                    // Get the true min and max from the data
                     const min = fullExperimentalData.tth[0];
                     const max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
                     const step = (max - min) / 2000;
 
-                    // Set the absolute boundaries of the sliders to the full data range
                     [controls.tthMinSlider, controls.tthMaxSlider].forEach(slider => {
                         slider.min = min;
                         slider.max = max;
@@ -4121,34 +4271,27 @@ function setUIState(fitting) {
                         slider.disabled = false;
                     });
                     
-            
-                    // Set the initial slider positions to the full data range
                     controls.tthMinSlider.value = min;
                     controls.tthMaxSlider.value = max;
                     controls.tthMinValue.textContent = min.toFixed(2);
                     controls.tthMaxValue.textContent = max.toFixed(2);
                     
-             //estimate a good background, version 2.3, i'll erase it if it's flaky      
-              const estimatedBgParams = estimateBackgroundParameters(fullExperimentalData.tth, fullExperimentalData.intensity);
-            if (estimatedBgParams) {
-                for (let i = 0; i < 5; i++) {
-                    const input = document.getElementById(`param-b${i}`);
-                    if (input && estimatedBgParams[`B${i}`] !== undefined) {
-                        input.value = estimatedBgParams[`B${i}`].toFixed(2);
+                    const estimatedBgParams = estimateBackgroundParameters(fullExperimentalData.tth, fullExperimentalData.intensity);
+                    if (estimatedBgParams) {
+                        for (let i = 0; i < 5; i++) {
+                            const input = document.getElementById(`param-b${i}`);
+                            if (input && estimatedBgParams[`B${i}`] !== undefined) {
+                                input.value = estimatedBgParams[`B${i}`].toFixed(2);
+                            }
+                        }
                     }
-                }
-            }
 
-
-            updateWorkingData();
-            updatePlotRange(true);
-            generateMasterHklList();      
-            updateBackgroundForPreview();
-            rescalePlot(false); 
-            mainChart.update('none');
-
-
-                    mainChart.update('none');  // This commits all changes to the display
+                    updateWorkingData();
+                    updatePlotRange(true);
+                    generateMasterHklList();      
+                    updateBackgroundForPreview();
+                    rescalePlot(false); 
+                    mainChart.update('none');
 
                 } catch (error) {
                     alert(`Error reading file: ${error.message}`);
@@ -4159,55 +4302,42 @@ function setUIState(fitting) {
             reader.readAsText(file);
         });
 
-
-        document.getElementById('le-bail-button').addEventListener('click', () => runFit('le-bail'));
-document.getElementById('pawley-button').addEventListener('click', () => runFit('pawley'));
-
-        document.getElementById('tab-panel-background').addEventListener('input', (e) => {
-            // Check if the event was triggered by the anchor visibility checkbox
-            if (e.target.id === 'show-anchors-checkbox') {
-                // If so, do nothing and exit the function.
-                return;
-            }
-            // Otherwise, run the preview update as normal for all other controls.
-            updateBackgroundForPreview();
+        // 5. General UI Listeners (not related to HKL caching)
+        document.querySelector('.tab-buttons').addEventListener('click', (e) => { 
+            const clickedTab = e.target.closest('.tab-btn'); 
+            if (clickedTab && !clickedTab.disabled) { 
+                e.currentTarget.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active')); 
+                clickedTab.classList.add('active'); 
+                document.querySelectorAll('.tab-content-panel').forEach(panel => panel.classList.remove('active')); 
+                document.getElementById(`tab-panel-${clickedTab.dataset.tab}`).classList.add('active'); 
+            } 
         });
-
-document.querySelector('.tab-buttons').addEventListener('click', (e) => { const clickedTab = e.target.closest('.tab-btn'); if (clickedTab && !clickedTab.disabled) { e.currentTarget.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active')); clickedTab.classList.add('active'); document.querySelectorAll('.tab-content-panel').forEach(panel => panel.classList.remove('active')); document.getElementById(`tab-panel-${clickedTab.dataset.tab}`).classList.add('active'); } });
         
-        const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel');
-        resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize'; const moveHandler = (moveEvent) => { if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) leftPanel.style.width = `${moveEvent.clientX}px`; }; const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); }; window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler); });
+        const resizer = document.getElementById('drag-handle'); 
+        const leftPanel = document.getElementById('controls-panel');
+        resizer.addEventListener('mousedown', (e) => { 
+            e.preventDefault(); 
+            document.body.style.cursor = 'col-resize'; 
+            const moveHandler = (moveEvent) => { 
+                if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) 
+                    leftPanel.style.width = `${moveEvent.clientX}px`; 
+            }; 
+            const upHandler = () => { 
+                document.body.style.cursor = 'default'; 
+                window.removeEventListener('mousemove', moveHandler); 
+                window.removeEventListener('mouseup', upHandler); 
+            }; 
+            window.addEventListener('mousemove', moveHandler); 
+            window.addEventListener('mouseup', upHandler); 
+        });
         
-        // Regenerate the master list when the space group or system is changed
-                    controls.bravaisLattice.addEventListener('change', () => {
-            updateUIForSystemChange();
-            generateMasterHklList();
-                rescalePlot(false);
-    mainChart.update('none');
-        });
-
-controls.spaceGroupSelect.addEventListener('change', () => {
-    generateMasterHklList();
-    rescalePlot(false);
-    mainChart.update('none');
-});
-
-        controls.fileInput.addEventListener('change', (e) => {
-
-            generateMasterHklList();
-        });
-
-
-
         document.getElementById('anchor-points-list').addEventListener('input', handleAnchorListInteraction);
         document.getElementById('anchor-points-list').addEventListener('click', handleAnchorListInteraction);
-
 
         document.getElementById('show-anchors-checkbox').addEventListener('change', (e) => {
             if (mainChart) {
                 const isVisible = e.target.checked;
                 const anchorDataset = mainChart.data.datasets.find(d => d.label === 'Anchor Points');
-                
                 if (anchorDataset) {
                     anchorDataset.hidden = !isVisible;
                     mainChart.update('none');
@@ -4215,103 +4345,31 @@ controls.spaceGroupSelect.addEventListener('change', () => {
             }
         });
 
-
         controls.mainChartCanvas.addEventListener('click', e => {
-    if (e.ctrlKey && mainChart) {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // --- NEW: Store the current Y-axis zoom level ---
-        const currentYMin = mainChart.scales.y.min;
-        const currentYMax = mainChart.scales.y.max;
-
-        const rect = controls.mainChartCanvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        
-        const tthValue = mainChart.scales.x.getValueForPixel(x);
-        const closestPoint = findClosestExperimentalPoint(tthValue);
-
-        if (closestPoint) {
-            const isAlreadyAdded = backgroundAnchors.some(a => a.index === closestPoint.index);
-            if (!isAlreadyAdded) {
-                backgroundAnchors.push(closestPoint);
-                backgroundAnchors.sort((a, b) => a.tth - b.tth); 
-                renderAnchorList();
-                // This call will still trigger the unwanted Y-axis change
-                updateBackgroundForPreview();
+            if (e.ctrlKey && mainChart) {
+                e.preventDefault();
+                e.stopPropagation();
+                const currentYMin = mainChart.scales.y.min;
+                const currentYMax = mainChart.scales.y.max;
+                const rect = controls.mainChartCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const tthValue = mainChart.scales.x.getValueForPixel(x);
+                const closestPoint = findClosestExperimentalPoint(tthValue);
+                if (closestPoint) {
+                    const isAlreadyAdded = backgroundAnchors.some(a => a.index === closestPoint.index);
+                    if (!isAlreadyAdded) {
+                        backgroundAnchors.push(closestPoint);
+                        backgroundAnchors.sort((a, b) => a.tth - b.tth); 
+                        renderAnchorList();
+                        updateBackgroundForPreview();
+                    }
+                }
+                mainChart.options.scales.y.min = currentYMin;
+                mainChart.options.scales.y.max = currentYMax;
+                mainChart.update('none');
             }
-        }
-
-        // --- NEW: Forcefully restore the Y-axis to its previous state ---
-        mainChart.options.scales.y.min = currentYMin;
-        mainChart.options.scales.y.max = currentYMax;
-        
-        // Apply the restored zoom level
-        mainChart.update('none');
-    }
-});
-      
-    // --- FINAL, COMPLETE EVENT LISTENER BLOCK ---
-
-        // This function regenerates the HKL list and updates the plot.
-        const handleHklRecalculation = () => {
-            if (!mainChart || isFitting) return;
-            generateMasterHklList(); // This also triggers a preview update internally
-            rescalePlot(false);
-            mainChart.update('none');
-        };
-        
-        // This function handles simple preview updates that DON'T require HKL recalculation.
-        const handleSimplePreviewUpdate = () => {
-            if (!mainChart || isFitting) return;
-            updatePreviewPattern();
-            rescalePlot(false);
-            mainChart.update('none');
-        };
-
-        // --- Attach Listeners to Specific Controls ---
-
-        // 1. Critical HKL Triggers: System, Space Group, and Wavelength
-        document.getElementById('bravais-lattice').addEventListener('change', handleHklRecalculation);
-        document.getElementById('space-group-select').addEventListener('change', handleHklRecalculation);
-        document.getElementById('wavelength').addEventListener('input', handleHklRecalculation);
-
-        // 2. Lattice Parameters (using EVENT DELEGATION for dynamic elements)
-        const latticeParamsContainer = document.getElementById('lattice-parameters-container');
-        if (latticeParamsContainer) {
-            // Listener for number inputs (a, b, c...)
-            latticeParamsContainer.addEventListener('input', (event) => {
-                if (event.target && event.target.type === 'number' && event.target.id.startsWith('lattice-param-')) {
-                    handleHklRecalculation();
-                }
-            });
-            // Listener for fit checkboxes
-            latticeParamsContainer.addEventListener('change', (event) => {
-                if (event.target && event.target.type === 'checkbox' && event.target.id.startsWith('fit-lattice-')) {
-                    handleHklRecalculation();
-                }
-            });
-        }
-
-        // 3. Profile Parameters
-        const controlsPanel = document.getElementById('controls-panel');
-        controlsPanel.querySelectorAll('#simple-pvoigt-params-container input, #anisotropy-params-container input').forEach(el => {
-            el.addEventListener('input', handleSimplePreviewUpdate);
-        });
-        document.getElementById('profile-function-select').addEventListener('change', handleSimplePreviewUpdate);
-        
-        // 4. Background Parameters
-        controlsPanel.querySelectorAll('#background-params-container input, #tab-panel-background .profile-controls-container input').forEach(el => {
-             el.addEventListener('input', updateBackgroundForPreview);
         });
 
-        // 5. Zero Shift
-        document.getElementById('zero-shift').addEventListener('input', handleSimplePreviewUpdate);
-        document.getElementById('fit-zero-shift').addEventListener('change', handleSimplePreviewUpdate);
-
-        // --- END: FINAL, COMPLETE EVENT LISTENER BLOCK ---
-
- 
 
         controls.iterationsSlider.addEventListener('input', () => controls.iterationsValue.textContent = controls.iterationsSlider.value);
         
