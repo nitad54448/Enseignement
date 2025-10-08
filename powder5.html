@@ -937,6 +937,7 @@
                      <select id="algorithm-select" class="control-select">
                         <option value="lm">Levenberg-Marquardt</option>
                         <option value="sa" selected>Simulated Annealing</option>
+                        <option value="pt" selected>Parallel Tempering</option> </select>
                      </select>
                      
                      <div class="slider-group">
@@ -1014,7 +1015,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5, 07 Oct 2025
+        Powder 5, 08 Oct 2025
     </div>
 </div>
 
@@ -2194,6 +2195,7 @@ function calculateProfileWidths(tth, hkl, params) {
 }
 
 // pour calculer les surfaces des pics, pour les rapports, erreur dans l'Anistropy avant la version 2.6
+//Anisotropy calc was in slight error priot to 8 october
 function getPseudoVoigtArea(gamma_G, gamma_L, params) {
             // Area of a Gaussian with FWHM = H is H * sqrt(pi / (4*ln(2)))
             const GAUSS_AREA_CONST = 1.0644677;
@@ -2208,29 +2210,24 @@ function getPseudoVoigtArea(gamma_G, gamma_L, params) {
                 return currentEta * area_L + (1 - currentEta) * area_G;
 
             } else {
-                // --- CORRECTED LOGIC FOR TCH PROFILE ---
-                // 1. Calculate the combined FWHM and eta exactly as done in the pseudoVoigt function
-                const fwhm_pow5 = Math.pow(gamma_G, 5) +
-                                2.69269 * Math.pow(gamma_G, 4) * gamma_L +
-                                2.42843 * Math.pow(gamma_G, 3) * Math.pow(gamma_L, 2) +
-                                4.47163 * Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3) +
-                                0.07842 * gamma_G * Math.pow(gamma_L, 4) +
-                                Math.pow(gamma_L, 5);
-                const fwhm = Math.max(1e-9, Math.pow(fwhm_pow5, 0.2));
+                // --- START: CORRECTED LOGIC FOR TCH PROFILE ---
+                // For the TCH profile, the FWHM of the Gaussian and Lorentzian parts
+                // are considered the same as the final convoluted FWHM for the area calculation.
+                const fwhm = getPeakFWHM(gamma_G, gamma_L);
                 
+                // We still need to calculate the mixing parameter, eta, as done in the pseudoVoigt function.
                 const ratio = gamma_L / fwhm;
                 const eta_calc = 1.36603 * ratio - 0.47719 * (ratio * ratio) + 0.11116 * Math.pow(ratio, 3);
                 const currentEta = Math.max(0, Math.min(1, eta_calc));
 
-                // 2. Calculate the area of a pV shape using the COMBINED FWHM and COMBINED eta.
-                // This is now mathematically consistent with the shape function.
+                // Now, calculate the area as a mix of a pure Gaussian and pure Lorentzian, both having the same FWHM.
                 const area_G_combined = fwhm * GAUSS_AREA_CONST;
                 const area_L_combined = fwhm * LORENTZ_AREA_CONST;
                 
                 return currentEta * area_L_combined + (1 - currentEta) * area_G_combined;
+                // --- END: CORRECTED LOGIC FOR TCH PROFILE ---
             }
         }
-
 
         //  pseudoVoigt function with proper profile handling
 function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) {
@@ -2314,98 +2311,94 @@ function applyAsymmetry(x, x0, tth_peak, params) {
             return delta_2theta / Math.max(1e-6, asymmetry_factor);
         }
 
+        function calculatePattern(tthAxis, hklList, params) {
+        const pattern = new Array(tthAxis.length).fill(0);
+        const n_points = tthAxis.length;
+        const deg2rad = Math.PI / 180;
 
-    function calculatePattern(tthAxis, hklList, params) {
-    const pattern = new Array(tthAxis.length).fill(0);
-    const n_points = tthAxis.length;
-    const deg2rad = Math.PI / 180;
-
-    // --- Calculate K-alpha 1 pattern ---
-    hklList.forEach(peak => {
-        if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
-
-        // K-alpha 1 position and widths
-        const basePos1 = peak.tth + params.zeroShift;
-        const shift1 = calculatePeakShift(basePos1, params);
-        const peakPos1 = basePos1 + shift1;
-        const { gamma_G, gamma_L } = calculateProfileWidths(basePos1, peak, params);
-
-        //Calculate the area of the un-normalized shape function ***
-        const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
-
-        // Determine the calculation window
-        const window = 20 * Math.max(0.01, gamma_G + gamma_L);
-        const min_tth = peakPos1 - window;
-        const max_tth = peakPos1 + window;
-
-        let startIndex = 0;
-        while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++;
-
-        // Add the peak shape to the pattern
-        for (let i = startIndex; i < n_points; i++) {
-            const current_tth = tthAxis[i];
-            if (current_tth > max_tth) break;
-
-            const intensityAtPoint = pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
-            
-            // Normalize the shape by its area before scaling by integrated intensity
-            if (shapeArea1 > 1e-9) {
-                pattern[i] += peak.intensity * (intensityAtPoint / shapeArea1);
-            }
-        }
-    });
-
-    // --- Calculate and Add K-alpha 2 pattern (si 0 ou valeurs differentes)
-    const doubletEnabled = params.ratio > 0 && params.lambda2 > 0 && Math.abs(params.lambda - params.lambda2) > 1e-6;
-    if (doubletEnabled) {
-        const lambdaRatio = params.lambda2 / params.lambda;
-
+        // --- Calculate K-alpha 1 pattern ---
         hklList.forEach(peak => {
             if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
 
-            // Calculate K-alpha 2 position from K-alpha 1... la largeur est aussi un peu differente, mais bon, pas très differente
-            const sinTheta1 = Math.sin(peak.tth * deg2rad / 2.0);
-            if (Math.abs(sinTheta1) >= 1) return;
-            
-            const sinTheta2 = sinTheta1 * lambdaRatio;
-            if (Math.abs(sinTheta2) >= 1) return;
+            // K-alpha 1 position and widths
+            const basePos1 = peak.tth + params.zeroShift;
+            const shift1 = calculatePeakShift(basePos1, params);
+            const peakPos1 = basePos1 + shift1;
+            const { gamma_G, gamma_L } = calculateProfileWidths(basePos1, peak, params);
 
-            const tth2 = 2 * Math.asin(sinTheta2) / deg2rad;
-            const basePos2 = tth2 + params.zeroShift;
-            const shift2 = calculatePeakShift(basePos2, params);
-            const peakPos2 = basePos2 + shift2;
-
-            // Calculate NEW widths at the K-alpha 2 position... peut etre inutile
-            const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
-            
-            // Calculate the area for the K-alpha 2 shape function 
-            const shapeArea2 = getPseudoVoigtArea(gamma_G2, gamma_L2, params);
+            // *** FIX: Calculate the true mathematical area of the shape function ***
+            const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
 
             // Determine the calculation window
-            const window2 = 8 * Math.max(0.01, gamma_G2 + gamma_L2);
-            const min_tth2 = peakPos2 - window2;
-            const max_tth2 = peakPos2 + window2;
+            const window = 20 * Math.max(0.01, gamma_G + gamma_L);
+            const min_tth = peakPos1 - window;
+            const max_tth = peakPos1 + window;
 
-            let startIndex2 = 0;
-            while(startIndex2 < n_points && tthAxis[startIndex2] < min_tth2) startIndex2++;
+            let startIndex = 0;
+            while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++;
 
-            // Add the K-alpha 2 peak shape to the pattern
-            for (let i = startIndex2; i < n_points; i++) {
+            // Add the peak shape to the pattern
+            for (let i = startIndex; i < n_points; i++) {
                 const current_tth = tthAxis[i];
-                if (current_tth > max_tth2) break;
+                if (current_tth > max_tth) break;
 
-                const intensityAtPoint = pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
-
-                // Normalize the shape and apply the intensity ratio ***
-                if (shapeArea2 > 1e-9) {
-                    pattern[i] += peak.intensity * params.ratio * (intensityAtPoint / shapeArea2);
+                const intensityAtPoint = pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
+                
+                // *** FIX: Normalize the shape by its area before scaling by integrated intensity ***
+                if (shapeArea1 > 1e-9) {
+                    pattern[i] += peak.intensity * (intensityAtPoint / shapeArea1);
                 }
             }
         });
-    }
 
-    return pattern;
-}
+        // --- Calculate and Add K-alpha 2 pattern ---
+        const doubletEnabled = params.ratio > 0 && params.lambda2 > 0 && Math.abs(params.lambda - params.lambda2) > 1e-6;
+        if (doubletEnabled) {
+            const lambdaRatio = params.lambda2 / params.lambda;
+
+            hklList.forEach(peak => {
+                if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
+
+                // Calculate K-alpha 2 position from K-alpha 1
+                const sinTheta1 = Math.sin(peak.tth * deg2rad / 2.0);
+                if (Math.abs(sinTheta1) >= 1) return;
+                
+                const sinTheta2 = sinTheta1 * lambdaRatio;
+                if (Math.abs(sinTheta2) >= 1) return;
+
+                const tth2 = 2 * Math.asin(sinTheta2) / deg2rad;
+                const basePos2 = tth2 + params.zeroShift;
+                const shift2 = calculatePeakShift(basePos2, params);
+                const peakPos2 = basePos2 + shift2;
+
+                const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
+                
+                // *** FIX: Calculate the area for the K-alpha 2 shape function ***
+                const shapeArea2 = getPseudoVoigtArea(gamma_G2, gamma_L2, params);
+
+                const window2 = 8 * Math.max(0.01, gamma_G2, gamma_L2);
+                const min_tth2 = peakPos2 - window2;
+                const max_tth2 = peakPos2 + window2;
+
+                let startIndex2 = 0;
+                while(startIndex2 < n_points && tthAxis[startIndex2] < min_tth2) startIndex2++;
+
+                for (let i = startIndex2; i < n_points; i++) {
+                    const current_tth = tthAxis[i];
+                    if (current_tth > max_tth2) break;
+
+                    const intensityAtPoint = pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
+
+                    // *** FIX: Normalize the shape and apply the intensity ratio ***
+                    if (shapeArea2 > 1e-9) {
+                        pattern[i] += peak.intensity * params.ratio * (intensityAtPoint / shapeArea2);
+                    }
+                }
+            });
+        }
+
+        return pattern;
+    }
 
 function redrawFitForNewRange() {
             if (!mainChart) return; // Guard clause
@@ -2532,7 +2525,7 @@ function estimateBackgroundParameters(tth, intensity) {
 
 
 // runFit function 
-function runFit(refinementMode) {
+    function runFit(refinementMode) {
     if (isFitting) return;
     isFitting = true;
     setUIState(true);
@@ -2565,6 +2558,7 @@ function runFit(refinementMode) {
     (async () => {
         let finalResults;
 
+        // --- Le Bail Refinement Path ---
         if (refinementMode === 'le-bail') {
             const LE_BAIL_CYCLES = 8;
             for (let cycle = 0; cycle < LE_BAIL_CYCLES; cycle++) {
@@ -2574,18 +2568,24 @@ function runFit(refinementMode) {
                 let refinementResults;
                 if (algorithm === 'lm') {
                     refinementResults = await refineParametersLM(currentParams, fitFlags, maxIterations, currentHklList, system, null, refinementMode);
-                } else {
+                } else if (algorithm === 'sa') {
                     refinementResults = await refineParametersSA(currentParams, fitFlags, maxIterations, currentHklList, system, null, refinementMode);
+                } else { // Parallel Tempering
+                    refinementResults = await refineParametersPT(currentParams, fitFlags, maxIterations, currentHklList, system, null, refinementMode);
                 }
                 
-                currentParams = refinementResults.params;
-                currentHklList = refinementResults.hklList;
-                finalResults = refinementResults;
+                if (refinementResults && refinementResults.params && refinementResults.hklList) {
+                    currentParams = refinementResults.params;
+                    currentHklList = refinementResults.hklList;
+                    finalResults = refinementResults;
+                }
 
                 const updatedBackground = calculateTotalBackground(workingData.tth, currentParams);
                 leBailIntensityExtraction({ tth: workingData.tth, intensity: workingData.intensity, background: updatedBackground }, currentHklList, currentParams);
             }
-        } else { // Pawley Path
+        } 
+        // --- Pawley Refinement Path ---
+        else { 
             const initialBackground = calculateTotalBackground(workingData.tth, currentParams);
             leBailIntensityExtraction({ 
                 tth: workingData.tth, 
@@ -2593,23 +2593,32 @@ function runFit(refinementMode) {
                 background: initialBackground 
             }, currentHklList, currentParams);
 
-            // Make the callback async to allow for awaiting inside it
             const pawleyProgress = async (progress) => {
                 controls.progressBar.style.width = `${progress * 100}%`;
-                // *** THIS IS THE FIX *** // This line gives the browser a moment to render the style change.
                 await new Promise(resolve => setTimeout(resolve, 0));
             };
 
             if (algorithm === 'lm') {
                 finalResults = await refineParametersLM(currentParams, fitFlags, maxIterations, currentHklList, system, pawleyProgress, refinementMode);
-            } else {
+            } else if (algorithm === 'sa') {
                 finalResults = await refineParametersSA(currentParams, fitFlags, maxIterations, currentHklList, system, pawleyProgress, refinementMode);
+            } else { // Parallel Tempering
+                finalResults = await refineParametersPT(currentParams, fitFlags, maxIterations, currentHklList, system, pawleyProgress, refinementMode);
             }
-            currentParams = finalResults.params;
-            currentHklList = finalResults.hklList;
-        
+            
+            if (finalResults && finalResults.params && finalResults.hklList) {
+                currentParams = finalResults.params;
+                currentHklList = finalResults.hklList;
+            }
         }
         
+        if (!currentParams || !currentHklList) {
+            showToast("Refinement failed to produce valid results. Aborting.", "error");
+            isFitting = false;
+            setUIState(false);
+            return; 
+        }
+
         const finalNetPatternForStats = calculatePattern(workingData.tth, currentHklList, currentParams);
         const finalBackgroundForStats = calculateTotalBackground(workingData.tth, currentParams);
         const finalStats = calculateStatistics(workingData, finalNetPatternForStats, fitFlags, finalBackgroundForStats, currentParams, currentHklList, refinementMode);
@@ -2619,8 +2628,8 @@ function runFit(refinementMode) {
             hklList: currentHklList,
             stats: finalStats,
             algorithm: algorithm,
+            refinementMode: refinementMode, // The critical fix is here
             fitFlags: fitFlags,
-            refinementMode: refinementMode,
             paramMapping: finalResults ? finalResults.paramMapping : [],
             JtJ: finalResults ? finalResults.JtJ : null,
             ss_res: finalResults ? finalResults.ss_res : null
@@ -2633,6 +2642,8 @@ function runFit(refinementMode) {
         setUIState(false);
     })();
 }
+
+
 
         function leBailIntensityExtraction(expData, hklList, params) {
     if (expData.tth.length !== expData.background.length || expData.tth.length !== expData.intensity.length) {
@@ -2786,6 +2797,169 @@ function calculateStatistics(workingData, netCalcPattern, fitFlags, finalBackgro
 
     return { r_p: Rp, rwp: Rwp, chi2: GOF, scaleFactor, sum_w_res_sq };
 }
+
+
+/**
+ * Refines parameters using the Parallel Tempering (PT) algorithm.
+ * PT runs multiple replicas of the system at different temperatures and allows them to swap states,
+ * which helps overcome energy barriers and find the global minimum more effectively.
+ *
+ * @param {object} initialParams - The starting parameters for the refinement.
+ * @param {object} fitFlags - A boolean map indicating which parameters to refine.
+ * @param {number} maxIter - The total number of iterations to run.
+ * @param {Array<object>} hklList - The list of HKL reflections.
+ * @param {string} system - The crystal system (e.g., 'cubic').
+ * @param {Function} progressCallback - A function to call with progress (0.0 to 1.0).
+ * @param {string} refinementMode - The refinement mode ('le-bail' or 'pawley').
+ * @returns {Promise<object>} A promise that resolves with the final refinement results.
+ */
+async function refineParametersPT(initialParams, fitFlags, maxIter, hklList, system, progressCallback, refinementMode) {
+    const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
+    if (paramMapping.length === 0) {
+        return { params: initialParams, hklList: hklList, ss_res: 0 };
+    }
+
+    // --- PT Configuration ---
+    const numReplicas = 8; // Number of parallel chains. 8 is a good starting point.
+    const maxTemp = 1.0; // Temperature of the "hottest" replica.
+    const minTemp = 1e-5; // Temperature of the "coldest" replica.
+    const swapInterval = 10; // Attempt swaps every N iterations.
+
+    // --- Objective function to calculate the cost (sum of weighted squared residuals) ---
+    const objective = (p_obj, hkl_list_obj) => {
+        try {
+            updateHklPositions(hkl_list_obj, p_obj, system);
+            const netCalcPattern = calculatePattern(workingData.tth, hkl_list_obj, p_obj);
+            const y_bkg = calculateTotalBackground(workingData.tth, p_obj);
+            
+            let num = 0, den = 0;
+            for (let i = 0; i < workingData.tth.length; i++) {
+                const y_obs_net = workingData.intensity[i] - y_bkg[i];
+                num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
+                den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
+            }
+            const scaleFactor = (den > 1e-9) ? num / den : 1.0;
+            
+            const y_calc_total = netCalcPattern.map((y, i) => (scaleFactor * y) + y_bkg[i]);
+            let sum_w_res_sq = 0;
+            for (let i = 0; i < workingData.tth.length; i++) {
+                sum_w_res_sq += workingData.weights[i] * Math.pow(workingData.intensity[i] - y_calc_total[i], 2);
+            }
+            return isFinite(sum_w_res_sq) ? sum_w_res_sq : 1e12; // Return a large number on error
+        } catch (err) {
+            return 1e12;
+        }
+    };
+
+    // --- Initialization ---
+    // 1. Create the geometric temperature ladder
+    const temperatures = Array.from({ length: numReplicas }, (_, i) => 
+        maxTemp * Math.pow(minTemp / maxTemp, i / (numReplicas - 1))
+    );
+
+    // 2. Initialize all replicas with the same starting state
+    const initialCost = objective(initialParams, hklList);
+    let replicas = temperatures.map(temp => ({
+        params: JSON.parse(JSON.stringify(initialParams)),
+        hklList: JSON.parse(JSON.stringify(hklList)),
+        cost: initialCost,
+        temp: temp
+    }));
+
+    // 3. Keep track of the best solution found across all replicas
+    let bestOverallParams = JSON.parse(JSON.stringify(initialParams));
+    let bestOverallHklList = JSON.parse(JSON.stringify(hklList));
+    let bestOverallCost = initialCost;
+
+    // --- Main PT Loop ---
+    for (let iter = 0; iter < maxIter; iter++) {
+        // --- Part 1: Standard Monte Carlo step for each replica ---
+        for (let i = 0; i < numReplicas; i++) {
+            let replica = replicas[i];
+            const originalParams = JSON.parse(JSON.stringify(replica.params));
+            const originalHklList = JSON.parse(JSON.stringify(replica.hklList));
+
+            // Perturb a random parameter
+            const p_idx = Math.floor(Math.random() * paramMapping.length);
+            const mapping = paramMapping[p_idx];
+            const original_val = mapping.get(replica.params, replica.hklList);
+            // The step size scales with the replica's temperature
+            const step_size = (mapping.step || 0.3) * Math.max(0.05, replica.temp);
+            const new_val = original_val + (Math.random() - 0.5) * 2 * step_size;
+            mapping.set(replica.params, replica.hklList, new_val);
+            
+            // Calculate new cost and decide whether to accept
+            const neighbor_cost = objective(replica.params, replica.hklList);
+            const delta_cost = neighbor_cost - replica.cost;
+            
+            if (delta_cost < 0 || Math.exp(-delta_cost / (replica.cost * replica.temp)) > Math.random()) {
+                replica.cost = neighbor_cost; // Accept the move
+            } else {
+                replica.params = originalParams; // Reject, revert
+                replica.hklList = originalHklList;
+            }
+
+            // Update the global best solution if this replica found a new minimum
+            if (replica.cost < bestOverallCost) {
+                bestOverallCost = replica.cost;
+                bestOverallParams = JSON.parse(JSON.stringify(replica.params));
+                bestOverallHklList = JSON.parse(JSON.stringify(replica.hklList));
+            }
+        }
+
+        // --- Part 2: Attempt to swap states between adjacent replicas ---
+        if (iter > 0 && iter % swapInterval === 0) {
+            for (let i = 0; i < numReplicas - 1; i++) {
+                const rep1 = replicas[i];
+                const rep2 = replicas[i + 1];
+
+                // Metropolis criterion for swapping replicas
+                // P_swap = exp( (cost_1 - cost_2) * (1/T_1 - 1/T_2) )
+                const delta_beta = (1 / rep1.temp) - (1 / rep2.temp);
+                const delta_cost = rep1.cost - rep2.cost;
+                const acceptance_prob = Math.exp(delta_beta * delta_cost);
+
+                if (acceptance_prob > Math.random()) {
+                    // Swap the states (params, hkl, cost), but NOT the temperatures
+                    [rep1.params, rep2.params] = [rep2.params, rep1.params];
+                    [rep1.hklList, rep2.hklList] = [rep2.hklList, rep1.hklList];
+                    [rep1.cost, rep2.cost] = [rep2.cost, rep1.cost];
+                }
+            }
+        }
+        
+        if (progressCallback) await progressCallback((iter + 1) / maxIter);
+    }
+    
+    // --- Finalization ---
+    // The best result is the one stored in bestOverallParams, which corresponds to the lowest cost found at any temperature.
+    // Calculate final scale factor and apply it to the HKL intensities of the best solution
+    updateHklPositions(bestOverallHklList, bestOverallParams, system);
+    const netCalcPattern = calculatePattern(workingData.tth, bestOverallHklList, bestOverallParams);
+    const y_bkg = calculateTotalBackground(workingData.tth, bestOverallParams);
+    let num = 0, den = 0;
+    for (let i = 0; i < workingData.tth.length; i++) {
+        const y_obs_net = workingData.intensity[i] - y_bkg[i];
+        num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
+        den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
+    }
+    const bestScaleFactor = (den > 1e-9) ? num / den : 1.0;
+    
+    // Apply the final scale factor to the intensities of the returned list
+    bestOverallHklList.forEach(hkl => {
+        hkl.intensity *= bestScaleFactor;
+    });
+
+    return {
+        params: bestOverallParams,
+        hklList: bestOverallHklList,
+        algorithm: 'pt',
+        paramMapping,
+        fitFlags,
+        ss_res: bestOverallCost
+    };
+}
+
 
 
 // 
@@ -3661,8 +3835,8 @@ function setUIState(fitting) {
     }
 }
 
-        function getIntegratedIntensity(tth_peak, fwhm, expData, bkgData, multiplier = 2.0) { if (!expData || expData.tth.length === 0 || fwhm <= 0) return 0; const window = fwhm * multiplier; const tth_min = tth_peak - window / 2; const tth_max = tth_peak + window / 2; let integrated_intensity = 0; let startIndex = expData.tth.findIndex(t => t >= tth_min); if(startIndex === -1) return 0; if(startIndex > 0) startIndex--; for (let i = startIndex; i < expData.tth.length; i++) { const current_tth = expData.tth[i]; if (current_tth > tth_max && i > startIndex) break; if (current_tth < tth_min) continue; if (i > startIndex) { const prev_tth = expData.tth[i-1]; const net_intensity = expData.intensity[i] - (bkgData[i] || 0); const prev_net_intensity = expData.intensity[i-1] - (bkgData[i-1] || 0); const step_width = current_tth - prev_tth; integrated_intensity += (net_intensity + prev_net_intensity) / 2 * step_width; } } return Math.max(0, integrated_intensity); }
-        
+
+
         function downloadTextFile(content, filename) {
             const element = document.createElement('a');
             const file = new Blob([content], {type: 'text/plain;charset=utf-8'});
@@ -3701,148 +3875,212 @@ function setUIState(fitting) {
             }, duration);
         }
 
+
+        /**
+         * Calculates the total FWHM of a pseudo-Voigt peak from its Gaussian and Lorentzian components.
+         * Uses the Thompson-Cox-Hastings approximation, which is accurate for all profile types.
+         * @param {number} gamma_G - The FWHM of the Gaussian component.
+         * @param {number} gamma_L - The FWHM of the Lorentzian component.
+         * @returns {number} The total FWHM of the convoluted peak.
+         */
+        function getPeakFWHM(gamma_G, gamma_L) {
+            const fwhm_g_5 = Math.pow(gamma_G, 5);
+            const fwhm_l_5 = Math.pow(gamma_L, 5);
+            const fwhm_g_4_l = Math.pow(gamma_G, 4) * gamma_L;
+            const fwhm_g_3_l_2 = Math.pow(gamma_G, 3) * Math.pow(gamma_L, 2);
+            const fwhm_g_2_l_3 = Math.pow(gamma_G, 2) * Math.pow(gamma_L, 3);
+            const fwhm_g_l_4 = gamma_G * Math.pow(gamma_L, 4);
+
+            const fwhm_pow5 = fwhm_g_5 + 2.69269 * fwhm_g_4_l + 2.42843 * fwhm_g_3_l_2 + 4.47163 * fwhm_g_2_l_3 + 0.07842 * fwhm_g_l_4 + fwhm_l_5;
+            
+            return Math.pow(fwhm_pow5, 0.2);
+        }
+
+        /**
+         * Numerically integrates the net experimental intensity over a window around a peak.
+         * @param {number} tth_peak - The 2-theta position of the peak.
+         * @param {number} fwhm - The correctly calculated FWHM of the peak.
+         * @param {object} expData - The working experimental data object.
+         * @param {Array<number>} bkgData - The calculated background for the working data range.
+         * @param {number} [multiplier=8.0] - The number of FWHM widths to integrate over. A larger value is more accurate.
+         * @returns {number} The integrated observed intensity.
+         */
+        function getIntegratedIntensity(tth_peak, fwhm, expData, bkgData, multiplier = 12.0) {
+            if (!expData || expData.tth.length === 0 || fwhm <= 0) return 0;
+            
+            const window = fwhm * multiplier;
+            const tth_min = tth_peak - window / 2;
+            const tth_max = tth_peak + window / 2;
+            
+            let integrated_intensity = 0;
+            let startIndex = expData.tth.findIndex(t => t >= tth_min);
+            if(startIndex === -1) return 0;
+            if(startIndex > 0) startIndex--; 
+            
+            for (let i = startIndex; i < expData.tth.length; i++) {
+                const current_tth = expData.tth[i];
+                if (current_tth > tth_max && i > startIndex) break;
+                if (current_tth < tth_min) continue;
+
+                if (i > startIndex) {
+                    const prev_tth = expData.tth[i-1];
+                    const net_intensity = expData.intensity[i] - (bkgData[i] || 0);
+                    const prev_net_intensity = expData.intensity[i-1] - (bkgData[i-1] || 0);
+                    const step_width = current_tth - prev_tth;
+                    integrated_intensity += (net_intensity + prev_net_intensity) / 2 * step_width;
+                }
+            } 
+            return Math.max(0, integrated_intensity);
+        }
+
         function generateReportContent(format = 'summary') {
-    if (!fitResults || !fitResults.params || !workingData.isValid) {
-        return "Error: Fit results are not available.";
-    }
+            if (!fitResults || !fitResults.params || !workingData.isValid) {
+                return "Error: Fit results are not available.";
+            }
 
-    const now = new Date();
-    const { params: finalParams, stats, fitFlags, hklList, algorithm, refinementMode } = fitResults;
-    const mainScaleFactor = stats.scaleFactor || 1.0;
-    
-    const formatLine = (cols, widths) => {
-        return cols.map((col, i) => (col || '-').padEnd(widths[i])).join(' ');
-    };
+            const now = new Date();
+            const { params: finalParams, stats, fitFlags, hklList, algorithm, refinementMode } = fitResults;
+            const mainScaleFactor = stats.scaleFactor || 1.0;
+            
+            const formatLine = (cols, widths) => {
+                return cols.map((col, i) => (col || '-').padEnd(widths[i])).join(' ');
+            };
 
-    const modeName = refinementMode === 'pawley' ? 'Pawley' : 'Le Bail';
-    const header = [
-        `${modeName} Refinement Report`,
-        '========================================================================',
-        '',
-        `Powder5, version 07102025`,
-        `https://nitad54448.github.io/Enseignement/powder5.html`,
-        `Report Generated: ${now.toLocaleString()}`,
-        `Data File: ${controls.fileName.textContent}`,
-        ''
-    ];
+            const modeName = refinementMode === 'pawley' ? 'Pawley' : 'Le Bail';
+            const header = [
+                `${modeName} Refinement Report`,
+                '========================================================================',
+                '',
+                `Powder5, version 07102025`,
+                `https://nitad54448.github.io/Enseignement/powder5.html`,
+                `Report Generated: ${now.toLocaleString()}`,
+                `Data File: ${controls.fileName.textContent}`,
+                ''
+            ];
 
-    const profileName = finalParams.profileType === "4" ? "Simple pVoigt" : "TCH w/ Anisotropy";
-    const selectedSg = spaceGroups.find(sg => sg.number === parseInt(controls.spaceGroupSelect.value, 10));
-    const spaceGroupName = selectedSg ? `${selectedSg.number} – ${selectedSg.name}` : 'N/A';
-    
-    const statsSection = [
-        '--- Refinement Statistics ---',
-        `Rp (%):       ${stats.r_p.toFixed(3)}`,
-        `Rwp (%):      ${stats.rwp.toFixed(3)}`,
-        `χ² (GOF):     ${stats.chi2.toFixed(3)}`,
-        `Algorithm:    ${algorithm === 'lm' ? 'Levenberg-Marquardt' : 'Simulated Annealing'}`,
-        `Refinement:   ${modeName}`,
-        `Profile:      ${profileName} (#${finalParams.profileType})`,
-        `Space Group:  ${spaceGroupName}`,
-        ''
-    ];
+            const algorithmNames = {
+                lm: 'Levenberg-Marquardt',
+                sa: 'Simulated Annealing',
+                pt: 'Parallel Tempering'
+            };
+            const algorithmName = algorithmNames[algorithm] || 'Unknown';
 
-    let esds = {};
-    let esdWarning = null;
-    if (fitResults.algorithm === 'lm' && fitResults.JtJ && fitResults.paramMapping) {
-        // Recalculate P for ESDs correctly
-        const P = fitResults.paramMapping.length;
-        const N = workingData.intensity.length;
-        if (N > P && fitResults.ss_res !== undefined) {
-            const reduced_chi_sq = fitResults.ss_res / (N - P);
-            const cov_matrix = matrixInverse(fitResults.JtJ);
-            if (cov_matrix) {
-                fitResults.paramMapping.forEach((p_map, i) => {
-                    if (cov_matrix[i] && cov_matrix[i][i] !== undefined) {
-                        esds[p_map.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i])) * p_map.scale;
+            const profileName = finalParams.profileType === "4" ? "Simple pVoigt" : "TCH w/ Anisotropy";
+            const selectedSg = spaceGroups.find(sg => sg.number === parseInt(controls.spaceGroupSelect.value, 10));
+            const spaceGroupName = selectedSg ? `${selectedSg.number} – ${selectedSg.name}` : 'N/A';
+            
+            const statsSection = [
+                '--- Refinement Statistics ---',
+                `Rp (%):       ${stats.r_p.toFixed(3)}`,
+                `Rwp (%):      ${stats.rwp.toFixed(3)}`,
+                `χ² (GOF):     ${stats.chi2.toFixed(3)}`,
+                `Algorithm:    ${algorithmName}`,
+                `Refinement:   ${modeName}`,
+                `Profile:      ${profileName} (#${finalParams.profileType})`,
+                `Space Group:  ${spaceGroupName}`,
+                ''
+            ];
+
+            let esds = {};
+            let esdWarning = null;
+            if (fitResults.algorithm === 'lm' && fitResults.JtJ && fitResults.paramMapping) {
+                const P = fitResults.paramMapping.length;
+                const N = workingData.intensity.length;
+                if (N > P && fitResults.ss_res !== undefined) {
+                    const reduced_chi_sq = fitResults.ss_res / (N - P);
+                    const cov_matrix = matrixInverse(fitResults.JtJ);
+                    if (cov_matrix) {
+                        fitResults.paramMapping.forEach((p_map, i) => {
+                            if (cov_matrix[i] && cov_matrix[i][i] !== undefined) {
+                                esds[p_map.name] = Math.sqrt(Math.abs(reduced_chi_sq * cov_matrix[i][i])) * p_map.scale;
+                            }
+                        });
+                    } else { esdWarning = 'Matrix inversion failed (parameter correlation).'; }
+                } else { esdWarning = "N <= P, cannot calculate reliable errors."; }
+            } else if (fitResults.algorithm !== 'lm') { 
+                esdWarning = "ESDs only available for Levenberg-Marquardt."; 
+            }
+
+            const paramWidths = [24, 18, 10, 18];
+            const paramHeader = formatLine(['Parameter', 'Value', 'Fitted', 'ESD'], paramWidths);
+            const paramLines = [];
+            const paramGroups = {};
+            paramGroups['Structural & Instrumental'] = [ { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd: 'a' }, { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd: 'b' }, { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd: 'c' }, { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd: 'alpha' }, { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd: 'beta' }, { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd: 'gamma' }, { name: 'Radiation 1 (Å)', value: finalParams.lambda }, { name: 'Radiation 2 (Å)', value: finalParams.lambda2 }, { name: 'Ratio (I2/I1)', value: finalParams.ratio }, { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd: 'zeroShift' }, { name: '2theta Min (°)', value: parseFloat(controls.tthMinSlider.value) }, { name: '2theta Max (°)', value: parseFloat(controls.tthMaxSlider.value) }];
+            paramGroups['Profile Parameters'] = [];
+            paramGroups['Background Parameters'] = [];
+            if (finalParams.profileType === "4") { paramGroups['Profile Parameters'].push(...[ { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd: 'GU' }, { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd: 'GV' }, { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd: 'GW' }, { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd: 'GP' }, { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd: 'LX' }, { name: 'eta (Mixing)', value: finalParams.eta, flag: fitFlags.eta, esd: 'eta' }, { name: 'shft (Displ.)', value: finalParams.shft, flag: fitFlags.shft, esd: 'shft' }, { name: 'trns (Transp.)', value: finalParams.trns, flag: fitFlags.trns, esd: 'trns' } ]); } else { paramGroups['Profile Parameters'].push(...[ { name: 'U', value: finalParams.U, flag: fitFlags.U, esd: 'U' }, { name: 'V', value: finalParams.V, flag: fitFlags.V, esd: 'V' }, { name: 'W', value: finalParams.W, flag: fitFlags.W, esd: 'W' }, { name: 'X', value: finalParams.X, flag: fitFlags.X, esd: 'X' }, { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd: 'Y' }, { name: 'S/L (Asymm)', value: finalParams.SL, flag: fitFlags.SL, esd: 'SL' }, { name: 'H/L (Asymm)', value: finalParams.HL, flag: fitFlags.HL, esd: 'HL' } ]); if (finalParams.profileType === "3") { paramGroups['Profile Parameters'].push(...[ { name: 'S400', value: finalParams.S400, flag: fitFlags.S400, esd: 'S400' }, { name: 'S040', value: finalParams.S040, flag: fitFlags.S040, esd: 'S040' }, { name: 'S004', value: finalParams.S004, flag: fitFlags.S004, esd: 'S004' }, { name: 'S220', value: finalParams.S220, flag: fitFlags.S220, esd: 'S220' }, { name: 'S202', value: finalParams.S202, flag: fitFlags.S202, esd: 'S202' }, { name: 'S022', value: finalParams.S022, flag: fitFlags.S022, esd: 'S022' } ]); } }
+            for (let i = 0; i < 6; i++) { paramGroups['Background Parameters'].push({ name: `B${i}`, value: finalParams[`B${i}`], flag: fitFlags[`B${i}`], esd: `B${i}` }); }
+            paramGroups['Background Parameters'].push(...[ { name: 'Hump Height', value: finalParams.hump_H, flag: fitFlags.hump_H, esd: 'hump_H' }, { name: 'Hump Position', value: finalParams.hump_P, flag: fitFlags.hump_P, esd: 'hump_P' }, { name: 'Hump FWHM', value: finalParams.hump_W, flag: fitFlags.hump_W, esd: 'hump_W' } ]);
+            
+            for (const groupName in paramGroups) {
+                paramLines.push(`--- ${groupName} ---`, paramHeader, '-'.repeat(paramHeader.length));
+                paramGroups[groupName].forEach(p => {
+                    if (p.value != null && !isNaN(p.value)) {
+                        const valStr = p.value.toExponential(6);
+                        const fitStr = (p.flag === undefined) ? '' : (p.flag ? 'Yes' : 'No');
+                        const esdValue = esds[p.esd];
+                        const esdStr = (p.flag && typeof esdValue === 'number' && isFinite(esdValue)) ? `(${esdValue.toExponential(2)})` : '';
+                        paramLines.push(formatLine([p.name, valStr, fitStr, esdStr], paramWidths));
                     }
                 });
-            } else { esdWarning = 'Matrix inversion failed (parameter correlation).'; }
-        } else { esdWarning = "N <= P, cannot calculate reliable errors."; }
-    } else if (fitResults.algorithm !== 'lm') { 
-        esdWarning = "ESDs only available for Levenberg-Marquardt."; 
-    }
-
-    const paramWidths = [24, 18, 10, 18];
-    const paramHeader = formatLine(['Parameter', 'Value', 'Fitted', 'ESD'], paramWidths);
-    const paramLines = [];
-    const paramGroups = {};
-    paramGroups['Structural & Instrumental'] = [ { name: 'a (Å)', value: finalParams.a, flag: fitFlags.a, esd: 'a' }, { name: 'b (Å)', value: finalParams.b, flag: fitFlags.b, esd: 'b' }, { name: 'c (Å)', value: finalParams.c, flag: fitFlags.c, esd: 'c' }, { name: 'alpha (°)', value: finalParams.alpha, flag: fitFlags.alpha, esd: 'alpha' }, { name: 'beta (°)', value: finalParams.beta, flag: fitFlags.beta, esd: 'beta' }, { name: 'gamma (°)', value: finalParams.gamma, flag: fitFlags.gamma, esd: 'gamma' }, { name: 'Radiation 1 (Å)', value: finalParams.lambda }, { name: 'Radiation 2 (Å)', value: finalParams.lambda2 }, { name: 'Ratio (I2/I1)', value: finalParams.ratio }, { name: 'Zero Shift (°)', value: finalParams.zeroShift, flag: fitFlags.zeroShift, esd: 'zeroShift' }, { name: '2theta Min (°)', value: parseFloat(controls.tthMinSlider.value) }, { name: '2theta Max (°)', value: parseFloat(controls.tthMaxSlider.value) }];
-    paramGroups['Profile Parameters'] = [];
-    paramGroups['Background Parameters'] = [];
-    if (finalParams.profileType === "4") { paramGroups['Profile Parameters'].push(...[ { name: 'GU', value: finalParams.GU, flag: fitFlags.GU, esd: 'GU' }, { name: 'GV', value: finalParams.GV, flag: fitFlags.GV, esd: 'GV' }, { name: 'GW', value: finalParams.GW, flag: fitFlags.GW, esd: 'GW' }, { name: 'GP', value: finalParams.GP, flag: fitFlags.GP, esd: 'GP' }, { name: 'LX', value: finalParams.LX, flag: fitFlags.LX, esd: 'LX' }, { name: 'eta (Mixing)', value: finalParams.eta, flag: fitFlags.eta, esd: 'eta' }, { name: 'shft (Displ.)', value: finalParams.shft, flag: fitFlags.shft, esd: 'shft' }, { name: 'trns (Transp.)', value: finalParams.trns, flag: fitFlags.trns, esd: 'trns' } ]); } else { paramGroups['Profile Parameters'].push(...[ { name: 'U', value: finalParams.U, flag: fitFlags.U, esd: 'U' }, { name: 'V', value: finalParams.V, flag: fitFlags.V, esd: 'V' }, { name: 'W', value: finalParams.W, flag: fitFlags.W, esd: 'W' }, { name: 'X', value: finalParams.X, flag: fitFlags.X, esd: 'X' }, { name: 'Y', value: finalParams.Y, flag: fitFlags.Y, esd: 'Y' }, { name: 'S/L (Asymm)', value: finalParams.SL, flag: fitFlags.SL, esd: 'SL' }, { name: 'H/L (Asymm)', value: finalParams.HL, flag: fitFlags.HL, esd: 'HL' } ]); if (finalParams.profileType === "3") { paramGroups['Profile Parameters'].push(...[ { name: 'S400', value: finalParams.S400, flag: fitFlags.S400, esd: 'S400' }, { name: 'S040', value: finalParams.S040, flag: fitFlags.S040, esd: 'S040' }, { name: 'S004', value: finalParams.S004, flag: fitFlags.S004, esd: 'S004' }, { name: 'S220', value: finalParams.S220, flag: fitFlags.S220, esd: 'S220' }, { name: 'S202', value: finalParams.S202, flag: fitFlags.S202, esd: 'S202' }, { name: 'S022', value: finalParams.S022, flag: fitFlags.S022, esd: 'S022' } ]); } }
-    for (let i = 0; i < 6; i++) { paramGroups['Background Parameters'].push({ name: `B${i}`, value: finalParams[`B${i}`], flag: fitFlags[`B${i}`], esd: `B${i}` }); }
-    paramGroups['Background Parameters'].push(...[ { name: 'Hump Height', value: finalParams.hump_H, flag: fitFlags.hump_H, esd: 'hump_H' }, { name: 'Hump Position', value: finalParams.hump_P, flag: fitFlags.hump_P, esd: 'hump_P' }, { name: 'Hump FWHM', value: finalParams.hump_W, flag: fitFlags.hump_W, esd: 'hump_W' } ]);
-    
-    for (const groupName in paramGroups) {
-        paramLines.push(`--- ${groupName} ---`, paramHeader, '-'.repeat(paramHeader.length));
-        paramGroups[groupName].forEach(p => {
-            // *** THIS IS THE FIX ***
-            // Added 'p.value != null' to correctly handle cases where a parameter might be null.
-            if (p.value != null && !isNaN(p.value)) {
-                const valStr = p.value.toExponential(6);
-                const fitStr = (p.flag === undefined) ? '' : (p.flag ? 'Yes' : 'No');
-                const esdValue = esds[p.esd];
-                const esdStr = (p.flag && typeof esdValue === 'number' && isFinite(esdValue)) ? `(${esdValue.toExponential(2)})` : '';
-                paramLines.push(formatLine([p.name, valStr, fitStr, esdStr], paramWidths));
+                paramLines.push('');
             }
-        });
-        paramLines.push('');
-    }
-    if (esdWarning) paramLines.push(`NOTE: ${esdWarning}`);
+            if (esdWarning) paramLines.push(`NOTE: ${esdWarning}`);
 
-    const reflectionsSection = [];
-    if (hklList && hklList.length > 0) {
-        const i_calc_header = refinementMode === 'pawley' ? 'I_refined' : 'I_calc';
-        const reflWidths = [15, 18, 18, 18, 18];
-        const reflHeader = formatLine(['h,k,l', '2th_corr (°)', i_calc_header, 'ESD(I)', 'I_obs'], reflWidths);
-        reflectionsSection.push('', '--- Reflections List (Integrated Intensities) ---', reflHeader, '-'.repeat(reflHeader.length));
-        
-        const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
-        hklList.filter(hkl => hkl.tth && hkl.tth >= workingData.tth[0] && hkl.tth <= workingData.tth[workingData.tth.length - 1])
-            .forEach(hkl => {
-                const peakShift = calculatePeakShift(hkl.tth, finalParams);
-                const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
-                const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams);
-                const i_obs = getIntegratedIntensity(tthCorr, Math.sqrt(gamma_G*gamma_G + gamma_L*gamma_L), workingData, finalBkg);
+            const reflectionsSection = [];
+            if (hklList && hklList.length > 0) {
+                const i_calc_header = refinementMode === 'pawley' ? 'I_refined' : 'I_calc';
+                const reflWidths = [15, 18, 18, 18, 18];
+                const reflHeader = formatLine(['h,k,l', '2th_corr (°)', i_calc_header, 'ESD(I)', 'I_obs'], reflWidths);
+                reflectionsSection.push('', '--- Reflections List (Integrated Intensities) ---', reflHeader, '-'.repeat(reflHeader.length));
                 
-                const scaled_i_calc_area = hkl.intensity * mainScaleFactor;
-                
-                const hkl_name = `I_(${hkl.h_orig},${hkl.k_orig},${hkl.l_orig})`;
-                const esd_I_val = esds[hkl_name];
-                const esd_I_str = (refinementMode === 'pawley' && typeof esd_I_val === 'number' && isFinite(esd_I_val))
-                    ? `(${esd_I_val.toFixed(1)})`
-                    : '';
+                const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
+                hklList.filter(hkl => hkl.tth && hkl.tth >= workingData.tth[0] && hkl.tth <= workingData.tth[workingData.tth.length - 1])
+                    .forEach(hkl => {
+                        const peakShift = calculatePeakShift(hkl.tth, finalParams);
+                        const tthCorr = hkl.tth + finalParams.zeroShift + peakShift;
+                        const { gamma_G, gamma_L } = calculateProfileWidths(hkl.tth, hkl, finalParams);
+                        
+                        // *** THE KEY CORRECTION: Using the correct FWHM calculation for I_obs ***
+                        const i_obs = getIntegratedIntensity(tthCorr, getPeakFWHM(gamma_G, gamma_L), workingData, finalBkg);
+                        
+                        const scaled_i_calc_area = hkl.intensity * mainScaleFactor;
+                        
+                        const hkl_name = `I_(${hkl.h_orig},${hkl.k_orig},${hkl.l_orig})`;
+                        const esd_I_val = esds[hkl_name];
+                        const esd_I_str = (refinementMode === 'pawley' && typeof esd_I_val === 'number' && isFinite(esd_I_val))
+                            ? `(${esd_I_val.toFixed(1)})`
+                            : '';
 
-                if (i_obs > 0.1 || scaled_i_calc_area > 0.1) {
-                    reflectionsSection.push(formatLine([
-                        hkl.hkl_list[0], tthCorr.toFixed(4), scaled_i_calc_area.toFixed(1), esd_I_str, i_obs.toFixed(1)
-                    ], reflWidths));
+                        if (i_obs > 0.1 || scaled_i_calc_area > 0.1) {
+                            reflectionsSection.push(formatLine([
+                                hkl.hkl_list[0], tthCorr.toFixed(4), scaled_i_calc_area.toFixed(1), esd_I_str, i_obs.toFixed(1)
+                            ], reflWidths));
+                        }
+                    });
+            }
+
+            const dataSection = [];
+            if (format === 'full') {
+                dataSection.push('', '--- Point-by-Point Intensity Data (Fitted Range Only) ---',
+                    ['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'),
+                    '-----------------------------------------------------');
+                
+                const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
+                const finalNetPattern = calculatePattern(workingData.tth, hklList, finalParams);
+                for (let i = 0; i < workingData.tth.length; i++) {
+                    const i_calc = (finalNetPattern[i] * mainScaleFactor) + finalBkg[i];
+                    dataSection.push([
+                        workingData.tth[i].toFixed(4),
+                        workingData.intensity[i].toFixed(2),
+                        i_calc.toFixed(2),
+                        (workingData.intensity[i] - i_calc).toFixed(2)
+                    ].join('\t'));
                 }
-            });
-    }
-
-    const dataSection = [];
-    if (format === 'full') {
-        dataSection.push('', '--- Point-by-Point Intensity Data (Fitted Range Only) ---',
-            ['2theta', 'I_obs', 'I_calc', 'Difference'].join('\t'),
-            '-----------------------------------------------------');
-        
-        const finalBkg = calculateTotalBackground(workingData.tth, finalParams);
-        const finalNetPattern = calculatePattern(workingData.tth, hklList, finalParams);
-        for (let i = 0; i < workingData.tth.length; i++) {
-            const i_calc = (finalNetPattern[i] * mainScaleFactor) + finalBkg[i];
-            dataSection.push([
-                workingData.tth[i].toFixed(4),
-                workingData.intensity[i].toFixed(2),
-                i_calc.toFixed(2),
-                (workingData.intensity[i] - i_calc).toFixed(2)
-            ].join('\t'));
+            }
+            
+            return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
         }
-    }
-    
-    return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
-}
 
         // --- EVENT LISTENERS ---
 
@@ -4180,6 +4418,7 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
         
         controls.paramS400.addEventListener('input', updateStephensAnisotropyUI); controls.fitS400.addEventListener('change', updateStephensAnisotropyUI); controls.paramS220.addEventListener('input', updateStephensAnisotropyUI); controls.fitS220.addEventListener('change', updateStephensAnisotropyUI); controls.paramS202.addEventListener('input', updateStephensAnisotropyUI); controls.fitS202.addEventListener('change', updateStephensAnisotropyUI);
 
+
     controls.saveDataButton.addEventListener('click', () => {
     if (!fitResults) {
         showToast("Please run a refinement before saving data.", 'error');
@@ -4191,7 +4430,11 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
     try {
         const textContent = generateReportContent('full');
         const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
-        downloadTextFile(textContent, `LeBail-Data-${timestamp}.txt`);
+        
+        // FIX: Determine the filename based on the refinement mode from the results
+        const modeName = fitResults.refinementMode === 'pawley' ? 'Pawley' : 'LeBail';
+        downloadTextFile(textContent, `${modeName}-Data-${timestamp}.txt`);
+
         showToast("Report saved successfully!", 'success');
     } catch (error) {
         console.error("Failed to save data:", error);
@@ -4201,7 +4444,8 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
     }
 });
 
-        controls.reportButton.addEventListener('click', async () => {
+
+controls.reportButton.addEventListener('click', async () => {
     if (!fitResults) {
         alert("Cannot generate report: Fit results are missing.");
         return;
@@ -4218,18 +4462,13 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
         const contentWidth = doc.internal.pageSize.getWidth() - 2 * margin;
         let yPosition = 20;
 
-        // Get the summary report (we don't need the full data dump in the PDF)
         const summaryText = generateReportContent('summary');
-
-        // Replace special characters with PDF-safe equivalents
         const pdfText = summaryText
             .replace(/χ²/g, 'Chi^2')
             .replace(/°/g, 'deg')
             .replace(/β/g, 'Beta');
 
         const lines = pdfText.split('\n');
-
-        // Set Courier as the single font for the entire text portion
         doc.setFont('Courier');
 
         for (const line of lines) {
@@ -4237,33 +4476,27 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
                 doc.addPage();
                 yPosition = 20;
             }
-
             const isHeader = line.startsWith('---');
-            const isTitle = line.includes('Le Bail Refinement Report');
-
-            // Set font size and style based on line type
+            const isTitle = line.includes('Refinement Report');
             let fontSize = 9;
             let fontStyle = 'normal';
 
             if (isTitle) {
                 fontSize = 14;
                 fontStyle = 'bold';
-                yPosition += 6; // Extra space for title
+                yPosition += 6;
             } else if (isHeader) {
                 fontSize = 10;
                 fontStyle = 'bold';
-                yPosition += 4; // Extra space for headers
+                yPosition += 4;
             }
             
             doc.setFontSize(fontSize);
             doc.setFont(undefined, fontStyle);
-
-            // Print the line
             doc.text(line, margin, yPosition);
-            yPosition += fontSize * 0.4; // Move y-position for the next line
+            yPosition += fontSize * 0.4;
         }
 
-        // Add Chart Image on a new page
         doc.addPage();
         const chartCanvas = await html2canvas(controls.mainChartCanvas, { backgroundColor: '#ffffff', scale: 2 });
         const mainImgData = chartCanvas.toDataURL('image/png', 0.95);
@@ -4271,10 +4504,12 @@ controls.mainChartCanvas.addEventListener('contextmenu', e => {
         const mainImgHeight = Math.min((mainImgProps.height * contentWidth) / mainImgProps.width, 250); 
         doc.addImage(mainImgData, 'PNG', margin, 20, contentWidth, mainImgHeight);
         
-        doc.save(`LeBail-Report-${new Date().toISOString().slice(0, 10)}.pdf`);
+        // FIX: Determine the filename based on the refinement mode from the results
+        const { refinementMode } = fitResults;
+        const modeName = refinementMode === 'pawley' ? 'Pawley' : 'LeBail';
+        doc.save(`${modeName}-Report-${new Date().toISOString().slice(0, 10)}.pdf`);
 
     } catch (error) {
-       // console.error("Failed to generate report:", error);
         alert(`An error occurred while generating the report: ${error.message}`);
     } finally {
         controls.reportButton.textContent = 'Generate PDF';
