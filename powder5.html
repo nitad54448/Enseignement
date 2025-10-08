@@ -959,7 +959,7 @@
                      <div class="slider-group">
                          <label class="control-label">Max Iterations</label>
                          <div class="slider-value-track">
-                            <input type="range" id="iterations-slider" min="1" max="200" value="120" step="1" class="custom-slider">
+                            <input type="range" id="iterations-slider" min="1" max="400" value="120" step="1" class="custom-slider">
                             <span id="iterations-value" class="slider-value-display">120</span>
                          </div>
                      </div>
@@ -1015,7 +1015,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5, v 1.0.3, 08 Oct 2025
+        Powder 5-1.0.3, 08 Oct 2025
     </div>
 </div>
 
@@ -1412,71 +1412,51 @@ if (tooltipContainer && tooltipContent) {
 
         // function to find the nearest data point to a click
         function findClosestExperimentalPoint(targetTth) {
-    if (!fullExperimentalData || fullExperimentalData.tth.length === 0) {
-        return null;
-    }
-    
-    const tthData = fullExperimentalData.tth;
-    let low = 0;
-    let high = tthData.length - 1;
-    let closestIndex = -1;
+            if (!fullExperimentalData || fullExperimentalData.tth.length === 0) {
+                return null;
+            }
 
-    // Standard binary search
-    while (low <= high) {
-        const mid = Math.floor(low + (high - low) / 2);
-        if (tthData[mid] === targetTth) {
-            closestIndex = mid;
-            break;
-        } else if (tthData[mid] < targetTth) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+            let closestIndex = -1;
+            let minDiff = Infinity;
+
+            // This is a simple linear search. .. j'aurais pu utiliser la librairie JS.. mais bon, c'est autonome
+            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                const diff = Math.abs(fullExperimentalData.tth[i] - targetTth);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestIndex = i;
+                }
+            }
+
+            return {
+                index: closestIndex,
+                tth: fullExperimentalData.tth[closestIndex],
+                y: fullExperimentalData.intensity[closestIndex]
+            };
         }
-    }
-
-    // After the loop, low and high have crossed. The closest point is one of them.
-    if (closestIndex === -1) {
-         if (low >= tthData.length) {
-            closestIndex = high;
-        } else if (high < 0) {
-            closestIndex = low;
-        } else {
-            const diffLow = Math.abs(tthData[low] - targetTth);
-            const diffHigh = Math.abs(tthData[high] - targetTth);
-            closestIndex = diffLow < diffHigh ? low : high;
-        }
-    }
-
-    return {
-        index: closestIndex,
-        tth: fullExperimentalData.tth[closestIndex],
-        y: fullExperimentalData.intensity[closestIndex]
-    };
-}
 
         // display non-editable points
         function renderAnchorList() {
-    anchorsChanged = true; // ADD THIS LINE AT THE TOP
-    
-    const listContainer = document.getElementById('anchor-points-list');
-    listContainer.innerHTML = ''; 
+            const listContainer = document.getElementById('anchor-points-list');
+            listContainer.innerHTML = ''; 
 
-    if (backgroundAnchors.length === 0) {
-        listContainer.innerHTML = '<p class="control-label" style="text-align: center;">No anchor points defined.</p>';
-    } else {
-        backgroundAnchors.forEach((anchor, index) => {
-            const item = document.createElement('div');
-            item.className = 'anchor-point-item';
-            item.innerHTML = `
-                <span title="2-theta">${anchor.tth.toFixed(3)}</span>
-                <span title="Intensity">${anchor.y.toFixed(1)}</span>
-                <button class="anchor-remove-btn" data-index="${index}" title="Remove point">&times;</button>
-            `;
-            listContainer.appendChild(item);
-        });
-    }
-    updateAnchorPointsOnChart();
-}
+            if (backgroundAnchors.length === 0) {
+                listContainer.innerHTML = '<p class="control-label" style="text-align: center;">No anchor points defined.</p>';
+            } else {
+                backgroundAnchors.forEach((anchor, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'anchor-point-item';
+                    // Display values as text, not inputs
+                    item.innerHTML = `
+                        <span title="2-theta">${anchor.tth.toFixed(3)}</span>
+                        <span title="Intensity">${anchor.y.toFixed(1)}</span>
+                        <button class="anchor-remove-btn" data-index="${index}" title="Remove point">&times;</button>
+                    `;
+                    listContainer.appendChild(item);
+                });
+            }
+            updateAnchorPointsOnChart();
+        }
 
         // Simplified function to only handle removing points
         function handleAnchorListInteraction(e) {
@@ -1776,50 +1756,46 @@ function updateSpaceGroupUI() {
             isValid: false
         };
 
-
+        /**
+         * This function is the new single source of truth for refinement data.
+         * It slices the fullExperimentalData based on slider values and, critically,
+         * pre-calculates the weights array, correctly applying high weights for anchors.
+         */
         function updateWorkingData() {
-    if (fullExperimentalData.tth.length === 0) {
-        workingData.isValid = false;
-        return;
-    }
-    
-    const minTth = parseFloat(controls.tthMinSlider.value);
-    const maxTth = parseFloat(controls.tthMaxSlider.value);
-
-    // Find indices using binary search
-    let startIndex = binarySearchLeft(fullExperimentalData.tth, minTth);
-    if (startIndex === -1) startIndex = 0;
-
-    let endIndex = binarySearchLeft(fullExperimentalData.tth, maxTth);
-    if (endIndex === -1 || endIndex === fullExperimentalData.tth.length) {
-        endIndex = fullExperimentalData.tth.length;
-    }
-
-    // Slice the master arrays
-    workingData.tth = fullExperimentalData.tth.slice(startIndex, endIndex);
-    workingData.intensity = fullExperimentalData.intensity.slice(startIndex, endIndex);
-    workingData.startIndex = startIndex;
-
-    // OPTIMIZED: Only recalculate weights if anchors changed or array size changed
-    if (anchorsChanged || workingData.weights.length !== workingData.intensity.length) {
-        const anchorIndices = new Set(backgroundAnchors.map(a => a.index));
-        
-        const yMax = Math.max(...workingData.intensity);
-        const floor = 0.001 * yMax;
-        
-        workingData.weights = workingData.intensity.map((y, i) => {
-            let weight = 1 / Math.max(floor, y);
-            if (anchorIndices.has(startIndex + i)) {
-                weight *= HIGH_WEIGHT_MULTIPLIER;
+            if (fullExperimentalData.tth.length === 0) {
+                workingData.isValid = false;
+                return;
             }
-            return weight;
-        });
-        
-        anchorsChanged = false; // Reset flag
-    }
+            const minTth = parseFloat(controls.tthMinSlider.value);
+            const maxTth = parseFloat(controls.tthMaxSlider.value);
 
-    workingData.isValid = true;
-}
+            // Find the start and end indices in the master 'fullExperimentalData' array
+            let startIndex = fullExperimentalData.tth.findIndex(t => t >= minTth);
+            if (startIndex === -1) startIndex = 0;
+
+            let endIndex = fullExperimentalData.tth.findIndex(t => t > maxTth);
+            if (endIndex === -1) endIndex = fullExperimentalData.tth.length;
+
+            // Slice the master arrays
+            workingData.tth = fullExperimentalData.tth.slice(startIndex, endIndex);
+            workingData.intensity = fullExperimentalData.intensity.slice(startIndex, endIndex);
+            workingData.startIndex = startIndex; // Store the offset
+
+            // Pre-calculate weights for this specific slice, weight points have different weight, je les modifie où ?
+            const anchorIndices = new Set(backgroundAnchors.map(a => a.index));
+            
+            const yMax = Math.max(...workingData.intensity);
+const floor = 0.001 * yMax; // Floor is 0.1% of maximum
+workingData.weights = workingData.intensity.map((y, i) => {
+    let weight = 1 / Math.max(floor, y);
+    if (anchorIndices.has(startIndex + i)) {
+        weight *= HIGH_WEIGHT_MULTIPLIER;
+    }
+    return weight;
+});
+         //   workingData.lastRawDifference = []
+            workingData.isValid = true;
+        }
 
         function evaluateExpression(expr, h, k, l) {
             switch (expr.trim()) {
@@ -2311,8 +2287,6 @@ function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) {
     }
 }
 
-
-
 function applyAsymmetry(x, x0, tth_peak, params) {
             // Return early if not using TCH profile or if both params are zero
             if (params.profileType === "4" || (!params.SL && !params.HL)) {
@@ -2337,89 +2311,94 @@ function applyAsymmetry(x, x0, tth_peak, params) {
             return delta_2theta / Math.max(1e-6, asymmetry_factor);
         }
 
-
         function calculatePattern(tthAxis, hklList, params) {
-    const pattern = new Float64Array(tthAxis.length);
-    const n_points = tthAxis.length;
-    if (hklList.length === 0 || n_points === 0) return Array.from(pattern);
+        const pattern = new Array(tthAxis.length).fill(0);
+        const n_points = tthAxis.length;
+        const deg2rad = Math.PI / 180;
 
-    const deg2rad = Math.PI / 180;
-    const doubletEnabled = params.ratio > 0 && params.lambda2 > 0 && Math.abs(params.lambda - params.lambda2) > 1e-6;
-    const lambdaRatio = doubletEnabled ? params.lambda2 / params.lambda : 1.0;
+        // --- Calculate K-alpha 1 pattern ---
+        hklList.forEach(peak => {
+            if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
 
-    let peakIndex = 0; // The "sliding window" starts here
-
-    for (let i = 0; i < n_points; i++) {
-        const current_tth = tthAxis[i];
-        
-        // Advance the peakIndex to the first relevant peak for this data point
-        while (peakIndex < hklList.length) {
-            const peak = hklList[peakIndex];
-            if (!peak.tth) {
-                peakIndex++;
-                continue;
-            }
-            const { gamma_G, gamma_L } = calculateProfileWidths(peak.tth, peak, params);
-            const window = 12 * Math.max(0.01, gamma_G, gamma_L);
-            if (peak.tth + params.zeroShift + window < current_tth) {
-                peakIndex++; // This peak is too far behind, move to the next one
-            } else {
-                break; // Found the start of our relevant window
-            }
-        }
-
-        // Now, iterate through the peaks within the "window of influence"
-        for (let j = peakIndex; j < hklList.length; j++) {
-            const peak = hklList[j];
-            if (!peak.intensity || peak.intensity <= 0 || !peak.tth) continue;
-
-            // --- K-alpha 1 Contribution ---
+            // K-alpha 1 position and widths
             const basePos1 = peak.tth + params.zeroShift;
             const shift1 = calculatePeakShift(basePos1, params);
             const peakPos1 = basePos1 + shift1;
             const { gamma_G, gamma_L } = calculateProfileWidths(basePos1, peak, params);
-            const window1 = 12 * Math.max(0.01, gamma_G, gamma_L);
-            
-            // Optimization: if this peak is too far ahead, all subsequent peaks will be too, so we can break
-            if (peakPos1 - window1 > current_tth) {
-                break;
-            }
 
-            if (Math.abs(current_tth - peakPos1) < window1) {
-                 const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
-                 if(shapeArea1 > 1e-9) {
-                    const intensityScale = peak.intensity / shapeArea1;
-                    pattern[i] += intensityScale * pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
-                 }
-            }
+            // *** FIX: Calculate the true mathematical area of the shape function ***
+            const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
 
-            // --- K-alpha 2 Contribution (Integrated into the same loop) ---
-            if (doubletEnabled) {
-                const sinTheta1 = Math.sin(peak.tth * deg2rad / 2.0);
-                if (Math.abs(sinTheta1) >= 1) continue;
-                const sinTheta2 = sinTheta1 * lambdaRatio;
-                if (Math.abs(sinTheta2) >= 1) continue;
+            // Determine the calculation window
+            const window = 20 * Math.max(0.01, gamma_G + gamma_L);
+            const min_tth = peakPos1 - window;
+            const max_tth = peakPos1 + window;
+
+            let startIndex = 0;
+            while(startIndex < n_points && tthAxis[startIndex] < min_tth) startIndex++;
+
+            // Add the peak shape to the pattern
+            for (let i = startIndex; i < n_points; i++) {
+                const current_tth = tthAxis[i];
+                if (current_tth > max_tth) break;
+
+                const intensityAtPoint = pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
                 
+                // *** FIX: Normalize the shape by its area before scaling by integrated intensity ***
+                if (shapeArea1 > 1e-9) {
+                    pattern[i] += peak.intensity * (intensityAtPoint / shapeArea1);
+                }
+            }
+        });
+
+        // --- Calculate and Add K-alpha 2 pattern ---
+        const doubletEnabled = params.ratio > 0 && params.lambda2 > 0 && Math.abs(params.lambda - params.lambda2) > 1e-6;
+        if (doubletEnabled) {
+            const lambdaRatio = params.lambda2 / params.lambda;
+
+            hklList.forEach(peak => {
+                if (!peak.intensity || peak.intensity <= 0 || !peak.tth) return;
+
+                // Calculate K-alpha 2 position from K-alpha 1
+                const sinTheta1 = Math.sin(peak.tth * deg2rad / 2.0);
+                if (Math.abs(sinTheta1) >= 1) return;
+                
+                const sinTheta2 = sinTheta1 * lambdaRatio;
+                if (Math.abs(sinTheta2) >= 1) return;
+
                 const tth2 = 2 * Math.asin(sinTheta2) / deg2rad;
                 const basePos2 = tth2 + params.zeroShift;
                 const shift2 = calculatePeakShift(basePos2, params);
                 const peakPos2 = basePos2 + shift2;
-                
-                const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
-                const window2 = 12 * Math.max(0.01, gamma_G2, gamma_L2);
 
-                if (Math.abs(current_tth - peakPos2) < window2) {
-                    const shapeArea2 = getPseudoVoigtArea(gamma_G2, gamma_L2, params);
-                    if(shapeArea2 > 1e-9) {
-                        const intensityScale2 = (peak.intensity * params.ratio) / shapeArea2;
-                        pattern[i] += intensityScale2 * pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
+                const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
+                
+                // *** FIX: Calculate the area for the K-alpha 2 shape function ***
+                const shapeArea2 = getPseudoVoigtArea(gamma_G2, gamma_L2, params);
+
+                const window2 = 8 * Math.max(0.01, gamma_G2, gamma_L2);
+                const min_tth2 = peakPos2 - window2;
+                const max_tth2 = peakPos2 + window2;
+
+                let startIndex2 = 0;
+                while(startIndex2 < n_points && tthAxis[startIndex2] < min_tth2) startIndex2++;
+
+                for (let i = startIndex2; i < n_points; i++) {
+                    const current_tth = tthAxis[i];
+                    if (current_tth > max_tth2) break;
+
+                    const intensityAtPoint = pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
+
+                    // *** FIX: Normalize the shape and apply the intensity ratio ***
+                    if (shapeArea2 > 1e-9) {
+                        pattern[i] += peak.intensity * params.ratio * (intensityAtPoint / shapeArea2);
                     }
                 }
-            }
+            });
         }
+
+        return pattern;
     }
-    return Array.from(pattern);
-}
 
 function redrawFitForNewRange() {
             if (!mainChart) return; // Guard clause
@@ -2548,7 +2527,6 @@ function estimateBackgroundParameters(tth, intensity) {
 // runFit function 
     function runFit(refinementMode) {
     if (isFitting) return;
-    backgroundCache.clear();
     isFitting = true;
     setUIState(true);
     updateWorkingData();
@@ -2574,7 +2552,7 @@ function estimateBackgroundParameters(tth, intensity) {
         isFitting = false; setUIState(false); return;
     }
 
-let currentHklList = shallowCopyHklList(masterHklList);
+    let currentHklList = JSON.parse(JSON.stringify(masterHklList));
     currentHklList.forEach(p => { if(p.tth) p.intensity = 1000.0; });
     
     (async () => {
@@ -2684,13 +2662,13 @@ let currentHklList = shallowCopyHklList(masterHklList);
         let totalProfileAtPoint = 0;
         const contributingPeaks = [];
 
-        // Find all K-alpha 1 peaks that contribute.. limiter à 12 FWHM
+        // Find all K-alpha 1 peaks that contribute
         hklList.forEach((peak, peakIdx) => {
             const basePos = peak.tth + params.zeroShift;
             const shift = calculatePeakShift(basePos, params);
             const peakPos = basePos + shift;
             const { gamma_G, gamma_L } = calculateProfileWidths(basePos, peak, params);
-            const window = 12 * Math.max(0.01, gamma_G, gamma_L);
+            const window = 20 * Math.max(0.01, gamma_G, gamma_L);
 
             if (Math.abs(expData.tth[i] - peakPos) < window) {
                 const profileVal = pseudoVoigt(expData.tth[i], peakPos, basePos, gamma_G, gamma_L, params);
@@ -2715,7 +2693,7 @@ let currentHklList = shallowCopyHklList(masterHklList);
                 const shift2 = calculatePeakShift(basePos2, params);
                 const peakPos2 = basePos2 + shift2;
                 const { gamma_G: gamma_G2, gamma_L: gamma_L2 } = calculateProfileWidths(basePos2, peak, params);
-                const window = 12 * Math.max(0.01, gamma_G2, gamma_L2);
+                const window = 8 * Math.max(0.01, gamma_G2, gamma_L2);
 
                 if (Math.abs(expData.tth[i] - peakPos2) < window) {
                     const profileVal = pseudoVoigt(expData.tth[i], peakPos2, basePos2, gamma_G2, gamma_L2, params);
@@ -2852,7 +2830,7 @@ async function refineParametersPT(initialParams, fitFlags, maxIter, hklList, sys
         try {
             updateHklPositions(hkl_list_obj, p_obj, system);
             const netCalcPattern = calculatePattern(workingData.tth, hkl_list_obj, p_obj);
-const y_bkg = backgroundCache.get(workingData.tth, p_obj);
+            const y_bkg = calculateTotalBackground(workingData.tth, p_obj);
             
             let num = 0, den = 0;
             for (let i = 0; i < workingData.tth.length; i++) {
@@ -2881,17 +2859,16 @@ const y_bkg = backgroundCache.get(workingData.tth, p_obj);
 
     // 2. Initialize all replicas with the same starting state
     const initialCost = objective(initialParams, hklList);
-let replicas = temperatures.map(temp => ({
-    params: shallowCopyParams(initialParams),
-    hklList: shallowCopyHklList(hklList),
-    cost: initialCost,
-    temp: temp
-}));
-
+    let replicas = temperatures.map(temp => ({
+        params: JSON.parse(JSON.stringify(initialParams)),
+        hklList: JSON.parse(JSON.stringify(hklList)),
+        cost: initialCost,
+        temp: temp
+    }));
 
     // 3. Keep track of the best solution found across all replicas
-  let bestOverallParams = shallowCopyParams(initialParams);
-let bestOverallHklList = shallowCopyHklList(hklList);
+    let bestOverallParams = JSON.parse(JSON.stringify(initialParams));
+    let bestOverallHklList = JSON.parse(JSON.stringify(hklList));
     let bestOverallCost = initialCost;
 
     // --- Main PT Loop ---
@@ -2899,8 +2876,9 @@ let bestOverallHklList = shallowCopyHklList(hklList);
         // --- Part 1: Standard Monte Carlo step for each replica ---
         for (let i = 0; i < numReplicas; i++) {
             let replica = replicas[i];
-const originalParams = shallowCopyParams(replica.params);
-const originalHklList = shallowCopyHklList(replica.hklList);
+            const originalParams = JSON.parse(JSON.stringify(replica.params));
+            const originalHklList = JSON.parse(JSON.stringify(replica.hklList));
+
             // Perturb a random parameter
             const p_idx = Math.floor(Math.random() * paramMapping.length);
             const mapping = paramMapping[p_idx];
@@ -3010,9 +2988,8 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, sys
     
     // Calculate total pattern (includes scale factor calculation for Le Bail)
     const calculateTotalPattern = (targetArray) => {
-        enforceSymmetryConstraints(params);
         updateHklPositions(workingHklList, params, system);
-const y_bkg = backgroundCache.get(workingData.tth, params);
+        const y_bkg = calculateTotalBackground(workingData.tth, params);
         const netCalcPattern = calculatePattern(workingData.tth, workingHklList, params);
         
         let scaleFactor = 1.0;
@@ -3165,10 +3142,9 @@ const y_bkg = backgroundCache.get(workingData.tth, params);
 
     const objective = (p_obj, hkl_list_obj) => {
         try {
-            enforceSymmetryConstraints(p_obj);
             updateHklPositions(hkl_list_obj, p_obj, system);
             const netCalcPattern = calculatePattern(workingData.tth, hkl_list_obj, p_obj);
-            const y_bkg = backgroundCache.get(workingData.tth, p_obj);
+            const y_bkg = calculateTotalBackground(workingData.tth, p_obj);
             
             // calculate scale factor for both Pawley and LeBail
             let num = 0, den = 0;
@@ -3188,8 +3164,8 @@ const y_bkg = backgroundCache.get(workingData.tth, params);
         } catch (err) { return 1e12; }
     };
 
-let currentParams = shallowCopyParams(initialParams);
-let currentHklList = shallowCopyHklList(hklList);
+    let currentParams = JSON.parse(JSON.stringify(initialParams));
+    let currentHklList = JSON.parse(JSON.stringify(hklList));
     let current_cost = objective(currentParams, currentHklList);
 
     let bestParams = JSON.parse(JSON.stringify(currentParams));
@@ -3205,8 +3181,8 @@ let currentHklList = shallowCopyHklList(hklList);
 
     for (let step = 0; step < maxIter; step++) {
      //   console.groupCollapsed(`Step ${step}`);
-const originalParams = shallowCopyParams(currentParams);
-const originalHklList = shallowCopyHklList(currentHklList);
+        const originalParams = JSON.parse(JSON.stringify(currentParams));
+        const originalHklList = JSON.parse(JSON.stringify(currentHklList));
         
         const paramsToChange = Math.max(1, Math.floor(paramMapping.length / 10));
         let changes = [];
@@ -3239,8 +3215,8 @@ const originalHklList = shallowCopyHklList(currentHklList);
 
         if (current_cost < best_cost) {
             best_cost = current_cost;
-bestParams = shallowCopyParams(currentParams);
-bestHklList = shallowCopyHklList(currentHklList);
+            bestParams = JSON.parse(JSON.stringify(currentParams));
+            bestHklList = JSON.parse(JSON.stringify(currentHklList));
         }
 
         console.groupEnd();
@@ -3281,88 +3257,6 @@ bestHklList = shallowCopyHklList(currentHklList);
         ss_res: best_cost
     };
 }
-
-// ============================================================================
-// PERFORMANCE OPTIMIZATION HELPERS
-// ============================================================================
-
-// Shallow copy helpers (replaces JSON.parse(JSON.stringify()))
-function shallowCopyParams(params) {
-    return Object.assign({}, params);
-}
-
-function shallowCopyHklList(hklList) {
-    return hklList.map(hkl => ({
-        hkl_list: hkl.hkl_list,
-        multiplicity: hkl.multiplicity,
-        h_orig: hkl.h_orig,
-        k_orig: hkl.k_orig,
-        l_orig: hkl.l_orig,
-        tth: hkl.tth,
-        d: hkl.d,
-        intensity: hkl.intensity,
-        intensity_previous: hkl.intensity_previous
-    }));
-}
-
-// Debounce helper for UI updates
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
-
-// Binary search for finding start index in sorted array
-function binarySearchLeft(arr, target) {
-    let left = 0;
-    let right = arr.length;
-    while (left < right) {
-        const mid = Math.floor((left + right) / 2);
-        if (arr[mid] < target) {
-            left = mid + 1;
-        } else {
-            right = mid;
-        }
-    }
-    return left;
-}
-
-// Background caching system
-const backgroundCache = {
-    cache: new Map(),
-    maxSize: 100,
-    
-    getKey(params) {
-        return `${params.B0||0}_${params.B1||0}_${params.B2||0}_${params.B3||0}_${params.B4||0}_${params.B5||0}_${params.hump_H||0}_${params.hump_P||0}_${params.hump_W||0}`;
-    },
-    
-    get(tthAxis, params) {
-        const key = this.getKey(params);
-        if (this.cache.has(key)) {
-            return this.cache.get(key);
-        }
-        
-        const bg = calculateTotalBackground(tthAxis, params);
-        this.cache.set(key, bg);
-        
-        // Limit cache size
-        if (this.cache.size > this.maxSize) {
-            const firstKey = this.cache.keys().next().value;
-            this.cache.delete(firstKey);
-        }
-        
-        return bg;
-    },
-    
-    clear() {
-        this.cache.clear();
-    }
-};
-
-// Flag to track if anchors have changed
-let anchorsChanged = true;
 
 
 
@@ -4374,8 +4268,6 @@ controls.spaceGroupSelect.addEventListener('change', () => {
             rescalePlot(false);
             mainChart.update('none');
         };
-const debouncedSimplePreviewUpdate = debounce(handleSimplePreviewUpdate, 300);
-const debouncedBackgroundUpdate = debounce(updateBackgroundForPreview, 300);
 
         // --- Attach Listeners to Specific Controls ---
 
@@ -4403,17 +4295,15 @@ const debouncedBackgroundUpdate = debounce(updateBackgroundForPreview, 300);
 
         // 3. Profile Parameters
         const controlsPanel = document.getElementById('controls-panel');
-controlsPanel.querySelectorAll('#simple-pvoigt-params-container input, #anisotropy-params-container input').forEach(el => {
-    el.addEventListener('input', debouncedSimplePreviewUpdate);
-});
-
-
+        controlsPanel.querySelectorAll('#simple-pvoigt-params-container input, #anisotropy-params-container input').forEach(el => {
+            el.addEventListener('input', handleSimplePreviewUpdate);
+        });
         document.getElementById('profile-function-select').addEventListener('change', handleSimplePreviewUpdate);
         
         // 4. Background Parameters
-controlsPanel.querySelectorAll('#background-params-container input, #tab-panel-background .profile-controls-container input').forEach(el => {
-     el.addEventListener('input', debouncedBackgroundUpdate);
-});
+        controlsPanel.querySelectorAll('#background-params-container input, #tab-panel-background .profile-controls-container input').forEach(el => {
+             el.addEventListener('input', updateBackgroundForPreview);
+        });
 
         // 5. Zero Shift
         document.getElementById('zero-shift').addEventListener('input', handleSimplePreviewUpdate);
