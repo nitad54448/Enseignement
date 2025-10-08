@@ -107,7 +107,7 @@
         #main-header { text-align: center; padding: 1rem 1rem 0.5rem 1rem; color: var(--text-dark); flex-shrink: 0; }
         #main-header h1 { font-size: 1.8em; margin-bottom: 4px; font-weight: 700; }
         #main-header p { font-size: 0.9em; color: #4b5563; margin: 0; }
-        #top-buttons-container { display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 0.75rem; flex-shrink: 0; }
+        #top-buttons-container { display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 0.75rem; flex-shrink: 0; flex-wrap: wrap; }
         #top-buttons-container button, #top-buttons-container .checkbox-container { border: none; color: #ffffff; border-radius: 0.375rem; padding: 0.5rem 1rem; font-weight: 500; cursor: pointer; transition: background-color 0.2s, box-shadow 0.2s; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06); }
         #top-buttons-container button { min-width: 150px; background-color: var(--accent-blue); }
         #top-buttons-container button:hover { background-color: #2563eb; }
@@ -312,6 +312,10 @@
                     <input type="checkbox" id="show-intersections-checkbox">
                     <span>Show intersections</span>
                 </label>
+                 <label class="checkbox-container">
+                    <input type="checkbox" id="show-elements-checkbox">
+                    <span>Show elements</span>
+                </label>
                 <button id="generate-poles-btn">Next Pole</button>
                 <button id="clear-btn">Clear All</button>
             </div>
@@ -352,6 +356,8 @@
         const poleInfoWrapper = document.getElementById('pole-info-table-wrapper');
         const generatorListDiv = document.getElementById('symmetry-generators-list');
         const showIntersectionsCheckbox = document.getElementById('show-intersections-checkbox');
+        const showElementsCheckbox = document.getElementById('show-elements-checkbox');
+
 
         // --- Drawer Panel Logic ---
         const updateDrawerIcon = () => {
@@ -393,9 +399,10 @@
         let isDragging = false;
         let draggedPoleId = null;
         let showIntersectionLines = false;
+        let showSymmetryElements = false;
         const colorPalette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
         const lowerHemisphereColor = '#dc2626';
-        let scene, camera, renderer, controls, sphere, poleMarkersGroup, intersectionLinesGroup, intersectionMarkersGroup;
+        let scene, camera, renderer, controls, sphere, poleMarkersGroup, intersectionLinesGroup, intersectionMarkersGroup, symmetryElementsGroup;
         const SPHERE_RADIUS = 12.6;
 
         function createSphereGrid() {
@@ -465,6 +472,8 @@
             scene.add(intersectionLinesGroup);
             intersectionMarkersGroup = new THREE.Group();
             scene.add(intersectionMarkersGroup);
+            symmetryElementsGroup = new THREE.Group();
+            scene.add(symmetryElementsGroup);
             function animate() {
                 requestAnimationFrame(animate);
                 controls.update();
@@ -477,6 +486,111 @@
             drawSpherePoleMarkers();
             drawIntersectionLines();
             drawIntersectionMarkers();
+            drawSymmetryElementsOnSphere();
+        }
+
+        function drawSymmetryElementsOnSphere() {
+            if (!symmetryElementsGroup) return;
+            // Always clear existing elements first
+            while (symmetryElementsGroup.children.length > 0) {
+                symmetryElementsGroup.remove(symmetryElementsGroup.children[0]);
+            }
+
+            // Only draw new elements if the checkbox is checked
+            if (!showSymmetryElements) return;
+
+            const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
+            if (checkedOps.length === 0) return;
+
+            const elementMaterial = new THREE.MeshPhongMaterial({ color: 0xe11d48, shininess: 80 });
+            const planeMaterial = new THREE.MeshPhongMaterial({ color: 0xe11d48, side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false, shininess: 30 });
+
+            // --- Draw Axes and Symbols ---
+            // Find the highest-order axis to determine which symbol to draw
+            const axisOps = ['rotoinv6_z', 'rot6_z', 'rotoinv4_z', 'rot4_z', 'rotoinv3_z', 'rot3_z', 'rot2_z'];
+            const selectedAxisOp = axisOps.find(op => checkedOps.includes(op));
+
+            if (selectedAxisOp) {
+                // 1. Draw the axis cylinder
+                const axisGeom = new THREE.CylinderGeometry(0.1, 0.1, SPHERE_RADIUS * 2.4, 12);
+                const axisMesh = new THREE.Mesh(axisGeom, elementMaterial);
+                symmetryElementsGroup.add(axisMesh);
+
+                // 2. Create and add the symbol on top
+                const symbolSize = 1.2;
+                let symbolGeom;
+                const shape = new THREE.Shape();
+
+                switch (selectedAxisOp) {
+                    case 'rot2_z': {
+                        symbolGeom = new THREE.CircleGeometry(symbolSize, 32);
+                        symbolGeom.scale(1.0, 0.6, 1.0); // Make it elliptical
+                        break;
+                    }
+                    case 'rotoinv3_z':
+                    case 'rot3_z': {
+                        shape.moveTo(0, symbolSize);
+                        shape.lineTo(symbolSize * -0.866, symbolSize * -0.5);
+                        shape.lineTo(symbolSize * 0.866, symbolSize * -0.5);
+                        shape.closePath();
+                        symbolGeom = new THREE.ShapeGeometry(shape);
+                        break;
+                    }
+                    case 'rotoinv4_z':
+                    case 'rot4_z': {
+                        symbolGeom = new THREE.PlaneGeometry(symbolSize * 1.4, symbolSize * 1.4);
+                        break;
+                    }
+                    case 'rotoinv6_z':
+                    case 'rot6_z': {
+                        for (let i = 0; i < 6; i++) {
+                            const a = i * Math.PI / 3;
+                            const x = symbolSize * Math.cos(a);
+                            const y = symbolSize * Math.sin(a);
+                            if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+                        }
+                        shape.closePath();
+                        symbolGeom = new THREE.ShapeGeometry(shape);
+                        break;
+                    }
+                }
+
+                if (symbolGeom) {
+                    const symbolMesh = new THREE.Mesh(symbolGeom, elementMaterial);
+                    symbolMesh.position.y = SPHERE_RADIUS * 1.25; // Place it just above the cylinder end
+                    symbolMesh.rotation.x = -Math.PI / 2; // Rotate to be flat
+                    symmetryElementsGroup.add(symbolMesh);
+                }
+            }
+
+            // --- Draw Inversion and Mirror Planes ---
+            checkedOps.forEach(op => {
+                let mesh;
+                switch (op) {
+                    case 'inversion':
+                        const invGeom = new THREE.SphereGeometry(0.4, 16, 16);
+                        mesh = new THREE.Mesh(invGeom, elementMaterial);
+                        symmetryElementsGroup.add(mesh);
+                        break;
+                    case 'mirror_xy':
+                        const planeXYGeom = new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1);
+                        mesh = new THREE.Mesh(planeXYGeom, planeMaterial);
+                        mesh.rotation.x = -Math.PI / 2;
+                        symmetryElementsGroup.add(mesh);
+                        break;
+                    case 'mirror_yz':
+                        const planeYZGeom = new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1);
+                        mesh = new THREE.Mesh(planeYZGeom, planeMaterial);
+                        mesh.rotation.y = Math.PI / 2;
+                        symmetryElementsGroup.add(mesh);
+                        break;
+                    case 'mirror_xz':
+                        const planeXZGeom = new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1);
+                        mesh = new THREE.Mesh(planeXZGeom, planeMaterial);
+                        symmetryElementsGroup.add(mesh);
+                        break;
+                }
+            });
         }
         
         function drawIntersectionLines() {
@@ -803,6 +917,7 @@
             projectionCanvas.addEventListener('mousedown', handleDragStart);
             projectionCanvas.addEventListener('touchstart', handleDragStart, { passive: true });
             showIntersectionsCheckbox.addEventListener('change', (e) => { showIntersectionLines = e.target.checked; updateSphereVisuals(); });
+            showElementsCheckbox.addEventListener('change', (e) => { showSymmetryElements = e.target.checked; updateAllVisuals(); });
         }
         
         function setupResizers() {
@@ -908,8 +1023,9 @@
     </script>
     
     <div id="footer-note">
-        NitaD, Univ Paris-Saclay, august 2025. Last update 6 october 2025
+        NitaD, Univ Paris-Saclay, august 2025. Last update 8 october 2025
     </div>
 
 </body>
 </html>
+
