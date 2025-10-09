@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Patterson Simulator</title>
-    <link href="./dist/output.css" rel="stylesheet">
+     <link href="./dist/output.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -30,7 +30,6 @@
         footer { width: 100%; background-color: #ffffff; padding: 8px 24px; font-size: 0.8em; color: #4b5563; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
         
         .canvas-wrapper { background-color: #e5e7eb; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05); width: 100%; overflow: hidden; aspect-ratio: 1 / 1; }
-        .canvas-wrapper.rounded { border-radius: 0.75rem; }
         canvas { cursor: crosshair; display: block; width: 100%; height: 100%; }
         
         .coord-input { width: 60px; text-align: center; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 2px 4px; }
@@ -55,8 +54,8 @@
                 <label class="control-label">Instructions</label>
                 <p class="text-sm text-gray-400">
                     1. Select atom type & click on the canvas to add.<br>
-                    2. The atom and its periodic images will appear.<br>
-                    3. Hover over Patterson peaks to see the vectors.
+                    2. Adjust scattering factors with the sliders.<br>
+                    3. Hover over Patterson peaks to see vectors.
                 </p>
             </div>
             
@@ -67,6 +66,20 @@
                     <label for="atom-type-a" class="atom-type-label">Type A</label>
                     <input type="radio" id="atom-type-b" name="atom-type" value="B" class="sr-only">
                     <label for="atom-type-b" class="atom-type-label">Type B</label>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label class="control-label">Scattering Factors</label>
+                <div class="space-y-4">
+                     <div>
+                        <label for="fa-slider" class="block mb-2 text-sm font-medium">Atom A (f<sub>A</sub>): <span id="fa-value" class="font-bold">6</span></label>
+                        <input type="range" id="fa-slider" min="1" max="80" value="6" step="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="fb-slider" class="block mb-2 text-sm font-medium">Atom B (f<sub>B</sub>): <span id="fb-value" class="font-bold">29</span></label>
+                        <input type="range" id="fb-slider" min="1" max="80" value="29" step="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                    </div>
                 </div>
             </div>
 
@@ -153,7 +166,7 @@
     </div>
     
     <footer>
-        2D crystal structures, diffraction patterns and Patterson functions. (NitaD, Univ. Paris-Saclay, ver 10 oct 2025)
+        2D crystal structures, diffraction patterns and Patterson functions. (NitaD, Univ. Paris-Saclay, ver 11 oct 2025)
     </footer>
 
     <script>
@@ -168,6 +181,12 @@
             const noAtomsMsg = document.getElementById('no-atoms-msg');
             const atomTypeSelector = document.getElementById('atom-type-selector');
             const vectorInfoBox = document.getElementById('vector-info-box');
+            
+            const faSlider = document.getElementById('fa-slider');
+            const faValue = document.getElementById('fa-value');
+            const fbSlider = document.getElementById('fb-slider');
+            const fbValue = document.getElementById('fb-value');
+
             const hkRangeSlider = document.getElementById('hk-range-slider');
             const hkRangeValue = document.getElementById('hk-range-value');
             const toggleHkLabels = document.getElementById('toggle-hk-labels');
@@ -189,18 +208,18 @@
             let diffractionGridSize = 5;
             let showHkLabels = true;
             let diffractionSpotSizeFactor = 5;
+            let scatteringFactors = { 'A': 6, 'B': 29 };
 
             // --- CONSTANTS ---
             const ATOM_COLOR_A = '#3b82f6';
             const ATOM_COLOR_B = '#ef4444';
-            const ATOMIC_WEIGHTS = { 'A': 1, 'B': 2 };
             const HIGHLIGHT_COLOR_1 = '#db2777';
             const HIGHLIGHT_COLOR_2 = '#c026d3';
             const VECTOR_COLOR = '#7e22ce';
             const PEAK_COLOR = '#16a34a';
             const ORIGIN_PEAK_COLOR = '#f59e0b';
-            const ATOM_RADIUS_A = 7; 
-            const ATOM_RADIUS_B = 11;
+            const MIN_ATOM_RADIUS = 3;
+            const MAX_ATOM_RADIUS = 15;
             const MIN_PEAK_RADIUS = 4;
             const MAX_PEAK_RADIUS = 9;
             
@@ -215,16 +234,26 @@
                             for (let dy = -1; dy <= 1; dy++) {
                                 const u = (atoms[j].x + dx) - atoms[i].x;
                                 const v = (atoms[j].y + dy) - atoms[i].y;
-                                if (Math.abs(u) > 1.01 || Math.abs(v) > 1.01) continue;
-                                const weight = ATOMIC_WEIGHTS[atoms[i].type] * ATOMIC_WEIGHTS[atoms[j].type];
+                                
+                                const weight = scatteringFactors[atoms[i].type] * scatteringFactors[atoms[j].type];
                                 if (weight > maxWeight) maxWeight = weight;
-                                pattersonPeaks.push({ u, v, from: i, to: j, weight });
+                                
+                                pattersonPeaks.push({ u: u, v: v, from: i, to: j, weight });
+                                // Friedel's law means we can just store one vector of the pair
+                                if (Math.abs(u) > 1e-9 || Math.abs(v) > 1e-9) {
+                                     pattersonPeaks.push({ u: -u, v: -v, from: j, to: i, weight });
+                                }
                             }
                         }
                     }
                 }
+
+                pattersonPeaks = pattersonPeaks.filter(p => p.u >= -1e-9 && p.u < 1.00001 && p.v >= -1e-9 && p.v < 1.00001)
+
+                let maxWeightInQuadrant = Math.max(...pattersonPeaks.map(p => p.weight), 0);
+                
                 pattersonPeaks.forEach(peak => {
-                    const weightRatio = maxWeight > 1 ? (peak.weight - 1) / (maxWeight - 1) : 0;
+                    const weightRatio = maxWeightInQuadrant > 1 ? (peak.weight - 1) / (maxWeightInQuadrant - 1) : 0;
                     peak.radius = MIN_PEAK_RADIUS + weightRatio * (MAX_PEAK_RADIUS - MIN_PEAK_RADIUS);
                 });
             }
@@ -237,12 +266,12 @@
                         let F_real = 0, F_imag = 0;
                         atoms.forEach(atom => {
                             const phase = 2 * Math.PI * (h * atom.x + k * atom.y);
-                            const f = ATOMIC_WEIGHTS[atom.type];
+                            const f = scatteringFactors[atom.type];
                             F_real += f * Math.cos(phase);
                             F_imag += f * Math.sin(phase);
                         });
                         const intensity = F_real * F_real + F_imag * F_imag;
-                        diffractionIntensities.push({ h, k, intensity });
+                        diffractionIntensities.push({ h, k, intensity: (intensity < 1e-5) ? 0 : intensity });
                     }
                 }
             }
@@ -257,8 +286,8 @@
                 const pattersonGrid = [];
                 for (let v_px = 0; v_px < size; v_px++) {
                     for (let u_px = 0; u_px < size; u_px++) {
-                        const u = (u_px / size) * 2 - 1;
-                        const v = 1 - (v_px / size) * 2;
+                        const u = u_px / size;
+                        const v = 1 - (v_px / size);
                         let pattersonVal = 0;
                         diffractionIntensities.forEach(spot => {
                             const phase = 2 * Math.PI * (spot.h * (u) + spot.k * (v));
@@ -351,17 +380,16 @@
                 ctx.beginPath(); ctx.moveTo(0, center); ctx.lineTo(size, center); ctx.stroke();
             }
 
-            // --- CORRECTED FUNCTION ---
-            // This version uses save() and restore() to ensure canvas state (like transparency)
-            // doesn't leak between drawing different periodic images, fixing the rendering bug.
+            function getAtomRadius(type) {
+                const normalized = (scatteringFactors[type] - 1) / 79; // Max value on slider is 80
+                return MIN_ATOM_RADIUS + normalized * (MAX_ATOM_RADIUS - MIN_ATOM_RADIUS);
+            }
+
             function drawAtoms() {
                 drawGridOnCanvas(realCtx);
                 const size = realCanvas.width;
                 
-                // An atom at (0,0) should have periodic images appear on all 4 corners of the canvas.
-                // This function loops through each atom and draws it and its 8 neighbors.
                 atoms.forEach((atom, index) => {
-                    // Loop through the 3x3 grid of cells, with (0,0) being the primary cell.
                     for (let i = -1; i <= 1; i++) {
                         for (let j = -1; j <= 1; j++) {
                             const x_periodic = atom.x + i;
@@ -370,20 +398,14 @@
                             const x_canvas = x_periodic * size;
                             const y_canvas = (1 - y_periodic) * size;
 
-                            const radius = atom.type === 'A' ? ATOM_RADIUS_A : ATOM_RADIUS_B;
+                            const radius = getAtomRadius(atom.type);
                             
-                            // Only draw if the atom is at least partially visible on the canvas.
                             if (x_canvas > -radius && x_canvas < size + radius && y_canvas > -radius && y_canvas < size + radius) {
-                                
-                                // Save the current canvas state (colors, alpha, etc.)
                                 realCtx.save();
-
-                                // Set default atom style
                                 realCtx.fillStyle = atom.type === 'A' ? ATOM_COLOR_A : ATOM_COLOR_B;
                                 realCtx.strokeStyle = 'white';
                                 realCtx.lineWidth = 2;
                                 
-                                // If a vector is highlighted, override the fill style for the involved atoms
                                 if (highlightedVector) {
                                     if (index === highlightedVector.from) {
                                         realCtx.fillStyle = HIGHLIGHT_COLOR_1;
@@ -392,18 +414,10 @@
                                     }
                                 }
 
-                                // Make periodic images (where i or j is not 0) fainter for clarity
-                                if (i !== 0 || j !== 0) {
-                                    realCtx.globalAlpha = 0.4;
-                                }
-
-                                // Draw the atom
                                 realCtx.beginPath();
                                 realCtx.arc(x_canvas, y_canvas, radius, 0, 2 * Math.PI);
                                 realCtx.fill();
                                 realCtx.stroke();
-                                
-                                // Restore the canvas state to what it was before this atom was drawn
                                 realCtx.restore();
                             }
                         }
@@ -437,10 +451,11 @@
             function drawPattersonMap() {
                 drawGridOnCanvas(pattersonCtx);
                 const size = pattersonCanvas.width;
-                const center = size / 2;
+
                 pattersonPeaks.forEach(peak => {
                     const isOriginPeak = Math.abs(peak.u) < 1e-9 && Math.abs(peak.v) < 1e-9;
                     const isHighlighted = highlightedVector && peak.from === highlightedVector.from && peak.to === highlightedVector.to && Math.abs(peak.u - highlightedVector.u) < 1e-9 && Math.abs(peak.v - highlightedVector.v) < 1e-9;
+                    
                     pattersonCtx.fillStyle = isOriginPeak ? ORIGIN_PEAK_COLOR : PEAK_COLOR;
                     pattersonCtx.strokeStyle = 'white';
                     pattersonCtx.lineWidth = 2;
@@ -448,16 +463,17 @@
                         pattersonCtx.fillStyle = VECTOR_COLOR;
                     }
                     pattersonCtx.beginPath();
-                    pattersonCtx.arc(peak.u * center + center, -peak.v * center + center, peak.radius, 0, 2 * Math.PI);
+                    pattersonCtx.arc(peak.u * size, (1 - peak.v) * size, peak.radius, 0, 2 * Math.PI);
                     pattersonCtx.fill();
                     pattersonCtx.stroke();
                 });
+
                 if (highlightedVector) {
                     pattersonCtx.fillStyle = '#1e293b';
                     pattersonCtx.font = 'bold 12px Inter';
                     const text = `(${highlightedVector.u.toFixed(2)}, ${highlightedVector.v.toFixed(2)})`;
-                    const xPos = highlightedVector.u * center + center + 10;
-                    const yPos = -highlightedVector.v * center + center;
+                    const xPos = highlightedVector.u * size + 10;
+                    const yPos = (1 - highlightedVector.v) * size;
                     pattersonCtx.textAlign = 'left';
                     pattersonCtx.textBaseline = 'middle';
                     pattersonCtx.fillText(text, xPos, yPos);
@@ -469,21 +485,13 @@
                 const size = diffractionCanvas.width;
                 const center = size / 2;
                 
-                let maxIntensity = 0;
-                diffractionIntensities.forEach(spot => {
-                    if (spot.h === 0 && spot.k === 0) return;
-                    if (spot.intensity > maxIntensity) maxIntensity = spot.intensity;
-                });
-
-                if (maxIntensity < 1e-9) return;
-
+                let maxIntensity = Math.max(1e-9, ...diffractionIntensities.filter(s => s.h || s.k).map(s => s.intensity));
                 const maxLogIntensity = Math.log(1 + maxIntensity);
 
                 diffractionIntensities.forEach(spot => {
-                    if (spot.h === 0 && spot.k === 0) return;
+                    if ((!spot.h && !spot.k) || !spot.intensity) return;
 
-                    const logIntensity = Math.log(1 + spot.intensity);
-                    const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
+                    const normalizedIntensity = Math.log(1 + spot.intensity) / maxLogIntensity;
 
                     if (normalizedIntensity < 0.01) return;
 
@@ -506,8 +514,7 @@
                     
                     diffractionIntensities.forEach(spot => {
                         if (spot.h === 0 && spot.k === 0) return;
-                        const logIntensity = Math.log(1 + spot.intensity);
-                        const normalizedIntensity = maxLogIntensity > 0 ? logIntensity / maxLogIntensity : 0;
+                        const normalizedIntensity = Math.log(1 + spot.intensity) / maxLogIntensity;
                         if (normalizedIntensity < 0.15) return;
                         const x = center + (spot.h / diffractionGridSize) * center;
                         const y = center - (spot.k / diffractionGridSize) * center;
@@ -578,11 +585,11 @@
                 updateVectorInfo();
                 drawAxisLabels('real-y-axis', 'real-x-axis', false, false, 'light');
                 drawAtoms();
-                drawAxisLabels('patterson-y-axis', 'patterson-x-axis', true, false, 'light');
+                drawAxisLabels('patterson-y-axis', 'patterson-x-axis', false, false, 'light');
                 drawPattersonMap();
                 drawAxisLabels('diffraction-y-axis', 'diffraction-x-axis', true, true, 'dark');
                 drawDiffractionPattern();
-                drawAxisLabels('ft-y-axis', 'ft-x-axis', true, false, 'dark');
+                drawAxisLabels('ft-y-axis', 'ft-x-axis', false, false, 'dark');
                 drawFTofIntensities();
             }
 
@@ -620,18 +627,18 @@
             }
             function handlePattersonHover(event) {
                 const rect = pattersonCanvas.getBoundingClientRect();
-                const center = rect.width / 2;
-                const mouseU = ((event.clientX - rect.left) - center) / center;
-                const mouseV = -(((event.clientY - rect.top) - center) / center);
+                const mouseU = (event.clientX - rect.left) / rect.width;
+                const mouseV = 1 - ((event.clientY - rect.top) / rect.height);
                 let foundPeak = null;
                 let minDistance = Infinity;
                 const hoverThreshold = (MAX_PEAK_RADIUS * 2) / rect.width;
+                
                 for (const peak of pattersonPeaks) {
-                    const dist = Math.sqrt(Math.pow(peak.u - mouseU, 2) + Math.pow(peak.v - mouseV, 2));
-                    if (dist < hoverThreshold && dist < minDistance) {
-                        minDistance = dist;
-                        foundPeak = peak;
-                    }
+                     const dist = Math.sqrt(Math.pow(peak.u - mouseU, 2) + Math.pow(peak.v - mouseV, 2));
+                     if (dist < hoverThreshold && dist < minDistance) {
+                         minDistance = dist;
+                         foundPeak = peak;
+                     }
                 }
                 if (JSON.stringify(foundPeak) !== JSON.stringify(highlightedVector)) {
                     highlightedVector = foundPeak;
@@ -643,6 +650,19 @@
                 highlightedVector = null;
                 redrawAll();
             }
+            
+            function handleScatteringFactorChange(event) {
+                const val = parseInt(event.target.value, 10);
+                if (event.target.id === 'fa-slider') {
+                    scatteringFactors.A = val;
+                    faValue.textContent = val;
+                } else {
+                    scatteringFactors.B = val;
+                    fbValue.textContent = val;
+                }
+                redrawAll();
+            }
+
             function handleHkRangeChange(event) {
                 diffractionGridSize = parseInt(event.target.value, 10);
                 hkRangeValue.textContent = diffractionGridSize;
@@ -684,6 +704,8 @@
                     redrawAll();
                 }
             });
+            faSlider.addEventListener('input', handleScatteringFactorChange);
+            fbSlider.addEventListener('input', handleScatteringFactorChange);
             hkRangeSlider.addEventListener('input', handleHkRangeChange);
             toggleHkLabels.addEventListener('change', handleToggleHkLabels);
             spotSizeSlider.addEventListener('input', handleSpotSizeChange);
@@ -696,5 +718,4 @@
     </script>
 </body>
 </html>
-
 
