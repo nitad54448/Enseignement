@@ -889,10 +889,10 @@
     
     <h3 class="profile-section-header">Isotropic Lorentzian (TCH)</h3>
     <label class="control-label">X</label>
-    <input type="number" id="param-x" value="0.0" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-x" value="0.001" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-x" class="fit-checkbox" >
     <label class="control-label">Y</label>
-    <input type="number" id="param-y" value="0.0" step="0.01" class="control-input" min="0">
+    <input type="number" id="param-y" value="0.005" step="0.01" class="control-input" min="0">
     <input type="checkbox" id="fit-y" class="fit-checkbox" >
 
         <h3 class="profile-section-header">Peak Asymmetry</h3>
@@ -1016,7 +1016,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5-1.0.4, 08 Oct 2025
+        Powder 5-1.0.5, 09 Oct 2025
     </div>
 </div>
 
@@ -1026,8 +1026,8 @@
 <script>
     document.addEventListener('DOMContentLoaded', () => {      
 
-        const CALCULATION_WINDOW_MULTIPLIER = 20.0;
-        const PEAK_HEIGHT_CUTOFF = 0.005; // 0.01 Corresponds to 1%
+        const CALCULATION_WINDOW_MULTIPLIER = 8.0;
+        const PEAK_HEIGHT_CUTOFF = 0.0025; // 0.01 Corresponds to 1%
  
 const tooltipContainer = document.querySelector('.help-tooltip-container');
 const tooltipContent = document.querySelector('.tooltip-content');
@@ -2221,29 +2221,142 @@ function pseudoVoigt(x, x0, tth_peak, gamma_G, gamma_L, params) {
     }
 }
 
-function applyAsymmetry(x, x0, tth_peak, params) {
-            // Return early if not using TCH profile or if both params are zero
-            if (params.profileType === "4" || (!params.SL && !params.HL)) {
-                return x - x0;
-            }
-        
-            const delta_2theta = x - x0;
-            if (Math.abs(delta_2theta) < 1e-9) return 0;
-        
-            const theta_rad = tth_peak * (Math.PI / 180) / 2.0;
-            // Avoid division by zero if tan(theta) is undefined (at 90 degrees), 1e-6 modifié en 1e-5 le 6 oct
-            if (Math.abs(theta_rad - Math.PI / 2.0) < 1e-5) {
-                return delta_2theta;
-            }
-        
-            const cot_theta = 1.0 / Math.tan(theta_rad);
-            const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0);
-            
-            // dans GSAS il y a un facteur 100, de mémoire, à svérifier
-            const asymmetry_factor = 1.0 - asymmetry_param * Math.sign(delta_2theta) * delta_2theta;
-            
-            return delta_2theta / Math.max(1e-6, asymmetry_factor);
+
+
+/**
+ * Performs a Williamson-Hall analysis using the refined TCH profile parameters.
+ * @param {object} params - The final refined parameters object (containing U, X, Y, lambda).
+ * @param {Array<object>} hklList - The list of HKL reflections with their 2-theta positions.
+ * @returns {object|null} An object with size, strain, and R-squared, or null if calculation fails.
+ */
+function calculateWilliamsonHall(params, hklList) {
+    // This analysis is only valid for the TCH profile which separates size/strain contributions.
+    if (params.profileType === "4" || params.U === undefined || params.X === undefined || params.Y === undefined) {
+        return null;
+    }
+
+    const points = [];
+    const deg2rad = Math.PI / 180;
+    const workingTthMin = workingData.tth[0];
+    const workingTthMax = workingData.tth[workingData.tth.length - 1];
+
+    hklList.forEach(peak => {
+        // Only include peaks within the currently fitted range for the analysis.
+        if (!peak.tth || peak.tth < workingTthMin || peak.tth > workingTthMax) {
+            return;
         }
+
+        const theta_rad = peak.tth * deg2rad / 2.0;
+        const cosTheta = Math.cos(theta_rad);
+        const tanTheta = Math.tan(theta_rad);
+
+        // Step 1: Calculate sample-only breadth components (in degrees) by ignoring instrumental V and W.
+        const beta_G_sq = (params.U || 0) * tanTheta * tanTheta;
+        const beta_G = beta_G_sq > 0 ? Math.sqrt(beta_G_sq) : 0;
+        const beta_L = (params.X || 0) * tanTheta + (params.Y || 0) / cosTheta;
+        
+        // Step 2: Combine them using the TCH FWHM approximation to get the total sample breadth.
+        const fwhm_g_5 = Math.pow(beta_G, 5);
+        const fwhm_l_5 = Math.pow(beta_L, 5);
+        const fwhm_g_4_l = 2.69269 * Math.pow(beta_G, 4) * beta_L;
+        const fwhm_g_3_l_2 = 2.42843 * Math.pow(beta_G, 3) * Math.pow(beta_L, 2);
+        const fwhm_g_2_l_3 = 4.47163 * Math.pow(beta_G, 2) * Math.pow(beta_L, 3);
+        const fwhm_g_l_4 = 0.07842 * beta_G * Math.pow(beta_L, 4);
+        const beta_sample_deg = Math.pow(fwhm_g_5 + fwhm_g_4_l + fwhm_g_3_l_2 + fwhm_g_2_l_3 + fwhm_g_l_4 + fwhm_l_5, 0.2);
+
+        if (beta_sample_deg <= 1e-6) return; // Ignore zero-width peaks.
+
+        // Step 3: Convert breadth to radians for the W-H equation.
+        const beta_sample_rad = beta_sample_deg * deg2rad;
+
+        // Step 4: Calculate the coordinates for the W-H plot.
+        const x = Math.sin(theta_rad);          // x-axis is sin(theta)
+        const y = beta_sample_rad * cosTheta;   // y-axis is beta * cos(theta)
+        points.push({ x, y });
+    });
+
+    if (points.length < 2) return null; // Need at least 2 points for a linear fit.
+
+    // Step 5: Perform a linear regression (y = mx + c) to find slope (m) and intercept (c).
+    let sum_x = 0, sum_y = 0, sum_xy = 0, sum_x_sq = 0, sum_y_sq = 0;
+    const n = points.length;
+    points.forEach(p => {
+        sum_x += p.x;
+        sum_y += p.y;
+        sum_xy += p.x * p.y;
+        sum_x_sq += p.x * p.x;
+        sum_y_sq += p.y * p.y;
+    });
+
+    const m_slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x_sq - sum_x * sum_x);
+    const c_intercept = (sum_y - m_slope * sum_x) / n;
+
+    // Calculate R-squared for goodness of fit.
+    const ss_xx = sum_x_sq - (sum_x * sum_x) / n;
+    const ss_yy = sum_y_sq - (sum_y * sum_y) / n;
+    const ss_xy = sum_xy - (sum_x * sum_y) / n;
+    const r_squared = (ss_xx === 0 || ss_yy === 0) ? 1 : Math.pow(ss_xy, 2) / (ss_xx * ss_yy);
+
+    // Step 6: Extract physical parameters from the slope and intercept.
+    const K_scherrer = 0.9; // Scherrer constant, typically 0.9.
+    const lambda = params.lambda;
+
+    // From intercept: c = K * lambda / L  => L = K * lambda / c
+    const crystallite_size_A = (c_intercept > 1e-9) ? (K_scherrer * lambda) / c_intercept : Infinity;
+    const crystallite_size_nm = crystallite_size_A / 10.0;
+
+    // From slope: m = 4 * epsilon => epsilon = m / 4
+    const microstrain = m_slope / 4.0;
+    const microstrain_percent = microstrain * 100;
+
+    return {
+        size_nm: crystallite_size_nm,
+        strain_percent: microstrain_percent,
+        r_squared: r_squared
+    };
+}
+
+
+    /**
+ * Applies an asymmetry correction using raw, unscaled S/L and H/L parameters.
+ * This version includes safeguards against numerical instability but expects
+ * the user to input physically realistic (i.e., very small) parameter values.
+ * @param {number} x - The current 2-theta point on the x-axis.
+ * @param {number} x0 - The calculated center of the peak.
+ * @param {number} tth_peak - The theoretical 2-theta position of the peak.
+ * @param {object} params - The parameters object containing raw SL and HL.
+ * @returns {number} The asymmetrically corrected distance from the peak center.
+ */
+function applyAsymmetry(x, x0, tth_peak, params) {
+    // Return early if not using a profile that supports this asymmetry (TCH) or if params are zero.
+    if (params.profileType === "4" || (!params.SL && !params.HL)) {
+        return x - x0;
+    }
+
+    const delta_2theta = x - x0;
+    if (Math.abs(delta_2theta) < 1e-9) {
+        return 0;
+    }
+
+    // Safeguard: At very low 2-theta, cot(theta) approaches infinity.
+    if (tth_peak < 0.1) {
+        return delta_2theta;
+    }
+
+    const theta_rad = tth_peak * (Math.PI / 180) / 2.0;
+    const cot_theta = 1.0 / Math.tan(theta_rad);
+
+    // The raw S/L and H/L values from the input fields are used directly.
+    const asymmetry_param = (params.SL || 0) * cot_theta + (params.HL || 0);
+    const correction_term = asymmetry_param * Math.abs(delta_2theta);
+
+    // Safeguard: The denominator is clamped to prevent it from becoming zero or negative,
+    const MAX_CORRECTION = 0.95; 
+    const asymmetry_factor = 1.0 - Math.min(correction_term, MAX_CORRECTION);
+    
+    return delta_2theta / asymmetry_factor;
+}
+
 
         function calculatePattern(tthAxis, hklList, params) {
             const pattern = new Array(tthAxis.length).fill(0);
@@ -2260,7 +2373,7 @@ function applyAsymmetry(x, x0, tth_peak, params) {
                 const { gamma_G, gamma_L } = calculateProfileWidths(basePos1, peak, params);
                 const shapeArea1 = getPseudoVoigtArea(gamma_G, gamma_L, params);
 
-                // Use a generous window to find all points that might be above the cutoff
+                // Use a window to find all points that might be above the cutoff
                 const window = CALCULATION_WINDOW_MULTIPLIER * Math.max(0.01, gamma_G + gamma_L);
                 const min_tth = peakPos1 - window;
                 const max_tth = peakPos1 + window;
@@ -2274,7 +2387,7 @@ function applyAsymmetry(x, x0, tth_peak, params) {
 
                     const intensityAtPoint = pseudoVoigt(current_tth, peakPos1, basePos1, gamma_G, gamma_L, params);
 
-                    // *** NEW: Only include points where the peak height is above the cutoff threshold ***
+                    // Only include points where the peak height is above the cutoff threshold ***
                     if (intensityAtPoint > PEAK_HEIGHT_CUTOFF) {
                         if (shapeArea1 > 1e-9) {
                             pattern[i] += peak.intensity * (intensityAtPoint / shapeArea1);
@@ -2313,7 +2426,7 @@ function applyAsymmetry(x, x0, tth_peak, params) {
 
                         const intensityAtPoint = pseudoVoigt(current_tth, peakPos2, basePos2, gamma_G2, gamma_L2, params);
                         
-                        // *** NEW: Apply the same height cutoff logic for the K-alpha 2 peak ***
+                        // Apply the same height cutoff logic for the K-alpha 2 peak ***
                         if (intensityAtPoint > PEAK_HEIGHT_CUTOFF) {
                             if (shapeArea2 > 1e-9) {
                                 pattern[i] += peak.intensity * params.ratio * (intensityAtPoint / shapeArea2);
@@ -2648,7 +2761,7 @@ function estimateBackgroundParameters(tth, intensity) {
         }
     });
 
-        let DAMPING_FACTOR=0.7;
+        let DAMPING_FACTOR=0.3;
     hklList.forEach(p => {
         // Store previous intensity if it doesn't exist
         
@@ -4053,6 +4166,23 @@ function setUIState(fitting) {
                 ''
             ];
 
+                        let whAnalysisSection = [];
+            // This analysis is only meaningful for the TCH profile and pawley.
+            if (finalParams.profileType == "3" && refinementMode === 'pawley') { 
+                const whResults = calculateWilliamsonHall(finalParams, hklList);
+                if (whResults) {
+                    whAnalysisSection.push(
+                        '--- Williamson-Hall Size/Strain Analysis ---',
+                        `Apparent Crystallite Size (nm): ${whResults.size_nm.toFixed(0)}`,
+                        `Apparent Microstrain (%):      ${whResults.strain_percent.toFixed(3)}`,
+                        `Linear Fit R²:                 ${whResults.r_squared.toFixed(5)}`,
+                        ''
+                    );
+                }
+            }
+
+
+
             let esds = {};
             let esdWarning = null;
             if (fitResults.algorithm === 'lm' && fitResults.JtJ && fitResults.paramMapping) {
@@ -4152,7 +4282,7 @@ function setUIState(fitting) {
                 }
             }
             
-            return [...header, ...statsSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
+            return [...header, ...statsSection, ...whAnalysisSection, ...paramLines, ...reflectionsSection, ...dataSection].join('\n');
         }
 
         // --- EVENT LISTENERS, 8 oct, version 1.0.3
