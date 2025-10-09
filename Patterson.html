@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Patterson Simulator</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="./dist/output.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -55,7 +55,7 @@
                 <label class="control-label">Instructions</label>
                 <p class="text-sm text-gray-400">
                     1. Select atom type & click on the canvas to add.<br>
-                    2. Edit atom coordinates directly in the list below.<br>
+                    2. The atom and its periodic images will appear.<br>
                     3. Hover over Patterson peaks to see the vectors.
                 </p>
             </div>
@@ -118,7 +118,7 @@
                     <div class="plot-grid">
                         <div id="real-y-axis" class="y-axis-labels"></div>
                         <div id="real-x-axis" class="x-axis-labels"></div>
-                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="real-space-canvas"></canvas></div>
+                        <div class="plot-area canvas-wrapper"><canvas id="real-space-canvas"></canvas></div>
                     </div>
                 </div>
 
@@ -127,7 +127,7 @@
                     <div class="plot-grid">
                         <div id="patterson-y-axis" class="y-axis-labels"></div>
                         <div id="patterson-x-axis" class="x-axis-labels"></div>
-                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="patterson-canvas"></canvas></div>
+                        <div class="plot-area canvas-wrapper"><canvas id="patterson-canvas"></canvas></div>
                     </div>
                 </div>
                 
@@ -136,7 +136,7 @@
                     <div class="plot-grid">
                         <div id="diffraction-y-axis" class="y-axis-labels"></div>
                         <div id="diffraction-x-axis" class="x-axis-labels"></div>
-                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="diffraction-canvas"></canvas></div>
+                        <div class="plot-area canvas-wrapper"><canvas id="diffraction-canvas"></canvas></div>
                     </div>
                 </div>
 
@@ -145,7 +145,7 @@
                     <div class="plot-grid">
                         <div id="ft-y-axis" class="y-axis-labels"></div>
                         <div id="ft-x-axis" class="x-axis-labels"></div>
-                        <div class="plot-area canvas-wrapper rounded-lg"><canvas id="ft-canvas"></canvas></div>
+                        <div class="plot-area canvas-wrapper"><canvas id="ft-canvas"></canvas></div>
                     </div>
                 </div>
             </div>
@@ -153,7 +153,7 @@
     </div>
     
     <footer>
-        2D crystal structures, diffraction patterns and Patterson functions. (NitaD, Univ. Paris-Saclay, ver 08 oct 2025)
+        2D crystal structures, diffraction patterns and Patterson functions. (NitaD, Univ. Paris-Saclay, ver 10 oct 2025)
     </footer>
 
     <script>
@@ -258,7 +258,6 @@
                 for (let v_px = 0; v_px < size; v_px++) {
                     for (let u_px = 0; u_px < size; u_px++) {
                         const u = (u_px / size) * 2 - 1;
-                        // --- CORRECTED --- Invert the v-axis mapping
                         const v = 1 - (v_px / size) * 2;
                         let pattersonVal = 0;
                         diffractionIntensities.forEach(spot => {
@@ -352,30 +351,60 @@
                 ctx.beginPath(); ctx.moveTo(0, center); ctx.lineTo(size, center); ctx.stroke();
             }
 
+            // --- CORRECTED FUNCTION ---
+            // This version uses save() and restore() to ensure canvas state (like transparency)
+            // doesn't leak between drawing different periodic images, fixing the rendering bug.
             function drawAtoms() {
                 drawGridOnCanvas(realCtx);
                 const size = realCanvas.width;
                 
+                // An atom at (0,0) should have periodic images appear on all 4 corners of the canvas.
+                // This function loops through each atom and draws it and its 8 neighbors.
                 atoms.forEach((atom, index) => {
+                    // Loop through the 3x3 grid of cells, with (0,0) being the primary cell.
                     for (let i = -1; i <= 1; i++) {
                         for (let j = -1; j <= 1; j++) {
-                            const x_abs = (atom.x + i) * size;
-                            const y_abs = (1-(atom.y + j)) * size;
+                            const x_periodic = atom.x + i;
+                            const y_periodic = atom.y + j;
 
-                            if (x_abs > -ATOM_RADIUS_B && x_abs < size + ATOM_RADIUS_B && y_abs > -ATOM_RADIUS_B && y_abs < size + ATOM_RADIUS_B) {
+                            const x_canvas = x_periodic * size;
+                            const y_canvas = (1 - y_periodic) * size;
+
+                            const radius = atom.type === 'A' ? ATOM_RADIUS_A : ATOM_RADIUS_B;
+                            
+                            // Only draw if the atom is at least partially visible on the canvas.
+                            if (x_canvas > -radius && x_canvas < size + radius && y_canvas > -radius && y_canvas < size + radius) {
+                                
+                                // Save the current canvas state (colors, alpha, etc.)
+                                realCtx.save();
+
+                                // Set default atom style
                                 realCtx.fillStyle = atom.type === 'A' ? ATOM_COLOR_A : ATOM_COLOR_B;
                                 realCtx.strokeStyle = 'white';
                                 realCtx.lineWidth = 2;
+                                
+                                // If a vector is highlighted, override the fill style for the involved atoms
                                 if (highlightedVector) {
-                                    if (index === highlightedVector.from || index === highlightedVector.to) {
-                                        realCtx.fillStyle = index === highlightedVector.from ? HIGHLIGHT_COLOR_1 : HIGHLIGHT_COLOR_2;
+                                    if (index === highlightedVector.from) {
+                                        realCtx.fillStyle = HIGHLIGHT_COLOR_1;
+                                    } else if (index === highlightedVector.to) {
+                                        realCtx.fillStyle = HIGHLIGHT_COLOR_2;
                                     }
                                 }
-                                const radius = atom.type === 'A' ? ATOM_RADIUS_A : ATOM_RADIUS_B;
+
+                                // Make periodic images (where i or j is not 0) fainter for clarity
+                                if (i !== 0 || j !== 0) {
+                                    realCtx.globalAlpha = 0.4;
+                                }
+
+                                // Draw the atom
                                 realCtx.beginPath();
-                                realCtx.arc(atom.x * size, (1-atom.y) * size, radius, 0, 2 * Math.PI);
+                                realCtx.arc(x_canvas, y_canvas, radius, 0, 2 * Math.PI);
                                 realCtx.fill();
                                 realCtx.stroke();
+                                
+                                // Restore the canvas state to what it was before this atom was drawn
+                                realCtx.restore();
                             }
                         }
                     }
@@ -392,7 +421,7 @@
                         realCtx.moveTo(fromAtom.x * size, (1-fromAtom.y) * size);
                         realCtx.lineTo(toAtom.x * size, (1-toAtom.y) * size);
                         realCtx.stroke();
-                        const angle = Math.atan2((1-toAtom.y) - (1-fromAtom.y), toAtom.x - fromAtom.x);
+                        const angle = Math.atan2((1-toAtom.y) * size - (1-fromAtom.y) * size, toAtom.x * size - fromAtom.x * size);
                         realCtx.fillStyle = VECTOR_COLOR;
                         realCtx.save();
                         realCtx.translate(toAtom.x * size, (1-toAtom.y) * size);
@@ -419,7 +448,6 @@
                         pattersonCtx.fillStyle = VECTOR_COLOR;
                     }
                     pattersonCtx.beginPath();
-                    // --- CORRECTED --- Negate the v component to flip the y-axis
                     pattersonCtx.arc(peak.u * center + center, -peak.v * center + center, peak.radius, 0, 2 * Math.PI);
                     pattersonCtx.fill();
                     pattersonCtx.stroke();
@@ -429,7 +457,6 @@
                     pattersonCtx.font = 'bold 12px Inter';
                     const text = `(${highlightedVector.u.toFixed(2)}, ${highlightedVector.v.toFixed(2)})`;
                     const xPos = highlightedVector.u * center + center + 10;
-                    // --- CORRECTED --- Negate the v component for the label position
                     const yPos = -highlightedVector.v * center + center;
                     pattersonCtx.textAlign = 'left';
                     pattersonCtx.textBaseline = 'middle';
@@ -595,7 +622,7 @@
                 const rect = pattersonCanvas.getBoundingClientRect();
                 const center = rect.width / 2;
                 const mouseU = ((event.clientX - rect.left) - center) / center;
-                const mouseV = -(((event.clientY - rect.top) - center) / center); // Also correct hover detection
+                const mouseV = -(((event.clientY - rect.top) - center) / center);
                 let foundPeak = null;
                 let minDistance = Infinity;
                 const hoverThreshold = (MAX_PEAK_RADIUS * 2) / rect.width;
@@ -669,3 +696,5 @@
     </script>
 </body>
 </html>
+
+
