@@ -1019,7 +1019,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5-1.0.5, 09 Oct 2025
+        Powder 5, version 106, 10 Oct 2025
     </div>
 </div>
 
@@ -1030,7 +1030,7 @@
     document.addEventListener('DOMContentLoaded', () => {      
 
         const CALCULATION_WINDOW_MULTIPLIER = 8.0;
-        const PEAK_HEIGHT_CUTOFF = 0.0025; // 0.01 Corresponds to 1%
+        const PEAK_HEIGHT_CUTOFF = 0.002; // 0.01 Corresponds to 1%
  
 const tooltipContainer = document.querySelector('.help-tooltip-container');
 const tooltipContent = document.querySelector('.tooltip-content');
@@ -1061,7 +1061,7 @@ if (tooltipContainer && tooltipContent) {
 
             latticeParamsContainer: document.getElementById('lattice-parameters-container'),
             wavelength: document.getElementById('wavelength'),
-      wavelength2: document.getElementById('wavelength2'), // le 29 sept, dublet Ka
+      wavelength2: document.getElementById('wavelength2'), // le 29 sept 25, dublet Ka
         ratio21: document.getElementById('ratio21'),      
             zeroShift: document.getElementById('zero-shift'),
             fitZeroShift: document.getElementById('fit-zero-shift'),
@@ -1112,7 +1112,7 @@ if (tooltipContainer && tooltipContent) {
                             const bgContainer = document.getElementById('background-params-container');
         if (bgContainer) { 
             let bgHtml = '';
-            const initialBgValues = [100, 5, 0, 0, 0, 0]; // Initial guess for B0 to B5.. on estime mieux (le 4 oct, version 2.3)
+            const initialBgValues = [100, 5, 0, 0, 0, 0]; // Initial guess for B0 to B5.. on estime mieux (le 4 oct 25, version 102)
             for (let i = 0; i < 6; i++) {
                 bgHtml += `
                     <label class="control-label">B${i}</label>
@@ -1130,14 +1130,14 @@ if (tooltipContainer && tooltipContent) {
         let calculatedBackground = [];
         let workingDataCache = { tth: [], intensity: [], background: [], isValid: false };
         let fitResults = null;
-        let lastFitResultsCache = null; //changement le 6 oct
+        let lastFitResultsCache = null; //changement le 6 oct 25
         let mainChart;
         let isFitting = false;
         let lastGeneratedHklList = [];
         let backgroundAnchors = []; // Stores {tth, y} objects
         const HIGH_WEIGHT_MULTIPLIER = 50.0
          let masterHklList = [];
-         let hklIndexCache = {}; //ajouté le 8 oct, on met en cache les hkl
+         let hklIndexCache = {}; //ajouté le 8 oct 25, on met en cache les hkl
 
          updateSpaceGroupUI();
 
@@ -1331,7 +1331,7 @@ if (tooltipContainer && tooltipContent) {
 
 function getSpaceGroupCentering(spaceGroupName) {
     const firstLetter = spaceGroupName.charAt(0).toUpperCase();
-    if (firstLetter === "R") return "R"; // rhombohedral
+    if (firstLetter === "R") return "R"; // rhombohedral, mais en axes hex, à vérifier
     return firstLetter; // P, I, F, C, A, etc.
 }
 
@@ -1503,7 +1503,7 @@ function updateSpaceGroupUI() {
         };
 
         /**
-         * This function is the new single source of truth for refinement data.
+         * This function is the single source of truth for refinement data.
          * It slices the fullExperimentalData based on slider values and, critically,
          * pre-calculates the weights array, correctly applying high weights for anchors.
          */
@@ -1531,7 +1531,7 @@ function updateSpaceGroupUI() {
             const anchorIndices = new Set(backgroundAnchors.map(a => a.index));
             
             const yMax = Math.max(...workingData.intensity);
-const floor = 0.001 * yMax; // Floor is 0.1% of maximum
+const floor = 0.001 * yMax; // Floor is 0.1% of maximum, la valeur dans GSAS
 workingData.weights = workingData.intensity.map((y, i) => {
     let weight = 1 / Math.max(floor, y);
     if (anchorIndices.has(startIndex + i)) {
@@ -1671,7 +1671,8 @@ function updateHklPositions(hklList, params, system) {
             const lambda_sq_over_4 = (lambda * lambda) / 4.0;
             const a_sq = a * a;
 
-            // Pre-calculate system-specific constants outside the loop
+            // Pre-calculate system-specific constants outside the loop... 
+            //ca aurait été plus simple de faire ça avec le tenseur métrique... mais dans ce cas faut passer toutes les valeurs de param de maille
             let b_sq, c_sq, sin_beta_sq, cos_beta;
             if (system === 'monoclinic') {
                 const beta_rad = (beta || 90) * deg2rad;
@@ -1731,21 +1732,29 @@ function updateHklPositions(hklList, params, system) {
             });
         }
 
-
         function updateBackgroundForPreview() {
             if (fullExperimentalData.tth.length === 0 || isFitting) return;
 
             const params = getAllParams();
-            //  calculate the background based on the UI controls
             calculatedBackground = calculateTotalBackground(fullExperimentalData.tth, params);
 
             if (mainChart) {
+                // ---Save the current Y-axis zoom state ---
+                const currentYMin = mainChart.scales.y.min;
+                const currentYMax = mainChart.scales.y.max;
+
                 const backgroundDataset = mainChart.data.datasets.find(d => d.label === 'Background');
                 if (backgroundDataset) {
                     backgroundDataset.data = fullExperimentalData.tth.map((t, i) => ({ x: t, y: calculatedBackground[i] }));
                 }
-                //  update the manual simulation to reflect the new background
+                
                 updatePreviewPattern(); 
+                
+                // --Restore the Y-axis zoom state before updating ---
+                mainChart.options.scales.y.min = currentYMin;
+                mainChart.options.scales.y.max = currentYMax;
+                
+                mainChart.update('none');
             }
         }
 
@@ -1829,7 +1838,7 @@ function updateHklPositions(hklList, params, system) {
         }
 
     } else {
-        // --- Robust TCH Profile Calculation (Profile 3) ---
+        // --- TCH Profile Calculation (Profile 3) ---
         const gamma_G_sq = (params.U || 0) * tanTheta * tanTheta + 
                           (params.V || 0) * tanTheta + 
                           (params.W || 0);
@@ -1857,7 +1866,7 @@ function updateHklPositions(hklList, params, system) {
                           (params.S022 || 0) * k2 * l2;
             H_aniso *= d_inv_sq * d_inv_sq;
             
-            // Only add anisotropic broadening if it's a valid number
+            // Only add anisotropic broadening if it's a valid number... ajouter dans la doc le facteur d'échelle, dans GSAS c'est aussi 1000
             if(isFinite(H_aniso)) {
                  gamma_L += Math.abs(H_aniso) / 1000;
             }
@@ -1887,12 +1896,12 @@ function getPseudoVoigtArea(gamma_G, gamma_L, params) {
                 return currentEta * area_L + (1 - currentEta) * area_G;
 
             } else {
-                // --- START: CORRECTED LOGIC FOR TCH PROFILE ---
+                // ------
                 // For the TCH profile, the FWHM of the Gaussian and Lorentzian parts
                 // are considered the same as the final convoluted FWHM for the area calculation.
                 const fwhm = getPeakFWHM(gamma_G, gamma_L);
                 
-                // We still need to calculate the mixing parameter, eta, as done in the pseudoVoigt function.
+                // calculate the mixing parameter, eta, as done in the pseudoVoigt function.
                 const ratio = gamma_L / fwhm;
                 const eta_calc = 1.36603 * ratio - 0.47719 * (ratio * ratio) + 0.11116 * Math.pow(ratio, 3);
                 const currentEta = Math.max(0, Math.min(1, eta_calc));
@@ -1902,7 +1911,7 @@ function getPseudoVoigtArea(gamma_G, gamma_L, params) {
                 const area_L_combined = fwhm * LORENTZ_AREA_CONST;
                 
                 return currentEta * area_L_combined + (1 - currentEta) * area_G_combined;
-                // --- END: CORRECTED LOGIC FOR TCH PROFILE ---
+                // -----
             }
         }
 
@@ -2521,7 +2530,7 @@ function estimateBackgroundParameters(tth, intensity) {
 
 }
 
-// REPLACE the calculateStatistics function
+// calculateStatistics function
 function calculateStatistics(workingData, netCalcPattern, fitFlags, finalBackground, params, hklList, refinementMode) {
     const y_obs = workingData.intensity;
     const y_bkg = finalBackground;
@@ -3280,7 +3289,7 @@ function generateAndCacheHklIndices(spaceGroup, maxTth, params) {
         }
     };
 
-    // This is the computationally intensive block
+    // This is computationally intensive block
     switch (laue_class) {
         case 'm-3m': case 'm-3':
             for (let l = 0; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
@@ -3409,7 +3418,7 @@ function debounce(func, wait) {
         }
 
 
-        // REPLACE the entire setUIState function
+        // setUIState function
 function setUIState(fitting) {
     isFitting = fitting;
     const leBailButton = document.getElementById('le-bail-button');
@@ -3549,13 +3558,13 @@ function setUIState(fitting) {
                         { label: 'Experimental', data: experimentalPoints, borderColor: 'rgba(107, 114, 128, 0.7)', borderWidth: 0.5, pointRadius: 1, pointBackgroundColor: 'rgba(107, 114, 128, 0.7)', order: 1 },
                         { label: 'Simulation (Manual)', data: [], borderColor: 'rgba(249, 115, 22, 0.8)', borderWidth: 2, pointRadius: 0, borderDash: [8, 4], order: 2 },
                         { label: 'Calculated', data: [], borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, pointRadius: 0, order: 3 },
-                        { label: 'Background', data: [], borderColor: 'rgba(217, 119, 6, 0.8)', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 5], order: 4 },
+                        { label: 'Background', data: [], borderColor: 'rgba(2, 9, 206, 0.8)', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 5], order: 4 },
                         { label: 'Difference', data: [], borderColor: 'rgba(239, 68, 68, 0.8)', borderWidth: 1.5, pointRadius: 0, order: 5 },
                         { label: 'Difference Zero', data: [], borderColor: 'rgba(156, 163, 175, 0.8)', borderWidth: 1, pointRadius: 0, borderDash: [2, 2], order: 6 },
                         { type: 'bar', label: 'HKL Markers', data: [], backgroundColor: 'rgba(22, 163, 74, 0.9)', barThickness: 1, categoryPercentage: 1.0, barPercentage: 1.0, order: 0 },
                         
              
-                        // The 'Anchor Points' object now correctly sits INSIDE the datasets array.
+                        // The 'Anchor Points' object  correctly sits INSIDE the datasets array.
                         {
                             label: 'Anchor Points',
                             type: 'scatter',
@@ -3647,7 +3656,7 @@ function setUIState(fitting) {
     function rescalePlot(updateY = false) {
     // === CONFIGURABLE PARAMETERS FOR DIFFERENCE PLOT ===
     const DIFF_PLOT_MIN_RATIO = 0.1;  // Minimum allocation: 10% of Y scale
-    const DIFF_PLOT_MAX_RATIO = 0.3;  // Maximum allocation: 40% of Y scale
+    const DIFF_PLOT_MAX_RATIO = 0.3;  // Maximum allocation: 30% of Y scale
     const DIFF_PLOT_PADDING = 1.1;     // Padding factor (1.2 = 20% extra space)
     // =======
 
