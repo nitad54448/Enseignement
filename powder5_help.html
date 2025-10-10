@@ -225,7 +225,7 @@
 
         <section id="chart-interactions">
             <h2>Interactive Data Visualization</h2>
-            <p>The diffraction pattern is rendered in an interactive plot to facilitate detailed inspection of the experimental data and the quality of the model fit.</p>
+            <p>The diffraction pattern is rendered in an interactive plot to facilitate detailed inspection of the experimental data and the quality of the model fit. You can hide any of the plots by clicking on its legend at the top of the chart.</p>
             <ul>
                 <li><b>Pan:</b> Click and drag on the chart to translate the view along the $2\theta$ and intensity axes.</li>
                 <li><b>Zoom:</b> Use the mouse wheel to adjust the zoom level. The zoom behavior is context-dependent:
@@ -318,13 +318,20 @@
             <h2>Guide to Refinable Parameters</h2>
             <p>This section provides a detailed breakdown of the parameters you can control and refine.</p>
 
+            <div class="note">
+                <h4>A Note on Parameter Scaling & GSAS Comparison</h4>
+                <p>
+                    Following a long-standing convention in crystallographic software like GSAS, some refinable parameters in this program are internally scaled. This is done for user convenience, allowing you to work with manageable numbers (e.g., 1.0) instead of very small decimals (e.g., 1.0e-4). The documentation below provides the exact formulas used, allowing for direct comparison with physical models and values from other software.
+                </p>
+            </div>
+
             <h3 id="parameters-crystal">Crystal System & Space Group</h3>
             <p>
                 These parameters define the crystallographic symmetry of the material.
             </p>
             <ul>
                 <li>The <strong>System</strong> selection imposes metrical constraints on the lattice parameters (e.g., for Cubic, $a=b=c$, $\alpha=\beta=\gamma=90^\circ$).</li>
-                <li>The <strong>Space Group</strong> selection determines the systematic reflection conditions ($hkl$ absences) used to generate the list of Bragg peaks.</li>
+                <li>The <strong>Space Group</strong> selection determines the systematic reflection conditions ($hkl$ absences) used to generate the list of Bragg peaks. The underlying logic for these conditions is consistent with established crystallographic libraries and was taken from Computational Crystallography Toolbox (cctbx).</li>
             </ul>
 
             <h3 id="parameters-instrumental">Instrumental Parameters</h3>
@@ -356,7 +363,19 @@
                 <li><code>GU, GV, GW, GP</code>: Parameters describing the Gaussian FWHM. The terms are associated with strain ($GU$), instrumental factors ($GV, GW$), and particle size effects ($GP$).</li>
                 <li><code>LX</code>: Describes the Lorentzian FWHM, primarily associated with crystallite size broadening.</li>
                 <li><code>eta</code>: A simple linear mixing parameter ($\eta=0$ for pure Gaussian, $\eta=1$ for pure Lorentzian).</li>
-                <li><code>shft & trns</code>: Corrects for peak position shifts due to sample displacement and transparency, respectively.</li>
+                <li><code>shft & trns</code>: Corrects for peak position shifts due to sample displacement and transparency, respectively.
+                    <div class="note" style="margin-top: 1em; margin-bottom: 0;">
+                        <strong>Unit and Scaling for the <code>shft</code> parameter:</strong><br>
+                        The refined <code>shft</code> parameter is a <strong>dimensionless, scaled coefficient</strong>, not a direct physical length. Its relationship to the physical specimen displacement ($s$) and the goniometer radius ($R$) is defined as follows:
+                        <ul>
+                            <li>The physical peak shift in radians is: $\Delta(2\theta)_{\text{rad}} = -2 \frac{s}{R} \cos(\theta)$</li>
+                            <li>The program calculates this shift (in degrees) using the formula: $\Delta(2\theta)_{\text{deg}} = -(\text{shft} / 1000) \times \cos(\theta) \times (180 / \pi)$</li>
+                            <li>Therefore, the relationship is: $\frac{\text{shft}}{1000} = \frac{2s}{R}$</li>
+                            <li>To find the physical displacement $s$ from the refined parameter, use: $s = R \times (\text{shft} / 2000)$.<br>
+                            <em>Example: For a typical instrument with $R=240$ mm, a refined <code>shft</code> value of 1.0 corresponds to a physical displacement $s$ of $240 \times (1/2000) = 0.12$ mm.</em></li>
+                        </ul>
+                    </div>
+                </li>
             </ul>
             
             <h3 id="parameters-profile3">Profile Function #3 (Anisotropic TCH)</h3>
@@ -372,7 +391,7 @@
             <p>The total FWHM ($H$) and pseudo-Voigt mixing parameter ($\eta$) are then derived from these components using polynomial approximations. The final shape is $pV(x) = \eta L(x, H) + (1-\eta)G(x, H)$, where both functions share the same convoluted FWHM.</p>
             <ul>
                 <li><code>U, V, W</code>: Gaussian broadening parameters related to strain ($U, V$) and instrumental resolution ($W$), following the Caglioti formulation.</li>
-                <li><code>X, Y</code>: Lorentzian broadening parameters related to strain ($X$) and crystallite size ($Y$), following the Scherner formula.</li>
+                <li><code>X, Y</code>: Lorentzian broadening parameters related to strain ($X$) and crystallite size ($Y$), following the Scherrer formula.</li>
             </ul>
             
             <h4>Peak Asymmetry</h4>
@@ -385,6 +404,12 @@
             <p>
                 The refinable parameters (<code>S400</code>, <code>S040</code>, etc.) are the non-zero, symmetry-unique coefficients of this polynomial. The application automatically applies symmetry constraints based on the Laue class of the selected space group.
             </p>
+            <div class="note">
+                <strong>Unit and Scaling for Stephens <code>S_hkl</code> parameters:</strong><br>
+                The user-inputted <code>S_hkl</code> parameters are scaled for convenience. The dimensionless anisotropic broadening term ($H_{aniso}$) is calculated from these parameters, and its contribution to the total Lorentzian width (in degrees $2\theta$) is scaled by a factor of 1000.
+                $$H_L(\text{total}) = H_L(\text{isotropic}) + \frac{|H_{aniso}|}{1000}$$
+                This scaling allows the user to refine values in a manageable range (e.g., -10 to +10) rather than requiring input of very small decimals (e.g., 1e-4), a convention common in other refinement software.
+            </div>
         </section>
 
         <hr>
@@ -418,7 +443,7 @@
                         <div class="note">
                 <h4>Technical Note on Calculation Parameters</h4>
                 <p>
-                    The theoretical pattern is calculated using a hybrid approach for performance and accuracy. A search window (defined by <code>CALCULATION_WINDOW_MULTIPLIER</code>) is used to find all potential contributions to a given data point. However, only points where the calculated peak height is greater than a defined threshold (<code>PEAK_HEIGHT_CUTOFF</code>, now set at 0.5%) relative to its maximum are included in the final sum. This ensures that the long tails of Lorentzian-like peaks are handled efficiently without sacrificing accuracy.
+                    The theoretical pattern is calculated using a hybrid approach for performance and accuracy. A search window (defined by <code>CALCULATION_WINDOW_MULTIPLIER</code>) is used to find all potential contributions to a given data point. However, only points where the calculated peak height is greater than a defined threshold (<code>PEAK_HEIGHT_CUTOFF</code>, now set at 0.2%) relative to its maximum are included in the final sum.
                 </p>
             </div>
 
@@ -527,6 +552,10 @@
                 <strong>Parallel Tempering:</strong><br>
                 Swendsen, R. H., & Wang, J. S. (1986). "Replica Monte Carlo simulation of spin-glasses". <em>Physical Review Letters</em>, 57(21), 2607.
             </div>
+            <div class="reference-item">
+                <strong>cctbx - Computational Crystallography Toolbox:</strong><br>
+                Grosse-Kunstleve, R. W., Sauter, N. K., Moriarty, N. W., & Adams, P. D. (2002). "The Computational Crystallography Toolbox: crystallographic algorithms in a reusable software framework". <em>Journal of Applied Crystallography</em>, 35(1), 126-136.
+            </div>
         </section>
 
         <hr>
@@ -537,7 +566,7 @@
                 The <strong>powder5</strong> toolkit was developed by Nita Dragoe from Université Paris-Saclay as a simple browser-based implementation of powder pattern decomposition methods. It is a long-time successor of PowderV2 (Dragoe, N. (2001). <em>J. Appl. Cryst.</em>, 34, 535) and has been updated to include the Pawley method and modern global optimization algorithms.
             </p>
             <p>
-                Last Updated: 09 October 2025.<br>This document was updated with the assistance of an AI.
+                Last Updated: 10 October 2025.<br>This document was updated with the assistance of an AI.
             </p>
             <div class="note">
                 <strong>Disclaimer:</strong> This application is provided for educational and research purposes. While it implements standard and robust algorithms, it is not a substitute for fully validated, peer-reviewed software packages (e.g., GSAS-II, FullProf, TOPAS) for analyses intended for publication.
