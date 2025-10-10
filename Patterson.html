@@ -87,8 +87,8 @@
                 <label class="control-label">Diffraction Controls</label>
                  <div class="space-y-4">
                      <div>
-                        <label for="hk-range-slider" class="block mb-2 text-sm font-medium">Range (h,k): <span id="hk-range-value" class="font-bold">5</span></label>
-                        <input type="range" id="hk-range-slider" min="3" max="20" value="5" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                        <label for="hk-range-slider" class="block mb-2 text-sm font-medium">Range (h,k): <span id="hk-range-value" class="font-bold">10</span></label>
+                        <input type="range" id="hk-range-slider" min="3" max="20" value="10" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                     </div>
                     <div>
                         <label for="spot-size-slider" class="block mb-2 text-sm font-medium">Spot Size Multiplier: <span id="spot-size-value" class="font-bold">5</span></label>
@@ -97,7 +97,7 @@
                     <div class="flex items-center justify-between">
                         <label for="toggle-hk-labels" class="text-sm font-medium">Show h,k Labels</label>
                         <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                            <input type="checkbox" name="toggle" id="toggle-hk-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" checked/>
+                            <input type="checkbox" name="toggle" id="toggle-hk-labels" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
                             <label for="toggle-hk-labels" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-600 cursor-pointer"></label>
                         </div>
                     </div>
@@ -166,11 +166,10 @@
     </div>
     
     <footer>
-       NitaD, Univ. Paris-Saclay, 30 june 2025, last updated 10 oct 2025.
+        2D crystal structures, diffraction patterns and Patterson functions. (NitaD, Univ. Paris-Saclay, ver 11 oct 2025)
     </footer>
 
-
-<script>
+    <script>
         document.addEventListener('DOMContentLoaded', () => {
             // --- DOM ELEMENT SELECTION ---
             const realCanvas = document.getElementById('real-space-canvas');
@@ -205,54 +204,55 @@
             ftOffscreenCanvas.height = FT_RESOLUTION;
             const ftOffscreenCtx = ftOffscreenCanvas.getContext('2d');
 
+            // --- STATE MANAGEMENT ---
             let atoms = [];
             let pattersonPeaks = [];
             let diffractionIntensities = [];
             let ftImageData = null;
             let highlightedVector = null;
             let currentAtomType = 'A';
-            let diffractionGridSize = 5;
-            let showHkLabels = true;
+            let diffractionGridSize = 10; // Default h,k Range = 10
+            let showHkLabels = false;    // Default Show Labels = false
             let diffractionSpotSizeFactor = 5;
             let scatteringFactors = { 'A': 6, 'B': 29 };
 
+            // --- CONSTANTS ---
             const ATOM_COLOR_A = '#3b82f6';
             const ATOM_COLOR_B = '#ef4444';
             const HIGHLIGHT_COLOR_1 = '#db2777';
             const HIGHLIGHT_COLOR_2 = '#c026d3';
             const VECTOR_COLOR = '#7e22ce';
-            const PEAK_COLOR = '#16a34a';
             const ORIGIN_PEAK_COLOR = '#f59e0b';
             const MIN_ATOM_RADIUS = 3;
             const MAX_ATOM_RADIUS = 15;
-            const MIN_PEAK_RADIUS = 4;
-            const MAX_PEAK_RADIUS = 9;
+            
+            // Patterson Peak Constants
+            const MIN_PEAK_RADIUS = 7; // Increased size by 75%
+            const MAX_PEAK_RADIUS = 16; // Increased size by 75%
+            const PEAK_COLOR_AA = '#16a34a'; // Green
+            const PEAK_COLOR_BB = '#0ea5e9'; // Cyan
+            const PEAK_COLOR_AB = '#f97316'; // Orange
             
             // --- CALCULATION FUNCTIONS ---
             function calculatePattersonMap() {
                 pattersonPeaks = [];
                 if (atoms.length === 0) return;
 
-                // --- NEW LOGIC: Manually create corner peaks ---
-                // 1. Calculate the total weight of the origin peak (sum of f^2 for all atoms).
                 let originWeight = 0;
                 atoms.forEach(atom => {
                     const f = scatteringFactors[atom.type];
                     originWeight += f * f;
                 });
 
-                // 2. Add this peak to all four corners for visual consistency with the FT map.
-                // We use from/to = -1 to mark these as non-interactive origin peaks.
                 const originPeak = { weight: originWeight, from: -1, to: -1, isOrigin: true };
                 pattersonPeaks.push({ u: 0, v: 0, ...originPeak });
                 pattersonPeaks.push({ u: 1, v: 0, ...originPeak });
                 pattersonPeaks.push({ u: 0, v: 1, ...originPeak });
                 pattersonPeaks.push({ u: 1, v: 1, ...originPeak });
 
-                // 3. Calculate all the true inter-atomic vectors (where i is not j).
                 for (let i = 0; i < atoms.length; i++) {
                     for (let j = 0; j < atoms.length; j++) {
-                        if (i === j) continue; // Skip vectors from an atom to itself
+                        if (i === j) continue;
 
                         let u = atoms[j].x - atoms[i].x;
                         let v = atoms[j].y - atoms[i].y;
@@ -260,12 +260,15 @@
                         u = (u % 1 + 1) % 1;
                         v = (v % 1 + 1) % 1;
                         
-                        const weight = scatteringFactors[atoms[i].type] * scatteringFactors[atoms[j].type];
-                        pattersonPeaks.push({ u, v, from: i, to: j, weight, isOrigin: false });
+                        const fromType = atoms[i].type;
+                        const toType = atoms[j].type;
+                        const vectorType = [fromType, toType].sort().join(''); // Creates 'AA', 'AB', or 'BB'
+                        
+                        const weight = scatteringFactors[fromType] * scatteringFactors[toType];
+                        pattersonPeaks.push({ u, v, from: i, to: j, weight, isOrigin: false, vectorType });
                     }
                 }
                 
-                // 4. Normalize peak radii based on the maximum weight.
                 let maxWeight = Math.max(...pattersonPeaks.map(p => p.weight), 0);
                 pattersonPeaks.forEach(peak => {
                     const weightRatio = maxWeight > 0 ? peak.weight / maxWeight : 0;
@@ -471,13 +474,26 @@
                 pattersonPeaks.forEach(peak => {
                     const isHighlighted = highlightedVector && peak.from === highlightedVector.from && peak.to === highlightedVector.to && Math.abs(peak.u - highlightedVector.u) < 1e-9 && Math.abs(peak.v - highlightedVector.v) < 1e-9;
                     
-                    pattersonCtx.fillStyle = peak.isOrigin ? ORIGIN_PEAK_COLOR : PEAK_COLOR;
+                    if (peak.isOrigin) {
+                        pattersonCtx.fillStyle = ORIGIN_PEAK_COLOR;
+                    } else {
+                        switch (peak.vectorType) {
+                            case 'AA':
+                                pattersonCtx.fillStyle = PEAK_COLOR_AA;
+                                break;
+                            case 'BB':
+                                pattersonCtx.fillStyle = PEAK_COLOR_BB;
+                                break;
+                            case 'AB':
+                                pattersonCtx.fillStyle = PEAK_COLOR_AB;
+                                break;
+                        }
+                    }
                     if (isHighlighted) pattersonCtx.fillStyle = VECTOR_COLOR;
                     
                     pattersonCtx.strokeStyle = 'white';
                     pattersonCtx.lineWidth = 2;
                     pattersonCtx.beginPath();
-                    // Handle drawing at u=1 and v=1, which are the same as 0 on the canvas
                     const u_canvas = peak.u === 1 ? size : peak.u * size;
                     const v_canvas = peak.v === 1 ? 0 : (1 - peak.v) * size;
                     pattersonCtx.arc(u_canvas, v_canvas, peak.radius, 0, 2 * Math.PI);
@@ -503,16 +519,20 @@
                 const center = size / 2;
                 
                 let maxIntensity = Math.max(1e-9, ...diffractionIntensities.filter(s => s.h || s.k).map(s => s.intensity));
-                const maxLogIntensity = Math.log(1 + maxIntensity);
+                
+                const maxSqrtIntensity = Math.sqrt(maxIntensity);
 
                 diffractionIntensities.forEach(spot => {
                     if ((!spot.h && !spot.k) || !spot.intensity) return;
-                    const normalizedIntensity = Math.log(1 + spot.intensity) / maxLogIntensity;
+
+                    const normalizedIntensity = maxSqrtIntensity > 0 ? Math.sqrt(spot.intensity) / maxSqrtIntensity : 0;
+
                     if (normalizedIntensity < 0.01) return;
 
                     const radius = 1 + diffractionSpotSizeFactor * normalizedIntensity;
                     const x = center + (spot.h / diffractionGridSize) * center;
                     const y = center - (spot.k / diffractionGridSize) * center;
+                    
                     const colorValue = Math.floor(200 * normalizedIntensity) + 55;
                     diffractionCtx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
                     diffractionCtx.beginPath();
@@ -528,7 +548,9 @@
                     
                     diffractionIntensities.forEach(spot => {
                         if (spot.h === 0 && spot.k === 0) return;
-                        const normalizedIntensity = Math.log(1 + spot.intensity) / maxLogIntensity;
+                        
+                        const normalizedIntensity = maxSqrtIntensity > 0 ? Math.sqrt(spot.intensity) / maxSqrtIntensity : 0;
+
                         if (normalizedIntensity < 0.15) return;
                         const x = center + (spot.h / diffractionGridSize) * center;
                         const y = center - (spot.k / diffractionGridSize) * center;
@@ -655,7 +677,7 @@
                 for (const peak of pattersonPeaks) {
                      const dist = Math.sqrt(Math.pow(peak.u - mouseU, 2) + Math.pow(peak.v - mouseV, 2));
                      if (dist < hoverThreshold && dist < minDistance) {
-                        if (!peak.isOrigin) { // Only highlight interactive, non-origin peaks
+                        if (!peak.isOrigin) {
                             minDistance = dist;
                             foundPeak = peak;
                         }
@@ -731,7 +753,5 @@
             setTimeout(resizeCanvases, 100);
         });
     </script>
-
 </body>
 </html>
-
