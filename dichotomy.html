@@ -842,11 +842,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return 1;
     };
 
-
     /**
  * Calculates a robust, multi-component Figure of Merit (FOM) for a space group.
- * This version's Absence Score (aScore) is based ONLY on the provided list of observed peaks,
- * preventing background noise from being misinterpreted as a systematic absence violation.
+ * --- FINAL VERSION ---
+ * This version applies a penalty ONLY for unambiguous violations. If an observed peak matches a
+ * forbidden reflection but could also be plausibly indexed by an allowed one, the penalty is waived entirely.
  *
  * @returns {object} An object containing the final score and its components.
  */
@@ -857,20 +857,14 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
     const allowedReflections = [];
     const forbiddenReflections = [];
 
-    // Separate all theoretical reflections into allowed vs. forbidden based on space group rules
+    // Separate all theoretical reflections into allowed vs. forbidden
     allTheoreticalHkls.forEach(hkl => {
-        // Handle permutations for different orthorhombic settings
         const permutations = (solution.system === 'orthorhombic') ? [
             ({h,k,l}) => ({h,k,l}), ({h,k,l}) => ({h,l,k}), ({h,k,l}) => ({k,h,l}),
             ({h,k,l}) => ({k,l,h}), ({h,k,l}) => ({l,h,k}), ({h,k,l}) => ({l,k,h})
         ] : [({h,k,l}) => ({h,k,l})];
-
         const isAllowed = permutations.some(p => evaluateRuleTree(spaceGroup.rule_tree, [p(hkl)]));
-        if (isAllowed) {
-            allowedReflections.push(hkl);
-        } else {
-            forbiddenReflections.push(hkl);
-        }
+        if (isAllowed) allowedReflections.push(hkl); else forbiddenReflections.push(hkl);
     });
 
     // --- 1. Confirmation Score (C_score): Rewards matching OBSERVED peaks to ALLOWED reflections ---
@@ -879,50 +873,52 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
     const corrected_obs_peaks = peaksToConsider.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
 
     let rawCScore = 0;
-    let indexedPeakCount = 0;
     const usedAllowedReflections = new Set();
-
     corrected_obs_peaks.forEach((peak) => {
-        let bestMatchDiff = Infinity;
-        let bestMatchIndex = -1;
+        let bestMatchDiff = Infinity, bestMatchIndex = -1;
         for (let i = 0; i < allowedReflections.length; i++) {
             const diff = Math.abs(peak.tth - allowedReflections[i].tth);
-            if (diff < bestMatchDiff) {
-                bestMatchDiff = diff;
-                bestMatchIndex = i;
-            }
+            if (diff < bestMatchDiff) { bestMatchDiff = diff; bestMatchIndex = i; }
         }
         if (bestMatchIndex !== -1 && bestMatchDiff < tthError * 1.5 && !usedAllowedReflections.has(bestMatchIndex)) {
             rawCScore += Math.sqrt((peak.height || 1) / I_max_obs);
-            indexedPeakCount++;
             usedAllowedReflections.add(bestMatchIndex);
         }
     });
-
     const maxPossibleCScore = peaksToConsider.reduce((sum, peak) => sum + Math.sqrt((peak.height || 1) / I_max_obs), 0);
     const cScore = (maxPossibleCScore > 0 ? rawCScore / maxPossibleCScore : 0);
 
-
-    // --- 2. Absence Score (A_score): Penalizes matching OBSERVED peaks to FORBIDDEN reflections ---
+    // --- 2. Absence Score (A_score): Penalizes UNAMBIGUOUS matches of OBSERVED peaks to FORBIDDEN reflections ---
     let violationIndex = 0;
     if (I_max_obs > 0 && forbiddenReflections.length > 0) {
-        // Iterate over the list of OBSERVED peaks to see if any match a FORBIDDEN reflection
         corrected_obs_peaks.forEach(peak => {
+            let bestForbiddenMatchDiff = Infinity;
+            // Find the closest forbidden reflection to this peak
             for (const forbiddenHkl of forbiddenReflections) {
-                if (Math.abs(peak.tth - forbiddenHkl.tth) < tthError * 1.5) {
-                    // A violation is found. The penalty is weighted by the intensity of the violating peak.
+                bestForbiddenMatchDiff = Math.min(bestForbiddenMatchDiff, Math.abs(peak.tth - forbiddenHkl.tth));
+            }
+
+            // If a forbidden reflection is a potential match...
+            if (bestForbiddenMatchDiff < tthError * 1.5) {
+                let bestAllowedMatchDiff = Infinity;
+                // ...check if an ALLOWED reflection ALSO matches the same peak.
+                for (const allowedHkl of allowedReflections) {
+                    bestAllowedMatchDiff = Math.min(bestAllowedMatchDiff, Math.abs(peak.tth - allowedHkl.tth));
+                }
+
+                // ONLY apply a penalty if there is no plausible allowed match.
+                if (bestAllowedMatchDiff > tthError * 1.5) {
+                    // The violation is unambiguous. Apply the full penalty.
                     const relativeIntensity = (peak.height || 1) / I_max_obs;
                     violationIndex += relativeIntensity;
-                    break; // Move to the next observed peak once a match is found
                 }
+                // If an allowed match exists (the 'else' case), do nothing. The violation is ignored.
             }
         });
     }
-
-    // The absence score is an exponential decay function of the violation index.
-    // A higher violation index results in a lower score.
-    const absenceScore = Math.exp(-2 * violationIndex);
-
+    
+    // An exponential decay function. A forgiving multiplier is used.
+    const absenceScore = Math.exp(-1 * violationIndex);
 
     // --- 3. Symmetry Score (S_score): Gently rewards higher symmetry ---
     const num_rules = countRules(spaceGroup.rule_tree);
@@ -939,6 +935,8 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
         rules: num_rules
     };
 }
+
+
 
     function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
         // ... Step 1 & 2: Generate HKLs and determine centering (unchanged) ...
@@ -1785,7 +1783,7 @@ const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
         return `${roundedValue}(${errorInLastDigits})`;
     };
 
-    
+
     const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
@@ -1843,7 +1841,7 @@ const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
 
             const lambda = parseFloat(ui.wavelength.value);
 
-            displayedSolutions.forEach((sol, solIndex) => {
+            for (const [solIndex, sol] of displayedSolutions.entries()) {
                 doc.addPage(); yPos = 20;
                 doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
                 doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos);
@@ -1864,29 +1862,23 @@ const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
                 doc.setFont('courier', 'normal'); doc.text(sol.analysis.centering, margin + 45, yPos);
                 yPos += 5;
 
-
-                    if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+                if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
                     doc.setFont('helvetica', 'bold');
                     doc.text(`Probable Space Groups:`, margin, yPos);
-                    
                     const topGroups = sol.analysis.rankedSpaceGroups.slice(0, 5).map(sg => sg.name);
-                    
                     doc.setFont('courier', 'normal');
-                    // Display the top groups on a single, comma-separated line
                     doc.text(topGroups.join(', '), margin + 45, yPos);
-                    
-                    yPos += 7; // Add a bit of space before the table
+                    yPos += 7;
                 }
-
                 
-                doc.setFont('courier', 'normal')
+                doc.setFont('courier', 'normal');
 
-                const tableHeader = ' h k l  | 2t_meas 2t_corr 2t_calc  d_corr      d_calc    diff(d)   diff(2t)';
+                const tableHeader = ' h k l   | 2t_meas  2t_corr  2t_calc   d_corr      d_calc    diff(d)   diff(2t)';
                 doc.text(tableHeader, margin, yPos); yPos += 5;
                 
+                const tth_err = parseFloat(ui.tthError.value);
                 const hklList = generateHKL(Math.max(...pickedPeaks.map(p => p.tth)), { ...sol, lambda }, sol.system);
                 const usedObsPeaks = new Set();
-                const tth_err = parseFloat(ui.tthError.value);
                 const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
 
                 hklList.slice(0, 45).forEach(hkl => {
@@ -1909,7 +1901,20 @@ const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
                     if (bestMatch && minDiff < tth_err) {
                         const obs_peak = pickedPeaks[bestMatch.index];
                         const corr_peak = bestMatch.peak;
-                        tth_meas_str = obs_peak.tth.toFixed(3);
+                        
+                        let ambiguity_marker = '';
+                        // --- START: New Ambiguity Check Logic ---
+                        // Check if this same observed peak could be indexed by ANOTHER hkl
+                        for (const other_hkl of hklList) {
+                            if (other_hkl === hkl) continue; // Don't compare to itself
+                            if (Math.abs(corr_peak.tth_corr - other_hkl.tth) < tth_err * 1.5) {
+                                ambiguity_marker = '*';
+                                break;
+                            }
+                        }
+                        // --- END: New Ambiguity Check Logic ---
+
+                        tth_meas_str = (obs_peak.tth.toFixed(3) + ambiguity_marker);
                         tth_corr_str = corr_peak.tth_corr.toFixed(3);
                         const d_corr = lambda / (2 * Math.sin(corr_peak.tth_corr * Math.PI / 360));
                         d_corr_str = d_corr.toFixed(5);
@@ -1919,11 +1924,11 @@ const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
                     }
 
                     const hkl_str = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)}`.padEnd(8);
-                    const line = `${hkl_str}|${tth_meas_str.padStart(8)}${tth_corr_str.padStart(8)}${tth_calc_str.padStart(8)} ${d_corr_str.padStart(10)} ${d_calc_str.padStart(10)} ${diff_d_str.padStart(10)} ${diff_2t_str.padStart(9)}`;
+                    const line = `${hkl_str}|${tth_meas_str.padStart(9)}${tth_corr_str.padStart(9)}${tth_calc_str.padStart(9)} ${d_corr_str.padStart(10)} ${d_calc_str.padStart(10)} ${diff_d_str.padStart(10)} ${diff_2t_str.padStart(9)}`;
                     doc.text(line, margin, yPos);
                     yPos += 5;
                 });
-            });
+            }
 
             const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
             doc.save(filename);
