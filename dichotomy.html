@@ -842,103 +842,103 @@ document.addEventListener('DOMContentLoaded', () => {
         return 1;
     };
 
+
     /**
-     * Calculates a robust Figure of Merit (SGS) for a given space group against experimental data.
-     * This version uses noise estimation for a more sensitive and accurate violation penalty.
-     * @param {object} spaceGroup - The space group object with its rule_tree.
-     * @param {object} solution - The unit cell solution.
-     * @param {Array<object>} observedPeaks - The list of picked experimental peaks.
-     * @param {object} experimentalData - The full {tth, intensity} dataset.
-     * @param {Array<number>} backgroundCorrectedIntensity - The intensity data after background subtraction.
-     * @param {number} wavelength - The X-ray wavelength.
-     * @param {number} tthError - The 2-theta error tolerance.
-     * @returns {object} An object containing the final score and its components.
-     */
-    function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimentalData, backgroundCorrectedIntensity, wavelength, tthError) {
-        const maxTth = Math.max(...experimentalData.tth);
-        const allTheoreticalHkls = generateHKL_for_analysis(solution, wavelength, maxTth);
+ * Calculates a robust, multi-component Figure of Merit (FOM) for a space group.
+ * This version's Absence Score (aScore) is based ONLY on the provided list of observed peaks,
+ * preventing background noise from being misinterpreted as a systematic absence violation.
+ *
+ * @returns {object} An object containing the final score and its components.
+ */
+function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimentalData, backgroundCorrectedIntensity, wavelength, tthError) {
+    const maxTth = Math.max(...experimentalData.tth);
+    const allTheoreticalHkls = generateHKL_for_analysis(solution, wavelength, maxTth);
 
-        const allowedReflections = [];
-        const forbiddenReflections = [];
+    const allowedReflections = [];
+    const forbiddenReflections = [];
 
-        allTheoreticalHkls.forEach(hkl => {
-            const permutations = (solution.system === 'orthorhombic') ? [
-                ({h,k,l}) => ({h,k,l}), ({h,k,l}) => ({h,l,k}), ({h,k,l}) => ({k,h,l}),
-                ({h,k,l}) => ({k,l,h}), ({h,k,l}) => ({l,h,k}), ({h,k,l}) => ({l,k,h})
-            ] : [({h,k,l}) => ({h,k,l})];
-            const isAllowed = permutations.some(p => evaluateRuleTree(spaceGroup.rule_tree, [p(hkl)]));
-            if (isAllowed) allowedReflections.push(hkl); else forbiddenReflections.push(hkl);
-        });
+    // Separate all theoretical reflections into allowed vs. forbidden based on space group rules
+    allTheoreticalHkls.forEach(hkl => {
+        // Handle permutations for different orthorhombic settings
+        const permutations = (solution.system === 'orthorhombic') ? [
+            ({h,k,l}) => ({h,k,l}), ({h,k,l}) => ({h,l,k}), ({h,k,l}) => ({k,h,l}),
+            ({h,k,l}) => ({k,l,h}), ({h,k,l}) => ({l,h,k}), ({h,k,l}) => ({l,k,h})
+        ] : [({h,k,l}) => ({h,k,l})];
 
-        // 1. Calculate the Confirmation Score (C_score)
-        const peaksToConsider = observedPeaks.slice(0, 30);
-        let indexedCount = 0;
-        const usedAllowedReflections = new Set();
-        const corrected_obs_peaks = peaksToConsider.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
-        corrected_obs_peaks.forEach(peak => {
-            let bestMatchDiff = Infinity, bestMatchIndex = -1;
-            for (let i = 0; i < allowedReflections.length; i++) {
-                const diff = Math.abs(peak.tth - allowedReflections[i].tth);
-                if (diff < bestMatchDiff) { bestMatchDiff = diff; bestMatchIndex = i; }
-            }
-            if (bestMatchIndex !== -1 && bestMatchDiff < tthError * 1.5 && !usedAllowedReflections.has(bestMatchIndex)) {
-                indexedCount++;
-                usedAllowedReflections.add(bestMatchIndex);
-            }
-        });
-        const cScore = peaksToConsider.length > 0 ? indexedCount / peaksToConsider.length : 0;
-
-        // 2. Calculate the Absence Score (A_score) with Noise Estimation
-        let violationIndex = 0;
-        const I_max = Math.max(...backgroundCorrectedIntensity);
-
-        if (I_max > 0) {
-            // Estimate noise level using Median Absolute Deviation (robust to peaks)
-            const sortedData = [...backgroundCorrectedIntensity].sort((a, b) => a - b);
-            const median = sortedData[Math.floor(sortedData.length / 2)];
-            const deviations = sortedData.map(y => Math.abs(y - median));
-            const mad = deviations.sort((a, b) => a - b)[Math.floor(deviations.length / 2)];
-            const noiseLevel = mad * 1.4826; // Convert MAD to standard deviation equivalent
-
-            const findStartIndex = (targetTth) => {
-                let low = 0, high = experimentalData.tth.length - 1;
-                while (low < high) { let mid = Math.floor((low + high) / 2); if (experimentalData.tth[mid] < targetTth) { low = mid + 1; } else { high = mid; } }
-                return Math.max(0, low - 5);
-            };
-
-            forbiddenReflections.forEach(hkl => {
-                let maxIntensityInWindow = 0;
-                const searchCenterTth = hkl.tth;
-                const searchWindow = tthError; // Use a tighter window for violation check
-                const startIndex = findStartIndex(searchCenterTth - searchWindow);
-
-                for (let i = startIndex; i < experimentalData.tth.length; i++) {
-                    const currentTth = experimentalData.tth[i];
-                    if (currentTth > searchCenterTth + searchWindow) break;
-                    if (currentTth >= searchCenterTth - searchWindow) {
-                        maxIntensityInWindow = Math.max(maxIntensityInWindow, backgroundCorrectedIntensity[i]);
-                    }
-                }
-                
-                // Only penalize intensity that is clearly above the noise floor
-                const violationIntensity = Math.max(0, maxIntensityInWindow - (3 * noiseLevel));
-                violationIndex += (violationIntensity / I_max);
-            });
+        const isAllowed = permutations.some(p => evaluateRuleTree(spaceGroup.rule_tree, [p(hkl)]));
+        if (isAllowed) {
+            allowedReflections.push(hkl);
+        } else {
+            forbiddenReflections.push(hkl);
         }
-        
-        const w = 10; // Weighting factor for penalty.
-        const absenceScore = Math.exp(-w * violationIndex);
+    });
 
-        // 3. Final Score
-        const finalScore = cScore * absenceScore;
+    // --- 1. Confirmation Score (C_score): Rewards matching OBSERVED peaks to ALLOWED reflections ---
+    const I_max_obs = Math.max(...observedPeaks.map(p => p.height || 0), 1);
+    const peaksToConsider = observedPeaks.slice(0, 30);
+    const corrected_obs_peaks = peaksToConsider.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
 
-        return {
-            score: finalScore,
-            cScore: cScore,
-            aScore: absenceScore,
-            rules: countRules(spaceGroup.rule_tree)
-        };
+    let rawCScore = 0;
+    let indexedPeakCount = 0;
+    const usedAllowedReflections = new Set();
+
+    corrected_obs_peaks.forEach((peak) => {
+        let bestMatchDiff = Infinity;
+        let bestMatchIndex = -1;
+        for (let i = 0; i < allowedReflections.length; i++) {
+            const diff = Math.abs(peak.tth - allowedReflections[i].tth);
+            if (diff < bestMatchDiff) {
+                bestMatchDiff = diff;
+                bestMatchIndex = i;
+            }
+        }
+        if (bestMatchIndex !== -1 && bestMatchDiff < tthError * 1.5 && !usedAllowedReflections.has(bestMatchIndex)) {
+            rawCScore += Math.sqrt((peak.height || 1) / I_max_obs);
+            indexedPeakCount++;
+            usedAllowedReflections.add(bestMatchIndex);
+        }
+    });
+
+    const maxPossibleCScore = peaksToConsider.reduce((sum, peak) => sum + Math.sqrt((peak.height || 1) / I_max_obs), 0);
+    const cScore = (maxPossibleCScore > 0 ? rawCScore / maxPossibleCScore : 0);
+
+
+    // --- 2. Absence Score (A_score): Penalizes matching OBSERVED peaks to FORBIDDEN reflections ---
+    let violationIndex = 0;
+    if (I_max_obs > 0 && forbiddenReflections.length > 0) {
+        // Iterate over the list of OBSERVED peaks to see if any match a FORBIDDEN reflection
+        corrected_obs_peaks.forEach(peak => {
+            for (const forbiddenHkl of forbiddenReflections) {
+                if (Math.abs(peak.tth - forbiddenHkl.tth) < tthError * 1.5) {
+                    // A violation is found. The penalty is weighted by the intensity of the violating peak.
+                    const relativeIntensity = (peak.height || 1) / I_max_obs;
+                    violationIndex += relativeIntensity;
+                    break; // Move to the next observed peak once a match is found
+                }
+            }
+        });
     }
+
+    // The absence score is an exponential decay function of the violation index.
+    // A higher violation index results in a lower score.
+    const absenceScore = Math.exp(-2 * violationIndex);
+
+
+    // --- 3. Symmetry Score (S_score): Gently rewards higher symmetry ---
+    const num_rules = countRules(spaceGroup.rule_tree);
+    const symmetryScore = 1 - Math.exp(-0.05 * num_rules);
+
+    // --- Final Figure of Merit (FOM) ---
+    const finalScore = cScore * absenceScore * (1 + 0.1 * symmetryScore);
+
+    return {
+        score: finalScore,
+        cScore: cScore,
+        aScore: absenceScore,
+        sScore: symmetryScore,
+        rules: num_rules
+    };
+}
 
     function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
         // ... Step 1 & 2: Generate HKLs and determine centering (unchanged) ...
@@ -996,22 +996,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 sg.normalizedScore = 0;
             });
         }
-        // ===================== END OF NORMALIZATION =====================
+       
+    
 
-        // Step 5: Sort using the CORRECTED logic with symmetry preference as a tie-breaker.
-        const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
-            const scoreA = a.normalizedScore;
-            const scoreB = b.normalizedScore;
-            
-            // If scores are very close (e.g., within 0.01), use number of rules as a tie-breaker.
-            if (Math.abs(scoreA - scoreB) < 0.01) {
-                // Prefer higher symmetry (more rules)
-                return b.rules - a.rules;
-            }
-            
-            // Otherwise, sort strictly by score.
-            return scoreB - scoreA;
-        });
+const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
+    // Primary sort is always by the final normalized score
+    if (Math.abs(b.normalizedScore - a.normalizedScore) > 0.005) {
+        return b.normalizedScore - a.normalizedScore;
+    }
+
+    // --- New Tie-Breaker Logic ---
+    // If scores are very close, prefer the one with a better Absence Score (fewer violations)
+    if (Math.abs(b.aScore - a.aScore) > 0.01) {
+        return b.aScore - a.aScore;
+    }
+
+    return b.rules - a.rules;
+});
 
         return { centering, rankedSpaceGroups };
     }
@@ -1905,7 +1906,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const tth_calc_str = hkl.tth.toFixed(3);
                     const d_calc_str = hkl.d.toFixed(5);
                     
-                    if (bestMatch && minDiff < tth_err * 2) {
+                    if (bestMatch && minDiff < tth_err) {
                         const obs_peak = pickedPeaks[bestMatch.index];
                         const corr_peak = bestMatch.peak;
                         tth_meas_str = obs_peak.tth.toFixed(3);
