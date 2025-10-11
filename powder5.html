@@ -1019,14 +1019,17 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5, version 106b, 10 Oct 2025
+        Powder 5, version 107, 11 Oct 2025
     </div>
 </div>
+
+
 
 
 <script>
     document.addEventListener('DOMContentLoaded', () => {      
 
+        const NUM_BACKGROUND_PARAMS = 9;
         const CALCULATION_WINDOW_MULTIPLIER = 8.0;
         const PEAK_HEIGHT_CUTOFF = 0.002; // 0.01 Corresponds to 1%
  
@@ -1107,19 +1110,20 @@ if (tooltipContainer && tooltipContent) {
             resultsContainer: document.getElementById('results-container'),
                     };
 
-                            const bgContainer = document.getElementById('background-params-container');
+const bgContainer = document.getElementById('background-params-container');
         if (bgContainer) { 
             let bgHtml = '';
-            const initialBgValues = [100, 5, 0, 0, 0, 0]; // Initial guess for B0 to B5.. on estime mieux (le 4 oct 25, version 102)
-            for (let i = 0; i < 6; i++) {
+            const initialBgValues = [100, 5, ...Array(NUM_BACKGROUND_PARAMS - 2).fill(0)];
+            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) {
                 bgHtml += `
                     <label class="control-label">B${i}</label>
-                    <input type="number" id="param-b${i}" value="${initialBgValues[i]}" step="1" class="control-input">
+                    <input type="number" id="param-b${i}" value="${initialBgValues[i] || 0}" step="1" class="control-input">
                     <input type="checkbox" id="fit-b${i}" class="fit-checkbox" checked>
                 `;
             }
             bgContainer.innerHTML = bgHtml;
         }
+
 
         // --- Global State ---
         let profileParamCache = { "3": {}, "4": {} };
@@ -1223,7 +1227,7 @@ if (tooltipContainer && tooltipContent) {
             if (tthRange <= 0) return new Array(tthAxis.length).fill(0);
 
             const coefficients = [];
-            for (let i = 0; i < 5; i++) { // Look for up to N coefficients
+            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) { // Look for up to N coefficients
                 if (backgroundParams[`B${i}`] !== undefined) {
                     coefficients[i] = backgroundParams[`B${i}`];
                 }
@@ -2261,10 +2265,10 @@ function estimateBackgroundParameters(tth, intensity) {
         }
     }
 
-    if (backgroundPoints.length < 6) return null; // Need N+1 points for N-degree polynomial
+    if (backgroundPoints.length < NUM_BACKGROUND_PARAMS+1) return null; // Need N+1 points for N-degree polynomial
 
     // --- 2. Perform a 5-term Chebyshev polynomial fit on these points ---
-    const N = 5; // Fit B0 to B4
+    const N = NUM_BACKGROUND_PARAMS; // Fit B0 to...
     const M = backgroundPoints.length;
     const tthMin = tth[0];
     const tthMax = tth[tth.length - 1];
@@ -3100,7 +3104,7 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, sys
             }
 
             // Add Chebyshev and Hump parameters
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) {
                 const input = document.getElementById(`param-b${i}`);
                 if (input) params[`B${i}`] = parseFloat(input.value);
             }
@@ -3137,7 +3141,7 @@ async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, sys
             }
 
             // Add Chebyshev and Hump flags
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) {
                 const checkbox = document.getElementById(`fit-b${i}`);
                 if (checkbox) flags[`B${i}`] = checkbox.checked;
             }
@@ -3226,7 +3230,7 @@ function getParameterMapping(fitFlags, initialParams, hklList, refinementMode) {
             mappings.push(createMapping(fitFlags.S022, 'S022', 0.0, undefined, undefined, 0.2));
         }
     }
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) {
         mappings.push(createMapping(fitFlags[`B${i}`], `B${i}`, i === 0 ? 100 : 1.0, undefined, undefined, 0.3));
     }
     mappings.push(createMapping(fitFlags.hump_H, 'hump_H', 100.0, undefined, undefined, 0.2));
@@ -3491,7 +3495,7 @@ function setUIState(fitting) {
             }
             
             // --- Update background parameter inputs 
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) {
                 safeUpdate(params[`B${i}`], document.getElementById(`param-b${i}`), 4);
             }
             safeUpdate(params.hump_H, document.getElementById('param-hump-h'), 4);
