@@ -648,6 +648,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let fullExperimentalData = { tth: [], intensity: [] };
+    let lastBackgroundCorrectedData = [];
     let pickedPeaks = [];
     let solutions = [];
     let displayedSolutions = [];
@@ -826,16 +827,135 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
 
+
+/**
+     * Recursively counts the number of individual rule checks in a rule_tree.
+     * @param {object} ruleTree - The rule_tree object for a space group.
+     * @returns {number} The total number of rule conditions.
+     */
+    const countRules = (ruleTree) => {
+        if (!ruleTree) return 0;
+        if (ruleTree.logic === 'AND' || ruleTree.logic === 'OR') {
+            return ruleTree.rules.reduce((sum, rule) => sum + countRules(rule), 0);
+        }
+        // It's a single rule check
+        return 1;
+    };
+
+
+    // REPLACE your existing calculateACS function with this version
     /**
-     * (REPLACEMENT) Analyzes systematic absences for a given solution to determine centering and possible space groups.
+     * Calculates a Figure of Merit (ACS) for a given space group against experimental data.
+     * @param {object} spaceGroup - The space group object with its rule_tree.
+     * @param {object} solution - The unit cell solution.
+     * @param {Array<object>} observedPeaks - The list of picked experimental peaks.
+     * @param {object} experimentalData - The full {tth, intensity} dataset.
+     * @param {Array<number>} backgroundCorrectedIntensity - The intensity data after background subtraction.
+     * @param {number} wavelength - The X-ray wavelength.
+     * @param {number} tthError - The 2-theta error tolerance.
+     * @returns {number} The calculated ACS score.
+     */
+    function calculateACS(spaceGroup, solution, observedPeaks, experimentalData, backgroundCorrectedIntensity, wavelength, tthError) {
+        const maxTth = Math.max(...experimentalData.tth);
+        const allTheoreticalHkls = generateHKL_for_analysis(solution, wavelength, maxTth);
+
+        const allowedReflections = [];
+        const forbiddenReflections = [];
+
+        allTheoreticalHkls.forEach(hkl => {
+            const hklList = [hkl];
+            const permutations = (solution.system === 'orthorhombic') ? [
+                ({h,k,l}) => ({h,k,l}), ({h,k,l}) => ({h,l,k}), ({h,k,l}) => ({k,h,l}),
+                ({h,k,l}) => ({k,l,h}), ({h,k,l}) => ({l,h,k}), ({h,k,l}) => ({l,k,h})
+            ] : [({h,k,l}) => ({h,k,l})];
+
+            const isAllowed = permutations.some(p => evaluateRuleTree(spaceGroup.rule_tree, [p(hkl)]));
+
+            if (isAllowed) {
+                allowedReflections.push(hkl);
+            } else {
+                forbiddenReflections.push(hkl);
+            }
+        });
+
+        // 1. Calculate the Penalty Term (P_total)
+        let pTotal = 0;
+        const I_max = Math.max(...backgroundCorrectedIntensity);
+        if (I_max > 0) {
+            const findStartIndex = (targetTth) => {
+                let low = 0, high = experimentalData.tth.length - 1;
+                while (low < high) {
+                    let mid = Math.floor((low + high) / 2);
+                    if (experimentalData.tth[mid] < targetTth) { low = mid + 1; } else { high = mid; }
+                }
+                return Math.max(0, low - 5);
+            };
+
+            forbiddenReflections.forEach(hkl => {
+                let I_forbidden = 0;
+                const searchCenterTth = hkl.tth;
+                const searchWindow = tthError * 1.5;
+
+                const startIndex = findStartIndex(searchCenterTth - searchWindow);
+
+                for (let i = startIndex; i < experimentalData.tth.length; i++) {
+                    const currentTth = experimentalData.tth[i];
+                    if (currentTth > searchCenterTth + searchWindow) break;
+                    if (currentTth >= searchCenterTth - searchWindow) {
+                        I_forbidden = Math.max(I_forbidden, backgroundCorrectedIntensity[i]);
+                    }
+                }
+                const penalty = Math.pow(I_forbidden / I_max, 2);
+                pTotal += penalty;
+            });
+        }
+
+        // 2. Calculate the Confirmation Term (C_score)
+        const peaksToConsider = observedPeaks.slice(0, 30);
+        let indexedCount = 0;
+        const usedAllowedReflections = new Set();
+        const corrected_obs_peaks = peaksToConsider.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
+
+        corrected_obs_peaks.forEach(peak => {
+            let bestMatchDiff = Infinity;
+            let bestMatchIndex = -1;
+
+            for (let i = 0; i < allowedReflections.length; i++) {
+                const diff = Math.abs(peak.tth - allowedReflections[i].tth);
+                if (diff < bestMatchDiff) {
+                    bestMatchDiff = diff;
+                    bestMatchIndex = i;
+                }
+            }
+            if (bestMatchIndex !== -1 && bestMatchDiff < tthError * 1.5 && !usedAllowedReflections.has(bestMatchIndex)) {
+                indexedCount++;
+                usedAllowedReflections.add(bestMatchIndex);
+            }
+        });
+        const cScore = peaksToConsider.length > 0 ? indexedCount / peaksToConsider.length : 0;
+
+        // 3. Combine and add Specificity Bonus
+        const w = 15;
+        const baseAcs = cScore / (1 + w * pTotal);
+        
+        // Add a small bonus for more complex/specific rule sets, acting as a tie-breaker
+        const specificityBonus = 0.001 * countRules(spaceGroup.rule_tree);
+        const finalAcs = baseAcs + specificityBonus;
+
+        return finalAcs;
+    }
+
+
+    /**
+     * Analyzes systematic absences to determine centering and a ranked list of possible space groups.
      * @param {object} solution - The unit cell solution object.
      * @param {Array<object>} obs_peaks - The list of observed experimental peaks.
      * @param {number} wavelength - The X-ray wavelength.
      * @param {number} tthError - The 2-theta error tolerance.
-     * @returns {object} An object containing centering and possible space groups.
+     * @returns {object} An object containing centering and a ranked list of space groups with their ACS.
      */
     function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
-        // Step 1: Generate a reliable list of observed HKLs for the given solution. (This part is unchanged)
+        // Step 1: Generate a reliable list of observed HKLs (unchanged)
         const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p => p.tth)));
         const obs_hkl_list = [];
         const used_peaks = new Set();
@@ -863,48 +983,66 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (obs_hkl_list.length < 3) {
-            return { centering: 'Unknown', possibleSpaceGroups: [], probableSpaceGroups: [], conditions: [] };
+            return { centering: 'Unknown', rankedSpaceGroups: [] };
         }
 
-        // Step 2: Determine Centering based on general conditions (Unchanged)
-        let centering = 'Primitive (P)';
-        const system = solution.system;
-        if (!obs_hkl_list.some(({ h, k, l }) => (h % 2 !== k % 2) || (k % 2 !== l % 2))) centering = 'Face (F)';
-        else if (!obs_hkl_list.some(({ h, k, l }) => (h + k + l) % 2 !== 0)) centering = 'Body (I)';
-        else if ((system === 'orthorhombic' || system === 'monoclinic') && !obs_hkl_list.some(({ h, k }) => (h + k) % 2 !== 0)) centering = 'C-Face (C)';
-        else if ((system === 'trigonal' || system === 'hexagonal') && !obs_hkl_list.some(({ h, k, l }) => (-h + k + l) % 3 !== 0)) centering = 'Rhombohedral (R)';
+        // Step 2: Probabilistic Centering Determination
+        const centeringScores = { 'P': 0, 'I': 0, 'F': 0, 'C': 0, 'R': 0 };
+        const centeringConditions = {
+            'I': ({ h, k, l }) => (h + k + l) % 2 === 0,
+            'F': ({ h, k, l }) => (h % 2 === k % 2) && (k % 2 === l % 2),
+            'C': ({ h, k }) => (h + k) % 2 === 0,
+            'R': ({ h, k, l }) => (-h + k + l) % 3 === 0,
+        };
+        const peaksForCentering = obs_hkl_list.slice(0, 20);
+        if (peaksForCentering.length > 0) {
+            for (const type of ['I', 'F', 'C', 'R']) {
+                let satisfied = 0;
+                peaksForCentering.forEach(hkl => { if (centeringConditions[type](hkl)) { satisfied++; } });
+                centeringScores[type] = satisfied / peaksForCentering.length;
+            }
+        }
+        let bestCenteringType = 'P';
+        let maxScore = 0.85; // Require 85% of peaks to match for a non-primitive centering
 
-        // Step 3: Filter and Evaluate Space Groups from the new list
+        // Order matters: F is stricter than I. Check it first.
+        if (centeringScores['F'] >= maxScore) { bestCenteringType = 'F'; }
+        else if (centeringScores['I'] >= maxScore) { bestCenteringType = 'I'; }
+        else if (solution.system === 'hexagonal' && centeringScores['R'] >= maxScore) { bestCenteringType = 'R'; }
+        else if ((solution.system === 'orthorhombic' || solution.system === 'monoclinic') && centeringScores['C'] >= maxScore) { bestCenteringType = 'C'; }
+
+        const centeringMap = {'P': 'Primitive (P)', 'I': 'Body (I)', 'F': 'Face (F)', 'C': 'C-Face (C)', 'R': 'Rhombohedral (R)'};
+        const centering = centeringMap[bestCenteringType];
+        const centerChar = bestCenteringType;
+
+        // Step 3: Filter, Score, and Rank Possible Space Groups
         const laue_classes = {
             'cubic': ['m-3', 'm-3m'], 'hexagonal': ['6/m', '6/mmm'], 'trigonal': ['-3', '-3m'],
-            'tetragonal': ['4/m', '4/mmm'], 'orthorhombic': ['mmm'], 'monoclinic': ['2/m'], 'triclinic': ['-1']
+            'tetragonal': ['4/m', '4/mmm'], 'orthorhombic': ['mmm'], 'monoclinic': ['2/m']
         };
-
         const possibleLaueClasses = laue_classes[solution.system] || [];
-        if (solution.system === 'hexagonal') {
-            possibleLaueClasses.push(...(laue_classes['trigonal'] || []));
-        }
+        if (solution.system === 'hexagonal') possibleLaueClasses.push(...(laue_classes['trigonal'] || []));
 
-        const centerChar = centering.charAt(0);
-
-        const possibleSpaceGroups = spaceGroups.filter(sg => {
+        const candidateSpaceGroups = spaceGroups.filter(sg => {
+            if (sg.system !== solution.system) return false;
             if (sg.name.charAt(0) !== centerChar) return false;
             if (!possibleLaueClasses.includes(sg.laue_class)) return false;
+            return true;
+        });
 
-            // Use the new helper for orthorhombic systems
-            if (sg.system === 'orthorhombic') {
-                return testAllOrthorhombicSettings(sg.rule_tree, obs_hkl_list);
-            } else {
-                return evaluateRuleTree(sg.rule_tree, obs_hkl_list);
-            }
-        }).map(sg => sg.name);
+        // Step 4: Calculate ACS for each candidate and rank them
+        const rankedSpaceGroups = candidateSpaceGroups.map(sg => {
+            const acs = calculateACS(sg, solution, obs_peaks, fullExperimentalData, lastBackgroundCorrectedData, wavelength, tthError);
+            return { name: sg.name, acs: acs };
+        }).filter(sg => sg.acs > 0.05).sort((a, b) => b.acs - a.acs); // Filter out very low scores
 
         return {
-            centering, possibleSpaceGroups,
-            probableSpaceGroups: [...possibleSpaceGroups],
-            conditions: []
+            centering,
+            rankedSpaceGroups
         };
     }
+
+
 
     const inputsToValidate = [
         { id: 'wavelength', el: ui.wavelength, default: 1.541780 },
@@ -1180,6 +1318,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
         const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
+
+        lastBackgroundCorrectedData = backgroundCorrected;
+
         const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
         const maxCorrectedIntensity = Math.max(...backgroundCorrected) || 1;
@@ -1617,6 +1758,7 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
         return `${roundedValue}(${errorInLastDigits})`;
     };
 
+    
     const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
@@ -1694,29 +1836,27 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
                 doc.setFont('helvetica', 'bold'); doc.text(`Suggested Centering:`, margin, yPos);
                 doc.setFont('courier', 'normal'); doc.text(sol.analysis.centering, margin + 45, yPos);
                 yPos += 5;
-                if (sol.analysis.conditions.length > 0) {
-                    doc.setFont('helvetica', 'bold'); doc.text(`Reflection Conditions:`, margin, yPos);
-                    doc.setFont('courier', 'normal'); doc.text(sol.analysis.conditions.join(', '), margin + 45, yPos);
+
+                // ============ CORRECTED SECTION START ============
+                // This part now displays the ranked list of space groups with their ACS score.
+                if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+                    doc.setFont('helvetica', 'bold'); doc.text(`Probable Space Groups (ranked by ACS):`, margin, yPos);
                     yPos += 5;
-                }
-                if (sol.analysis.possibleSpaceGroups.length > 0) {
-                    doc.setFont('helvetica', 'bold'); doc.text(`Space Groups:`, margin, yPos);
-                    let currentX = margin + 45;
-                    const probableSet = new Set(sol.analysis.probableSpaceGroups);
-                    const allGroups = sol.analysis.possibleSpaceGroups;
-                    const pageRightMargin = doc.internal.pageSize.getWidth() - margin;
-                    allGroups.forEach((sg, index) => {
-                        doc.setFont('courier', probableSet.has(sg) ? 'bold' : 'normal');
-                        const text = sg + (index < allGroups.length - 1 ? ', ' : '');
-                        if (currentX + doc.getTextWidth(text) > pageRightMargin && currentX > margin + 45) {
-                            yPos += 4; currentX = margin + 45;
-                        }
-                        doc.text(text, currentX, yPos);
-                        currentX += doc.getTextWidth(text);
+                    doc.setFont('courier', 'normal');
+                    
+                    const topGroups = sol.analysis.rankedSpaceGroups.slice(0, 5); // Show top 5
+                    topGroups.forEach((sg, index) => {
+                        if (yPos > 280) { doc.addPage(); yPos = 20; }
+                        // Bold the top-ranked space group
+                        doc.setFont('courier', index === 0 ? 'bold' : 'normal');
+                        const line = `${(index+1)}. ${sg.name.padEnd(8)} (ACS: ${sg.acs.toFixed(3)})`;
+                        doc.text(line, margin + 5, yPos);
+                        yPos += 5;
                     });
-                    yPos += 4;
+                    yPos += 3; // Extra space before the table
                 }
-                yPos += 3;
+                // ============= CORRECTED SECTION END =============
+
                 doc.setFont('courier', 'normal');
 
                 const tableHeader = ' h k l  | 2t_meas 2t_corr 2t_calc  d_corr      d_calc    diff(d)   diff(2t)';
@@ -1775,7 +1915,8 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
             document.body.style.cursor = 'default';
         }
     };
-    
+
+
     window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
 });
 
@@ -1978,8 +2119,7 @@ const generateHKL = (maxTth, params, system) => {
     };
     
     // ==================================================================
-    // == THIS FUNCTION HAS BEEN CORRECTED TO PREVENT THE CRASH ==
-    // ==================================================================
+ 
     const extractCellFromFit = (params, system) => {
         let cell = { system, alpha: 90, gamma: 90 };
         try {
@@ -2075,6 +2215,37 @@ const generateHKL = (maxTth, params, system) => {
         return (low >= arr.length) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
     };
     
+const generateAllUniqueReflections = (cell, d_min) => {
+    const q_max_limit = 1 / (d_min * d_min);
+    const h_max = Math.ceil((cell.a || 0) / d_min);
+    const k_max = Math.ceil((cell.b || cell.a || 0) / d_min);
+    const l_max = Math.ceil((cell.c || cell.a || 0) / d_min);
+    
+    const reflections = new Map(); // Use a Map to store unique Q values and their counts
+    const tolerance = 1e-6; // Tolerance for considering Q values equal
+
+    for (let h = -h_max; h <= h_max; h++) {
+        for (let k = -k_max; k <= k_max; k++) {
+            for (let l = -l_max; l <= l_max; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+                
+                const q_calc = getQcalc([h, k, l], cell);
+
+                if (q_calc > 0 && q_calc <= q_max_limit * 1.05) {
+                    // Round Q value to handle floating point inaccuracies and group identical lines
+                    const q_key = Math.round(q_calc / tolerance);
+                    if (!reflections.has(q_key)) {
+                        reflections.set(q_key, q_calc);
+                    }
+                }
+            }
+        }
+    }
+    // Return a sorted array of the unique Q values
+    return new Float64Array(Array.from(reflections.values())).sort((a, b) => a - b);
+};
+
+
     const calculateM20 = (q_calc_sorted, q_obs_for_m20, original_indices_for_m20) => {
         if (!q_calc_sorted || q_calc_sorted.length === 0) return 0;
         let N_indexed = 0, sum_delta_q = 0;
@@ -2219,12 +2390,9 @@ const generateHKL = (maxTth, params, system) => {
         if (final_cell.volume > max_volume || final_cell.volume < 20) return;
         final_cell.errors = propagateErrors(system, fitResult, final_cell);
 
-        const q_calc_set = new Set();
-        const h_max = Math.ceil((final_cell.a||0)/d_min), k_max = Math.ceil((final_cell.b||final_cell.a||0)/d_min), l_max = Math.ceil((final_cell.c||final_cell.a||0)/d_min);
-        for(let h=-h_max; h<=h_max; h++) for(let k=-k_max; k<=k_max; k++) for(let l=-l_max; l<=l_max; l++) {
-            if(h||k||l) q_calc_set.add(getQcalc([h,k,l], final_cell));
-        }
-        const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
+        // This is a correction for the M(20) calculation.
+        // It now uses the new generator to get all unique diffraction lines, not just a symmetry-reduced set.
+        const q_calc_sorted = generateAllUniqueReflections(final_cell, d_min);
         
         let q_obs_for_m20 = q_obs;
         if (refineZero) {
@@ -2248,7 +2416,7 @@ const generateHKL = (maxTth, params, system) => {
             }
         }
     };
-    
+
     // --- SEARCH ALGORITHMS ---
     const indexCubic = () => {
         const h_max = 8;
@@ -2363,7 +2531,7 @@ const generateHKL = (maxTth, params, system) => {
 
 </script>
 
-<div id="app-footer">Dichotomy, version 09 oct 2025</div>
+<div id="app-footer">Dichotomy, version 11 oct 2025</div>
 </body>
 </html>
 
