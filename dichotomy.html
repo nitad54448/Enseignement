@@ -345,7 +345,7 @@
     <p>Generic 2-column (2&theta; intensity), .xrdml, .brml, .ras, .uxd, .udf, GSAS .esd</p>
     <hr>
     <h4>Chart Interaction:</h4>
-    <p><b>Zoom:</b> Use the mouse wheel over the plot, X-axis, or Y-axis. Right-click to reset zoom.</p>
+    <p><b>Zoom:</b> Use the mouse wheel over the plot. Right-click to reset zoom.</p>
     <p><b>Pan:</b> Click and drag the chart to pan.</p>
     <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
 </div>
@@ -842,10 +842,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return 1;
     };
 
-
-    // REPLACE your existing calculateACS function with this version
     /**
-     * Calculates a Figure of Merit (ACS) for a given space group against experimental data.
+     * Calculates a robust Figure of Merit (SGS) for a given space group against experimental data.
+     * This version uses noise estimation for a more sensitive and accurate violation penalty.
      * @param {object} spaceGroup - The space group object with its rule_tree.
      * @param {object} solution - The unit cell solution.
      * @param {Array<object>} observedPeaks - The list of picked experimental peaks.
@@ -853,9 +852,9 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {Array<number>} backgroundCorrectedIntensity - The intensity data after background subtraction.
      * @param {number} wavelength - The X-ray wavelength.
      * @param {number} tthError - The 2-theta error tolerance.
-     * @returns {number} The calculated ACS score.
+     * @returns {object} An object containing the final score and its components.
      */
-    function calculateACS(spaceGroup, solution, observedPeaks, experimentalData, backgroundCorrectedIntensity, wavelength, tthError) {
+    function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimentalData, backgroundCorrectedIntensity, wavelength, tthError) {
         const maxTth = Math.max(...experimentalData.tth);
         const allTheoreticalHkls = generateHKL_for_analysis(solution, wavelength, maxTth);
 
@@ -863,69 +862,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const forbiddenReflections = [];
 
         allTheoreticalHkls.forEach(hkl => {
-            const hklList = [hkl];
             const permutations = (solution.system === 'orthorhombic') ? [
                 ({h,k,l}) => ({h,k,l}), ({h,k,l}) => ({h,l,k}), ({h,k,l}) => ({k,h,l}),
                 ({h,k,l}) => ({k,l,h}), ({h,k,l}) => ({l,h,k}), ({h,k,l}) => ({l,k,h})
             ] : [({h,k,l}) => ({h,k,l})];
-
             const isAllowed = permutations.some(p => evaluateRuleTree(spaceGroup.rule_tree, [p(hkl)]));
-
-            if (isAllowed) {
-                allowedReflections.push(hkl);
-            } else {
-                forbiddenReflections.push(hkl);
-            }
+            if (isAllowed) allowedReflections.push(hkl); else forbiddenReflections.push(hkl);
         });
 
-        // 1. Calculate the Penalty Term (P_total)
-        let pTotal = 0;
-        const I_max = Math.max(...backgroundCorrectedIntensity);
-        if (I_max > 0) {
-            const findStartIndex = (targetTth) => {
-                let low = 0, high = experimentalData.tth.length - 1;
-                while (low < high) {
-                    let mid = Math.floor((low + high) / 2);
-                    if (experimentalData.tth[mid] < targetTth) { low = mid + 1; } else { high = mid; }
-                }
-                return Math.max(0, low - 5);
-            };
-
-            forbiddenReflections.forEach(hkl => {
-                let I_forbidden = 0;
-                const searchCenterTth = hkl.tth;
-                const searchWindow = tthError * 1.5;
-
-                const startIndex = findStartIndex(searchCenterTth - searchWindow);
-
-                for (let i = startIndex; i < experimentalData.tth.length; i++) {
-                    const currentTth = experimentalData.tth[i];
-                    if (currentTth > searchCenterTth + searchWindow) break;
-                    if (currentTth >= searchCenterTth - searchWindow) {
-                        I_forbidden = Math.max(I_forbidden, backgroundCorrectedIntensity[i]);
-                    }
-                }
-                const penalty = Math.pow(I_forbidden / I_max, 2);
-                pTotal += penalty;
-            });
-        }
-
-        // 2. Calculate the Confirmation Term (C_score)
+        // 1. Calculate the Confirmation Score (C_score)
         const peaksToConsider = observedPeaks.slice(0, 30);
         let indexedCount = 0;
         const usedAllowedReflections = new Set();
         const corrected_obs_peaks = peaksToConsider.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
-
         corrected_obs_peaks.forEach(peak => {
-            let bestMatchDiff = Infinity;
-            let bestMatchIndex = -1;
-
+            let bestMatchDiff = Infinity, bestMatchIndex = -1;
             for (let i = 0; i < allowedReflections.length; i++) {
                 const diff = Math.abs(peak.tth - allowedReflections[i].tth);
-                if (diff < bestMatchDiff) {
-                    bestMatchDiff = diff;
-                    bestMatchIndex = i;
-                }
+                if (diff < bestMatchDiff) { bestMatchDiff = diff; bestMatchIndex = i; }
             }
             if (bestMatchIndex !== -1 && bestMatchDiff < tthError * 1.5 && !usedAllowedReflections.has(bestMatchIndex)) {
                 indexedCount++;
@@ -934,115 +888,133 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const cScore = peaksToConsider.length > 0 ? indexedCount / peaksToConsider.length : 0;
 
-        // 3. Combine and add Specificity Bonus
-        const w = 15;
-        const baseAcs = cScore / (1 + w * pTotal);
-        
-        // Add a small bonus for more complex/specific rule sets, acting as a tie-breaker
-        const specificityBonus = 0.001 * countRules(spaceGroup.rule_tree);
-        const finalAcs = baseAcs + specificityBonus;
+        // 2. Calculate the Absence Score (A_score) with Noise Estimation
+        let violationIndex = 0;
+        const I_max = Math.max(...backgroundCorrectedIntensity);
 
-        return finalAcs;
+        if (I_max > 0) {
+            // Estimate noise level using Median Absolute Deviation (robust to peaks)
+            const sortedData = [...backgroundCorrectedIntensity].sort((a, b) => a - b);
+            const median = sortedData[Math.floor(sortedData.length / 2)];
+            const deviations = sortedData.map(y => Math.abs(y - median));
+            const mad = deviations.sort((a, b) => a - b)[Math.floor(deviations.length / 2)];
+            const noiseLevel = mad * 1.4826; // Convert MAD to standard deviation equivalent
+
+            const findStartIndex = (targetTth) => {
+                let low = 0, high = experimentalData.tth.length - 1;
+                while (low < high) { let mid = Math.floor((low + high) / 2); if (experimentalData.tth[mid] < targetTth) { low = mid + 1; } else { high = mid; } }
+                return Math.max(0, low - 5);
+            };
+
+            forbiddenReflections.forEach(hkl => {
+                let maxIntensityInWindow = 0;
+                const searchCenterTth = hkl.tth;
+                const searchWindow = tthError; // Use a tighter window for violation check
+                const startIndex = findStartIndex(searchCenterTth - searchWindow);
+
+                for (let i = startIndex; i < experimentalData.tth.length; i++) {
+                    const currentTth = experimentalData.tth[i];
+                    if (currentTth > searchCenterTth + searchWindow) break;
+                    if (currentTth >= searchCenterTth - searchWindow) {
+                        maxIntensityInWindow = Math.max(maxIntensityInWindow, backgroundCorrectedIntensity[i]);
+                    }
+                }
+                
+                // Only penalize intensity that is clearly above the noise floor
+                const violationIntensity = Math.max(0, maxIntensityInWindow - (3 * noiseLevel));
+                violationIndex += (violationIntensity / I_max);
+            });
+        }
+        
+        const w = 10; // Weighting factor for penalty.
+        const absenceScore = Math.exp(-w * violationIndex);
+
+        // 3. Final Score
+        const finalScore = cScore * absenceScore;
+
+        return {
+            score: finalScore,
+            cScore: cScore,
+            aScore: absenceScore,
+            rules: countRules(spaceGroup.rule_tree)
+        };
     }
 
-
-    /**
-     * Analyzes systematic absences to determine centering and a ranked list of possible space groups.
-     * @param {object} solution - The unit cell solution object.
-     * @param {Array<object>} obs_peaks - The list of observed experimental peaks.
-     * @param {number} wavelength - The X-ray wavelength.
-     * @param {number} tthError - The 2-theta error tolerance.
-     * @returns {object} An object containing centering and a ranked list of space groups with their ACS.
-     */
     function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
-        // Step 1: Generate a reliable list of observed HKLs (unchanged)
+        // ... Step 1 & 2: Generate HKLs and determine centering (unchanged) ...
         const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p => p.tth)));
         const obs_hkl_list = [];
         const used_peaks = new Set();
         const corrected_obs_peaks = obs_peaks.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
         corrected_obs_peaks.forEach(peak => { peak.d = wavelength / (2 * Math.sin(peak.tth * Math.PI / 360)); });
         const q_from_tth = (tth) => (4 * Math.pow(Math.sin(tth * Math.PI / 360), 2)) / (wavelength * wavelength);
-
         all_hkls.forEach(hkl => {
             let bestMatch = null; let minDiff = Infinity;
-            corrected_obs_peaks.forEach((peak, index) => {
-                if (used_peaks.has(index)) return;
-                const diff = Math.abs(hkl.d - peak.d);
-                if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; }
-            });
+            corrected_obs_peaks.forEach((peak, index) => { if (used_peaks.has(index)) return; const diff = Math.abs(hkl.d - peak.d); if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; } });
             if (bestMatch) {
-                const q_o = q_from_tth(bestMatch.peak.tth);
-                const d_theta = tthError * Math.PI / 360;
-                const q_tolerance = ((8 * Math.sin(bestMatch.peak.tth * Math.PI / 360) * Math.cos(bestMatch.peak.tth * Math.PI / 360)) / (wavelength * wavelength)) * d_theta;
-                const d_tolerance = Math.abs(1 / Math.sqrt(q_o + q_tolerance) - 1 / Math.sqrt(q_o - q_tolerance)) / 2;
-                if (minDiff < d_tolerance * 1.5) {
-                    obs_hkl_list.push(hkl);
-                    used_peaks.add(bestMatch.index);
-                }
+                const q_o = q_from_tth(bestMatch.peak.tth); const d_theta = tthError * Math.PI / 360; const q_tolerance = ((8 * Math.sin(bestMatch.peak.tth * Math.PI / 360) * Math.cos(bestMatch.peak.tth * Math.PI / 360)) / (wavelength * wavelength)) * d_theta; const d_tolerance = Math.abs(1 / Math.sqrt(q_o + q_tolerance) - 1 / Math.sqrt(q_o - q_tolerance)) / 2;
+                if (minDiff < d_tolerance * 1.5) { obs_hkl_list.push(hkl); used_peaks.add(bestMatch.index); }
             }
         });
-
-        if (obs_hkl_list.length < 3) {
-            return { centering: 'Unknown', rankedSpaceGroups: [] };
-        }
-
-        // Step 2: Probabilistic Centering Determination
+        if (obs_hkl_list.length < 3) return { centering: 'Unknown', rankedSpaceGroups: [] };
         const centeringScores = { 'P': 0, 'I': 0, 'F': 0, 'C': 0, 'R': 0 };
-        const centeringConditions = {
-            'I': ({ h, k, l }) => (h + k + l) % 2 === 0,
-            'F': ({ h, k, l }) => (h % 2 === k % 2) && (k % 2 === l % 2),
-            'C': ({ h, k }) => (h + k) % 2 === 0,
-            'R': ({ h, k, l }) => (-h + k + l) % 3 === 0,
-        };
+        const centeringConditions = { 'I': ({h,k,l}) => (h+k+l)%2===0, 'F': ({h,k,l}) => (h%2===k%2)&&(k%2===l%2), 'C': ({h,k}) => (h+k)%2===0, 'R': ({h,k,l}) => (-h+k+l)%3===0 };
         const peaksForCentering = obs_hkl_list.slice(0, 20);
         if (peaksForCentering.length > 0) {
-            for (const type of ['I', 'F', 'C', 'R']) {
-                let satisfied = 0;
-                peaksForCentering.forEach(hkl => { if (centeringConditions[type](hkl)) { satisfied++; } });
-                centeringScores[type] = satisfied / peaksForCentering.length;
-            }
+            for (const type of ['I', 'F', 'C', 'R']) { let satisfied = 0; peaksForCentering.forEach(hkl => { if (centeringConditions[type](hkl)) { satisfied++; } }); centeringScores[type] = satisfied / peaksForCentering.length; }
         }
-        let bestCenteringType = 'P';
-        let maxScore = 0.85; // Require 85% of peaks to match for a non-primitive centering
-
-        // Order matters: F is stricter than I. Check it first.
-        if (centeringScores['F'] >= maxScore) { bestCenteringType = 'F'; }
-        else if (centeringScores['I'] >= maxScore) { bestCenteringType = 'I'; }
-        else if (solution.system === 'hexagonal' && centeringScores['R'] >= maxScore) { bestCenteringType = 'R'; }
-        else if ((solution.system === 'orthorhombic' || solution.system === 'monoclinic') && centeringScores['C'] >= maxScore) { bestCenteringType = 'C'; }
-
+        let bestCenteringType = 'P', maxScore = 0.85;
+        if (centeringScores['F'] >= maxScore) { bestCenteringType = 'F'; } else if (centeringScores['I'] >= maxScore) { bestCenteringType = 'I'; } else if (solution.system === 'hexagonal' && centeringScores['R'] >= maxScore) { bestCenteringType = 'R'; } else if ((solution.system === 'orthorhombic' || solution.system === 'monoclinic') && centeringScores['C'] >= maxScore) { bestCenteringType = 'C'; }
         const centeringMap = {'P': 'Primitive (P)', 'I': 'Body (I)', 'F': 'Face (F)', 'C': 'C-Face (C)', 'R': 'Rhombohedral (R)'};
-        const centering = centeringMap[bestCenteringType];
-        const centerChar = bestCenteringType;
-
-        // Step 3: Filter, Score, and Rank Possible Space Groups
-        const laue_classes = {
-            'cubic': ['m-3', 'm-3m'], 'hexagonal': ['6/m', '6/mmm'], 'trigonal': ['-3', '-3m'],
-            'tetragonal': ['4/m', '4/mmm'], 'orthorhombic': ['mmm'], 'monoclinic': ['2/m']
-        };
+        const centering = centeringMap[bestCenteringType]; const centerChar = bestCenteringType;
+        
+        // ... Step 3: Filter candidates (unchanged) ...
+        const laue_classes = { 'cubic': ['m-3', 'm-3m'], 'hexagonal': ['6/m', '6/mmm'], 'trigonal': ['-3', '-3m'], 'tetragonal': ['4/m', '4/mmm'], 'orthorhombic': ['mmm'], 'monoclinic': ['2/m'] };
         const possibleLaueClasses = laue_classes[solution.system] || [];
         if (solution.system === 'hexagonal') possibleLaueClasses.push(...(laue_classes['trigonal'] || []));
-
         const candidateSpaceGroups = spaceGroups.filter(sg => {
-            if (sg.system !== solution.system) return false;
-            if (sg.name.charAt(0) !== centerChar) return false;
-            if (!possibleLaueClasses.includes(sg.laue_class)) return false;
-            return true;
+            if (sg.system !== solution.system) return false; if (sg.name.charAt(0) !== centerChar) return false; if (!possibleLaueClasses.includes(sg.laue_class)) return false; return true;
         });
 
-        // Step 4: Calculate ACS for each candidate and rank them
-        const rankedSpaceGroups = candidateSpaceGroups.map(sg => {
-            const acs = calculateACS(sg, solution, obs_peaks, fullExperimentalData, lastBackgroundCorrectedData, wavelength, tthError);
-            return { name: sg.name, acs: acs };
-        }).filter(sg => sg.acs > 0.05).sort((a, b) => b.acs - a.acs); // Filter out very low scores
+        // Step 4: Calculate RAW scores for each candidate
+        let scoredSpaceGroups = candidateSpaceGroups.map(sg => {
+            const scores = calculateSpaceGroupScore(sg, solution, obs_peaks, fullExperimentalData, lastBackgroundCorrectedData, wavelength, tthError);
+            return { name: sg.name, ...scores };
+        });
 
-        return {
-            centering,
-            rankedSpaceGroups
-        };
+        // ======================= NORMALIZATION STEP =======================
+        // Find the maximum score among all candidates for THIS solution.
+        const maxSGS = scoredSpaceGroups.reduce((max, sg) => Math.max(max, sg.score), 0);
+        
+        // Normalize each score relative to the best one.
+        if (maxSGS > 0) {
+            scoredSpaceGroups.forEach(sg => {
+                sg.normalizedScore = sg.score / maxSGS;
+            });
+        } else {
+             scoredSpaceGroups.forEach(sg => {
+                sg.normalizedScore = 0;
+            });
+        }
+        // ===================== END OF NORMALIZATION =====================
+
+        // Step 5: Sort using the CORRECTED logic with symmetry preference as a tie-breaker.
+        const rankedSpaceGroups = scoredSpaceGroups.sort((a, b) => {
+            const scoreA = a.normalizedScore;
+            const scoreB = b.normalizedScore;
+            
+            // If scores are very close (e.g., within 0.01), use number of rules as a tie-breaker.
+            if (Math.abs(scoreA - scoreB) < 0.01) {
+                // Prefer higher symmetry (more rules)
+                return b.rules - a.rules;
+            }
+            
+            // Otherwise, sort strictly by score.
+            return scoreB - scoreA;
+        });
+
+        return { centering, rankedSpaceGroups };
     }
-
-
 
     const inputsToValidate = [
         { id: 'wavelength', el: ui.wavelength, default: 1.541780 },
@@ -1217,24 +1189,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const max = parseFloat(ui.tthMaxSlider.value);
         xrdChart.options.scales.x.min = min;
         xrdChart.options.scales.x.max = max;
+        
         if (updateYScale) {
-            const visibleIntensities = fullExperimentalData.intensity.filter((_, index) => {
-                const tth = fullExperimentalData.tth[index];
-                return tth >= min && tth <= max;
-            });
-            if (visibleIntensities.length > 0) {
-                const yMaxInRange = Math.max(...visibleIntensities);
-                xrdChart.options.scales.y.min = -yMaxInRange * 0.05;
-                xrdChart.options.scales.y.max = yMaxInRange * 1.1;
-            } else {
-                const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
-                xrdChart.options.scales.y.min = -yMax * 0.05;
-                xrdChart.options.scales.y.max = yMax * 1.1;
-            }
+            updateDynamicYAxis(xrdChart); // Call the shared dynamic function
         }
+        
+        // This update call applies all option changes from this function
         xrdChart.update('none');
-        updateAllMarkers();
+        updateAllMarkers(); // Redraw markers after axes have been updated
     };
+
 
     ui.tthMinSlider.addEventListener('input', () => {
         let minVal = parseFloat(ui.tthMinSlider.value);
@@ -1559,10 +1523,66 @@ document.addEventListener('DOMContentLoaded', () => {
     Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
     Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
 
+
+    const updateYAxisRange = () => {
+        if (!xrdChart || !xrdChart.scales || !xrdChart.scales.x) return;
+        
+        // Get the current min/max of the visible x-axis
+        const { min: xMin, max: xMax } = xrdChart.scales.x;
+
+        // Find all positive intensity values within the visible x-range
+        const visibleIntensities = fullExperimentalData.intensity.filter((intensity, index) => {
+            const tth = fullExperimentalData.tth[index];
+            return intensity > 0 && tth >= xMin && tth <= xMax;
+        });
+
+        // If there's no data in view, don't change the axis
+        if (visibleIntensities.length === 0) return;
+
+        const yMinInRange = Math.min(...visibleIntensities);
+        const yMaxInRange = Math.max(...visibleIntensities);
+
+        // Set the y-axis min and max with some padding
+        xrdChart.scales.y.min = yMinInRange * 0.5;
+        xrdChart.scales.y.max = yMaxInRange * 1.2;
+    };
+
+    const updateDynamicYAxis = (chart) => {
+        if (!chart || !chart.scales || !chart.scales.x) return;
+
+        const { min: xMin, max: xMax } = chart.scales.x;
+
+        // Filter the original full dataset for positive intensities within the visible x-range
+        const visibleIntensities = fullExperimentalData.intensity.filter((intensity, index) => {
+            const tth = fullExperimentalData.tth[index];
+            return intensity > 0 && tth >= xMin && tth <= xMax;
+        });
+
+        // If no data is in the current view, use safe defaults to prevent errors
+        if (visibleIntensities.length === 0) {
+            chart.options.scales.y.min = 0.1;
+            chart.options.scales.y.max = 1000;
+            return;
+        };
+
+        const yMinInRange = Math.min(...visibleIntensities);
+        const yMaxInRange = Math.max(...visibleIntensities);
+
+        // Modify the chart's OPTIONS, not the scales directly. This is the correct method.
+        chart.options.scales.y.min = yMinInRange * 0.5; // Add padding below the minimum peak
+        chart.options.scales.y.max = yMaxInRange * 1.2; // Add padding above the maximum peak
+    };
+
     const initializeChart = () => {
         if (xrdChart) xrdChart.destroy();
-        const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, fullExperimentalData.intensity[i]) }));
-        const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
+        
+        // KEY FIX: Replace zero or negative intensity values with null.
+        // A logarithmic axis cannot process non-positive numbers.
+        const experimentalPoints = fullExperimentalData.tth.map((t, i) => {
+            const intensity = fullExperimentalData.intensity[i];
+            return { x: t, y: intensity > 0 ? intensity : null };
+        });
+        
         xrdChart = new Chart(ui.chartCanvas, {
             type: 'line',
             data: {
@@ -1576,12 +1596,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 responsive: true, maintainAspectRatio: false, animation: false,
                 scales: {
                     x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' } },
-                    y: { title: { display: true, text: 'Intensity (a.u.)' }, min: -yMax * 0.05, max: yMax * 1.1, suggestedMin: 0 }
+                    y: {
+                        type: 'logarithmic',
+                        title: { display: true, text: 'Intensity (a.u., log scale)' },
+                        // Min/max are now set entirely dynamically.
+                    }
                 },
                 plugins: {
                     zoom: {
-                        pan: { enabled: true, mode: 'xy', threshold: 5, onPanComplete: () => { updateAllMarkers(); } },
-                        zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, onZoomComplete: () => { updateAllMarkers(); } }
+                        pan: {
+                            enabled: true, mode: 'xy', threshold: 5,
+                            onPanComplete: ({chart}) => {
+                                updateDynamicYAxis(chart);
+                                updateAllMarkers();
+                                chart.update('none'); // Apply the updated options
+                            }
+                        },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            drag: { enabled: false },
+                            onZoomComplete: ({chart}) => {
+                                updateDynamicYAxis(chart);
+                                updateAllMarkers();
+                                chart.update('none'); // Apply the updated options
+                            }
+                        }
                     },
                     legend: { position: 'top' },
                     tooltip: {
@@ -1598,7 +1638,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     }
                                     const tolerance = parseFloat(ui.tthError.value) || 0.05;
                                     if (closestPeak && minDiff < tolerance) {
-title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;                                    }
+                                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;
+                                    }
                                 }
                                 return title;
                             },
@@ -1614,50 +1655,35 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
                 }
             }
         });
+        
+        // Set the initial Y-axis range correctly after the chart is created
+        updateDynamicYAxis(xrdChart);
+        xrdChart.update('none');
     };
 
-    ui.chartCanvas.addEventListener('wheel', e => {
-        e.preventDefault();
-        if (!xrdChart || !xrdChart.chartArea) return;
-        const { left, right, top, bottom } = xrdChart.chartArea;
-        const zoomDirection = e.deltaY < 0 ? 1.1 : 0.9;
-        const zoomOptions = { x: 1, y: 1 };
-        if (e.offsetY > bottom && e.offsetX > left && e.offsetX < right) {
-            zoomOptions.x = zoomDirection;
-        } else if (e.offsetX < left && e.offsetY > top && e.offsetY < bottom) {
-            zoomOptions.y = zoomDirection;
-        } else if (e.offsetX >= left && e.offsetX <= right && e.offsetY >= top && e.offsetY <= bottom) {
-            zoomOptions.x = zoomDirection;
-            zoomOptions.y = zoomDirection;
-        } else {
-            return;
-        }
-        xrdChart.zoom(zoomOptions, 'none');
-        updateAllMarkers();
-    });
 
     const updateAllMarkers = () => {
         if (!xrdChart) return;
-        const xMin = xrdChart.scales.x.min; const xMax = xrdChart.scales.x.max;
-        const yMin = xrdChart.scales.y.min; const yMax = xrdChart.scales.y.max;
-        const yRange = yMax - yMin;
-        const markerHeight = yRange * 0.02;
+        const xMin = xrdChart.scales.x.min;
+        const xMax = xrdChart.scales.x.max;
+        const yMin = xrdChart.scales.y.min; // Get the current y-axis minimum
+
         const visibleObsPeaks = pickedPeaks.filter(p => p.tth >= xMin && p.tth <= xMax);
-        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin + markerHeight] }));
+        
+        // Place observed peak markers in a dynamic band based on the current y-axis min
+        // On a log scale, the visual height of [yMin, yMin*2] is constant
+        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin * 1.5] }));
+
         if (selectedSolution) {
-            const calculatedBottom = yMin + markerHeight * 1.2;
-            const calculatedTop = calculatedBottom + markerHeight;
             const visibleCalcPeaks = currentHklList.filter(hkl => hkl.tth >= xMin && hkl.tth <= xMax);
-            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [calculatedBottom, calculatedTop] }));
+            // Place calculated markers in a band just above the observed markers
+            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [yMin * 1.5, yMin * 2.25] }));
         } else {
             xrdChart.data.datasets[2].data = [];
         }
         xrdChart.update('none');
     };
-    
-    // ==================================================================
-    // == FUNDAMENTAL FIX: HKL Generation with correct symmetry constraints ==
-    // ==================================================================
+
     const generateHKL = (maxTth, params, system) => {
         const { a, b, c, beta, lambda } = params; if (!a || !lambda) return [];
         const reflections = [];
@@ -1837,27 +1863,22 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
                 doc.setFont('courier', 'normal'); doc.text(sol.analysis.centering, margin + 45, yPos);
                 yPos += 5;
 
-                // ============ CORRECTED SECTION START ============
-                // This part now displays the ranked list of space groups with their ACS score.
-                if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
-                    doc.setFont('helvetica', 'bold'); doc.text(`Probable Space Groups (ranked by ACS):`, margin, yPos);
-                    yPos += 5;
-                    doc.setFont('courier', 'normal');
-                    
-                    const topGroups = sol.analysis.rankedSpaceGroups.slice(0, 5); // Show top 5
-                    topGroups.forEach((sg, index) => {
-                        if (yPos > 280) { doc.addPage(); yPos = 20; }
-                        // Bold the top-ranked space group
-                        doc.setFont('courier', index === 0 ? 'bold' : 'normal');
-                        const line = `${(index+1)}. ${sg.name.padEnd(8)} (ACS: ${sg.acs.toFixed(3)})`;
-                        doc.text(line, margin + 5, yPos);
-                        yPos += 5;
-                    });
-                    yPos += 3; // Extra space before the table
-                }
-                // ============= CORRECTED SECTION END =============
 
-                doc.setFont('courier', 'normal');
+                    if (sol.analysis.rankedSpaceGroups && sol.analysis.rankedSpaceGroups.length > 0) {
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(`Probable Space Groups:`, margin, yPos);
+                    
+                    const topGroups = sol.analysis.rankedSpaceGroups.slice(0, 5).map(sg => sg.name);
+                    
+                    doc.setFont('courier', 'normal');
+                    // Display the top groups on a single, comma-separated line
+                    doc.text(topGroups.join(', '), margin + 45, yPos);
+                    
+                    yPos += 7; // Add a bit of space before the table
+                }
+
+                
+                doc.setFont('courier', 'normal')
 
                 const tableHeader = ' h k l  | 2t_meas 2t_corr 2t_calc  d_corr      d_calc    diff(d)   diff(2t)';
                 doc.text(tableHeader, margin, yPos); yPos += 5;
