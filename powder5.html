@@ -749,7 +749,6 @@
                                 <option value="cubic_I">Cubic (I)</option>
                                 <option value="cubic_P">Cubic (P)</option>
                                 <option value="hexagonal_P">Hexagonal (P)</option>
-                                <option value="rhombohedral_P">Rhombohedral (H-axes)</option>
                                 <option value="tetragonal_I">Tetragonal (I)</option>
                                 <option value="tetragonal_P">Tetragonal (P)</option>
                                 <option value="orthorhombic_F">Orthorhombic (F)</option>
@@ -1019,7 +1018,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5, version 107, 11 Oct 2025
+        Powder 5, version 108, 12 Oct 2025
     </div>
 </div>
 
@@ -1337,32 +1336,34 @@ function getSpaceGroupCentering(spaceGroupName) {
     return firstLetter; // P, I, F, C, A, etc.
 }
 
-
+    //  updateSpaceGroupUI, v 108
+    // les rhombo dans les axes hexa
 function updateSpaceGroupUI() {
-            const { system } = getSystemAndCentering();
-            if (!spaceGroups.length) return; // Wait until data is defined
+    const { system } = getSystemAndCentering();
+    if (!spaceGroups.length) return; // Wait until data is defined
 
-            const filteredGroups = spaceGroups.filter(sg => {
-                // 9. Rhombohedral: search for 'R' groups under the 'hexagonal' system
-                if (system === 'rhombohedral') {
-                    return sg.system === 'hexagonal' && sg.name.startsWith('R');
-                }
-                
-                // Logic for all other 
-                const selectedCentering = controls.bravaisLattice.value.split('_')[1];
-                const sgCentering = sg.name.charAt(0).toUpperCase();
-                return sg.system === system && sgCentering === selectedCentering;
-            });
-
-            controls.spaceGroupSelect.innerHTML = "";
-            filteredGroups.forEach(sg => {
-                const opt = document.createElement("option");
-                opt.value = sg.number;
-                opt.textContent = `${sg.number} – ${sg.name}`;
-                controls.spaceGroupSelect.appendChild(opt);
-            });
+    const filteredGroups = spaceGroups.filter(sg => {
+        // -
+        // Create a special case for the hexagonal system to include rhombohedral ('R') groups.
+        if (system === 'hexagonal') {
+            // Show any group that is either 'hexagonal' OR is 'trigonal' with an 'R' name.
+            return sg.system === 'hexagonal' || (sg.system === 'trigonal' && sg.name.startsWith('R'));
         }
+        
+        // The original logic works correctly for all other systems.
+        const selectedCentering = controls.bravaisLattice.value.split('_')[1];
+        const sgCentering = sg.name.charAt(0).toUpperCase();
+        return sg.system === system && sgCentering === selectedCentering;
+    });
 
+    controls.spaceGroupSelect.innerHTML = "";
+    filteredGroups.forEach(sg => {
+        const opt = document.createElement("option");
+        opt.value = sg.number;
+        opt.textContent = `${sg.number} – ${sg.name}`;
+        controls.spaceGroupSelect.appendChild(opt);
+    });
+}
         function calculateAmorphousHump(tthAxis, humpParams) {
             const height = humpParams.hump_H || 0;
             if (height === 0) return new Array(tthAxis.length).fill(0);
@@ -1664,75 +1665,78 @@ function generateMasterHklList() {
     updatePreviewPattern();
 }
 
-        //  2-THETA UPDATE FUNCTION
+        // v 108
 function updateHklPositions(hklList, params, system) {
-            const { a, b, c, alpha, beta, lambda } = params;
-            if (!a || !lambda || a <= 0 || lambda <= 0) return;
-            
-            const deg2rad = Math.PI / 180;
-            const lambda_sq_over_4 = (lambda * lambda) / 4.0;
-            const a_sq = a * a;
+    const { a, b, c, alpha, beta, lambda } = params;
+    if (!a || !lambda || a <= 0 || lambda <= 0) return;
+    
+    const deg2rad = Math.PI / 180;
+    const lambda_sq_over_4 = (lambda * lambda) / 4.0;
+    const a_sq = a * a;
 
-            // Pre-calculate system-specific constants outside the loop... 
-            //ca aurait été plus simple de faire ça avec le tenseur métrique... mais dans ce cas faut passer toutes les valeurs de param de maille
-            let b_sq, c_sq, sin_beta_sq, cos_beta;
-            if (system === 'monoclinic') {
-                const beta_rad = (beta || 90) * deg2rad;
-                sin_beta_sq = Math.sin(beta_rad);
-                sin_beta_sq *= sin_beta_sq;
-                cos_beta = Math.cos(beta_rad);
+    let b_sq, c_sq, sin_beta_sq, cos_beta;
+    if (system === 'monoclinic') {
+        const beta_rad = (beta || 90) * deg2rad;
+        sin_beta_sq = Math.sin(beta_rad);
+        sin_beta_sq *= sin_beta_sq;
+        cos_beta = Math.cos(beta_rad);
+        b_sq = (b || a) * (b || a);
+        c_sq = (c || a) * (c || a);
+    }
+
+    hklList.forEach(peak => {
+        if (!peak || peak.h_orig === undefined) return;
+        const h = peak.h_orig;
+        const k = peak.k_orig;
+        const l = peak.l_orig;
+        const h2 = h * h;
+        const k2 = k * k;
+        const l2 = l * l;
+        
+        let inv_d_sq = 0;
+        switch(system) {
+            case 'cubic': 
+                inv_d_sq = (h2 + k2 + l2) / a_sq; 
+                break;
+            case 'tetragonal': 
+                c_sq = (c || a) * (c || a);
+                inv_d_sq = (h2 + k2) / a_sq + l2 / c_sq; 
+                break;
+            case 'orthorhombic': 
                 b_sq = (b || a) * (b || a);
                 c_sq = (c || a) * (c || a);
-            }
-
-            hklList.forEach(peak => {
-                if (!peak || peak.h_orig === undefined) return;
-                const h = peak.h_orig;
-                const k = peak.k_orig;
-                const l = peak.l_orig;
-                const h2 = h * h;
-                const k2 = k * k;
-                const l2 = l * l;
-                
-                let inv_d_sq = 0;
-                switch(system) {
-                    case 'cubic': 
-                        inv_d_sq = (h2 + k2 + l2) / a_sq; 
-                        break;
-                    case 'tetragonal': 
-                        c_sq = (c || a) * (c || a);
-                        inv_d_sq = (h2 + k2) / a_sq + l2 / c_sq; 
-                        break;
-                    case 'orthorhombic': 
-                        b_sq = (b || a) * (b || a);
-                        c_sq = (c || a) * (c || a);
-                        inv_d_sq = h2/a_sq + k2/b_sq + l2/c_sq; 
-                        break;
-                    case 'hexagonal': 
-                    case 'rhombohedral':
-                        c_sq = (c || a) * (c || a);
-                        inv_d_sq = 4 * (h2 + h*k + k2) / (3 * a_sq) + l2 / c_sq; 
-                        break;
-                    case 'monoclinic':
-                        inv_d_sq = (1/sin_beta_sq) * (h2/a_sq + k2*sin_beta_sq/b_sq + l2/c_sq - (2*h*l*cos_beta)/(a*c));
-                        break;
-                }
-                
-                if (inv_d_sq > 1e-12) {
-                    const sinThetaSq = lambda_sq_over_4 * inv_d_sq;
-                    if (sinThetaSq <= 1 && sinThetaSq > 0) {
-                        peak.tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
-                        peak.d = 1 / Math.sqrt(inv_d_sq);
-                    } else {
-                        peak.tth = null;
-                        peak.d = null;
-                    }
-                } else {
-                    peak.tth = null;
-                    peak.d = null;
-                }
-            });
+                inv_d_sq = h2/a_sq + k2/b_sq + l2/c_sq; 
+                break;
+            // --- THIS IS THE CRITICAL FIX ---
+            // Added 'trigonal' to the case list to ensure the correct formula is used.
+            case 'hexagonal': 
+            case 'rhombohedral':
+            case 'trigonal':
+                c_sq = (c || a) * (c || a);
+                inv_d_sq = 4 * (h2 + h*k + k2) / (3 * a_sq) + l2 / c_sq; 
+                break;
+            // --- END OF FIX ---
+            case 'monoclinic':
+                inv_d_sq = (1/sin_beta_sq) * (h2/a_sq + k2*sin_beta_sq/b_sq + l2/c_sq - (2*h*l*cos_beta)/(a*c));
+                break;
         }
+        
+        if (inv_d_sq > 1e-12) {
+            const sinThetaSq = lambda_sq_over_4 * inv_d_sq;
+            if (sinThetaSq <= 1 && sinThetaSq > 0) {
+                peak.tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                peak.d = 1 / Math.sqrt(inv_d_sq);
+            } else {
+                peak.tth = null;
+                peak.d = null;
+            }
+        } else {
+            peak.tth = null;
+            peak.d = null;
+        }
+    });
+}
+
 
         function updateBackgroundForPreview() {
             if (fullExperimentalData.tth.length === 0 || isFitting) return;
@@ -1760,52 +1764,110 @@ function updateHklPositions(hklList, params, system) {
             }
         }
 
-        function getMultiplicityAndCanonicalHKL(h, k, l, laue_class) {
-            if (h === 0 && k === 0 && l === 0) {
-                return { multiplicity: 1, canonical_hkl_obj: [0, 0, 0] };
-            }
 
-            let m = 0;
-            switch (laue_class) {
-                case 'm-3m':
-                    if (h > k && k > l && l > 0) m = 48; else if (h === k && k > l && l > 0) m = 24; else if (h > k && k === l && l > 0) m = 24; else if (h > k && k > 0 && l === 0) m = 24; else if (h === k && k === l && l > 0) m = 8; else if (h === k && k > 0 && l === 0) m = 12; else if (h > 0 && k === 0 && l === 0) m = 6;
-                    break;
-                case 'm-3':
-                    if (h > k && k > l && l > 0) m = 24; else if (h === k && k > l && l > 0) m = 12; else if (h > k && k === l && l > 0) m = 12; else if (h > k && k > 0 && l === 0) m = 12; else if (h === k && k === l && l > 0) m = 8; else if (h === k && k > 0 && l === 0) m = 6; else if (h > 0 && k === 0 && l === 0) m = 6;
-                    break;
-                case '6/mmm':
-                    if (l > 0) { if (h > k && k > 0) m = 24; else if (h === k && k > 0) m = 12; else if (h > 0 && k === 0) m = 12; else if (h === 0 && k === 0) m = 2; } else { if (h > k && k > 0) m = 12; else if (h === k && k > 0) m = 6; else if (h > 0 && k === 0) m = 6; }
-                    break;
-                case '6/m':
-                     if (l > 0) { if (h > 0 || k > 0) m = 12; else m = 2; } else { if (h > 0 || k > 0) m = 6; }
-                    break;
-                case '-3m':
-                     if (h > k && k > l) m = 12; else if (h === k && k > l) m = 6; else if (h > k && k === l) m = 6; else if (h === k && k === l) m = 2;
-                     break;
-                case '-3':
-                    m = 6; if (h === k && k === l) m = 2;
-                    break;
-                case '4/mmm':
-                    if (l > 0) { if (h > k && k > 0) m = 16; else if (h === k && k > 0) m = 8; else if (h > 0 && k === 0) m = 8; else if (h === 0 && k === 0) m = 2; } else { if (h > k && k > 0) m = 8; else if (h === k && k > 0) m = 4; else if (h > 0 && k === 0) m = 4; }
-                    break;
-                case '4/m':
-                    if (l > 0) { if (h > k && k > 0) m = 8; else if (h === k && k > 0) m = 4; else if (h > 0 && k === 0) m = 8; else if (h === 0 && k === 0) m = 2; } else { if (h > k && k > 0) m = 4; else if (h === k && k > 0) m = 4; else if (h > 0 && k === 0) m = 4; }
-                    break;
-                case 'mmm':
-                    if (h > 0 && k > 0 && l > 0) m = 8; else if ((h > 0 && k > 0 && l === 0) || (h > 0 && k === 0 && l > 0) || (h === 0 && k > 0 && l > 0)) m = 4; else m = 2;
-                    break;
-                case '2/m':
-                    if (k > 0 || l > 0) m = 4; else if (h > 0) m = 2;
-                    break;
-                case '-1':
-                    m = 2;
-                    break;
-                default:
-                    m = 1; // Failsafe
-                    break;
+        function getMultiplicityAndCanonicalHKL(h, k, l, laue_class) {
+    if (h === 0 && k === 0 && l === 0) {
+        return { multiplicity: 1, canonical_hkl_obj: [0, 0, 0] };
+    }
+
+    let m = 0;
+    // This logic is now robust for all systems
+    switch (laue_class) {
+        case 'm-3m':
+            if (h > k && k > l && l >= 0) m = 48;
+            else if (h === k && k > l && l >= 0) m = 24;
+            else if (h > k && k === l && l >= 0) m = 24;
+            else if (h > l && k > l && h === k) m = 24;
+            else if (h === k && k === l && l > 0) m = 8;
+            else if (h > 0 && k === 0 && l === 0) m = 6;
+            else if (h === k && l === 0 && h > 0) m = 12;
+            else if (h > k && k > 0 && l === 0) m = 24;
+            else m = 1; 
+            break;
+        case 'm-3':
+            if (h > k && k > l && l >= 0) m = 24;
+            else if (h === k && k > l && l >= 0) m = 12;
+            else if (h > k && k === l && l >= 0) m = 12;
+            else if (h === k && k === l && l > 0) m = 8;
+            else if (h > 0 && k === 0 && l === 0) m = 6;
+            else if (h === k && l === 0 && h > 0) m = 6;
+            else if (h > k && k > 0 && l === 0) m = 12;
+            else m = 1; 
+            break;
+        case '6/mmm':
+            if (l > 0) {
+                if (h > k && k >= 0) m = 24; else if (h === k && k > 0) m = 12; else if (h > 0 && k === 0) m = 12; else if (h === 0 && k === 0) m = 2;
+            } else { // l=0
+                if (h > k && k >= 0) m = 12; else if (h === k && k > 0) m = 6; else if (h > 0 && k === 0) m = 6;
             }
-            return { multiplicity: m, canonical_hkl_obj: [h, k, l] };
-        }
+            break;
+        case '6/m':
+            if (l > 0) m = (h > 0 || k > 0) ? 12 : 2; else m = (h > 0 || k > 0) ? 6 : 1;
+            break;
+        
+        // --- CORRECTED TRIGONAL LOGIC ---
+        case '-3m':
+            if (l !== 0) {
+                // Reflections with l > 0
+                if (h === 0 && k === 0) {
+                    m = 2; // 00l
+                } else if (h === 0 || k === 0 || h === k) {
+                    m = 12; // Special reflections like h0l, hhl
+                } else {
+                    m = 24; // General hkl
+                }
+            } else {
+                // Reflections on the l = 0 plane (hk0)
+                if (h === 0 || k === 0 || h === k) {
+                    m = 6; // Special reflections like h00, hh0
+                } else {
+                    m = 12; // General hk0
+                }
+            }
+            break;
+
+        case '-3':
+            if (l !== 0) {
+                // Reflections with l > 0
+                if (h === 0 && k === 0) {
+                    m = 2; // 00l (multiplicity is still 2)
+                } else {
+                    m = 12; // General hkl
+                }
+            } else {
+                // Reflections on the l = 0 plane (hk0)
+                m = 6; // All hk0 reflections have multiplicity 6
+            }
+            break;
+        // --- END CORRECTION ---
+
+        case '4/mmm':
+            if (l > 0) {
+                if (h > k && k >= 0) m = 16; else if (h === k && k > 0) m = 8; else if (h > 0 && k === 0) m = 8; else if (h === 0 && k === 0) m = 2;
+            } else { // l=0
+                if (h > k && k > 0) m = 8; else if (h === k && k > 0) m = 4; else if (h > 0 && k === 0) m = 4;
+            }
+            break;
+        case '4/m':
+             if (l > 0) m = (h > 0 || k > 0) ? 8 : 2; else m = (h > 0 || k > 0) ? 4 : 1;
+            break;
+        case 'mmm':
+            if (h > 0 && k > 0 && l > 0) m = 8;
+            else if (h > 0 && k > 0 && l === 0 || h > 0 && k === 0 && l > 0 || h === 0 && k > 0 && l > 0) m = 4;
+            else if (h > 0 || k > 0 || l > 0) m = 2;
+            break;
+        case '2/m':
+            if (k > 0 || (k === 0 && l > 0)) m = 4; else m = 2;
+            break;
+        case '-1':
+            m = 2;
+            break;
+        default:
+            m = 1; 
+            break;
+    }
+    return { multiplicity: m, canonical_hkl_obj: [h, k, l] };
+}
 
     function calculatePeakShift(tth, params) { if (params.profileType === "4") { const thetaRad = tth * (Math.PI / 180) / 2; const cosTheta = Math.cos(thetaRad); const sin2Theta = Math.sin(2 * thetaRad); const displacementShift = -(params.shft / 1000) * cosTheta * (180 / Math.PI); const transparencyShift = params.trns * sin2Theta * (180 / Math.PI); return displacementShift + transparencyShift; } else { return 0; } }
 
