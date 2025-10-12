@@ -1347,7 +1347,7 @@ function updateSpaceGroupUI() {
         // Create a special case for the hexagonal system to include rhombohedral ('R') groups.
         if (system === 'hexagonal') {
             // Show any group that is either 'hexagonal' OR is 'trigonal' with an 'R' name.
-            return sg.system === 'hexagonal' || (sg.system === 'trigonal' && sg.name.startsWith('R'));
+            return sg.system === 'hexagonal' || sg.system === 'trigonal';
         }
         
         // The original logic works correctly for all other systems.
@@ -1562,65 +1562,98 @@ workingData.weights = workingData.intensity.map((y, i) => {
             }
         }
 
-                function isReflectionAllowed(h, k, l, spaceGroupData) {
-            const ruleNode = spaceGroupData.rule_tree;
+        /**
+ * Main entry point to check if a reflection is allowed by the space group rules.
+ * @returns {boolean} True if the reflection is allowed.
+ */
+function isReflectionAllowed(h, k, l, spaceGroup) {
+    const ruleTree = spaceGroup.rule_tree;
 
-            if (!ruleNode || Object.keys(ruleNode).length === 0) {
-                return true;
-            }
+    // If no rules, all reflections are allowed
+    if (!ruleTree || Object.keys(ruleTree).length === 0) {
+        return true;
+    }
 
-            const evaluateExpression = (expr, h, k, l) => {
-                switch (expr.trim()) {
-                    case 'h+k': return h + k;
-                    case 'k+l': return k + l;
-                    case 'h+l': return h + l;
-                    case 'h+k+l': return h + k + l;
-                    case '-h+k+l': return -h + k + l;
-                    case '2h+l': return 2 * h + l;
-                    case 'h': return h;
-                    case 'k': return k;
-                    case 'l': return l;
-                    default: return NaN;
-                }
-            };
+    return evaluateRuleTree(h, k, l, ruleTree);
+}
 
-            const evaluateNode = (node) => {
-                if (node.type) {
-                    if (node.type === "family_check") {
-                        let match = false;
-                        if (node.family === '0kl' && h === 0 && k !== 0 && l !== 0) match = true;
-                        else if (node.family === 'h0l' && k === 0 && h !== 0 && l !== 0) match = true;
-                        else if (node.family === 'hk0' && l === 0 && h !== 0 && k !== 0) match = true;
-                        else if (node.family === 'h00' && k === 0 && l === 0 && h !== 0) match = true;
-                        else if (node.family === '0k0' && h === 0 && l === 0 && k !== 0) match = true;
-                        else if (node.family === '00l' && h === 0 && k === 0 && l !== 0) match = true;
-                        else if (node.family === 'hhl' && h === k && h !== 0 && l !== 0) match = true;
-                        return node.inverse ? !match : match;
-                    }
-                    if (node.type === "parity") {
-                        const isAllEven = h % 2 === 0 && k % 2 === 0 && l % 2 === 0;
-                        const isAllOdd = h % 2 !== 0 && k % 2 !== 0 && l % 2 !== 0;
-                        if (node.rule === "all_even") return isAllEven;
-                        if (node.rule === "all_odd") return isAllOdd;
-                    }
-                    if (node.type === "expression_check") {
-                        const value = evaluateExpression(node.expression, h, k, l);
-                        return !isNaN(value) && value % node.divisor === 0;
-                    }
-                    return true;
-                }
-
-                if (node.logic === "AND") {
-                    return node.rules.every(subNode => evaluateNode(subNode));
-                }
-                if (node.logic === "OR") {
-                    return node.rules.some(subNode => evaluateNode(subNode));
-                }
-                return true;
-            };
-
-            return evaluateNode(ruleNode);
+/**
+ * Recursively evaluates the rule tree for a given reflection.
+ * @returns {boolean} The result of the rule evaluation.
+ */
+function evaluateRuleTree(h, k, l, node) {
+    // Handle logical operators (AND/OR)
+    if (node.logic) {
+        if (node.logic === "AND") {
+            return node.rules.every(rule => evaluateRuleTree(h, k, l, rule));
+        } else if (node.logic === "OR") {
+            return node.rules.some(rule => evaluateRuleTree(h, k, l, rule));
         }
+    }
+
+    // Handle individual rule types
+    if (node.type === "family_check") {
+        const inFamily = isInFamily(h, k, l, node.family);
+        // The 'inverse' flag means the rule applies if the reflection is NOT in the family
+        return node.inverse ? !inFamily : inFamily;
+    }
+
+    if (node.type === "expression_check") {
+        const value = evaluateExpression(h, k, l, node.expression);
+        // The condition is met if the expression result is an even multiple of the divisor
+        return !isNaN(value) && value % node.divisor === 0;
+    }
+
+    if (node.type === "parity") {
+        if (node.rule === "all_even") {
+            return h % 2 === 0 && k % 2 === 0 && l % 2 === 0;
+        } else if (node.rule === "all_odd") {
+            return h % 2 !== 0 && k % 2 !== 0 && l % 2 !== 0;
+        }
+    }
+
+    // If a node doesn't match any known type, it's considered a pass
+    return true;
+}
+
+/**
+ * Checks if a given hkl triplet belongs to a specific reflection family.
+ * @returns {boolean} True if the hkl is in the family.
+ */
+function isInFamily(h, k, l, family) {
+    switch (family) {
+        case "h00": return k === 0 && l === 0;
+        case "0k0": return h === 0 && l === 0;
+        case "00l": return h === 0 && k === 0;
+        case "h0l": return k === 0;
+        case "hk0": return l === 0;
+        case "0kl": return h === 0;
+        case "hhl": return h === k;
+        case "hkk": return k === l;
+        case "hhh": return h === k && k === l;
+        default:    return false;
+    }
+}
+
+/**
+ * Safely evaluates a predefined crystallographic expression.
+ * @returns {number|NaN} The result of the expression, or NaN if unknown.
+ */
+function evaluateExpression(h, k, l, expr) {
+    switch (expr.trim()) {
+        case 'h+k':   return h + k;
+        case 'k+l':   return k + l;
+        case 'h+l':   return h + l;
+        case 'h+k+l': return h + k + l;
+        case '-h+k+l':return -h + k + l;
+        case '2h+l':  return 2 * h + l;
+        case 'h':     return h;
+        case 'k':     return k;
+        case 'l':     return l;
+        default:      return NaN; // Return NaN for unknown expressions
+    }
+}
+
 
         // master HKL, 1.0.3 et ensuite
         // This function now uses the cache to get raw indices and then calculates positions.
@@ -1764,7 +1797,6 @@ function updateHklPositions(hklList, params, system) {
             }
         }
 
-
         function getMultiplicityAndCanonicalHKL(h, k, l, laue_class) {
     if (h === 0 && k === 0 && l === 0) {
         return { multiplicity: 1, canonical_hkl_obj: [0, 0, 0] };
@@ -1782,7 +1814,7 @@ function updateHklPositions(hklList, params, system) {
             else if (h > 0 && k === 0 && l === 0) m = 6;
             else if (h === k && l === 0 && h > 0) m = 12;
             else if (h > k && k > 0 && l === 0) m = 24;
-            else m = 1; 
+            else m = 1;
             break;
         case 'm-3':
             if (h > k && k > l && l >= 0) m = 24;
@@ -1792,7 +1824,7 @@ function updateHklPositions(hklList, params, system) {
             else if (h > 0 && k === 0 && l === 0) m = 6;
             else if (h === k && l === 0 && h > 0) m = 6;
             else if (h > k && k > 0 && l === 0) m = 12;
-            else m = 1; 
+            else m = 1;
             break;
         case '6/mmm':
             if (l > 0) {
@@ -1804,8 +1836,6 @@ function updateHklPositions(hklList, params, system) {
         case '6/m':
             if (l > 0) m = (h > 0 || k > 0) ? 12 : 2; else m = (h > 0 || k > 0) ? 6 : 1;
             break;
-        
-        // --- CORRECTED TRIGONAL LOGIC ---
         case '-3m':
             if (l !== 0) {
                 // Reflections with l > 0
@@ -1826,17 +1856,12 @@ function updateHklPositions(hklList, params, system) {
             }
             break;
 
+        // --- CORRECTED -3 LAUE CLASS LOGIC ---
         case '-3':
-            if (l !== 0) {
-                // Reflections with l > 0
-                if (h === 0 && k === 0) {
-                    m = 2; // 00l (multiplicity is still 2)
-                } else {
-                    m = 12; // General hkl
-                }
+            if (h === 0 && k === 0) {
+                m = 2; // Special case for 00l reflections
             } else {
-                // Reflections on the l = 0 plane (hk0)
-                m = 6; // All hk0 reflections have multiplicity 6
+                m = 6; // All other reflections (general hkl and special hk0) have multiplicity 6
             }
             break;
         // --- END CORRECTION ---
@@ -1863,7 +1888,7 @@ function updateHklPositions(hklList, params, system) {
             m = 2;
             break;
         default:
-            m = 1; 
+            m = 1;
             break;
     }
     return { multiplicity: m, canonical_hkl_obj: [h, k, l] };
@@ -3328,7 +3353,7 @@ function generateAndCacheHklIndices(spaceGroup, maxTth, params) {
         return hklIndexCache[sgNumber];
     }
 
-    // 2. If not in cache, perform the expensive generation
+    // 2. If not in cache, perform the expensive generation.
     const { a, lambda } = params;
     const { system, laue_class } = spaceGroup;
     if (!a || !lambda || a <= 0 || lambda <= 0 || !laue_class) return [];
@@ -3353,7 +3378,7 @@ function generateAndCacheHklIndices(spaceGroup, maxTth, params) {
         }
     };
 
-    // This is computationally intensive block
+    // This is computationally intensive block.
     switch (laue_class) {
         case 'm-3m': case 'm-3':
             for (let l = 0; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
@@ -3361,9 +3386,20 @@ function generateAndCacheHklIndices(spaceGroup, maxTth, params) {
         case '6/mmm': case '6/m':
             for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
             break;
+            
+        // --- CORRECTED TRIGONAL LOOP LOGIC ---
         case '-3m': case '-3':
-            for (let l = -maxIndex; l < maxIndex; l++) for (let k = l; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
+            for (let l = -maxIndex; l < maxIndex; l++) {
+                for (let k = 0; k < maxIndex; k++) {
+                    for (let h = k; h < maxIndex; h++) { // Enforces h >= k >= 0
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        loopAndAdd(h, k, l);
+                    }
+                }
+            }
             break;
+        // --- END CORRECTION ---
+
         case '4/mmm': case '4/m':
             for (let l = 0; l < maxIndex; l++) for (let k = 0; k < maxIndex; k++) for (let h = k; h < maxIndex; h++) loopAndAdd(h, k, l);
             break;
