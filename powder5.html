@@ -962,8 +962,8 @@
                      <div class="slider-group">
                          <label class="control-label">Max Iterations</label>
                          <div class="slider-value-track">
-                            <input type="range" id="iterations-slider" min="1" max="400" value="120" step="1" class="custom-slider">
-                            <span id="iterations-value" class="slider-value-display">120</span>
+                            <input type="range" id="iterations-slider" min="1" max="80" value="20" step="1" class="custom-slider">
+                            <span id="iterations-value" class="slider-value-display">20</span>
                          </div>
                      </div>
 
@@ -1018,7 +1018,7 @@
     </div>
 
     <div style="position: absolute; bottom: 6px; right: 12px; font-size: 10px; color: var(--system-secondary-label);">
-        Powder 5, version 108, 12 Oct 2025
+        Powder 5, version 109, 13 Oct 2025
     </div>
 </div>
 
@@ -1127,9 +1127,12 @@ const bgContainer = document.getElementById('background-params-container');
         // --- Global State ---
         let profileParamCache = { "3": {}, "4": {} };
         let currentProfile = "4";
-        let fullExperimentalData = { tth: [], intensity: [] };
-        let calculatedBackground = [];
-        let workingDataCache = { tth: [], intensity: [], background: [], isValid: false };
+       
+      
+        let fullExperimentalData = { tth: new Float64Array(), intensity: new Float64Array() };
+        let calculatedBackground = new Float64Array();
+        let workingDataCache = { tth: new Float64Array(), intensity: new Float64Array(), background: new Float64Array(), isValid: false };
+
         let fitResults = null;
         let lastFitResultsCache = null; //changement le 6 oct 25
         let mainChart;
@@ -1217,74 +1220,94 @@ const bgContainer = document.getElementById('background-params-container');
             }
         }
     
-
-
-   function calculateChebyshevBackground(tthAxis, backgroundParams) {
-            const tthMin = tthAxis[0];
-            const tthMax = tthAxis[tthAxis.length - 1];
-            const tthRange = tthMax - tthMin;
-            if (tthRange <= 0) return new Array(tthAxis.length).fill(0);
-
-            const coefficients = [];
-            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) { // Look for up to N coefficients
-                if (backgroundParams[`B${i}`] !== undefined) {
-                    coefficients[i] = backgroundParams[`B${i}`];
-                }
-            }
-            if (coefficients.length === 0) return new Array(tthAxis.length).fill(0);
-
-            return tthAxis.map(tth => {
-                // Scale 2-theta to the required [-1, 1] range
-                const x_prime = (2 * (tth - tthMin) / tthRange) - 1;
-
-                // Calculate the Chebyshev polynomials T_n(x') iteratively
-                let t_n_minus_1 = 1; // T_0(x)
-                let t_n = x_prime;     // T_1(x)
-                
-                let backgroundValue = (coefficients[0] || 0) * t_n_minus_1;
-                if (coefficients.length > 1) {
-                    backgroundValue += (coefficients[1] || 0) * t_n;
-                }
-
-                for (let n = 2; n < coefficients.length; n++) {
-                    const t_n_plus_1 = 2 * x_prime * t_n - t_n_minus_1;
-                    backgroundValue += (coefficients[n] || 0) * t_n_plus_1;
-                    t_n_minus_1 = t_n;
-                    t_n = t_n_plus_1;
-                }
-                return backgroundValue;
-            });
-        }
-
-        function calculateAmorphousHump(tthAxis, humpParams) {
-            const height = humpParams.hump_H || 0;
-            if (height === 0) return new Array(tthAxis.length).fill(0);
-            
-            const position = humpParams.hump_P || 0;
-            const fwhm = humpParams.hump_W || 1;
-            const hwhm_sq = (fwhm / 2) * (fwhm / 2);
-            if (hwhm_sq === 0) return new Array(tthAxis.length).fill(0);
-
-            return tthAxis.map(tth => {
-                const diff = tth - position;
-                return height / (1 + (diff * diff) / hwhm_sq);
-            });
-        }
-
+        /**
+         * Calculates the total background contribution from Chebyshev polynomials and an amorphous hump.
+         * This version is optimized to return a Float64Array for improved performance.
+         * @param {Float64Array} tthAxis - The array of 2-theta values.
+         * @param {object} params - The object containing all refinement parameters.
+         * @returns {Float64Array} A new array containing the calculated background intensity at each point.
+         */
         function calculateTotalBackground(tthAxis, params) {
-            const chebyshevParams = {};
-            const humpParams = {};
-            
-            for(const key in params) {
-                if(key.startsWith('B')) chebyshevParams[key] = params[key];
-                if(key.startsWith('hump_')) humpParams[key] = params[key];
+            // --- 1. Pre-computation and setup ---
+            const n = tthAxis.length;
+            if (n === 0) {
+                return new Float64Array();
             }
 
-            const chebyshevBG = calculateChebyshevBackground(tthAxis, chebyshevParams);
-            const humpBG = calculateAmorphousHump(tthAxis, humpParams);
+            const background = new Float64Array(n); // Allocate the typed array upfront
 
-            return chebyshevBG.map((val, i) => val + humpBG[i]);
+            // Extract and check Chebyshev parameters
+            const chebyshevCoefficients = [];
+            let hasChebyshev = false;
+            for (let i = 0; i < NUM_BACKGROUND_PARAMS; i++) {
+                const coeff = params[`B${i}`] || 0;
+                chebyshevCoefficients[i] = coeff;
+                if (Math.abs(coeff) > 1e-9) hasChebyshev = true;
+            }
+
+            // Extract and pre-calculate for Amorphous Hump
+            const humpHeight = params.hump_H || 0;
+            let hasHump = humpHeight > 1e-9;
+            let humpPosition, hwhm_sq;
+            if (hasHump) {
+                humpPosition = params.hump_P || 0;
+                const fwhm = params.hump_W || 1;
+                hwhm_sq = (fwhm / 2) * (fwhm / 2);
+                if (hwhm_sq < 1e-9) hasHump = false; // Avoid division by zero
+            }
+
+            // Pre-calculate scaling factors for Chebyshev
+            let tthMin, tthRange;
+            if (hasChebyshev) {
+                tthMin = tthAxis[0];
+                tthRange = tthAxis[tthAxis.length - 1] - tthMin;
+                if (tthRange <= 0) hasChebyshev = false; // Avoid division by zero
+            }
+
+            // Early exit if there's nothing to calculate
+            if (!hasChebyshev && !hasHump) {
+                return background; // Return the zero-filled Float64Array
+            }
+
+            // --- 2. Single loop calculation ---
+            for (let i = 0; i < n; i++) {
+                const tth = tthAxis[i];
+                let totalBackgroundValue = 0;
+
+                // Calculate Chebyshev part if needed
+                if (hasChebyshev) {
+                    const x_prime = (2 * (tth - tthMin) / tthRange) - 1;
+
+                    let t_n_minus_1 = 1; // T_0(x)
+                    let t_n = x_prime; // T_1(x)
+
+                    let chebyshevValue = chebyshevCoefficients[0] * t_n_minus_1;
+                    if (chebyshevCoefficients.length > 1) {
+                        chebyshevValue += (chebyshevCoefficients[1] || 0) * t_n;
+                    }
+
+                    for (let n = 2; n < chebyshevCoefficients.length; n++) {
+                        const t_n_plus_1 = 2 * x_prime * t_n - t_n_minus_1;
+                        chebyshevValue += (chebyshevCoefficients[n] || 0) * t_n_plus_1;
+                        t_n_minus_1 = t_n;
+                        t_n = t_n_plus_1;
+                    }
+                    totalBackgroundValue += chebyshevValue;
+                }
+
+                // Calculate Amorphous Hump part if needed
+                if (hasHump) {
+                    const diff = tth - humpPosition;
+                    const humpValue = humpHeight / (1 + (diff * diff) / hwhm_sq);
+                    totalBackgroundValue += humpValue;
+                }
+                
+                background[i] = totalBackgroundValue;
+            }
+            
+            return background;
         }
+
 
 
         function updateStephensAnisotropyUI() {
@@ -1364,36 +1387,6 @@ function updateSpaceGroupUI() {
         controls.spaceGroupSelect.appendChild(opt);
     });
 }
-        function calculateAmorphousHump(tthAxis, humpParams) {
-            const height = humpParams.hump_H || 0;
-            if (height === 0) return new Array(tthAxis.length).fill(0);
-            
-            const position = humpParams.hump_P || 0;
-            const fwhm = humpParams.hump_W || 1;
-            const hwhm_sq = (fwhm / 2) * (fwhm / 2);
-            if (hwhm_sq === 0) return new Array(tthAxis.length).fill(0);
-
-            return tthAxis.map(tth => {
-                const diff = tth - position;
-                return height / (1 + (diff * diff) / hwhm_sq);
-            });
-        }
-
-        function calculateTotalBackground(tthAxis, params) {
-            const chebyshevParams = {};
-            const humpParams = {};
-            
-            for(const key in params) {
-                if(key.startsWith('B')) chebyshevParams[key] = params[key];
-                if(key.startsWith('hump_')) humpParams[key] = params[key];
-            }
-
-            const chebyshevBG = calculateChebyshevBackground(tthAxis, chebyshevParams);
-            const humpBG = calculateAmorphousHump(tthAxis, humpParams);
-
-            return chebyshevBG.map((val, i) => val + humpBG[i]);
-        }
-
 
         function updateLatticeParamUI() {
             const currentValues = {}; const container = controls.latticeParamsContainer;
@@ -1508,7 +1501,7 @@ function updateSpaceGroupUI() {
         /**
          * This function is the single source of truth for refinement data.
          * It slices the fullExperimentalData based on slider values and, critically,
-         * pre-calculates the weights array, correctly applying high weights for anchors.
+         * pre-calculates the weights array using Float64Array for performance.
          */
         function updateWorkingData() {
             if (fullExperimentalData.tth.length === 0) {
@@ -1525,26 +1518,31 @@ function updateSpaceGroupUI() {
             let endIndex = fullExperimentalData.tth.findIndex(t => t > maxTth);
             if (endIndex === -1) endIndex = fullExperimentalData.tth.length;
 
-            // Slice the master arrays
+            // Slice the master typed arrays; .slice() on a typed array returns a new typed array
             workingData.tth = fullExperimentalData.tth.slice(startIndex, endIndex);
             workingData.intensity = fullExperimentalData.intensity.slice(startIndex, endIndex);
             workingData.startIndex = startIndex; // Store the offset
 
-            // Pre-calculate weights for this specific slice, weight points have different weight, je les modifie où ?
+            // Pre-calculate weights into a new Float64Array for performance
+            const n = workingData.intensity.length;
+            workingData.weights = new Float64Array(n);
             const anchorIndices = new Set(backgroundAnchors.map(a => a.index));
             
             const yMax = Math.max(...workingData.intensity);
-const floor = 0.001 * yMax; // Floor is 0.1% of maximum, la valeur dans GSAS
-workingData.weights = workingData.intensity.map((y, i) => {
-    let weight = 1 / Math.max(floor, y);
-    if (anchorIndices.has(startIndex + i)) {
-        weight *= HIGH_WEIGHT_MULTIPLIER;
-    }
-    return weight;
-});
-         //   workingData.lastRawDifference = []
+            const floor = 0.001 * yMax; // Floor is 0.1% of maximum, similar to GSAS
+
+            for (let i = 0; i < n; i++) {
+                let weight = 1 / Math.max(floor, workingData.intensity[i]);
+                if (anchorIndices.has(startIndex + i)) {
+                    weight *= HIGH_WEIGHT_MULTIPLIER;
+                }
+                workingData.weights[i] = weight;
+            }
+
             workingData.isValid = true;
         }
+
+
 
         function evaluateExpression(expr, h, k, l) {
             switch (expr.trim()) {
@@ -2200,8 +2198,9 @@ function applyAsymmetry(x, x0, tth_peak, params) {
 
 
         function calculatePattern(tthAxis, hklList, params) {
-            const pattern = new Array(tthAxis.length).fill(0);
-            const n_points = tthAxis.length;
+
+           const n_points = tthAxis.length;
+            const pattern = new Float64Array(n_points);
             const deg2rad = Math.PI / 180;
 
             // --- Calculate K-alpha 1 pattern ---
@@ -2280,49 +2279,56 @@ function applyAsymmetry(x, x0, tth_peak, params) {
         }
 
         function redrawFitForNewRange() {
-            if (!mainChart) return; // Guard clause
+            if (!mainChart) return; 
 
-            // 1. Store the current Y-axis zoom state *before* any changes are made.
             const currentYMin = mainChart.scales.y.min;
             const currentYMax = mainChart.scales.y.max;
 
-            // 2. Update the working data to the new range defined by the sliders.
             updateWorkingData();
 
-            // 3. Recalculate the pattern to be displayed based on whether a fit has been run.
             if (!fitResults) {
-                // If no fit, just update the manual preview pattern.
                 updatePreviewPattern();
             } else {
-                // If a fit exists, recalculate the fitted pattern for the new, sliced range.
                 const params = fitResults.params;
                 const scaleFactor = fitResults.stats.scaleFactor;
                 
                 const background_sliced = calculateTotalBackground(workingData.tth, params);
                 const unscaledPeakPattern_sliced = calculatePattern(workingData.tth, fitResults.hklList, params);
-                const totalCalcPattern = unscaledPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
                 
-                workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
+                const totalCalcPattern = new Float64Array(unscaledPeakPattern_sliced.length);
+                for(let i = 0; i < totalCalcPattern.length; i++) {
+                    totalCalcPattern[i] = (unscaledPeakPattern_sliced[i] * scaleFactor) + background_sliced[i];
+                }
+                
+                // ✅ CORRECTED: Use a for loop instead of .map()
+                const diff = [];
+                for (let i = 0; i < workingData.intensity.length; i++) {
+                    diff.push(workingData.intensity[i] - totalCalcPattern[i]);
+                }
+                workingData.lastRawDifference = diff;
                 
                 const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-                findDataset('Calculated').data = workingData.tth.map((t, i) => ({ x: t, y: totalCalcPattern[i] }));
-                findDataset('Background').data = workingData.tth.map((t, i) => ({ x: t, y: background_sliced[i] }));
+                
+                // ✅ CORRECTED: Use a for loop to build chart data arrays
+                const calculatedData = [];
+                const backgroundData = [];
+                for(let i = 0; i < workingData.tth.length; i++) {
+                    calculatedData.push({ x: workingData.tth[i], y: totalCalcPattern[i] });
+                    backgroundData.push({ x: workingData.tth[i], y: background_sliced[i] });
+                }
+
+                findDataset('Calculated').data = calculatedData;
+                findDataset('Background').data = backgroundData;
                 findDataset('Simulation (Manual)').data = [];
             }
             
-            // 4. Call rescalePlot. This will position the difference plot but also undesirably change y.min.
             rescalePlot(false);
             
-            // 5. Explicitly set the final axis limits for the update.
-            // Set the X-axis to match the sliders, resetting any X-axis zoom.
             mainChart.options.scales.x.min = parseFloat(controls.tthMinSlider.value);
             mainChart.options.scales.x.max = parseFloat(controls.tthMaxSlider.value);
-
-            // Restore the original, preserved Y-axis zoom. This overrides the change made by rescalePlot.
             mainChart.options.scales.y.min = currentYMin;
             mainChart.options.scales.y.max = currentYMax;
             
-            // 6. Apply all changes to the chart in a single, non-animated update.
             mainChart.update('none');
         }
 
@@ -2632,7 +2638,6 @@ function calculateStatistics(workingData, netCalcPattern, fitFlags, finalBackgro
     }
 
     let scaleFactor = 1.0;
-    // For Le Bail, calculate the scale factor. For Pawley, it's implicitly 1.
     if (refinementMode === 'le-bail') {
         let sum_w_y_net_y_calc = 0;
         let sum_w_y_calc_sq = 0;
@@ -2644,7 +2649,12 @@ function calculateStatistics(workingData, netCalcPattern, fitFlags, finalBackgro
         scaleFactor = (sum_w_y_calc_sq > 1e-9) ? sum_w_y_net_y_calc / sum_w_y_calc_sq : 1.0;
     }
     
-    const y_calc = netCalcPattern.map((y, i) => (scaleFactor * y) + y_bkg[i]);
+    // ✅ CORRECTED: Use a for loop instead of .map()
+    const y_calc = new Float64Array(netCalcPattern.length);
+    for(let i = 0; i < netCalcPattern.length; i++) {
+        y_calc[i] = (scaleFactor * netCalcPattern[i]) + y_bkg[i];
+    }
+
     let sum_w_res_sq = 0, sum_w_obs_sq = 0, sum_abs_res = 0, sum_abs_obs = 0;
     for (let i = 0; i < N; i++) {
         const res = y_obs[i] - y_calc[i];
@@ -2657,10 +2667,8 @@ function calculateStatistics(workingData, netCalcPattern, fitFlags, finalBackgro
     const Rp = 100 * (sum_abs_res / sum_abs_obs);
     const Rwp = 100 * Math.sqrt(sum_w_res_sq / sum_w_obs_sq);
 
-    // Get the number of non-intensity parameters being refined
-    const P_base = getParameterMapping(fitFlags, params, hklList, 'le-bail').paramMapping.length; // Use 'le-bail' to get base count
+    const P_base = getParameterMapping(fitFlags, params, hklList, 'le-bail').paramMapping.length;
     let P = P_base;
-    // For Pawley, add the number of refined intensities to P
     if (refinementMode === 'pawley') {
         const refinedIntensitiesCount = hklList.filter(hkl => hkl.tth >= workingData.tth[0] && hkl.tth <= workingData.tth[workingData.tth.length - 1]).length;
         P += refinedIntensitiesCount;
@@ -2843,301 +2851,283 @@ async function refineParametersPT(initialParams, fitFlags, maxIter, hklList, sys
 
 // 
 async function refineParametersLM(initialParams, fitFlags, maxIter, hklList, system, progressCallback, refinementMode) {
-    const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
-    if (paramMapping.length === 0) {
-        return { params: initialParams, hklList: hklList, ss_res: 0 };
-    }
-
-    let params = initialParams;
-    let workingHklList = hklList;
-    
-    let finalJtJ, ss_res = Infinity;
-    let lambda = 0.001;
-    
-    const y_obs = workingData.intensity;
-    const sqrt_weights = workingData.weights.map(w => Math.sqrt(w));
-    const n_points = y_obs.length;
-    const n_params = paramMapping.length;
-
-    // Pre-allocate arrays to avoid repeated allocations
-    const residuals = new Array(n_points);
-    const y_calc_total = new Array(n_points);
-    const y_calc_baseline = new Array(n_points);
-    const jacobian_col = new Array(n_points);
-    
-    // Calculate total pattern (includes scale factor calculation for Le Bail)
-    const calculateTotalPattern = (targetArray) => {
-        updateHklPositions(workingHklList, params, system);
-        const y_bkg = calculateTotalBackground(workingData.tth, params);
-        const netCalcPattern = calculatePattern(workingData.tth, workingHklList, params);
-        
-        let scaleFactor = 1.0;
-        if (refinementMode === 'le-bail') {
-            let num = 0, den = 0;
-            for (let i = 0; i < n_points; i++) {
-                const y_obs_net = y_obs[i] - y_bkg[i];
-                num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
-                den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
-            }
-            scaleFactor = (den > 1e-9) ? num / den : 1.0;
-        }
-        
-        for (let i = 0; i < n_points; i++) {
-            targetArray[i] = (scaleFactor * netCalcPattern[i]) + y_bkg[i];
-        }
-        return scaleFactor;
-    };
-
-    for (let iter = 0; iter < maxIter; iter++) {
-        // Calculate baseline pattern
-        calculateTotalPattern(y_calc_baseline);
-        
-        // Calculate residuals and cost
-        let cost = 0;
-        for (let i = 0; i < n_points; i++) {
-            residuals[i] = (y_obs[i] - y_calc_baseline[i]) * sqrt_weights[i];
-            cost += residuals[i] * residuals[i];
+        const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
+        if (paramMapping.length === 0) {
+            return { params: initialParams, hklList: hklList, ss_res: 0 };
         }
 
-        // Check convergence
-        if (iter > 0 && Math.abs(ss_res - cost) < 1e-9 * ss_res) {
-            break;
-        }
-        ss_res = cost;
-
-        // Calculate Jacobian using finite differences
-        const jacobian_T = []; // Store as columns (transposed)
+        let params = initialParams;
+        let workingHklList = hklList;
         
-        for (let p = 0; p < n_params; p++) {
-            const mapping = paramMapping[p];
-            const originalValue = mapping.get(params, workingHklList);
-            const fd_step = mapping.fd_step || 1e-5;
-            
-            // Perturb parameter
-            mapping.set(params, workingHklList, originalValue + fd_step);
-            
-            // Recalculate pattern
-            calculateTotalPattern(y_calc_total);
-            
-            // Calculate derivative column: dy_calc/dp (weighted)
-            for (let i = 0; i < n_points; i++) {
-                jacobian_col[i] = (y_calc_total[i] - y_calc_baseline[i]) / fd_step * sqrt_weights[i];
-            }
-            
-            // Restore original value
-            mapping.set(params, workingHklList, originalValue);
-            
-            // Store column (make a copy)
-            jacobian_T.push([...jacobian_col]);
+        let finalJtJ, ss_res = Infinity;
+        let lambda = 0.001;
+        
+        const y_obs = workingData.intensity;
+        
+        // ✅ CORRECTED: Use a for loop instead of .map()
+        const sqrt_weights = new Float64Array(workingData.weights.length);
+        for (let i = 0; i < workingData.weights.length; i++) {
+            sqrt_weights[i] = Math.sqrt(workingData.weights[i]);
         }
 
-        // Calculate JtJ and Jtr efficiently
-        const JtJ = new Array(n_params);
-        const Jtr = new Array(n_params);
+        const n_points = y_obs.length;
+        const n_params = paramMapping.length;
+
+        // Pre-allocate typed arrays for performance
+        const residuals = new Float64Array(n_points);
+        const y_calc_total = new Float64Array(n_points);
+        const y_calc_baseline = new Float64Array(n_points);
+        const jacobian_col = new Float64Array(n_points);
         
-        for (let i = 0; i < n_params; i++) {
-            JtJ[i] = new Array(n_params);
-            let jtr_val = 0;
+        // Calculate total pattern (includes scale factor calculation for Le Bail)
+        const calculateTotalPattern = (targetArray) => {
+            updateHklPositions(workingHklList, params, system);
+            const y_bkg = calculateTotalBackground(workingData.tth, params);
+            const netCalcPattern = calculatePattern(workingData.tth, workingHklList, params);
             
-            // Jtr = J^T * residuals
-            for (let k = 0; k < n_points; k++) {
-                jtr_val += jacobian_T[i][k] * residuals[k];
-            }
-            Jtr[i] = jtr_val;
-            
-            // JtJ = J^T * J
-            for (let j = 0; j < n_params; j++) {
-                let sum = 0;
-                for (let k = 0; k < n_points; k++) {
-                    sum += jacobian_T[i][k] * jacobian_T[j][k];
+            let scaleFactor = 1.0;
+            if (refinementMode === 'le-bail') {
+                let num = 0, den = 0;
+                for (let i = 0; i < n_points; i++) {
+                    const y_obs_net = y_obs[i] - y_bkg[i];
+                    num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
+                    den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
                 }
-                JtJ[i][j] = sum;
+                scaleFactor = (den > 1e-9) ? num / den : 1.0;
             }
-        }
-        
-        finalJtJ = JtJ;
+            
+            for (let i = 0; i < n_points; i++) {
+                targetArray[i] = (scaleFactor * netCalcPattern[i]) + y_bkg[i];
+            }
+            return scaleFactor;
+        };
 
-        // Apply Levenberg-Marquardt damping
-        const A_lm = new Array(n_params);
-        for (let i = 0; i < n_params; i++) {
-            A_lm[i] = [...JtJ[i]];
-            A_lm[i][i] *= (1.0 + lambda);
+        for (let iter = 0; iter < maxIter; iter++) {
+            // Calculate baseline pattern
+            calculateTotalPattern(y_calc_baseline);
+            
+            // Calculate residuals and cost
+            let cost = 0;
+            for (let i = 0; i < n_points; i++) {
+                residuals[i] = (y_obs[i] - y_calc_baseline[i]) * sqrt_weights[i];
+                cost += residuals[i] * residuals[i];
+            }
+
+            // Check convergence
+            if (iter > 0 && Math.abs(ss_res - cost) < 1e-9 * ss_res) {
+                break;
+            }
+            ss_res = cost;
+
+            // Calculate Jacobian using finite differences
+            const jacobian_T = []; // Store as columns (transposed)
+            
+            for (let p = 0; p < n_params; p++) {
+                const mapping = paramMapping[p];
+                const originalValue = mapping.get(params, workingHklList);
+                const fd_step = mapping.fd_step || 1e-5;
+                
+                // Perturb parameter
+                mapping.set(params, workingHklList, originalValue + fd_step);
+                
+                // Recalculate pattern
+                calculateTotalPattern(y_calc_total);
+                
+                // Calculate derivative column: dy_calc/dp (weighted)
+                for (let i = 0; i < n_points; i++) {
+                    jacobian_col[i] = (y_calc_total[i] - y_calc_baseline[i]) / fd_step * sqrt_weights[i];
+                }
+                
+                // Restore original value
+                mapping.set(params, workingHklList, originalValue);
+                
+                // Store column (make a copy)
+                jacobian_T.push([...jacobian_col]);
+            }
+
+            // Calculate JtJ and Jtr efficiently
+            const JtJ = new Array(n_params);
+            const Jtr = new Array(n_params);
+            
+            for (let i = 0; i < n_params; i++) {
+                JtJ[i] = new Array(n_params);
+                let jtr_val = 0;
+                
+                // Jtr = J^T * residuals
+                for (let k = 0; k < n_points; k++) {
+                    jtr_val += jacobian_T[i][k] * residuals[k];
+                }
+                Jtr[i] = jtr_val;
+                
+                // JtJ = J^T * J
+                for (let j = 0; j < n_params; j++) {
+                    let sum = 0;
+                    for (let k = 0; k < n_points; k++) {
+                        sum += jacobian_T[i][k] * jacobian_T[j][k];
+                    }
+                    JtJ[i][j] = sum;
+                }
+            }
+            
+            finalJtJ = JtJ;
+
+            // Apply Levenberg-Marquardt damping
+            const A_lm = new Array(n_params);
+            for (let i = 0; i < n_params; i++) {
+                A_lm[i] = [...JtJ[i]];
+                A_lm[i][i] *= (1.0 + lambda);
+            }
+
+            // Solve for parameter step: (JtJ + λI) * Δp = Jtr
+            const p_step = solve(A_lm, Jtr);
+            
+            if (p_step.some(v => !isFinite(v))) {
+                break;
+            }
+
+            // Apply step to get new parameters
+            const p_current = paramMapping.map(m => m.get(params, workingHklList));
+            const p_new = p_current.map((val, i) => val + p_step[i]);
+            
+            // Store current state (only copy when needed)
+            const oldParams = JSON.parse(JSON.stringify(params));
+            const oldHklList = JSON.parse(JSON.stringify(workingHklList));
+            
+            // Set new parameters
+            paramMapping.forEach((m, i) => m.set(params, workingHklList, p_new[i]));
+            
+            // Calculate new cost
+            calculateTotalPattern(y_calc_total);
+            let new_cost = 0;
+            for (let i = 0; i < n_points; i++) {
+                const res = (y_obs[i] - y_calc_total[i]) * sqrt_weights[i];
+                new_cost += res * res;
+            }
+
+            // Accept or reject step
+            if (new_cost < cost && isFinite(new_cost)) {
+                lambda = Math.max(1e-9, lambda / 2);
+            } else {
+                // Restore old state
+                params = oldParams;
+                workingHklList = oldHklList;
+                lambda = Math.min(1e9, lambda * 2);
+            }
+            
+            if (progressCallback) await progressCallback((iter + 1) / maxIter);
         }
 
-        // Solve for parameter step: (JtJ + λI) * Δp = Jtr
-        const p_step = solve(A_lm, Jtr);
-        
-        if (p_step.some(v => !isFinite(v))) {
-            break;
-        }
-
-        // Apply step to get new parameters
-        const p_current = paramMapping.map(m => m.get(params, workingHklList));
-        const p_new = p_current.map((val, i) => val + p_step[i]);
-        
-        // Store current state (only copy when needed)
-        const oldParams = JSON.parse(JSON.stringify(params));
-        const oldHklList = JSON.parse(JSON.stringify(workingHklList));
-        
-        // Set new parameters
-        paramMapping.forEach((m, i) => m.set(params, workingHklList, p_new[i]));
-        
-        // Calculate new cost
-        calculateTotalPattern(y_calc_total);
-        let new_cost = 0;
-        for (let i = 0; i < n_points; i++) {
-            const res = (y_obs[i] - y_calc_total[i]) * sqrt_weights[i];
-            new_cost += res * res;
-        }
-
-        // Accept or reject step
-        if (new_cost < cost && isFinite(new_cost)) {
-            lambda = Math.max(1e-9, lambda / 2);
-        } else {
-            // Restore old state
-            params = oldParams;
-            workingHklList = oldHklList;
-            lambda = Math.min(1e9, lambda * 2);
-        }
-        
-        if (progressCallback) await progressCallback((iter + 1) / maxIter);
+        return { params, hklList: workingHklList, JtJ: finalJtJ, paramMapping, ss_res, algorithm: 'lm', fitFlags };
     }
 
-    return { params, hklList: workingHklList, JtJ: finalJtJ, paramMapping, ss_res, algorithm: 'lm', fitFlags };
-}
 
 
 
-    
     async function refineParametersSA(initialParams, fitFlags, maxIter, hklList, system, progressCallback, refinementMode) {
-   // console.group(`--- STARTING REFINEMENT: Simulated Annealing (${refinementMode} mode) ---`);
-    const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
-    //if (paramMapping.length === 0) {
-     // juste pour debug...   console.error("NO PARAMETERS TO REFINE. Aborting.");
-     //   console.groupEnd();
-    //    return { params: initialParams, hklList: hklList, ss_res: 0 };
-    //}
-   // console.log(`Refining ${paramMapping.length} parameters.`);
+        const { paramMapping } = getParameterMapping(fitFlags, initialParams, hklList, refinementMode);
 
-    const objective = (p_obj, hkl_list_obj) => {
-        try {
-            updateHklPositions(hkl_list_obj, p_obj, system);
-            const netCalcPattern = calculatePattern(workingData.tth, hkl_list_obj, p_obj);
-            const y_bkg = calculateTotalBackground(workingData.tth, p_obj);
+        const objective = (p_obj, hkl_list_obj) => {
+            try {
+                updateHklPositions(hkl_list_obj, p_obj, system);
+                const netCalcPattern = calculatePattern(workingData.tth, hkl_list_obj, p_obj);
+                const y_bkg = calculateTotalBackground(workingData.tth, p_obj);
+                
+                let num = 0, den = 0;
+                for (let i = 0; i < workingData.tth.length; i++) {
+                    const y_obs_net = workingData.intensity[i] - y_bkg[i];
+                    num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
+                    den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
+                }
+                const scaleFactor = (den > 1e-9) ? num / den : 1.0;
+                
+                // ✅ CORRECTED: Use a for loop instead of .map()
+                const y_calc_total = new Float64Array(netCalcPattern.length);
+                for (let i = 0; i < netCalcPattern.length; i++) {
+                    y_calc_total[i] = (scaleFactor * netCalcPattern[i]) + y_bkg[i];
+                }
+
+                let sum_w_res_sq = 0;
+                for (let i = 0; i < workingData.tth.length; i++) {
+                    sum_w_res_sq += workingData.weights[i] * Math.pow(workingData.intensity[i] - y_calc_total[i], 2);
+                }
+                return isFinite(sum_w_res_sq) ? sum_w_res_sq : 1e12;
+            } catch (err) { return 1e12; }
+        };
+
+        let currentParams = JSON.parse(JSON.stringify(initialParams));
+        let currentHklList = JSON.parse(JSON.stringify(hklList));
+        let current_cost = objective(currentParams, currentHklList);
+
+        let bestParams = JSON.parse(JSON.stringify(currentParams));
+        let bestHklList = JSON.parse(JSON.stringify(currentHklList));
+        let best_cost = current_cost;
+
+        let T = 1.0;
+        const T_min = 1e-7;
+        const coolingRate = (maxIter > 0) ? Math.pow(T_min / T, 1.0 / maxIter) : 1.0;
+        
+        for (let step = 0; step < maxIter; step++) {
+            const originalParams = JSON.parse(JSON.stringify(currentParams));
+            const originalHklList = JSON.parse(JSON.stringify(currentHklList));
             
-            // calculate scale factor for both Pawley and LeBail
-            let num = 0, den = 0;
-            for (let i = 0; i < workingData.tth.length; i++) {
-                const y_obs_net = workingData.intensity[i] - y_bkg[i];
-                num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
-                den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
+            const paramsToChange = Math.max(1, Math.floor(paramMapping.length / 10));
+            for(let i = 0; i < paramsToChange; i++) {
+                const p_idx = Math.floor(Math.random() * paramMapping.length);
+                const mapping = paramMapping[p_idx];
+                const original_norm_val = mapping.get(currentParams, currentHklList);
+                const step_scale = Math.max(0.05, T);
+                const step_size = (mapping.step || 0.3) * step_scale;
+                const new_norm_val = original_norm_val + (Math.random() - 0.5) * 2 * step_size;
+                mapping.set(currentParams, currentHklList, new_norm_val);
             }
-            const scaleFactor = (den > 1e-9) ? num / den : 1.0;
             
-            const y_calc_total = netCalcPattern.map((y, i) => (scaleFactor * y) + y_bkg[i]);
-            let sum_w_res_sq = 0;
-            for (let i = 0; i < workingData.tth.length; i++) {
-                sum_w_res_sq += workingData.weights[i] * Math.pow(workingData.intensity[i] - y_calc_total[i], 2);
+            const neighbor_cost = objective(currentParams, currentHklList);
+            const delta_cost = neighbor_cost - current_cost;
+            
+            const acceptance_prob = (T > 0 && current_cost > 0) ? Math.exp(-delta_cost / (current_cost * T)) : 0;
+            const should_accept = (delta_cost < 0) || acceptance_prob > Math.random();
+
+            if (should_accept) {
+                current_cost = neighbor_cost;
+            } else {
+                currentParams = originalParams;
+                currentHklList = originalHklList;
             }
-            return isFinite(sum_w_res_sq) ? sum_w_res_sq : 1e12;
-        } catch (err) { return 1e12; }
-    };
 
-    let currentParams = JSON.parse(JSON.stringify(initialParams));
-    let currentHklList = JSON.parse(JSON.stringify(hklList));
-    let current_cost = objective(currentParams, currentHklList);
+            if (current_cost < best_cost) {
+                best_cost = current_cost;
+                bestParams = JSON.parse(JSON.stringify(currentParams));
+                bestHklList = JSON.parse(JSON.stringify(currentHklList));
+            }
 
-    let bestParams = JSON.parse(JSON.stringify(currentParams));
-    let bestHklList = JSON.parse(JSON.stringify(currentHklList));
-    let best_cost = current_cost;
-
-    let T = 1.0;
-    const T_min = 1e-7;
-    const coolingRate = (maxIter > 0) ? Math.pow(T_min / T, 1.0 / maxIter) : 1.0;
-    
-    //console.log(`Initial Cost: ${current_cost.toExponential(4)}, Initial Temperature: ${T.toExponential(4)}`);
-    //console.log("Initial HKL Intensities (first 5):", currentHklList.slice(0, 5).map(h => h.intensity.toFixed(1)));
-
-    for (let step = 0; step < maxIter; step++) {
-     //   console.groupCollapsed(`Step ${step}`);
-        const originalParams = JSON.parse(JSON.stringify(currentParams));
-        const originalHklList = JSON.parse(JSON.stringify(currentHklList));
-        
-        const paramsToChange = Math.max(1, Math.floor(paramMapping.length / 10));
-        let changes = [];
-        for(let i = 0; i < paramsToChange; i++) {
-            const p_idx = Math.floor(Math.random() * paramMapping.length);
-            const mapping = paramMapping[p_idx];
-            const original_norm_val = mapping.get(currentParams, currentHklList);
-            const step_scale = Math.max(0.05, T);
-            const step_size = (mapping.step || 0.3) * step_scale;
-            const new_norm_val = original_norm_val + (Math.random() - 0.5) * 2 * step_size;
-            mapping.set(currentParams, currentHklList, new_norm_val);
-            changes.push(`${mapping.name}: ${original_norm_val.toFixed(3)} -> ${new_norm_val.toFixed(3)}`);
+            T = Math.max(T_min, T * coolingRate);
+            if (progressCallback) await progressCallback((step + 1) / maxIter);
         }
         
-        const neighbor_cost = objective(currentParams, currentHklList);
-        const delta_cost = neighbor_cost - current_cost;
+        updateHklPositions(bestHklList, bestParams, system);
+        const netCalcPattern = calculatePattern(workingData.tth, bestHklList, bestParams);
+        const y_bkg = calculateTotalBackground(workingData.tth, bestParams);
+        let num = 0, den = 0;
+        for (let i = 0; i < workingData.tth.length; i++) {
+            const y_obs_net = workingData.intensity[i] - y_bkg[i];
+            num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
+            den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
+        }
+        const bestScaleFactor = (den > 1e-9) ? num / den : 1.0;
         
-        const acceptance_prob = (T > 0 && current_cost > 0) ? Math.exp(-delta_cost / (current_cost * T)) : 0;
-        const should_accept = (delta_cost < 0) || acceptance_prob > Math.random();
-
-       // console.log(`Current Cost: ${current_cost.toExponential(4)} | Neighbor Cost: ${neighbor_cost.toExponential(4)}`);
-        //console.log(`Acceptance Prob: ${acceptance_prob.toFixed(4)} -> ${should_accept ? 'ACCEPT' : 'REJECT'}`);
-
-        if (should_accept) {
-            current_cost = neighbor_cost;
-        } else {
-            currentParams = originalParams;
-            currentHklList = originalHklList;
-        }
-
-        if (current_cost < best_cost) {
-            best_cost = current_cost;
-            bestParams = JSON.parse(JSON.stringify(currentParams));
-            bestHklList = JSON.parse(JSON.stringify(currentHklList));
-        }
-
-        console.groupEnd();
-        T = Math.max(T_min, T * coolingRate);
-        if (progressCallback) await progressCallback((step + 1) / maxIter);
+        bestHklList.forEach(hkl => {
+            hkl.intensity *= bestScaleFactor;
+        });
+        
+        return { 
+            params: bestParams, 
+            hklList: bestHklList, 
+            algorithm: 'sa', 
+            paramMapping, 
+            fitFlags, 
+            ss_res: best_cost
+        };
     }
-    
-    // Calculate final scale factor and apply it to the HKL intensities
-    updateHklPositions(bestHklList, bestParams, system);
-    const netCalcPattern = calculatePattern(workingData.tth, bestHklList, bestParams);
-    const y_bkg = calculateTotalBackground(workingData.tth, bestParams);
-    let num = 0, den = 0;
-    for (let i = 0; i < workingData.tth.length; i++) {
-        const y_obs_net = workingData.intensity[i] - y_bkg[i];
-        num += workingData.weights[i] * y_obs_net * netCalcPattern[i];
-        den += workingData.weights[i] * netCalcPattern[i] * netCalcPattern[i];
-    }
-    const bestScaleFactor = (den > 1e-9) ? num / den : 1.0;
-    
-    // Apply the scale factor to all intensities in the HKL list
-    bestHklList.forEach(hkl => {
-        hkl.intensity *= bestScaleFactor;
-    });
-    
-    /*
-    console.log(`--- FINISHED REFINEMENT: Simulated Annealing --- | Final Best Cost: ${best_cost.toExponential(4)}`);
-    console.log(`Final Scale Factor Applied: ${bestScaleFactor}`);
-    console.log("Final Best Params:", bestParams);
-    console.log("Final Best HKL Intensities (first 5):", bestHklList.slice(0, 5).map(h => h.intensity.toFixed(1)));
-    console.groupEnd();
-    */
-    return { 
-        params: bestParams, 
-        hklList: bestHklList, 
-        algorithm: 'sa', 
-        paramMapping, 
-        fitFlags, 
-        ss_res: best_cost
-    };
-}
-
-
 
         const getAllParams = () => {
             const profileType = controls.profileSelect.value;
@@ -3450,6 +3440,7 @@ function debounce(func, wait) {
         function matrixInverse(A) { const n = A.length; if (n === 0) return []; const det = calculateDeterminant(A); if (Math.abs(det) < 1e-15) { console.warn("Matrix is singular or near-singular, determinant =", det); return null; } const augmented = A.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]); for (let i = 0; i < n; i++) { let maxRow = i; for (let j = i + 1; j < n; j++) if (Math.abs(augmented[j][i]) > Math.abs(augmented[maxRow][i])) maxRow = j; [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]]; if (Math.abs(augmented[i][i]) < 1e-15) { console.warn("Zero pivot encountered during matrix inversion"); return null; } const pivot = augmented[i][i]; for (let j = 0; j < 2 * n; j++) augmented[i][j] /= pivot; for (let j = 0; j < n; j++) { if (i !== j) { const factor = augmented[j][i]; for (let k = 0; k < 2 * n; k++) augmented[j][k] -= factor * augmented[i][k]; } } } return augmented.map(row => row.slice(n)); }
         function enforceSymmetryConstraints(params) { const { system } = getSystemAndCentering(); switch (system) { case 'cubic': if (params.S400 !== undefined) params.S040 = params.S004 = params.S400; if (params.S220 !== undefined) params.S202 = params.S022 = params.S220; break; case 'hexagonal': case 'tetragonal': case 'rhombohedral': if (params.S400 !== undefined) params.S040 = params.S400; if (params.S202 !== undefined) params.S022 = params.S202; break; } }
 
+
         function updatePreviewPattern() {
             if (!mainChart || !workingData.isValid || isFitting) return;
 
@@ -3460,33 +3451,21 @@ function debounce(func, wait) {
             const selectedSg = spaceGroups.find(sg => sg.number === parseInt(controls.spaceGroupSelect.value, 10));
             if (!selectedSg) return;
 
-            // Generate HKL list with updated positions based on current UI values
             let hklList = JSON.parse(JSON.stringify(masterHklList));
             updateHklPositions(hklList, params, selectedSg.system);
-            lastGeneratedHklList = hklList; // For tooltips
+            lastGeneratedHklList = hklList; 
 
-            // 6 oct
             if (lastFitResultsCache && lastFitResultsCache.hklList) {
-                // Create a map of HKL strings to intensities for efficient lookup
                 const intensityMap = new Map(
                     lastFitResultsCache.hklList.map(p => [p.hkl_list[0], p.intensity])
                 );
-                
-                // Apply the stored intensities from the last successful fit
                 hklList.forEach(p => {
                     p.intensity = intensityMap.get(p.hkl_list[0]) || 0;
                 });
             } else {
-                // Fallback for when no fit has been run yet
                 hklList.forEach(p => p.intensity = 1000); 
             }
             
-            // HKL markers update (no change here)
-            const globalYMax = mainChart.options.globalYMax; 
-            const diffPlotHeightRatio = 0.2; 
-            const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio;
-            const markerBottom = -(constantNegSpaceHeight * 0.05); 
-            const markerTop = -(constantNegSpaceHeight * 0.20);
             const minTth = parseFloat(controls.tthMinSlider.value); 
             const maxTth = parseFloat(controls.tthMaxSlider.value);
 
@@ -3501,21 +3480,37 @@ function debounce(func, wait) {
                     hkl: `${hkl.hkl_list[0]} [m=${hkl.multiplicity}]`
                 }));
 
-            // Calculate patterns and difference using the (now fixed) intensities
             const background_sliced = calculateTotalBackground(workingData.tth, params);
             const unscaledPeakPattern_sliced = calculatePattern(workingData.tth, hklList, params);
-            const y_obs_net_sliced = workingData.intensity.map((y, i) => Math.max(0, y - background_sliced[i]));
+            const y_obs_net_sliced = new Float64Array(workingData.intensity.length);
+            for(let i = 0; i < y_obs_net_sliced.length; i++) {
+                y_obs_net_sliced[i] = Math.max(0, workingData.intensity[i] - background_sliced[i]);
+            }
             
             const sum_obs_calc = dot(y_obs_net_sliced, unscaledPeakPattern_sliced);
             const sum_calc_sq = dot(unscaledPeakPattern_sliced, unscaledPeakPattern_sliced);
             const scaleFactor = (sum_calc_sq > 1e-9) ? sum_obs_calc / sum_calc_sq : 1.0;
-            const totalCalcPattern = unscaledPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
+            const totalCalcPattern = new Float64Array(unscaledPeakPattern_sliced.length);
+            for (let i = 0; i < totalCalcPattern.length; i++) {
+                totalCalcPattern[i] = (unscaledPeakPattern_sliced[i] * scaleFactor) + background_sliced[i];
+            }
             
-            workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
+            // ✅ CORRECTED: Use a for loop instead of .map()
+            const diff = [];
+            for (let i = 0; i < workingData.intensity.length; i++) {
+                diff.push(workingData.intensity[i] - totalCalcPattern[i]);
+            }
+            workingData.lastRawDifference = diff;
 
-            findDataset('Simulation (Manual)').data = workingData.tth.map((t, i) => ({ x: t, y: totalCalcPattern[i] }));
+            // ✅ CORRECTED: Use a for loop to build the chart data array
+            const simulationData = [];
+            for (let i = 0; i < workingData.tth.length; i++) {
+                simulationData.push({ x: workingData.tth[i], y: totalCalcPattern[i] });
+            }
+            findDataset('Simulation (Manual)').data = simulationData;
             findDataset('Calculated').data = [];
         }
+
 
 
         // setUIState function
@@ -3553,8 +3548,7 @@ function setUIState(fitting) {
     }
 }
         
-
-        function updateUI(params, stats, netPeakPattern_full, background_full, scaleFactor, hklList) {
+    function updateUI(params, stats, netPeakPattern_full, background_full, scaleFactor, hklList) {
             const safeUpdate = (paramValue, controlElement, digits) => { 
                 if (controlElement && typeof paramValue === 'number' && isFinite(paramValue)) {
                     controlElement.value = paramValue.toFixed(digits);
@@ -3600,42 +3594,59 @@ function setUIState(fitting) {
             safeUpdate(params.hump_P, document.getElementById('param-hump-p'), 4);
             safeUpdate(params.hump_W, document.getElementById('param-hump-w'), 4);
 
-            if (netPeakPattern_full && background_full && hklList) {
+            // ✅ This check is critical to ensure valid data is passed to the chart
+            if (netPeakPattern_full && background_full && hklList && mainChart) {
                 updateChart(netPeakPattern_full, background_full, hklList, params, scaleFactor);
             }
         }
 
         //updateChart, sans Y auto zoom, le 7 oct 25
         function updateChart(netPeakPattern_sliced, background_sliced, hklList, params, scaleFactor = 1.0) {
-    if (!mainChart) return;
+            if (!mainChart || !workingData.isValid) return;
 
-    // 1. Store the current Y-axis zoom level before making any changes
-    const currentYMin = mainChart.scales.y.min;
-    const currentYMax = mainChart.scales.y.max;
+            // Store the current Y-axis zoom state BEFORE making any changes
+            const currentYMin = mainChart.scales.y.min;
+            const currentYMax = mainChart.scales.y.max;
 
-    const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-    
-    // Clear the manual simulation line
-    findDataset('Simulation (Manual)').data = [];
+            const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+            
+            // 1. Hide the manual simulation line, as we now have a real fit
+            findDataset('Simulation (Manual)').data = [];
 
-    // Calculate the final total pattern and the difference
-    const totalCalcPattern = netPeakPattern_sliced.map((y, i) => (y * scaleFactor) + background_sliced[i]);
-    workingData.lastRawDifference = workingData.intensity.map((y, i) => y - totalCalcPattern[i]);
+            // 2. Calculate the total pattern and the raw difference array
+            const totalCalcPattern = new Float64Array(netPeakPattern_sliced.length);
+            for(let i = 0; i < totalCalcPattern.length; i++){
+                totalCalcPattern[i] = (netPeakPattern_sliced[i] * scaleFactor) + background_sliced[i];
+            }
+            
+            const diff = [];
+            for (let i = 0; i < workingData.intensity.length; i++) {
+                diff.push(workingData.intensity[i] - totalCalcPattern[i]);
+            }
+            // This global variable is now ready for rescalePlot to use
+            workingData.lastRawDifference = diff; 
 
-    // Set the data for the plot lines
-    findDataset('Calculated').data = workingData.tth.map((t, i) => ({x: t, y: totalCalcPattern[i]}));
-    findDataset('Background').data = workingData.tth.map((t, i) => ({x: t, y: background_sliced[i]}));
-    
-    // This is still called to position the difference plot correctly relative to the zero-line
-    rescalePlot(); 
+            // 3. Prepare the data for the 'Calculated' and 'Background' datasets
+            const calculatedData = [];
+            const backgroundData = [];
+            for(let i = 0; i < workingData.tth.length; i++) {
+                calculatedData.push({ x: workingData.tth[i], y: totalCalcPattern[i] });
+                backgroundData.push({ x: workingData.tth[i], y: background_sliced[i] });
+            }
+            findDataset('Calculated').data = calculatedData;
+            findDataset('Background').data = backgroundData;
 
-    // 2. Forcefully re-apply the stored zoom level to the chart's options
-    mainChart.options.scales.y.min = currentYMin;
-    mainChart.options.scales.y.max = currentYMax;
 
-    // 3. Update the chart, which will now use preserved zoom level
-    mainChart.update('none');
-}
+            // 4. Restore the Y-axis zoom state FIRST. This sets the final "frame" for the chart.
+            mainChart.options.scales.y.min = currentYMin;
+            mainChart.options.scales.y.max = currentYMax;
+            
+            // 5. NOW call rescalePlot. It will use the correct, restored axis dimensions to draw the difference plot.
+            rescalePlot(false); 
+            
+            // 6. Finally, update the chart once to draw everything in its correct place.
+            mainChart.update('none');
+        }
 
         function getPeakInfoAt(tth) {
             if (!lastGeneratedHklList || lastGeneratedHklList.length === 0 || !mainChart) return { peak: null, inRegion: false };
@@ -3647,9 +3658,16 @@ function setUIState(fitting) {
             return { peak: null, inRegion: false };
         }
 
+
         function initializeChart() {
             if (mainChart) mainChart.destroy();
-            const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({x: t, y: fullExperimentalData.intensity[i]}));
+
+            // ✅ CORRECTED: Use a for loop instead of .map()
+            const experimentalPoints = [];
+            for (let i = 0; i < fullExperimentalData.tth.length; i++) {
+                experimentalPoints.push({ x: fullExperimentalData.tth[i], y: fullExperimentalData.intensity[i] });
+            }
+            
             const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
             mainChart = new Chart(controls.mainChartCanvas, {
                 type: 'line',
@@ -3662,9 +3680,6 @@ function setUIState(fitting) {
                         { label: 'Difference', data: [], borderColor: 'rgba(239, 68, 68, 0.8)', borderWidth: 1.5, pointRadius: 0, order: 5 },
                         { label: 'Difference Zero', data: [], borderColor: 'rgba(156, 163, 175, 0.8)', borderWidth: 1, pointRadius: 0, borderDash: [2, 2], order: 6 },
                         { type: 'bar', label: 'HKL Markers', data: [], backgroundColor: 'rgba(22, 163, 74, 0.9)', barThickness: 1, categoryPercentage: 1.0, barPercentage: 1.0, order: 0 },
-                        
-             
-                        // The 'Anchor Points' object  correctly sits INSIDE the datasets array.
                         {
                             label: 'Anchor Points',
                             type: 'scatter',
@@ -3677,7 +3692,7 @@ function setUIState(fitting) {
                             pointBorderWidth: 1.5,
                             order: -1 // Render on top of everything
                         }
-                    ] // The datasets array now closes AFTER the Anchor Points object.
+                    ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false, animation: false,
@@ -3726,6 +3741,7 @@ function setUIState(fitting) {
             mainChart.options.globalYMax = yMax;
         }
 
+
     function updatePlotRange(recalculateYMax = false) {
             if (!mainChart || workingData.tth.length === 0) {
                 return;
@@ -3753,84 +3769,77 @@ function setUIState(fitting) {
             mainChart.update('none');
         }        
 
-    function rescalePlot(updateY = false) {
-    // === CONFIGURABLE PARAMETERS FOR DIFFERENCE PLOT ===
-    const DIFF_PLOT_MIN_RATIO = 0.1;  // Minimum allocation: 10% of Y scale
-    const DIFF_PLOT_MAX_RATIO = 0.3;  // Maximum allocation: 30% of Y scale
-    const DIFF_PLOT_PADDING = 1.1;     // Padding factor (1.2 = 20% extra space)
-    // =======
 
-    if (!mainChart || !workingData.isValid) return;
+        function rescalePlot(updateY = false) {
+        // === CONFIGURABLE PARAMETERS FOR DIFFERENCE PLOT ===
+        const DIFF_PLOT_MIN_RATIO = 0.1;  // Minimum allocation: 10% of Y scale
+        const DIFF_PLOT_MAX_RATIO = 0.3;  // Maximum allocation: 30% of Y scale
+        const DIFF_PLOT_PADDING = 1.1;     // Padding factor (1.1 = 10% extra space)
+        // =======
 
-    const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
-    const globalYMax = mainChart.options.globalYMax;
+        if (!mainChart || !workingData.isValid) return;
 
-    // --- DYNAMIC DIFFERENCE PLOT ALLOCATION ---
-    let diffPlotHeightRatio = 0.15; // Default allocation
+        const findDataset = (label) => mainChart.data.datasets.find(d => d.label === label);
+        const globalYMax = mainChart.options.globalYMax;
 
-    // This is the source of truth for the difference plot's magnitude
-    const diffData = workingData.lastRawDifference || [];
-    
-    if (diffData.length > 0) {
-        const maxAbsDiff = Math.max(...diffData.map(Math.abs));
-        const requiredRatio = (maxAbsDiff * DIFF_PLOT_PADDING) / globalYMax;
-        diffPlotHeightRatio = Math.max(DIFF_PLOT_MIN_RATIO, Math.min(DIFF_PLOT_MAX_RATIO, requiredRatio));
-    }
+        // --- DYNAMIC DIFFERENCE PLOT ALLOCATION ---
+        let diffPlotHeightRatio = 0.15; // Default allocation
 
-    const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio;
-
-    // Update Y-axis 
-    if (updateY) {
-        mainChart.options.scales.y.max = globalYMax;
-    }
-    mainChart.options.scales.y.min = -constantNegSpaceHeight;
-    
-    
-    // Draw HKL Markers with a fixed pixel height
-    const hklDataset = findDataset('HKL Markers');
-    if (hklDataset && hklDataset.data.length > 0) {
-        //PIXELS
-        const HKL_MARKER_PIXEL_HEIGHT = 30; // e.g., 30 pixels tall
-
-        const y_scale = mainChart.scales.y;
+        // This is the source of truth for the difference plot's magnitude
+        const diffData = workingData.lastRawDifference || [];
         
-        // Find the data value that corresponds to the zero-line on the chart
-        const zeroLineValue = 0; 
+        if (diffData.length > 0) {
+            const maxAbsDiff = Math.max(...diffData.map(Math.abs));
+            if (globalYMax > 0) {
+                const requiredRatio = (maxAbsDiff * DIFF_PLOT_PADDING) / globalYMax;
+                diffPlotHeightRatio = Math.max(DIFF_PLOT_MIN_RATIO, Math.min(DIFF_PLOT_MAX_RATIO, requiredRatio));
+            }
+        }
 
-        // Get the pixel position of the zero line and calculate the top pixel
-        const bottomPixel = y_scale.getPixelForValue(zeroLineValue);
-        const topPixel = bottomPixel + HKL_MARKER_PIXEL_HEIGHT; // Subtract for upward direction
+        const constantNegSpaceHeight = globalYMax * diffPlotHeightRatio;
 
-        // Convert these pixel positions back to data values for the chart
-        const markerBottom = zeroLineValue;
-        const markerTop = y_scale.getValueForPixel(topPixel);
+        // Update Y-axis 
+        if (updateY) {
+            mainChart.options.scales.y.max = globalYMax;
+        }
+        mainChart.options.scales.y.min = -constantNegSpaceHeight;
+        
+        // Draw HKL Markers with a fixed pixel height
+        const hklDataset = findDataset('HKL Markers');
+        if (hklDataset && hklDataset.data.length > 0) {
+            const HKL_MARKER_PIXEL_HEIGHT = 30;
+            const y_scale = mainChart.scales.y;
+            const zeroLineValue = 0; 
+            const bottomPixel = y_scale.getPixelForValue(zeroLineValue);
+            const topPixel = bottomPixel - HKL_MARKER_PIXEL_HEIGHT; // Subtract for upward direction
+            const markerBottom = zeroLineValue;
+            const markerTop = y_scale.getValueForPixel(topPixel);
+            hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]);
+        }
 
-        hklDataset.data.forEach(point => point.y = [markerTop, markerBottom]);
+
+        // --- Plot TRUE difference from the stored `lastRawDifference` array ---
+        if (diffData.length > 0 && diffData.length === workingData.tth.length) {
+            const constantDiffPlotSpaceTop = -(constantNegSpaceHeight * 0.25);
+            const diffPlotZeroLine = -constantNegSpaceHeight + (constantNegSpaceHeight - constantDiffPlotSpaceTop) / 2;
+
+            const differenceDataPoints = [];
+            for (let i = 0; i < workingData.tth.length; i++) {
+                const difference = diffData[i];
+                differenceDataPoints.push({ x: workingData.tth[i], y: difference + diffPlotZeroLine });
+            }
+            findDataset('Difference').data = differenceDataPoints;
+
+            findDataset('Difference Zero').data = [
+                { x: workingData.tth[0], y: diffPlotZeroLine },
+                { x: workingData.tth[workingData.tth.length - 1], y: diffPlotZeroLine }
+            ];
+        } else {
+            // If there's no valid difference data, clear the lines.
+            findDataset('Difference').data = [];
+            findDataset('Difference Zero').data = [];
+        }
     }
-
-
-    // --- Plot TRUE difference from the stored `lastRawDifference` array ---
-    if (diffData.length > 0 && diffData.length === workingData.tth.length) {
-        const constantDiffPlotSpaceTop = -(constantNegSpaceHeight * 0.25);
-        const diffPlotZeroLine = -constantNegSpaceHeight + (constantNegSpaceHeight - constantDiffPlotSpaceTop) / 2;
-
-        findDataset('Difference').data = workingData.tth.map((tthPoint, i) => {
-            const difference = diffData[i];
-            return { x: tthPoint, y: difference + diffPlotZeroLine };
-        });
-
-        findDataset('Difference Zero').data = [
-            { x: workingData.tth[0], y: diffPlotZeroLine },
-            { x: workingData.tth[workingData.tth.length - 1], y: diffPlotZeroLine }
-        ];
-    } else {
-        // If there's no valid difference data, clear the lines.
-        findDataset('Difference').data = [];
-        findDataset('Difference Zero').data = [];
-    }
-}
-
-
 
         function downloadTextFile(content, filename) {
             const element = document.createElement('a');
@@ -4144,27 +4153,6 @@ function setUIState(fitting) {
 
 
         // Helper function to handle a full HKL list recalculation, including cache invalidation.
-        // The new debounce utility function
-        /**
-         * Creates a debounced function that delays invoking `func` until after `wait`
-         * milliseconds have elapsed since the last time the debounced function was invoked.
-         * @param {Function} func The function to debounce.
-         * @param {number} wait The number of milliseconds to delay.
-         * @returns {Function} Returns the new debounced function.
-         */
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        };
-
-        // Helper function to handle a full HKL list recalculation, including cache invalidation.
         const handleFullHklRecalculation = () => {
             if (!mainChart || isFitting) return;
             invalidateHklCache();
@@ -4175,6 +4163,9 @@ function setUIState(fitting) {
 
         // Create a debounced version of the handler for frequent input events.
         const debouncedHklRecalculation = debounce(handleFullHklRecalculation, 400); // 400ms delay
+
+        const debouncedBackgroundUpdate = debounce(updateBackgroundForPreview, 350);
+
 
         // Helper function for simple preview updates that DON'T require HKL recalculation.
         const handleSimplePreviewUpdate = () => {
@@ -4222,7 +4213,7 @@ document.getElementById('profile-function-select').addEventListener('change', ha
         // 3. Background parameters have their own dedicated updater function
         document.getElementById('tab-panel-background').addEventListener('input', (e) => {
             if (e.target.id === 'show-anchors-checkbox') return;
-            updateBackgroundForPreview();
+            debouncedBackgroundUpdate();
         });
 
         // 4. Main File Input: Clears the ENTIRE cache and sets up the application
@@ -4240,9 +4231,14 @@ document.getElementById('profile-function-select').addEventListener('change', ha
                     
                     if (parsedData.wavelength) controls.wavelength.value = parsedData.wavelength.toFixed(5);
                     
-                    fullExperimentalData = { tth: parsedData.tth, intensity: parsedData.intensity };
-                    lastRawDifference = [];
-                    calculatedBackground = new Array(fullExperimentalData.tth.length).fill(0);
+                    // Convert parsed data to Float64Arrays for performance
+                    fullExperimentalData = {
+                        tth: new Float64Array(parsedData.tth),
+                        intensity: new Float64Array(parsedData.intensity)
+                    };
+                    lastRawDifference = []; // This can remain a standard array
+                    calculatedBackground = new Float64Array(fullExperimentalData.tth.length);
+                    
                     workingDataCache.isValid = false;
                     
                     controls.fileName.textContent = file.name;
