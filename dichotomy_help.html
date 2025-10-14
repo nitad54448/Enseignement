@@ -318,9 +318,6 @@
                 <li>$N_{calc}$ is the number of <em>calculated</em>, crystallographically unique theoretical peaks up to the position of $Q_N$. This term penalizes solutions that are "too dense"—that is, a cell that predicts many more lines than are actually observed. By correctly counting all symmetry-equivalent reflections that contribute to a single diffraction line, this value provides a crucial guard against cells that are sub-multiples of the true cell.</li>
             </ul>
             <h4>Interpretation of M(20) Values</h4>
-             <blockquote>
-                <strong>A Note of Caution:</strong> The M(20) value is the primary guide for comparing different <em>cell solutions</em> (e.g., comparing a tetragonal solution to a cubic one). The Space Group Score (SGS) discussed later is only for comparing space groups *within* a single solution. Always prioritize the M(20) when choosing the best overall unit cell.
-            </blockquote>
             <table>
                 <thead><tr><th>M(20) Value</th><th>Interpretation</th></tr></thead>
                 <tbody>
@@ -343,46 +340,19 @@
                 A "zero-point error" is a common instrumental artifact caused by a slight misalignment of the sample from the center of the goniometer. It results in a systematic shift of all peak positions ($\Delta 2\theta$), which can severely hamper or prevent successful indexing.
             </p>
             <p>
-                When the <code>Refine Zero-Point Error</code> option is enabled, the program uses a more sophisticated approach than simple iteration. The zero-point shift is treated as an additional variable to be solved for *simultaneously* with the lattice parameters during the least-squares refinement.
+                When the <code>Refine Zero-Point Error</code> option is enabled, the program employs a robust two-step approach with a fallback mechanism to ensure stability.
             </p>
-            <p>
-                This is accomplished by linearizing the effect of a small shift ($\delta$) on the Q-value. The observed Q is approximated as:
-                $$ Q_{obs} \approx Q_{calc}(hkl) + \frac{\partial Q}{\partial (2\theta)} \cdot \delta $$
-                This adds one more unknown ($\delta$) and one more column to the least-squares matrix, allowing the refinement to find the optimal values for both the cell parameters and the zero-point error in a single, robust step. The final refined shift is then reported along with the solution.
-            </p>
+            <ol>
+                <li><strong>Step 1: Baseline Cell Refinement.</strong> The program first performs a least-squares refinement on <strong>only the lattice parameters</strong>. This initial step provides a stable, high-quality "baseline" unit cell. This solution is always kept as a reliable fallback.</li>
+                <li><strong>Step 2: Attempt Full Refinement.</strong> The program then uses the superior baseline cell from Step 1 to perform a more accurate re-indexing of the observed peaks. With this higher-quality set of (hkl) assignments, it attempts a second, more comprehensive least-squares refinement that solves for both the lattice parameters and the zero-point error simultaneously.</li>
+                <li><strong>Fallback Logic.</strong> If this second, more complex refinement is successful and stable, the program uses this new, more accurate solution. However, if the full refinement fails for any reason (e.g., not enough stable peaks for the fit), the program **gracefully falls back** and uses the reliable baseline solution from Step 1.</li>
+            </ol>
+            <p>This method ensures that a valid solution is never discarded just because the zero-error refinement proves to be unstable. If the fallback occurs, the solution will be listed without a zero-point correction, and the PDF report will note that it could not be reliably refined.</p>
         </section>
 
         <section id="advanced-topics">
             <h2>Advanced Topics</h2>
             
-            <h3>Systematic Absences & Space Group Determination</h3>
-            <p>
-                For a given unit cell, not all $(hkl)$ reflections are necessarily "allowed" to appear. Certain crystal symmetries, such as lattice centering, glide planes, and screw axes, cause systematic destructive interference for specific sets of reflections. These are called <strong>systematic absences</strong>. The process of identifying these absences is a crucial step in determining the crystal's space group.
-            </p>
-
-            <h4>A Robust, Peak-List-Based Approach</h4>
-            <p>
-                Simply checking the raw experimental data for absences is prone to errors from background noise. This program uses a more robust method that relies entirely on your curated list of observed peaks, ensuring that the analysis is not misled by instrumental artifacts.
-            </p>
-            <ol>
-                <li><strong>Probabilistic Centering:</strong> The program first checks for lattice centering (e.g., Body-centered 'I', Face-centered 'F'). It does this by seeing what percentage of your <strong>observed peaks</strong> satisfy the centering reflection conditions (e.g., $h+k+l=2n$ for 'I' centering). If the percentage is high (e.g., > 85%), it proposes that centering type, making the decision robust against a few un-indexed or impurity peaks.</li>
-                <li><strong>The Space Group Score (SGS):</strong> For a given centering type, there can still be many possible space groups. To rank them, the program calculates a <strong>Space Group Score (SGS)</strong>, a figure of merit that balances two key pieces of evidence: which peaks are present, and which are absent. The SGS is a product of two factors:
-                    $$ \text{SGS} = (\text{Confirmation Score}) \times (\text{Absence Score}) $$
-                </li>
-                 <li><strong>Confirmation Score (Presence):</strong> This score measures how well a space group's "allowed" reflections explain your list of observed peaks. The program checks how many of your observed peaks can be indexed by an allowed reflection for that space group. A higher number of matches leads to a higher score.</li>
-                 <li><strong>Absence Score (Absence):</strong> This score measures how well the space group's rules for "forbidden" reflections are obeyed, using a sophisticated check to handle ambiguous cases. The program checks if any of your <strong>observed peaks</strong> match the calculated position of a forbidden reflection. 
-                     <ul>
-                        <li>If a peak can <strong>only</strong> be explained by a forbidden reflection, it is considered an unambiguous violation, and a significant penalty is applied to the score.</li>
-                        <li>However, if an observed peak matches a forbidden reflection but could <strong>also</strong> be explained by a nearby <strong>allowed</strong> reflection (an "indexing ambiguity"), the program considers the situation ambiguous and **waives the penalty entirely**. A penalty is only applied if a peak can *unambiguously* be assigned to a forbidden reflection and has no other plausible explanation. Ambiguous peaks are marked with an asterisk (*) in the PDF report.</li>
-                     </ul>
-                 This approach correctly ignores background noise and intelligently handles the nuances of real-world peak overlap.</li>
-                <li><strong>Normalization and Ranking:</strong> For each cell solution, the raw SGS scores are calculated for all candidate space groups. These scores are then <strong>normalized</strong> so that the best-scoring space group for that solution always receives a score of 1.000. This makes the score a clear relative ranking. The list is then sorted, with a preference for higher symmetry in the case of a near-tie.</li>
-            </ol>
-             <blockquote>
-                <strong>Practical Interpretation:</strong> The list of "Probable Space Groups" in the report is ranked in order of likelihood. The normalized score shows how much less likely the other candidates are compared to the top one. Because this score is normalized *per solution*, you should <strong>not</strong> use it to compare a space group from a tetragonal solution to one from a cubic solution. Use the <strong>M(20) value</strong> to decide which overall cell solution is best, then use the ranked space group list for that solution.
-            </blockquote>
-
-
             <h3>Advanced Search and Sieving Strategies</h3>
             <p>
                 To improve the chances of finding the correct solution, especially in non-standard settings, the program employs several advanced search strategies. These are not just post-processing filters; they are integrated into the worker's search routine to generate new candidate cells.
@@ -466,7 +436,7 @@
                     </li>
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 11 Oct 2025.</p>
+                <p>Help Guide updated on 14 Oct 2025 by an AI assistant.</p>
             </div>
         </section>
 
