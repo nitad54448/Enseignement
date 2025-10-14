@@ -338,13 +338,13 @@
                         <div class="tooltip-content">
     <h4>Powder XRD Indexing</h4>
     <p>Determine unit cell parameters by using the <a href="dichotomy_help.html" target="_blank" style="color: #6495ED;">Dichotomy method</a>. Based on the method of A. Boultif & D. Louer, J. Appl. Cryst. 37, 724-731 (2004).</p>
-    <p>This is a simplified version useful for simple systems or for educational purposes. For real stuff use the original code or other indexing programs.</p>
+    <p>This is a simplified version for educational purposes. For real stuff use the original code or other indexing programs.</p>
     <hr>
     <h4>Supported File Formats:</h4>
     <p>Generic 2-column (2&theta; intensity), .xrdml, .brml, .ras, .uxd, .udf, GSAS .esd</p>
     <hr>
     <h4>Chart Interaction:</h4>
-    <p><b>Zoom:</b> Use the mouse wheel over the plot. Right-click to reset zoom.</p>
+    <p><b>Zoom:</b> Use the mouse wheel over the plot, X-axis, or Y-axis. Right-click to reset zoom.</p>
     <p><b>Pan:</b> Click and drag the chart to pan.</p>
     <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
 </div>
@@ -647,7 +647,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let fullExperimentalData = { tth: [], intensity: [] };
-    let lastBackgroundCorrectedData = [];
     let pickedPeaks = [];
     let solutions = [];
     let displayedSolutions = [];
@@ -671,109 +670,95 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     setupWorker();
 
+    // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
+    const max_hkl_analysis = 10;
 
-    /**
- * Calculates a robust, multi-component Figure of Merit (FOM) for a space group.
- * --- FINAL CORRECTED VERSION ---
- * This version implements the user-suggested "safe window" logic. If an ambiguous
- * peak can be explained by an allowed reflection within the primary tolerance,
- * the penalty is completely waived (set to zero). The penalty then ramps up linearly
- * in a "transition zone" from 1x to 2x the tolerance.
- *
- * @returns {object} An object containing the final score and its components.
- */
-function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimentalData, backgroundCorrectedIntensity, wavelength, tthError) {
-    const maxTth = Math.max(...experimentalData.tth);
-    const allTheoreticalHkls = generateHKL_for_analysis(solution, wavelength, maxTth);
 
-    const allowedReflections = [];
-    const forbiddenReflections = [];
-
-    // Separate all theoretical reflections into allowed vs. forbidden
-    allTheoreticalHkls.forEach(hkl => {
-        const permutations = (solution.system === 'orthorhombic') ? [
-            ({h,k,l}) => ({h,k,l}), ({h,k,l}) => ({h,l,k}), ({h,k,l}) => ({k,h,l}),
-            ({h,k,l}) => ({k,l,h}), ({h,k,l}) => ({l,h,k}), ({h,k,l}) => ({l,k,h})
-        ] : [({h,k,l}) => ({h,k,l})];
-        const isAllowed = permutations.some(p => evaluateRuleTree(spaceGroup.rule_tree, [p(hkl)]));
-        if (isAllowed) allowedReflections.push(hkl); else forbiddenReflections.push(hkl);
-    });
-
-    // --- 1. Confirmation Score (C_score): Rewards matching OBSERVED peaks to ALLOWED reflections ---
-    const I_max_obs = Math.max(...observedPeaks.map(p => p.height || 0), 1);
-    const peaksToConsider = observedPeaks.slice(0, 30);
-    const corrected_obs_peaks = peaksToConsider.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
-
-    let rawCScore = 0;
-    const usedAllowedReflections = new Set();
-    corrected_obs_peaks.forEach((peak) => {
-        let bestMatchDiff = Infinity, bestMatchIndex = -1;
-        for (let i = 0; i < allowedReflections.length; i++) {
-            const diff = Math.abs(peak.tth - allowedReflections[i].tth);
-            if (diff < bestMatchDiff) { bestMatchDiff = diff; bestMatchIndex = i; }
-        }
-        if (bestMatchIndex !== -1 && bestMatchDiff < tthError * 1.5 && !usedAllowedReflections.has(bestMatchIndex)) {
-            rawCScore += Math.sqrt((peak.height || 1) / I_max_obs);
-            usedAllowedReflections.add(bestMatchIndex);
-        }
-    });
-    const maxPossibleCScore = peaksToConsider.reduce((sum, peak) => sum + Math.sqrt((peak.height || 1) / I_max_obs), 0);
-    const cScore = (maxPossibleCScore > 0 ? rawCScore / maxPossibleCScore : 0);
-
-    // --- 2. Absence Score (A_score): Penalizes matches of OBSERVED peaks to FORBIDDEN reflections ---
-    let violationIndex = 0;
-    const tolerance = tthError * 1.5; // Define the base tolerance window
-
-    if (I_max_obs > 0 && forbiddenReflections.length > 0) {
-        corrected_obs_peaks.forEach(peak => {
-            let bestForbiddenMatchDiff = Infinity;
-            // Find the closest forbidden reflection to this peak
-            for (const forbiddenHkl of forbiddenReflections) {
-                bestForbiddenMatchDiff = Math.min(bestForbiddenMatchDiff, Math.abs(peak.tth - forbiddenHkl.tth));
+    function generateHKL_for_analysis(params, lambda, maxTth) { 
+        const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
+        const b = b_in ?? a; const c = c_in ?? a; const beta = beta_in ?? 90;
+        const reflections = [];
+        for (let h = -max_hkl_analysis; h <= max_hkl_analysis; h++) { 
+            for (let k = -max_hkl_analysis; k <= max_hkl_analysis; k++) { 
+                for (let l = -max_hkl_analysis; l <= max_hkl_analysis; l++) {
+                    if (h === 0 && k === 0 && l === 0) continue; 
+                    let inv_d_sq = 0;
+                    switch (system) {
+                        case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
+                        case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                        case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
+                        case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                        case 'monoclinic': 
+                            const sinBeta = Math.sin(beta*Math.PI/180); const cosBeta = Math.cos(beta*Math.PI/180); 
+                            inv_d_sq = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b); 
+                            break;
+                    }
+                    if (inv_d_sq > 0) { 
+                        const d = 1/Math.sqrt(inv_d_sq); 
+                        const sinThetaSq = (lambda*lambda/4)*inv_d_sq; 
+                        if (sinThetaSq <= 1) { 
+                            const tth = 2*Math.asin(Math.sqrt(sinThetaSq))*(180/Math.PI); 
+                            if(tth <= maxTth*1.05) reflections.push({ tth, h, k, l, d }); 
+                        } 
+                    }
+                }
             }
+        } 
+        return reflections.sort((a, b) => a.tth - b.tth);
+    };
 
-            // If a forbidden reflection is a potential match...
-            if (bestForbiddenMatchDiff < tolerance) {
-                let bestAllowedMatchDiff = Infinity;
-                // ...check if an ALLOWED reflection ALSO provides a plausible match.
-                for (const allowedHkl of allowedReflections) {
-                    bestAllowedMatchDiff = Math.min(bestAllowedMatchDiff, Math.abs(peak.tth - allowedHkl.tth));
-                }
 
-              let penalty_multiplier = 1.0; // Default to full penalty
+    // --- REPLACE the old function with this NEW version ---
 
-                if (bestAllowedMatchDiff <= tolerance) {
-                    // ✅ If the best allowed match is within the primary tolerance, it's a safe bet. NO penalty.
-                    penalty_multiplier = 0.0;
-                } else if (bestAllowedMatchDiff <= 2 * tolerance) {
-                    // 📈 If the best allowed match is in the transition zone (1x to 2x tolerance),
-                    // ramp the penalty linearly from 0 to 1.
-                    penalty_multiplier = (bestAllowedMatchDiff - tolerance) / tolerance;
-                }
-                // If the best allowed match is beyond 2x the tolerance, the default full penalty (1.0) is applied.
-                
-                const relativeIntensity = (peak.height || 1) / I_max_obs;
-                violationIndex += relativeIntensity * penalty_multiplier;
-           }
+function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
+    // Step 1: Generate a reliable list of observed HKLs. (This part is unchanged)
+    const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p => p.tth)));
+    const obs_hkl_list = [];
+    const used_peaks = new Set();
+    const corrected_obs_peaks = obs_peaks.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
+    corrected_obs_peaks.forEach(peak => { peak.d = wavelength / (2 * Math.sin(peak.tth * Math.PI / 360)); });
+    const q_from_tth = (tth) => (4 * Math.pow(Math.sin(tth * Math.PI / 360), 2)) / (wavelength * wavelength);
+
+    all_hkls.forEach(hkl => {
+        let bestMatch = null; let minDiff = Infinity;
+        corrected_obs_peaks.forEach((peak, index) => {
+            if (used_peaks.has(index)) return;
+            const diff = Math.abs(hkl.d - peak.d);
+            if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; }
         });
+        if (bestMatch) {
+            const q_o = q_from_tth(bestMatch.peak.tth);
+            const d_theta = tthError * Math.PI / 360;
+            const q_tolerance = ((8 * Math.sin(bestMatch.peak.tth * Math.PI / 360) * Math.cos(bestMatch.peak.tth * Math.PI / 360)) / (wavelength * wavelength)) * d_theta;
+            const d_tolerance = Math.abs(1 / Math.sqrt(q_o + q_tolerance) - 1 / Math.sqrt(q_o - q_tolerance)) / 2;
+            if (minDiff < d_tolerance * 1.5) {
+                obs_hkl_list.push(hkl);
+                used_peaks.add(bestMatch.index);
+            }
+        }
+    });
+
+    if (obs_hkl_list.length < 3) {
+        // Return a default structure but without space groups
+        return { centering: 'Unknown', possibleSpaceGroups: [], probableSpaceGroups: [], conditions: [] };
     }
-    
-    // An exponential decay function provides the final score based on the total violation index.
-    const absenceScore = Math.exp(-1 * violationIndex);
 
-    // --- 3. Symmetry Score (S_score): Gently rewards higher symmetry ---
-    const num_rules = countRules(spaceGroup.rule_tree);
-    const symmetryScore = 1 - Math.exp(-0.05 * num_rules);
+    // Step 2: Determine Centering based on general conditions (This is kept)
+    let centering = 'Primitive (P)';
+    const system = solution.system;
+    if (!obs_hkl_list.some(({ h, k, l }) => (h % 2 !== k % 2) || (k % 2 !== l % 2))) centering = 'Face (F)';
+    else if (!obs_hkl_list.some(({ h, k, l }) => (h + k + l) % 2 !== 0)) centering = 'Body (I)';
+    else if ((system === 'orthorhombic' || system === 'monoclinic') && !obs_hkl_list.some(({ h, k }) => (h + k) % 2 !== 0)) centering = 'C-Face (C)';
+    else if ((system === 'trigonal' || system === 'hexagonal') && !obs_hkl_list.some(({ h, k, l }) => (-h + k + l) % 3 !== 0)) centering = 'Rhombohedral (R)';
 
-    // --- Final Figure of Merit (FOM) ---
-    const finalScore = cScore * absenceScore * (1 + 0.1 * symmetryScore);
+    // Step 3: (REMOVED) The space group evaluation is gone.
 
+    // Return only the centering information
     return {
-        score: finalScore,
-        cScore: cScore,
-        aScore: absenceScore,
-        sScore: symmetryScore,
-        rules: num_rules
+        centering,
+        possibleSpaceGroups: [], // Return empty arrays to avoid errors
+        probableSpaceGroups: [],
+        conditions: []
     };
 }
 
@@ -951,16 +936,24 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
         const max = parseFloat(ui.tthMaxSlider.value);
         xrdChart.options.scales.x.min = min;
         xrdChart.options.scales.x.max = max;
-        
         if (updateYScale) {
-            updateDynamicYAxis(xrdChart); // Call the shared dynamic function
+            const visibleIntensities = fullExperimentalData.intensity.filter((_, index) => {
+                const tth = fullExperimentalData.tth[index];
+                return tth >= min && tth <= max;
+            });
+            if (visibleIntensities.length > 0) {
+                const yMaxInRange = Math.max(...visibleIntensities);
+                xrdChart.options.scales.y.min = -yMaxInRange * 0.05;
+                xrdChart.options.scales.y.max = yMaxInRange * 1.1;
+            } else {
+                const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
+                xrdChart.options.scales.y.min = -yMax * 0.05;
+                xrdChart.options.scales.y.max = yMax * 1.1;
+            }
         }
-        
-        // This update call applies all option changes from this function
         xrdChart.update('none');
-        updateAllMarkers(); // Redraw markers after axes have been updated
+        updateAllMarkers();
     };
-
 
     ui.tthMinSlider.addEventListener('input', () => {
         let minVal = parseFloat(ui.tthMinSlider.value);
@@ -1044,9 +1037,6 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
         const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
         const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
         const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
-
-        lastBackgroundCorrectedData = backgroundCorrected;
-
         const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
         const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
         const maxCorrectedIntensity = Math.max(...backgroundCorrected) || 1;
@@ -1195,7 +1185,11 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
                     
                     if (completedWorkers === totalWorkers) {
                         solutions = applyFinalSieve(solutions); 
-                                             
+                        
+                        solutions.forEach(sol => {
+                            sol.analysis = analyzeSystematicAbsences(sol, pickedPeaks, parseFloat(ui.wavelength.value), parseFloat(ui.tthError.value));
+                        });
+                        
                         setUIState(false);
                         displayedSolutions = [...solutions];
                         updateSolutionsTable();
@@ -1281,66 +1275,10 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
     Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
     Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
 
-
-    const updateYAxisRange = () => {
-        if (!xrdChart || !xrdChart.scales || !xrdChart.scales.x) return;
-        
-        // Get the current min/max of the visible x-axis
-        const { min: xMin, max: xMax } = xrdChart.scales.x;
-
-        // Find all positive intensity values within the visible x-range
-        const visibleIntensities = fullExperimentalData.intensity.filter((intensity, index) => {
-            const tth = fullExperimentalData.tth[index];
-            return intensity > 0 && tth >= xMin && tth <= xMax;
-        });
-
-        // If there's no data in view, don't change the axis
-        if (visibleIntensities.length === 0) return;
-
-        const yMinInRange = Math.min(...visibleIntensities);
-        const yMaxInRange = Math.max(...visibleIntensities);
-
-        // Set the y-axis min and max with some padding
-        xrdChart.scales.y.min = yMinInRange * 0.5;
-        xrdChart.scales.y.max = yMaxInRange * 1.2;
-    };
-
-    const updateDynamicYAxis = (chart) => {
-        if (!chart || !chart.scales || !chart.scales.x) return;
-
-        const { min: xMin, max: xMax } = chart.scales.x;
-
-        // Filter the original full dataset for positive intensities within the visible x-range
-        const visibleIntensities = fullExperimentalData.intensity.filter((intensity, index) => {
-            const tth = fullExperimentalData.tth[index];
-            return intensity > 0 && tth >= xMin && tth <= xMax;
-        });
-
-        // If no data is in the current view, use safe defaults to prevent errors
-        if (visibleIntensities.length === 0) {
-            chart.options.scales.y.min = 0.1;
-            chart.options.scales.y.max = 1000;
-            return;
-        };
-
-        const yMinInRange = Math.min(...visibleIntensities);
-        const yMaxInRange = Math.max(...visibleIntensities);
-
-        // Modify the chart's OPTIONS, not the scales directly. This is the correct method.
-        chart.options.scales.y.min = yMinInRange * 0.5; // Add padding below the minimum peak
-        chart.options.scales.y.max = yMaxInRange * 1.2; // Add padding above the maximum peak
-    };
-
     const initializeChart = () => {
         if (xrdChart) xrdChart.destroy();
-        
-        // KEY FIX: Replace zero or negative intensity values with null.
-        // A logarithmic axis cannot process non-positive numbers.
-        const experimentalPoints = fullExperimentalData.tth.map((t, i) => {
-            const intensity = fullExperimentalData.intensity[i];
-            return { x: t, y: intensity > 0 ? intensity : null };
-        });
-        
+        const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, fullExperimentalData.intensity[i]) }));
+        const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
         xrdChart = new Chart(ui.chartCanvas, {
             type: 'line',
             data: {
@@ -1354,32 +1292,12 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
                 responsive: true, maintainAspectRatio: false, animation: false,
                 scales: {
                     x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' } },
-                    y: {
-                        type: 'logarithmic',
-                        title: { display: true, text: 'Intensity (a.u., log scale)' },
-                        // Min/max are now set entirely dynamically.
-                    }
+                    y: { title: { display: true, text: 'Intensity (a.u.)' }, min: -yMax * 0.05, max: yMax * 1.1, suggestedMin: 0 }
                 },
                 plugins: {
                     zoom: {
-                        pan: {
-                            enabled: true, mode: 'xy', threshold: 5,
-                            onPanComplete: ({chart}) => {
-                                updateDynamicYAxis(chart);
-                                updateAllMarkers();
-                                chart.update('none'); // Apply the updated options
-                            }
-                        },
-                        zoom: {
-                            wheel: { enabled: true },
-                            pinch: { enabled: true },
-                            drag: { enabled: false },
-                            onZoomComplete: ({chart}) => {
-                                updateDynamicYAxis(chart);
-                                updateAllMarkers();
-                                chart.update('none'); // Apply the updated options
-                            }
-                        }
+                        pan: { enabled: true, mode: 'xy', threshold: 5, onPanComplete: () => { updateAllMarkers(); } },
+                        zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, onZoomComplete: () => { updateAllMarkers(); } }
                     },
                     legend: { position: 'top' },
                     tooltip: {
@@ -1396,8 +1314,7 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
                                     }
                                     const tolerance = parseFloat(ui.tthError.value) || 0.05;
                                     if (closestPeak && minDiff < tolerance) {
-                                        title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;
-                                    }
+title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;                                    }
                                 }
                                 return title;
                             },
@@ -1413,35 +1330,50 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
                 }
             }
         });
-        
-        // Set the initial Y-axis range correctly after the chart is created
-        updateDynamicYAxis(xrdChart);
-        xrdChart.update('none');
     };
 
+    ui.chartCanvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        if (!xrdChart || !xrdChart.chartArea) return;
+        const { left, right, top, bottom } = xrdChart.chartArea;
+        const zoomDirection = e.deltaY < 0 ? 1.1 : 0.9;
+        const zoomOptions = { x: 1, y: 1 };
+        if (e.offsetY > bottom && e.offsetX > left && e.offsetX < right) {
+            zoomOptions.x = zoomDirection;
+        } else if (e.offsetX < left && e.offsetY > top && e.offsetY < bottom) {
+            zoomOptions.y = zoomDirection;
+        } else if (e.offsetX >= left && e.offsetX <= right && e.offsetY >= top && e.offsetY <= bottom) {
+            zoomOptions.x = zoomDirection;
+            zoomOptions.y = zoomDirection;
+        } else {
+            return;
+        }
+        xrdChart.zoom(zoomOptions, 'none');
+        updateAllMarkers();
+    });
 
     const updateAllMarkers = () => {
         if (!xrdChart) return;
-        const xMin = xrdChart.scales.x.min;
-        const xMax = xrdChart.scales.x.max;
-        const yMin = xrdChart.scales.y.min; // Get the current y-axis minimum
-
+        const xMin = xrdChart.scales.x.min; const xMax = xrdChart.scales.x.max;
+        const yMin = xrdChart.scales.y.min; const yMax = xrdChart.scales.y.max;
+        const yRange = yMax - yMin;
+        const markerHeight = yRange * 0.02;
         const visibleObsPeaks = pickedPeaks.filter(p => p.tth >= xMin && p.tth <= xMax);
-        
-        // Place observed peak markers in a dynamic band based on the current y-axis min
-        // On a log scale, the visual height of [yMin, yMin*2] is constant
-        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin * 1.5] }));
-
+        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin + markerHeight] }));
         if (selectedSolution) {
+            const calculatedBottom = yMin + markerHeight * 1.2;
+            const calculatedTop = calculatedBottom + markerHeight;
             const visibleCalcPeaks = currentHklList.filter(hkl => hkl.tth >= xMin && hkl.tth <= xMax);
-            // Place calculated markers in a band just above the observed markers
-            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [yMin * 1.5, yMin * 2.25] }));
+            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [calculatedBottom, calculatedTop] }));
         } else {
             xrdChart.data.datasets[2].data = [];
         }
         xrdChart.update('none');
     };
-
+    
+    // ==================================================================
+    // == FUNDAMENTAL FIX: HKL Generation with correct symmetry constraints ==
+    // ==================================================================
     const generateHKL = (maxTth, params, system) => {
         const { a, b, c, beta, lambda } = params; if (!a || !lambda) return [];
         const reflections = [];
@@ -1542,7 +1474,6 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
         return `${roundedValue}(${errorInLastDigits})`;
     };
 
-
     const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
@@ -1551,31 +1482,6 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
         ui.reportButton.textContent = 'Generating...';
         ui.reportButton.disabled = true;
         document.body.style.cursor = 'wait';
-
-        const zeroRefinementWasRequested = ui.refineZeroCheckbox.checked;
-
-        const getObservedExtinctions = (indexedPeaksData) => {
-            const nonAmbiguousPeaks = indexedPeaksData.filter(p => !p.ambiguous).map(p => p.hkl);
-            if (nonAmbiguousPeaks.length < 3) return ["Insufficient non-ambiguous peaks for analysis."];
-            const observedConditions = [];
-            const h00 = nonAmbiguousPeaks.filter(hkl => hkl.k === 0 && hkl.l === 0);
-            if (h00.length > 0 && h00.every(hkl => hkl.h % 2 === 0)) observedConditions.push("h00: h=2n");
-            const k00 = nonAmbiguousPeaks.filter(hkl => hkl.h === 0 && hkl.l === 0);
-            if (k00.length > 0 && k00.every(hkl => hkl.k % 2 === 0)) observedConditions.push("0k0: k=2n");
-            const l00 = nonAmbiguousPeaks.filter(hkl => hkl.h === 0 && hkl.k === 0);
-            if (l00.length > 0 && l00.every(hkl => hkl.l % 2 === 0)) observedConditions.push("00l: l=2n");
-            const kl0 = nonAmbiguousPeaks.filter(hkl => hkl.h === 0 && hkl.k !== 0 && hkl.l !== 0);
-            if (kl0.length > 0 && kl0.every(hkl => (hkl.k + hkl.l) % 2 === 0)) observedConditions.push("0kl: k+l=2n");
-            const l0h = nonAmbiguousPeaks.filter(hkl => hkl.k === 0 && hkl.h !== 0 && hkl.l !== 0);
-            if (l0h.length > 0 && l0h.every(hkl => (hkl.h + hkl.l) % 2 === 0)) observedConditions.push("h0l: h+l=2n");
-            const hk0 = nonAmbiguousPeaks.filter(hkl => hkl.l === 0 && hkl.h !== 0 && hkl.k !== 0);
-            if (hk0.length > 0 && hk0.every(hkl => (hkl.h + hkl.k) % 2 === 0)) observedConditions.push("hk0: h+k=2n");
-            const isBodyCentered = nonAmbiguousPeaks.every(p => (p.h + p.k + p.l) % 2 === 0);
-            if (isBodyCentered) observedConditions.push("hkl: h+k+l=2n  (I-centering)");
-            if (observedConditions.length === 0) return ["None observed (Primitive lattice)"];
-            return observedConditions;
-        };
-
         try {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
@@ -1583,215 +1489,140 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
             let yPos = 20;
 
             const now = new Date();
-            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-            const timestampForDisplay = `${dateStr} ${timeStr}`;
-            const timestampForFilename = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-
+            const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
             doc.setFontSize(18); doc.text('Powder Indexing Report', 105, yPos, { align: 'center' });
-            yPos += 10; doc.setFontSize(10);
-            doc.text(`Generated: ${timestampForDisplay}`, margin, yPos);
+            yPos += 10; doc.setFontSize(10); doc.text(`Generated: ${timestamp}`, margin, yPos);
             yPos += 5; doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
             yPos += 10;
+
             const canvas = await html2canvas(ui.chartCanvas, { backgroundColor: '#ffffff', scale: 2 });
             const imgData = canvas.toDataURL('image/png');
-            doc.addImage(imgData, 'PNG', margin, yPos, doc.internal.pageSize.getWidth() - 2 * margin, (doc.internal.pageSize.getWidth() - 2 * margin) * (canvas.height / canvas.width));
-            yPos += (doc.internal.pageSize.getWidth() - 2 * margin) * (canvas.height / canvas.width) + 10;
+            const imgProps = doc.getImageProperties(imgData);
+            const pdfWidth = doc.internal.pageSize.getWidth();
+            const availableWidth = pdfWidth - 2 * margin;
+            let imgHeight = (imgProps.height * availableWidth) / imgProps.width;
+            let imgWidth = availableWidth;
+            const maxAspectRatio = 4 / 3;
+            if (imgWidth / imgHeight > maxAspectRatio) {
+                imgWidth = imgHeight * maxAspectRatio;
+            }
+            const xOffset = margin + (availableWidth - imgWidth) / 2;
+            doc.addImage(imgData, 'PNG', xOffset, yPos, imgWidth, imgHeight);
+            yPos += imgHeight + 10;
 
-            // --- Solutions Summary Page ---
             doc.addPage(); yPos = 20;
             doc.setFontSize(14); doc.text('Indexing Solutions Summary', margin, yPos);
             yPos += 8; doc.setFont('courier', 'normal'); doc.setFontSize(9);
             doc.text('Sys  M(20)   Volume(A^3)  a(A)          b(A)          c(A)          alpha     beta      gamma', margin, yPos);
             yPos += 5;
-            
-            // MODIFICATION START: Conditional formatting for summary table
-            displayedSolutions.forEach(sol => {
+
+            displayedSolutions.slice(0, 30).forEach(sol => {
                 if (yPos > 280) { doc.addPage(); yPos = 20; }
-                
-                let p_a = '', p_b = '', p_c = '';
-                let a_alpha = '', a_beta = '', a_gamma = '';
-
-                switch(sol.system) {
-                    case 'cubic':
-                        p_a = formatWithError(sol.a, sol.errors?.s_a);
-                        a_alpha = a_beta = a_gamma = '90.000';
-                        break;
-                    case 'tetragonal':
-                    case 'hexagonal':
-                        p_a = formatWithError(sol.a, sol.errors?.s_a);
-                        p_c = formatWithError(sol.c, sol.errors?.s_c);
-                        a_alpha = a_beta = '90.000';
-                        a_gamma = sol.system === 'hexagonal' ? '120.000' : '90.000';
-                        break;
-                    case 'orthorhombic':
-                        p_a = formatWithError(sol.a, sol.errors?.s_a);
-                        p_b = formatWithError(sol.b, sol.errors?.s_b);
-                        p_c = formatWithError(sol.c, sol.errors?.s_c);
-                        a_alpha = a_beta = a_gamma = '90.000';
-                        break;
-                    case 'monoclinic':
-                        p_a = formatWithError(sol.a, sol.errors?.s_a);
-                        p_b = formatWithError(sol.b, sol.errors?.s_b);
-                        p_c = formatWithError(sol.c, sol.errors?.s_c);
-                        a_alpha = a_gamma = '90.000';
-                        a_beta = formatWithError(sol.beta, sol.errors?.s_beta);
-                        break;
-                }
-
-                const line = `${sol.system.substring(0,4).padEnd(5)}${sol.m20.toFixed(2).padStart(6)}  ${sol.volume.toFixed(2).padStart(10)}  ${p_a.padEnd(13)}${p_b.padEnd(13)}${p_c.padEnd(13)}${a_alpha.padEnd(9)}${a_beta.padEnd(9)}${a_gamma.padEnd(9)}`;
+                const aStr = formatWithError(sol.a, sol.errors?.s_a).padEnd(13);
+                const bStr = sol.b ? formatWithError(sol.b, sol.errors?.s_b).padEnd(13) : '-'.padEnd(13);
+                const cStr = sol.c ? formatWithError(sol.c, sol.errors?.s_c).padEnd(13) : '-'.padEnd(13);
+                const alphaStr = sol.alpha ? formatWithError(sol.alpha, sol.errors?.s_alpha).padEnd(9) : '90.00'.padEnd(9);
+                const betaStr = sol.beta ? formatWithError(sol.beta, sol.errors?.s_beta).padEnd(9) : '90.00'.padEnd(9);
+                const gammaStr = sol.gamma ? formatWithError(sol.gamma, sol.errors?.s_gamma).padEnd(9) : '90.00'.padEnd(9);
+                const line = `${sol.system.substring(0,4).padEnd(5)}${sol.m20.toFixed(2).padStart(6)}  ${sol.volume.toFixed(2).padStart(10)}  ${aStr}${bStr}${cStr}${alphaStr}${betaStr}${gammaStr}`;
                 doc.text(line, margin, yPos);
                 yPos += 5;
             });
-            // MODIFICATION END
 
             const lambda = parseFloat(ui.wavelength.value);
 
-            // --- Detailed Solution Pages ---
-            for (const [solIndex, sol] of displayedSolutions.entries()) {
+            displayedSolutions.forEach((sol, solIndex) => {
                 doc.addPage(); yPos = 20;
                 doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-                
-                // MODIFICATION: Added Volume to the header
-                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}, Vol = ${sol.volume.toFixed(2)} Å³`, margin, yPos);
-                
+                doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos);
                 yPos += 7;
                 doc.setFont('courier', 'normal'); doc.setFontSize(9);
                 let p = sol.errors || {};
-
-                // MODIFICATION START: Conditional formatting for detailed parameters
-                switch(sol.system) {
-                    case 'cubic':
-                        doc.text(`a = ${formatWithError(sol.a, p.s_a)} A`, margin, yPos); yPos += 5;
-                        doc.text(`alpha = 90.000 deg, beta = 90.000 deg, gamma = 90.000 deg`, margin, yPos); yPos += 5;
-                        break;
-                    case 'tetragonal':
-                        doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 5;
-                        doc.text(`alpha = 90.000 deg, beta = 90.000 deg, gamma = 90.000 deg`, margin, yPos); yPos += 5;
-                        break;
-                    case 'hexagonal':
-                        doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 5;
-                        doc.text(`alpha = 90.000 deg, beta = 90.000 deg, gamma = 120.000 deg`, margin, yPos); yPos += 5;
-                        break;
-                    case 'orthorhombic':
-                        doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, b = ${formatWithError(sol.b, p.s_b)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 5;
-                        doc.text(`alpha = 90.000 deg, beta = 90.000 deg, gamma = 90.000 deg`, margin, yPos); yPos += 5;
-                        break;
-                    case 'monoclinic':
-                        doc.text(`a = ${formatWithError(sol.a, p.s_a)} A, b = ${formatWithError(sol.b, p.s_b)} A, c = ${formatWithError(sol.c, p.s_c)} A`, margin, yPos); yPos += 5;
-                        doc.text(`alpha = 90.000 deg, beta = ${formatWithError(sol.beta, p.s_beta)} deg, gamma = 90.000 deg`, margin, yPos); yPos += 5;
-                        break;
-                }
-                // MODIFICATION END
+                let paramsLine1 = `a = ${formatWithError(sol.a, p.s_a)} A, b = ${sol.b ? formatWithError(sol.b, p.s_b) : '-'} A, c = ${sol.c ? formatWithError(sol.c, p.s_c) : '-'} A`;
+                let paramsLine2 = `alpha = ${formatWithError(sol.alpha || 90, p.s_alpha)} deg, beta = ${formatWithError(sol.beta || 90, p.s_beta)} deg, gamma = ${formatWithError(sol.gamma || 90, p.s_gamma)} deg`;
+                doc.text(paramsLine1, margin, yPos); yPos += 5;
+                doc.text(paramsLine2, margin, yPos); yPos += 5;
 
                 if (sol.zero_correction !== undefined) {
                     doc.text(`Zero Error (2Th) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos);
                     yPos += 5;
-                } else if (zeroRefinementWasRequested) {
-                    doc.text(`Zero Error (2Th): Could not be reliably refined.`, margin, yPos);
+                }
+                yPos += 2;
+                doc.setFont('helvetica', 'bold'); doc.text(`Suggested Centering:`, margin, yPos);
+                doc.setFont('courier', 'normal'); doc.text(sol.analysis.centering, margin + 45, yPos);
+                yPos += 5;
+                if (sol.analysis.conditions.length > 0) {
+                    doc.setFont('helvetica', 'bold'); doc.text(`Reflection Conditions:`, margin, yPos);
+                    doc.setFont('courier', 'normal'); doc.text(sol.analysis.conditions.join(', '), margin + 45, yPos);
                     yPos += 5;
                 }
+      
+                yPos += 3;
+                doc.setFont('courier', 'normal');
 
-                yPos += 7;
-
-                // --- Analysis and HKL Table (unchanged) ---
-                const fullHklList = generateHKL(Math.max(...pickedPeaks.map(p => p.tth)), { ...sol, lambda }, sol.system);
-                const indexedPeaksForAnalysis = [];
-                const tth_err_val = parseFloat(ui.tthError.value);
-                pickedPeaks.forEach(obs_peak => {
-                    const tth_corr = obs_peak.tth - (sol.zero_correction || 0);
-                    let bestMatchHkl = null, minDiff = Infinity;
-                    fullHklList.forEach(hkl => {
-                        const diff = Math.abs(hkl.tth - tth_corr);
-                        if (diff < minDiff) { minDiff = diff; bestMatchHkl = hkl; }
-                    });
-                    if (bestMatchHkl && minDiff < tth_err_val) {
-                        let nearbyCount = 0;
-                        for (const other_hkl of fullHklList) {
-                            if (Math.abs(tth_corr - other_hkl.tth) < tth_err_val * 1.5) { nearbyCount++; }
-                        }
-                        indexedPeaksForAnalysis.push({ hkl: bestMatchHkl, ambiguous: nearbyCount > 1, tth_obs: obs_peak.tth });
-                    }
-                });
-                
-                const extinctionConditions = getObservedExtinctions(indexedPeaksForAnalysis);
-                doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-                doc.text('Observed Systematic Absences (from non-ambiguous peaks):', margin, yPos); yPos += 7;
-                doc.setFont('courier', 'normal'); doc.setFontSize(9);
-                extinctionConditions.forEach(condition => { doc.text(`- ${condition}`, margin + 4, yPos); yPos += 5; });
-                
-                yPos += 5;
-                const tableHeader = ' h k l   | 2t_meas  2t_corr  2t_calc   d_corr      d_calc    diff(d)   diff(2t)';
+                const tableHeader = ' h k l  | 2t_meas 2t_corr 2t_calc  d_corr      d_calc    diff(d)   diff(2t)';
                 doc.text(tableHeader, margin, yPos); yPos += 5;
-                const tthMinReport = parseFloat(ui.tthMinSlider.value);
-                const tthMaxReport = parseFloat(ui.tthMaxSlider.value);
-                const reportLines = [];
-                const usedCalcHkl = new Set();
-                const filteredObsPeaks = pickedPeaks.filter(p => p.tth >= tthMinReport && p.tth <= tthMaxReport);
-                filteredObsPeaks.forEach(obs_peak => {
-                    const correspondingIndexedPeak = indexedPeaksForAnalysis.find(p => Math.abs(p.tth_obs - obs_peak.tth) < 1e-5);
-                    const lineData = { tth_obs: obs_peak.tth };
-                    if (correspondingIndexedPeak) {
-                        lineData.hkl = correspondingIndexedPeak.hkl;
-                        lineData.ambiguous = correspondingIndexedPeak.ambiguous;
-                        usedCalcHkl.add(correspondingIndexedPeak.hkl);
+                
+                const hklList = generateHKL(Math.max(...pickedPeaks.map(p => p.tth)), { ...sol, lambda }, sol.system);
+                const usedObsPeaks = new Set();
+                const tth_err = parseFloat(ui.tthError.value);
+                const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+
+                hklList.slice(0, 45).forEach(hkl => {
+                    if (yPos > 280) {
+                        doc.addPage(); yPos = 20; doc.setFont('courier', 'normal');
+                        doc.setFontSize(9); doc.text(tableHeader, margin, yPos); yPos += 5;
                     }
-                    reportLines.push(lineData);
-                });
-                fullHklList.forEach((hkl) => {
-                    if (hkl.tth >= tthMinReport && hkl.tth <= tthMaxReport && !usedCalcHkl.has(hkl)) {
-                        reportLines.push({ hkl: hkl });
+
+                    let bestMatch = null; let minDiff = Infinity;
+                    corrected_tth_obs.forEach((peak, index) => {
+                        if (usedObsPeaks.has(index)) return;
+                        const diff = Math.abs(hkl.tth - peak.tth_corr);
+                        if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; }
+                    });
+
+                    let tth_meas_str = '-', tth_corr_str = '-', d_corr_str = '-', diff_d_str = '-', diff_2t_str = '-';
+                    const tth_calc_str = hkl.tth.toFixed(3);
+                    const d_calc_str = hkl.d.toFixed(5);
+                    
+                    if (bestMatch && minDiff < tth_err * 2) {
+                        const obs_peak = pickedPeaks[bestMatch.index];
+                        const corr_peak = bestMatch.peak;
+                        tth_meas_str = obs_peak.tth.toFixed(3);
+                        tth_corr_str = corr_peak.tth_corr.toFixed(3);
+                        const d_corr = lambda / (2 * Math.sin(corr_peak.tth_corr * Math.PI / 360));
+                        d_corr_str = d_corr.toFixed(5);
+                        diff_d_str = (d_corr - hkl.d).toExponential(2);
+                        diff_2t_str = (corr_peak.tth_corr - hkl.tth).toFixed(3);
+                        usedObsPeaks.add(bestMatch.index);
                     }
-                });
-                reportLines.sort((a, b) => (a.tth_obs || a.hkl.tth) - (b.tth_obs || b.hkl.tth));
-                reportLines.forEach(line => {
-                    if (yPos > 280) { doc.addPage(); yPos = 20; doc.text(tableHeader, margin, yPos); yPos += 5; }
-                    const tth_meas_str = line.tth_obs ? line.tth_obs.toFixed(3) : '-';
-                    const tth_corr = line.tth_obs ? line.tth_obs - (sol.zero_correction || 0) : null;
-                    const tth_corr_str = tth_corr ? tth_corr.toFixed(3) : '-';
-                    const d_corr_str = tth_corr ? (lambda / (2 * Math.sin(tth_corr * Math.PI / 360))).toFixed(5) : '-';
-                    let hkl_str = '-', tth_calc_str = '-', d_calc_str = '-', diff_d_str = '-', diff_2t_str = '-';
-                    if (line.hkl) {
-                        const hkl = line.hkl;
-                        const ambiguity_marker = line.ambiguous ? '*' : ' ';
-                        hkl_str = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)}${ambiguity_marker}`.padEnd(8);
-                        tth_calc_str = hkl.tth.toFixed(3);
-                        d_calc_str = hkl.d.toFixed(5);
-                        if (tth_corr) {
-                            diff_d_str = (parseFloat(d_corr_str) - hkl.d).toExponential(2);
-                            diff_2t_str = (tth_corr - hkl.tth).toFixed(3);
-                        }
-                    } else if (line.tth_obs) {
-                        hkl_str = '(unindexed)'.padEnd(8);
-                    }
-                    const pdfLine = `${hkl_str}|${tth_meas_str.padStart(9)}${tth_corr_str.padStart(9)}${tth_calc_str.padStart(9)} ${d_corr_str.padStart(10)} ${d_calc_str.padStart(10)} ${diff_d_str.padStart(10)} ${diff_2t_str.padStart(9)}`;
-                    doc.text(pdfLine, margin, yPos);
+
+                    const hkl_str = `${String(hkl.h).padStart(2)} ${String(hkl.k).padStart(2)} ${String(hkl.l).padStart(2)}`.padEnd(8);
+                    const line = `${hkl_str}|${tth_meas_str.padStart(8)}${tth_corr_str.padStart(8)}${tth_calc_str.padStart(8)} ${d_corr_str.padStart(10)} ${d_calc_str.padStart(10)} ${diff_d_str.padStart(10)} ${diff_2t_str.padStart(9)}`;
+                    doc.text(line, margin, yPos);
                     yPos += 5;
                 });
-            }
+            });
 
-            // --- Save PDF ---
-            const filename = `Indexing-Report-${timestampForFilename}.pdf`;
+            const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
             doc.save(filename);
             showStatus('PDF report generated and saved.', 'success');
         } catch (error) {
             console.error("Failed to generate PDF:", error);
-            showStatus(`An error occurred during PDF generation: ${error.message}`, 'error');
+            showStatus("An error occurred during PDF generation.", 'error');
         } finally {
             ui.reportButton.textContent = 'Generate PDF Report';
             ui.reportButton.disabled = (solutions.length === 0);
             document.body.style.cursor = 'default';
         }
     };
-
+    
     window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
 });
 
     </script>
     
-
-
-    <script id="indexing-worker" type="text/javascript">
+<script id="indexing-worker" type="text/javascript">
 self.onmessage = function(e) {
     // --- INITIAL SETUP ---
     const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
@@ -1808,8 +1639,8 @@ self.onmessage = function(e) {
     const foundSolutions = [];
     const foundSolutionMap = new Map();
 
-
-        const metricFromCell = (cell) => {
+    // --- UTILITY & CRYSTALLOGRAPHY HELPER FUNCTIONS ---
+    const metricFromCell = (cell) => {
         const deg2rad = Math.PI / 180;
         const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
         const alpha = (cell.alpha ?? 90) * deg2rad; const beta  = (cell.beta  ?? 90) * deg2rad; const gamma = (cell.gamma ?? 90) * deg2rad;
@@ -1877,12 +1708,13 @@ self.onmessage = function(e) {
     const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
     const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
     
+
     // ==================================================================
-// == HKL Generation for Reporting and Display ==
+// == CORRECTED HKL Generation for Reporting and Display ==
 // == This version enforces crystallographic conventions to avoid listing
 // == redundant equivalent reflections (e.g., (100) vs (010) in cubic).
 // ==================================================================
-    const generateHKL = (maxTth, params, system) => {
+const generateHKL = (maxTth, params, system) => {
      const { a, b, c, beta, lambda } = params; if (!a || !lambda) return []; const reflections = [];
      const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360)); const q_max_limit = (1 / (d_min * d_min)) * 1.05;
      const h_max = Math.ceil(a / d_min); 
@@ -1987,7 +1819,8 @@ self.onmessage = function(e) {
     };
     
     // ==================================================================
- 
+    // == THIS FUNCTION HAS BEEN CORRECTED TO PREVENT THE CRASH ==
+    // ==================================================================
     const extractCellFromFit = (params, system) => {
         let cell = { system, alpha: 90, gamma: 90 };
         try {
@@ -2083,37 +1916,6 @@ self.onmessage = function(e) {
         return (low >= arr.length) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
     };
     
-const generateAllUniqueReflections = (cell, d_min) => {
-    const q_max_limit = 1 / (d_min * d_min);
-    const h_max = Math.ceil((cell.a || 0) / d_min);
-    const k_max = Math.ceil((cell.b || cell.a || 0) / d_min);
-    const l_max = Math.ceil((cell.c || cell.a || 0) / d_min);
-    
-    const reflections = new Map(); // Use a Map to store unique Q values and their counts
-    const tolerance = 1e-6; // Tolerance for considering Q values equal
-
-    for (let h = -h_max; h <= h_max; h++) {
-        for (let k = -k_max; k <= k_max; k++) {
-            for (let l = -l_max; l <= l_max; l++) {
-                if (h === 0 && k === 0 && l === 0) continue;
-                
-                const q_calc = getQcalc([h, k, l], cell);
-
-                if (q_calc > 0 && q_calc <= q_max_limit * 1.05) {
-                    // Round Q value to handle floating point inaccuracies and group identical lines
-                    const q_key = Math.round(q_calc / tolerance);
-                    if (!reflections.has(q_key)) {
-                        reflections.set(q_key, q_calc);
-                    }
-                }
-            }
-        }
-    }
-    // Return a sorted array of the unique Q values
-    return new Float64Array(Array.from(reflections.values())).sort((a, b) => a - b);
-};
-
-
     const calculateM20 = (q_calc_sorted, q_obs_for_m20, original_indices_for_m20) => {
         if (!q_calc_sorted || q_calc_sorted.length === 0) return 0;
         let N_indexed = 0, sum_delta_q = 0;
@@ -2209,133 +2011,67 @@ const generateAllUniqueReflections = (cell, d_min) => {
         hkls.sort((a,b) => (a[0]**2+a[1]**2+a[2]**2)-(b[0]**2+b[1]**2+b[2]**2));
         return hkl_search_list_cache[system] = hkls;
     };
-
+   
     const refineAndTestSolution = (initialParams) => {
         if (!initialParams || !initialParams.system) return;
         const { system } = initialParams;
-
-        // --- PRELIMINARY CHECKS on initial guess ---
+        let candidate_cell = { ...initialParams };
         const min_lp = 0.5, max_lp = 50.0;
-        if (Object.values(initialParams).some(p => typeof p === 'number' && (isNaN(p) || p < min_lp || p > max_lp))) return;
-        if (system === 'monoclinic' && initialParams.beta < 90.0) initialParams.beta = 180.0 - initialParams.beta;
+        if (Object.values(candidate_cell).some(p => typeof p==='number' && (isNaN(p) || p<min_lp || p>max_lp))) return;
+        if (system === 'monoclinic' && candidate_cell.beta < 90.0) candidate_cell.beta = 180.0 - candidate_cell.beta;
 
-        // --- STEP 1: Gather Initial Peaks with a Forgiving Tolerance ---
         const hkl_search_list = get_hkl_search_list(system);
-        const indexed_pairs_initial = [];
+        const indexed_pairs = [], peak_indices_for_ls = [];
         for (let i = 0; i < N_FOR_M20; i++) {
-            const q_o = q_obs[i];
-            const tolerance = get_q_tolerance(original_indices[i]);
-            let best_match = null;
-            let min_diff = Infinity;
+            const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
+            let best_match = null, min_diff = Infinity;
             for (const hkl of hkl_search_list) {
-                const q_calc = getQcalc(hkl, initialParams);
+                const q_calc = getQcalc(hkl, candidate_cell);
                 const diff = Math.abs(q_calc - q_o);
                 if (diff < min_diff) { min_diff = diff; best_match = hkl; }
                 if (q_calc > q_o + tolerance * 2) break;
             }
-            if (best_match && min_diff < tolerance * 2.0) {
-                indexed_pairs_initial.push({ q_obs: q_o, hkl: best_match, original_peak_index: original_indices[i] });
+            if (best_match && min_diff < tolerance) {
+                indexed_pairs.push({ q_obs: q_o, hkl: best_match });
+                peak_indices_for_ls.push(i);
             }
         }
         
         const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7 };
-        if (indexed_pairs_initial.length < min_indexed[system]) return;
-
-        // --- STEP 2: NEW - Preliminary, Constrained Shift Refinement ---
-        let q_vec_for_refinement = indexed_pairs_initial.map(p => p.q_obs);
-        const M_cell_only = indexed_pairs_initial.map(p => getLSDesignRow(p.hkl, system));
+        if (indexed_pairs.length < min_indexed[system]) return;
         
-        // Build the design matrix for the preliminary shift fit
-        const M_with_shift = M_cell_only.map((row, i) => {
-            const tth_rad = tth_obs_rad[indexed_pairs_initial[i].original_peak_index];
-            // Add derivative of q with respect to zero-shift (in radians)
-            return [...row, (-2 / (wavelength**2)) * Math.sin(tth_rad)];
-        });
-
-        const fit_with_shift = solveLeastSquares(M_with_shift, q_vec_for_refinement);
-
-        if (fit_with_shift && fit_with_shift.solution) {
-            const num_params = fit_with_shift.solution.length;
-            const initial_shift_rad = fit_with_shift.solution[num_params - 1];
-            const initial_shift_deg = initial_shift_rad * 180 / Math.PI;
-
-            // Constrain the shift to the allowed tolerance range
-            const clamped_shift_deg = Math.max(-tth_error, Math.min(tth_error, initial_shift_deg));
-            
-            // If the shift is meaningful, create a shift-corrected q_vec for the next step
-            if (Math.abs(clamped_shift_deg) > 1e-5) {
-                q_vec_for_refinement = indexed_pairs_initial.map(p => {
-                    const corrected_tth_rad = (tth_obs_rad[p.original_peak_index] * 180 / Math.PI - clamped_shift_deg) * Math.PI / 180;
-                    return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-                });
-            }
-        }
-
-        // --- STEP 3: Refine Cell Parameters using Potentially Corrected Data ---
-        const fit_cell_only = solveLeastSquares(M_cell_only, q_vec_for_refinement);
-
-        if (!fit_cell_only || !fit_cell_only.solution) return;
-        
-        const base_cell = extractCellFromFit(fit_cell_only.solution, system);
-        if (!base_cell) return;
-
-        let cell_for_m20_calc = base_cell;
-        let final_fit_result = fit_cell_only;
-
-        // --- STEP 4: Final, Global Zero Refinement (if user selected) ---
+        let M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+        const q_vec = indexed_pairs.map(p => p.q_obs);
         if (refineZero) {
-            // This part now starts from a much better base_cell thanks to the preliminary shift correction
-            const indexed_pairs_final = [];
-            for (let i = 0; i < N_FOR_M20; i++) {
-                const q_o = q_obs[i];
-                const tolerance = get_q_tolerance(original_indices[i]);
-                let best_match = null, min_diff = Infinity;
-                for (const hkl of hkl_search_list) {
-                    const q_calc = getQcalc(hkl, base_cell);
-                    const diff = Math.abs(q_calc - q_o);
-                    if (diff < min_diff) { min_diff = diff; best_match = hkl; }
-                    if (q_calc > q_o + tolerance * 2) break;
-                }
-                if (best_match && min_diff < tolerance) {
-                    indexed_pairs_final.push({ q_obs: q_o, hkl: best_match, original_peak_index: original_indices[i] });
-                }
-            }
-
-            if (indexed_pairs_final.length >= min_indexed[system]) {
-                const M_full = indexed_pairs_final.map(p => getLSDesignRow(p.hkl, system));
-                const q_vec_final = indexed_pairs_final.map(p => p.q_obs);
-                
-                M_full.forEach((row, i) => {
-                    const tth_rad = tth_obs_rad[indexed_pairs_final[i].original_peak_index];
-                    row.push((-2 / (wavelength**2)) * Math.sin(tth_rad));
-                });
-                
-                const fit_full = solveLeastSquares(M_full, q_vec_final);
-                
-                if (fit_full && fit_full.solution) {
-                    const cell_from_full_fit = extractCellFromFit(fit_full.solution, system);
-                    if (cell_from_full_fit) {
-                        cell_for_m20_calc = cell_from_full_fit;
-                        final_fit_result = fit_full;
-                        const shift_rad = final_fit_result.solution[final_fit_result.solution.length - 1];
-                        cell_for_m20_calc.zero_correction = shift_rad * 180 / Math.PI;
-                    }
-                }
-            }
+            M.forEach((row, i) => {
+                const tth_rad = tth_obs_rad[original_indices[peak_indices_for_ls[i]]];
+                row.push((2 / (wavelength**2)) * Math.sin(tth_rad));
+            });
         }
         
-        // --- STEP 5: Final Validation and Figure of Merit Calculation ---
-        cell_for_m20_calc.volume = getVolume(cell_for_m20_calc);
-        if (cell_for_m20_calc.volume > max_volume || cell_for_m20_calc.volume < 20) return;
-        
-        cell_for_m20_calc.errors = propagateErrors(system, final_fit_result, cell_for_m20_calc);
-        const q_calc_sorted = generateAllUniqueReflections(cell_for_m20_calc, d_min);
+        const fitResult = solveLeastSquares(M, q_vec);
+        if (!fitResult || !fitResult.solution) return;
+        const final_cell = extractCellFromFit(fitResult.solution, system);
+        if (!final_cell) return;
+
+        if (refineZero) final_cell.zero_correction = fitResult.solution[fitResult.solution.length - 1] * 180 / Math.PI;
+
+        final_cell.volume = getVolume(final_cell);
+        if (final_cell.volume > max_volume || final_cell.volume < 20) return;
+        final_cell.errors = propagateErrors(system, fitResult, final_cell);
+
+        const q_calc_set = new Set();
+        const h_max = Math.ceil((final_cell.a||0)/d_min), k_max = Math.ceil((final_cell.b||final_cell.a||0)/d_min), l_max = Math.ceil((final_cell.c||final_cell.a||0)/d_min);
+        for(let h=-h_max; h<=h_max; h++) for(let k=-k_max; k<=k_max; k++) for(let l=-l_max; l<=l_max; l++) {
+            if(h||k||l) q_calc_set.add(getQcalc([h,k,l], final_cell));
+        }
+        const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
         
         let q_obs_for_m20 = q_obs;
-        if (cell_for_m20_calc.zero_correction) {
-            const z_corr_deg = cell_for_m20_calc.zero_correction;
+        if (refineZero) {
+            const z_corr_deg = final_cell.zero_correction || 0;
             q_obs_for_m20 = new Float64Array(peaks_sorted_by_q.map(p => {
-                const corrected_tth_rad = (tth_obs_rad[p.original_index] * 180/Math.PI - z_corr_deg) * Math.PI / 180;
+                const corrected_tth_rad = (peaks[p.original_index].tth - z_corr_deg) * Math.PI / 180;
                 return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
             }));
         }
@@ -2343,17 +2079,17 @@ const generateAllUniqueReflections = (cell, d_min) => {
         const m20 = calculateM20(q_calc_sorted, q_obs_for_m20, original_indices);
 
         if (m20 > min_m20) {
-            cell_for_m20_calc.m20 = m20;
-            const key = getSolutionKey(cell_for_m20_calc);
+            final_cell.m20 = m20;
+            const key = getSolutionKey(final_cell);
             const existing = foundSolutionMap.get(key);
             if (!existing || m20 > existing.m20) {
-                 if (existing) foundSolutions[existing.index] = cell_for_m20_calc;
-                 else foundSolutions.push(cell_for_m20_calc);
+                 if (existing) foundSolutions[existing.index] = final_cell;
+                 else foundSolutions.push(final_cell);
                  foundSolutionMap.set(key, { m20: m20, index: existing ? existing.index : foundSolutions.length - 1 });
             }
         }
     };
-
+    
     // --- SEARCH ALGORITHMS ---
     const indexCubic = () => {
         const h_max = 8;
@@ -2411,59 +2147,12 @@ const generateAllUniqueReflections = (cell, d_min) => {
         }
     };
 
-
-    const analyzeIndexingAmbiguity = (solution) => {
-        const fullHklList = generateHKL(Math.max(...peaks.map(p => p.tth)), { ...solution, lambda: wavelength }, solution.system);
-        if (!fullHklList || fullHklList.length === 0) return [];
-
-        const indexedPeaksAnalysis = [];
-        const tth_err_val = tth_error * 1.5;
-
-        for (const obs_peak of peaks) {
-            const tth_corr = obs_peak.tth - (solution.zero_correction || 0);
-            let bestMatchHkl = null;
-            let minDiff = Infinity;
-
-            fullHklList.forEach(hkl => {
-                const diff = Math.abs(hkl.tth - tth_corr);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    bestMatchHkl = hkl;
-                }
-            });
-
-            if (bestMatchHkl && minDiff < tth_error) {
-                let nearbyCount = 0;
-                for (const other_hkl of fullHklList) {
-                    if (Math.abs(tth_corr - other_hkl.tth) < tth_err_val) {
-                        nearbyCount++;
-                    }
-                }
-                indexedPeaksAnalysis.push({
-                    original_peak: obs_peak, // Contains original tth and q
-                    hkl: bestMatchHkl,
-                    ambiguous: nearbyCount > 1
-                });
-            }
-        }
-        return indexedPeaksAnalysis;
-    };
-
-
     // --- DERIVED/TRANSFORMED CELL SEARCH ---
     const findTransformedSolutions = (initialSolutions) => {
-        const cellTransforms = [
-            { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] },
-            { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] },
-            { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] },
-            { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] },
-            { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] },
-            { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] },
-            { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] }
-        ];
+        const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
         
         initialSolutions.forEach(sol => {
-            // 1. Matrix Transformations for different centering types (Unchanged)
+            // 1. Matrix Transformations
             cellTransforms.forEach(tf => {
                 try {
                     const G = metricFromCell(sol); const Pt = transpose(tf.P); const Gprime = matMul(matMul(Pt, G), tf.P);
@@ -2473,94 +2162,22 @@ const generateAllUniqueReflections = (cell, d_min) => {
                 } catch {}
             });
 
-            // 2. DEFINITIVE LOGIC: "Index Swap" Refinement for Supercells
-            const detailedPeaks = analyzeIndexingAmbiguity(sol);
-            if (detailedPeaks.length < 8) return;
-
-            // Helper function that implements your "swap and refit" logic
-            const attemptSwappedRefinement = (axis) => {
-                const get_idx = (p) => (axis === 'h' ? p.hkl.h : (axis === 'k' ? p.hkl.k : p.hkl.l));
-
-                const ambiguousPeaks = detailedPeaks.filter(p => p.ambiguous);
-                const nonAmbiguousPeaks = detailedPeaks.filter(p => !p.ambiguous);
-
-                // Condition 1: All non-ambiguous peaks must follow the rule (e.g., k=2n).
-                const nonAmbigFollowsRule = nonAmbiguousPeaks.every(p => get_idx(p) % 2 === 0);
-                if (!nonAmbigFollowsRule) return;
-
-                // Condition 2: All peaks that break the rule must be ambiguous.
-                const oddIndexPeaks = detailedPeaks.filter(p => get_idx(p) % 2 !== 0);
-                const ruleBreakersAreAllAmbiguous = oddIndexPeaks.every(p => p.ambiguous);
-                if (!ruleBreakersAreAllAmbiguous) return;
-
-                // Hypothesis is strong. Proceed with the swap.
-                const correctedPeakSet = JSON.parse(JSON.stringify(detailedPeaks)); // Deep copy
-                let successfulSwaps = 0;
-
-                for (const oddPeak of oddIndexPeaks) {
-                    let bestPartner = null;
-                    let minTthDiff = Infinity;
-
-                    // Find the closest non-ambiguous neighbor that follows the rule.
-                    for (const evenPartner of nonAmbiguousPeaks) {
-                        const tthDiff = Math.abs(oddPeak.original_peak.tth - evenPartner.original_peak.tth);
-                        if (tthDiff < tth_error && tthDiff < minTthDiff) {
-                            minTthDiff = tthDiff;
-                            bestPartner = evenPartner;
-                        }
-                    }
-
-                    // If a valid swap partner is found, perform the swap in our copied set.
-                    if (bestPartner) {
-                        const originalOddHkl = oddPeak.hkl;
-                        const originalEvenHkl = bestPartner.hkl;
-                        
-                        // Find the corresponding peaks in the copied set to modify them.
-                        const peakToChange1 = correctedPeakSet.find(p => p.original_peak.q === oddPeak.original_peak.q);
-                        const peakToChange2 = correctedPeakSet.find(p => p.original_peak.q === bestPartner.original_peak.q);
-                        
-                        if(peakToChange1 && peakToChange2) {
-                            peakToChange1.hkl = originalEvenHkl;
-                            peakToChange2.hkl = originalOddHkl;
-                            successfulSwaps++;
-                        }
-                    }
+            // 2. HKL Divisor Analysis
+            const indexedPeaks = findIndexedPeaksForSolution(sol, tth_error);
+            if (indexedPeaks.length > 5) {
+                const h_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.h)).filter(h => h > 0));
+                const k_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.k)).filter(k => k > 0));
+                const l_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.l)).filter(l => l > 0));
+                if (h_div > 1 || k_div > 1 || l_div > 1) {
+                    const candCell = { ...sol, a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
+                    const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
+                    if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
                 }
-                
-                // Only proceed if we could correct all rule-breakers.
-                if (successfulSwaps !== oddIndexPeaks.length) return;
-
-                // Now, the correctedPeakSet has repaired hkl assignments.
-                // Create the dataset for the subcell fit.
-                const subcellPairs = correctedPeakSet.map(p => {
-                    const hkl_old = p.hkl;
-                    let hkl_new;
-                    if (axis === 'h') hkl_new = [hkl_old.h / 2, hkl_old.k, hkl_old.l];
-                    else if (axis === 'k') hkl_new = [hkl_old.h, hkl_old.k / 2, hkl_old.l];
-                    else hkl_new = [hkl_old.h, hkl_old.k, hkl_old.l / 2];
-                    return { q_obs: p.original_peak.q, hkl: hkl_new };
-                });
-
-                // Perform the new fit on the fully repaired, complete dataset.
-                const M = subcellPairs.map(p => getLSDesignRow(p.hkl, sol.system));
-                const q_vec = subcellPairs.map(p => p.q_obs);
-                const fitResult = solveLeastSquares(M, q_vec);
-                if (!fitResult || !fitResult.solution) return;
-
-                // Submit the high-quality guess for full validation.
-                const refinedCellGuess = extractCellFromFit(fitResult.solution, sol.system);
-                if (refinedCellGuess) refineAndTestSolution(refinedCellGuess);
-            };
-
-            // Attempt the swap-and-refit strategy for each axis.
-            attemptSwappedRefinement('h');
-            attemptSwappedRefinement('k');
-            attemptSwappedRefinement('l');
+            }
             
-            // 3. Orthorhombic to Hexagonal Check (Unchanged)
+            // 3. Orthorhombic to Hexagonal Check
             if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {
-                const axes = { a: sol.a, b: sol.b, c: sol.c };
-                const pairs = [['a', 'b', 'c'], ['a', 'c', 'b'], ['b', 'c', 'a']];
+                const axes = { a: sol.a, b: sol.b, c: sol.c }; const pairs = [['a','b','c'], ['a','c','b'], ['b','c','a']];
                 pairs.forEach(([ax1, ax2, unique_ax]) => {
                     if (Math.abs(axes[ax2] / axes[ax1] / Math.sqrt(3) - 1) < 0.03) {
                         refineAndTestSolution({ system: 'hexagonal', a: axes[ax1], c: axes[unique_ax], beta: 90, gamma: 120 });
@@ -2569,8 +2186,7 @@ const generateAllUniqueReflections = (cell, d_min) => {
             }
         });
     };
-
-
+    
     // --- EXECUTION & REPORTING ---
     if (systemToSearch === 'cubic') indexCubic();
     if (systemToSearch === 'tetragonal') indexTetragonalOrHexagonal('tetragonal');
@@ -2578,15 +2194,17 @@ const generateAllUniqueReflections = (cell, d_min) => {
     if (systemToSearch === 'orthorhombic') indexOrthorhombic();
     if (systemToSearch === 'monoclinic') indexMonoclinic();
     
+    // After initial search, try transformations on the found solutions
     findTransformedSolutions([...foundSolutions]);
     
     foundSolutions.forEach(solution => self.postMessage({ type: 'solution', payload: solution }));
     self.postMessage({ type: 'done' });
 };
+
+
 </script>
 
-
-<div id="app-footer">Dichotomy, version 14 oct 2025</div>
+<div id="app-footer">Dichotomy, version 09 oct 2025</div>
 </body>
 </html>
 
