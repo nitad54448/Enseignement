@@ -1543,7 +1543,6 @@ function calculateSpaceGroupScore(spaceGroup, solution, observedPeaks, experimen
     };
 
 
-    
         const generatePDFReport = async () => {
         if (displayedSolutions.length === 0) {
             showStatus("No solutions found to generate a report.", 'info');
@@ -2156,7 +2155,6 @@ const generateAllUniqueReflections = (cell, d_min) => {
         hkls.sort((a,b) => (a[0]**2+a[1]**2+a[2]**2)-(b[0]**2+b[1]**2+b[2]**2));
         return hkl_search_list_cache[system] = hkls;
     };
-   
 
     const refineAndTestSolution = (initialParams) => {
         if (!initialParams || !initialParams.system) return;
@@ -2167,83 +2165,112 @@ const generateAllUniqueReflections = (cell, d_min) => {
         if (Object.values(initialParams).some(p => typeof p === 'number' && (isNaN(p) || p < min_lp || p > max_lp))) return;
         if (system === 'monoclinic' && initialParams.beta < 90.0) initialParams.beta = 180.0 - initialParams.beta;
 
-        // --- STEP 1: Initial Indexing and Cell-Only Refinement (Our Fallback Solution) ---
+        // --- STEP 1: Gather Initial Peaks with a Forgiving Tolerance ---
         const hkl_search_list = get_hkl_search_list(system);
         const indexed_pairs_initial = [];
         for (let i = 0; i < N_FOR_M20; i++) {
-            const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
-            let best_match = null, min_diff = Infinity;
+            const q_o = q_obs[i];
+            const tolerance = get_q_tolerance(original_indices[i]);
+            let best_match = null;
+            let min_diff = Infinity;
             for (const hkl of hkl_search_list) {
                 const q_calc = getQcalc(hkl, initialParams);
                 const diff = Math.abs(q_calc - q_o);
                 if (diff < min_diff) { min_diff = diff; best_match = hkl; }
                 if (q_calc > q_o + tolerance * 2) break;
             }
-            if (best_match && min_diff < tolerance) {
-                indexed_pairs_initial.push({ q_obs: q_o, hkl: best_match, original_peak_index: i });
+            if (best_match && min_diff < tolerance * 2.0) {
+                indexed_pairs_initial.push({ q_obs: q_o, hkl: best_match, original_peak_index: original_indices[i] });
             }
         }
         
         const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7 };
         if (indexed_pairs_initial.length < min_indexed[system]) return;
 
+        // --- STEP 2: NEW - Preliminary, Constrained Shift Refinement ---
+        let q_vec_for_refinement = indexed_pairs_initial.map(p => p.q_obs);
         const M_cell_only = indexed_pairs_initial.map(p => getLSDesignRow(p.hkl, system));
-        const q_vec_initial = indexed_pairs_initial.map(p => p.q_obs);
-        const fit_cell_only = solveLeastSquares(M_cell_only, q_vec_initial);
+        
+        // Build the design matrix for the preliminary shift fit
+        const M_with_shift = M_cell_only.map((row, i) => {
+            const tth_rad = tth_obs_rad[indexed_pairs_initial[i].original_peak_index];
+            // Add derivative of q with respect to zero-shift (in radians)
+            return [...row, (-2 / (wavelength**2)) * Math.sin(tth_rad)];
+        });
+
+        const fit_with_shift = solveLeastSquares(M_with_shift, q_vec_for_refinement);
+
+        if (fit_with_shift && fit_with_shift.solution) {
+            const num_params = fit_with_shift.solution.length;
+            const initial_shift_rad = fit_with_shift.solution[num_params - 1];
+            const initial_shift_deg = initial_shift_rad * 180 / Math.PI;
+
+            // Constrain the shift to the allowed tolerance range
+            const clamped_shift_deg = Math.max(-tth_error, Math.min(tth_error, initial_shift_deg));
+            
+            // If the shift is meaningful, create a shift-corrected q_vec for the next step
+            if (Math.abs(clamped_shift_deg) > 1e-5) {
+                q_vec_for_refinement = indexed_pairs_initial.map(p => {
+                    const corrected_tth_rad = (tth_obs_rad[p.original_peak_index] * 180 / Math.PI - clamped_shift_deg) * Math.PI / 180;
+                    return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                });
+            }
+        }
+
+        // --- STEP 3: Refine Cell Parameters using Potentially Corrected Data ---
+        const fit_cell_only = solveLeastSquares(M_cell_only, q_vec_for_refinement);
 
         if (!fit_cell_only || !fit_cell_only.solution) return;
         
         const base_cell = extractCellFromFit(fit_cell_only.solution, system);
         if (!base_cell) return;
 
-        // *** This is our guaranteed, known-good solution to fall back on ***
         let cell_for_m20_calc = base_cell;
         let final_fit_result = fit_cell_only;
 
-        // --- STEP 2: TRY to perform Full Refinement including Zero Error ---
+        // --- STEP 4: Final, Global Zero Refinement (if user selected) ---
         if (refineZero) {
+            // This part now starts from a much better base_cell thanks to the preliminary shift correction
             const indexed_pairs_final = [];
             for (let i = 0; i < N_FOR_M20; i++) {
-                const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
+                const q_o = q_obs[i];
+                const tolerance = get_q_tolerance(original_indices[i]);
                 let best_match = null, min_diff = Infinity;
                 for (const hkl of hkl_search_list) {
-                    const q_calc = getQcalc(hkl, base_cell); // Re-index using the better base_cell
+                    const q_calc = getQcalc(hkl, base_cell);
                     const diff = Math.abs(q_calc - q_o);
                     if (diff < min_diff) { min_diff = diff; best_match = hkl; }
                     if (q_calc > q_o + tolerance * 2) break;
                 }
                 if (best_match && min_diff < tolerance) {
-                    indexed_pairs_final.push({ q_obs: q_o, hkl: best_match, original_peak_index: i });
+                    indexed_pairs_final.push({ q_obs: q_o, hkl: best_match, original_peak_index: original_indices[i] });
                 }
             }
 
-            // *** If the second stage is viable, we proceed. If not, we just skip it. ***
             if (indexed_pairs_final.length >= min_indexed[system]) {
                 const M_full = indexed_pairs_final.map(p => getLSDesignRow(p.hkl, system));
                 const q_vec_final = indexed_pairs_final.map(p => p.q_obs);
                 
                 M_full.forEach((row, i) => {
-                    const original_peak_index = indexed_pairs_final[i].original_peak_index;
-                    const tth_rad = tth_obs_rad[original_indices[original_peak_index]];
-                    row.push((2 / (wavelength**2)) * Math.sin(tth_rad));
+                    const tth_rad = tth_obs_rad[indexed_pairs_final[i].original_peak_index];
+                    row.push((-2 / (wavelength**2)) * Math.sin(tth_rad));
                 });
                 
                 const fit_full = solveLeastSquares(M_full, q_vec_final);
                 
-                // Only if the full fit is successful do we adopt its results
                 if (fit_full && fit_full.solution) {
                     const cell_from_full_fit = extractCellFromFit(fit_full.solution, system);
                     if (cell_from_full_fit) {
-                        // Success! Update our candidate cell to this better one.
                         cell_for_m20_calc = cell_from_full_fit;
                         final_fit_result = fit_full;
-                        cell_for_m20_calc.zero_correction = final_fit_result.solution[final_fit_result.solution.length - 1] * 180 / Math.PI;
+                        const shift_rad = final_fit_result.solution[final_fit_result.solution.length - 1];
+                        cell_for_m20_calc.zero_correction = shift_rad * 180 / Math.PI;
                     }
                 }
-            } // else, the zero-refinement failed, and we silently fall back to the base_cell.
+            }
         }
         
-        // --- STEP 3: Final Validation and Figure of Merit Calculation ---
+        // --- STEP 5: Final Validation and Figure of Merit Calculation ---
         cell_for_m20_calc.volume = getVolume(cell_for_m20_calc);
         if (cell_for_m20_calc.volume > max_volume || cell_for_m20_calc.volume < 20) return;
         
@@ -2254,7 +2281,7 @@ const generateAllUniqueReflections = (cell, d_min) => {
         if (cell_for_m20_calc.zero_correction) {
             const z_corr_deg = cell_for_m20_calc.zero_correction;
             q_obs_for_m20 = new Float64Array(peaks_sorted_by_q.map(p => {
-                const corrected_tth_rad = (peaks[p.original_index].tth - z_corr_deg) * Math.PI / 180;
+                const corrected_tth_rad = (tth_obs_rad[p.original_index] * 180/Math.PI - z_corr_deg) * Math.PI / 180;
                 return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
             }));
         }
@@ -2330,12 +2357,59 @@ const generateAllUniqueReflections = (cell, d_min) => {
         }
     };
 
+
+    const analyzeIndexingAmbiguity = (solution) => {
+        const fullHklList = generateHKL(Math.max(...peaks.map(p => p.tth)), { ...solution, lambda: wavelength }, solution.system);
+        if (!fullHklList || fullHklList.length === 0) return [];
+
+        const indexedPeaksAnalysis = [];
+        const tth_err_val = tth_error * 1.5;
+
+        for (const obs_peak of peaks) {
+            const tth_corr = obs_peak.tth - (solution.zero_correction || 0);
+            let bestMatchHkl = null;
+            let minDiff = Infinity;
+
+            fullHklList.forEach(hkl => {
+                const diff = Math.abs(hkl.tth - tth_corr);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestMatchHkl = hkl;
+                }
+            });
+
+            if (bestMatchHkl && minDiff < tth_error) {
+                let nearbyCount = 0;
+                for (const other_hkl of fullHklList) {
+                    if (Math.abs(tth_corr - other_hkl.tth) < tth_err_val) {
+                        nearbyCount++;
+                    }
+                }
+                indexedPeaksAnalysis.push({
+                    original_peak: obs_peak, // Contains original tth and q
+                    hkl: bestMatchHkl,
+                    ambiguous: nearbyCount > 1
+                });
+            }
+        }
+        return indexedPeaksAnalysis;
+    };
+
+
     // --- DERIVED/TRANSFORMED CELL SEARCH ---
     const findTransformedSolutions = (initialSolutions) => {
-        const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
+        const cellTransforms = [
+            { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] },
+            { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] },
+            { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] },
+            { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] },
+            { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] },
+            { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] },
+            { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] }
+        ];
         
         initialSolutions.forEach(sol => {
-            // 1. Matrix Transformations
+            // 1. Matrix Transformations for different centering types (Unchanged)
             cellTransforms.forEach(tf => {
                 try {
                     const G = metricFromCell(sol); const Pt = transpose(tf.P); const Gprime = matMul(matMul(Pt, G), tf.P);
@@ -2345,22 +2419,94 @@ const generateAllUniqueReflections = (cell, d_min) => {
                 } catch {}
             });
 
-            // 2. HKL Divisor Analysis
-            const indexedPeaks = findIndexedPeaksForSolution(sol, tth_error);
-            if (indexedPeaks.length > 5) {
-                const h_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.h)).filter(h => h > 0));
-                const k_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.k)).filter(k => k > 0));
-                const l_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.l)).filter(l => l > 0));
-                if (h_div > 1 || k_div > 1 || l_div > 1) {
-                    const candCell = { ...sol, a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
-                    const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
-                    if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
+            // 2. DEFINITIVE LOGIC: "Index Swap" Refinement for Supercells
+            const detailedPeaks = analyzeIndexingAmbiguity(sol);
+            if (detailedPeaks.length < 8) return;
+
+            // Helper function that implements your "swap and refit" logic
+            const attemptSwappedRefinement = (axis) => {
+                const get_idx = (p) => (axis === 'h' ? p.hkl.h : (axis === 'k' ? p.hkl.k : p.hkl.l));
+
+                const ambiguousPeaks = detailedPeaks.filter(p => p.ambiguous);
+                const nonAmbiguousPeaks = detailedPeaks.filter(p => !p.ambiguous);
+
+                // Condition 1: All non-ambiguous peaks must follow the rule (e.g., k=2n).
+                const nonAmbigFollowsRule = nonAmbiguousPeaks.every(p => get_idx(p) % 2 === 0);
+                if (!nonAmbigFollowsRule) return;
+
+                // Condition 2: All peaks that break the rule must be ambiguous.
+                const oddIndexPeaks = detailedPeaks.filter(p => get_idx(p) % 2 !== 0);
+                const ruleBreakersAreAllAmbiguous = oddIndexPeaks.every(p => p.ambiguous);
+                if (!ruleBreakersAreAllAmbiguous) return;
+
+                // Hypothesis is strong. Proceed with the swap.
+                const correctedPeakSet = JSON.parse(JSON.stringify(detailedPeaks)); // Deep copy
+                let successfulSwaps = 0;
+
+                for (const oddPeak of oddIndexPeaks) {
+                    let bestPartner = null;
+                    let minTthDiff = Infinity;
+
+                    // Find the closest non-ambiguous neighbor that follows the rule.
+                    for (const evenPartner of nonAmbiguousPeaks) {
+                        const tthDiff = Math.abs(oddPeak.original_peak.tth - evenPartner.original_peak.tth);
+                        if (tthDiff < tth_error && tthDiff < minTthDiff) {
+                            minTthDiff = tthDiff;
+                            bestPartner = evenPartner;
+                        }
+                    }
+
+                    // If a valid swap partner is found, perform the swap in our copied set.
+                    if (bestPartner) {
+                        const originalOddHkl = oddPeak.hkl;
+                        const originalEvenHkl = bestPartner.hkl;
+                        
+                        // Find the corresponding peaks in the copied set to modify them.
+                        const peakToChange1 = correctedPeakSet.find(p => p.original_peak.q === oddPeak.original_peak.q);
+                        const peakToChange2 = correctedPeakSet.find(p => p.original_peak.q === bestPartner.original_peak.q);
+                        
+                        if(peakToChange1 && peakToChange2) {
+                            peakToChange1.hkl = originalEvenHkl;
+                            peakToChange2.hkl = originalOddHkl;
+                            successfulSwaps++;
+                        }
+                    }
                 }
-            }
+                
+                // Only proceed if we could correct all rule-breakers.
+                if (successfulSwaps !== oddIndexPeaks.length) return;
+
+                // Now, the correctedPeakSet has repaired hkl assignments.
+                // Create the dataset for the subcell fit.
+                const subcellPairs = correctedPeakSet.map(p => {
+                    const hkl_old = p.hkl;
+                    let hkl_new;
+                    if (axis === 'h') hkl_new = [hkl_old.h / 2, hkl_old.k, hkl_old.l];
+                    else if (axis === 'k') hkl_new = [hkl_old.h, hkl_old.k / 2, hkl_old.l];
+                    else hkl_new = [hkl_old.h, hkl_old.k, hkl_old.l / 2];
+                    return { q_obs: p.original_peak.q, hkl: hkl_new };
+                });
+
+                // Perform the new fit on the fully repaired, complete dataset.
+                const M = subcellPairs.map(p => getLSDesignRow(p.hkl, sol.system));
+                const q_vec = subcellPairs.map(p => p.q_obs);
+                const fitResult = solveLeastSquares(M, q_vec);
+                if (!fitResult || !fitResult.solution) return;
+
+                // Submit the high-quality guess for full validation.
+                const refinedCellGuess = extractCellFromFit(fitResult.solution, sol.system);
+                if (refinedCellGuess) refineAndTestSolution(refinedCellGuess);
+            };
+
+            // Attempt the swap-and-refit strategy for each axis.
+            attemptSwappedRefinement('h');
+            attemptSwappedRefinement('k');
+            attemptSwappedRefinement('l');
             
-            // 3. Orthorhombic to Hexagonal Check
+            // 3. Orthorhombic to Hexagonal Check (Unchanged)
             if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {
-                const axes = { a: sol.a, b: sol.b, c: sol.c }; const pairs = [['a','b','c'], ['a','c','b'], ['b','c','a']];
+                const axes = { a: sol.a, b: sol.b, c: sol.c };
+                const pairs = [['a', 'b', 'c'], ['a', 'c', 'b'], ['b', 'c', 'a']];
                 pairs.forEach(([ax1, ax2, unique_ax]) => {
                     if (Math.abs(axes[ax2] / axes[ax1] / Math.sqrt(3) - 1) < 0.03) {
                         refineAndTestSolution({ system: 'hexagonal', a: axes[ax1], c: axes[unique_ax], beta: 90, gamma: 120 });
@@ -2369,6 +2515,7 @@ const generateAllUniqueReflections = (cell, d_min) => {
             }
         });
     };
+
 
     // --- EXECUTION & REPORTING ---
     if (systemToSearch === 'cubic') indexCubic();
