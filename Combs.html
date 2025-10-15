@@ -1,0 +1,2361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Combs-Powder Indexing</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <style>
+        :root {
+            --dark-bg: #111827;
+            --medium-bg: #1f2937;
+            --light-bg: #374151;
+            --border-color: #4b5563;
+            --primary-accent: #1a73e8;
+            --primary-accent-hover: #1765cc;
+            --text-light: #e5e7eb;
+            --text-medium: #d1d5db;
+            --text-dark: #9ca3af;
+            --success-green: #16a34a;
+            --error-red: #dc2626;
+            --led-gray: #6b7280;
+        }
+
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f9fafb; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
+        
+        #controls-panel { 
+            width: 400px; min-width: 300px; max-width: 700px; flex-shrink: 0; 
+            padding: 24px; background-color: var(--dark-bg); border-right: 1px solid var(--light-bg); 
+            overflow-y: visible; color: var(--text-medium); display: flex; flex-direction: column;
+            position: relative;
+            z-index: 20;
+        }
+        
+        #drag-handle { width: 6px; cursor: col-resize; background-color: var(--light-bg); flex-shrink: 0; transition: background-color: 0.2s; }
+        #drag-handle:hover, #drag-handle:active { background-color: var(--primary-accent); }
+        
+        #results-area { 
+            flex-grow: 1; position: relative; background-color: #ffffff; 
+            min-width: 0; display: flex; flex-direction: column; 
+            padding: 1.5rem; color: var(--medium-bg);
+            z-index: 10;
+        }
+
+        .control-group { margin-bottom: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--light-bg); }
+        .control-group:first-child { border-top: none; padding-top: 0; }
+        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-dark); font-size: 0.875rem; }
+        .control-input, .control-select { width: 100%; background-color: var(--light-bg); border: 1px solid var(--border-color); color: var(--text-light); border-radius: 0.35rem; padding: 0.5rem 0.75rem; transition: all 0.2s ease; box-sizing: border-box; }
+        .control-input:focus, .control-select:focus { outline: none; border-color: var(--primary-accent); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
+ 
+        .btn-like {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.6rem 1rem;
+            border-radius: 0.375rem;
+            font-weight: 600;
+            font-size: 1rem;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+
+        .btn {
+            transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .btn-primary { background-color: var(--primary-accent); color: white; }
+        .btn-primary:hover:not(:disabled) { background-color: var(--primary-accent-hover); }
+        .btn-secondary { background-color: var(--light-bg); color: var(--text-light); border-color: var(--border-color); }
+        .btn-secondary:hover:not(:disabled) { background-color: #4a5568; }
+        .btn:disabled { background-color: var(--border-color); cursor: not-allowed; opacity: 0.7; }
+
+        .file-input-label {
+            background-color: var(--border-color);
+            color: var(--text-medium);
+        }
+        .file-input-label:hover { background-color: #6b7280; }
+        .file-input-label.error { border: 1px solid var(--error-red); color: var(--error-red); }
+        .parameter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-medium); cursor: pointer;}
+
+        input[type="checkbox"] {
+            accent-color: var(--primary-accent);
+            transform: scale(1.1);
+            vertical-align: middle; 
+        }
+        .hidden { display: none !important; }
+
+        /* Tab Styles */
+        .tab-buttons { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 1rem; }
+        .tab-btn { flex: 1; padding: 0.75rem 0.5rem; background: none; border: none; color: var(--text-dark); font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; gap: 8px;}
+        .tab-btn:hover { color: var(--text-light); }
+        .tab-btn.active { color: var(--primary-accent); border-bottom-color: var(--primary-accent); }
+        .tab-content-panels { flex-grow: 1; min-height: 0; position: relative; }
+        .tab-content-panel { display: none; flex-direction: column; height: 100%; overflow-y: auto; padding-right: 8px; margin-right: -8px;}
+        .tab-content-panel.active { display: flex; }
+        .tab-content-panel::-webkit-scrollbar { width: 6px; }
+        .tab-content-panel::-webkit-scrollbar-track { background: var(--dark-bg); }
+        .tab-content-panel::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        .tab-content-panel::-webkit-scrollbar-thumb:hover { background: var(--light-bg); }
+        #solutions-tab-content .control-group { flex-grow: 1; display: flex; flex-direction: column; margin-bottom: 0;}
+        #solutions-table-container { flex-grow: 1; overflow-y: auto; background-color: var(--medium-bg); border-radius: 0.375rem; border: 1px solid var(--border-color); }
+
+        /* --- LED Indicator Styles --- */
+        .led-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transition: background-color 0.3s ease;
+        }
+        .led-indicator.gray { background-color: var(--led-gray); }
+        .led-indicator.green { background-color: var(--success-green); box-shadow: 0 0 5px var(--success-green);}
+        .led-indicator.red { background-color: var(--error-red); box-shadow: 0 0 5px var(--error-red); }
+
+        #peak-table-container {
+            overflow-y: auto;
+            background-color: var(--medium-bg);
+            border-radius: 0.375rem;
+            border: 1px solid var(--border-color);
+            margin-top: 1rem;
+        }
+        .peak-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        .peak-table th, .peak-table td { padding: 0.5rem; text-align: right; border-bottom: 1px solid var(--border-color); }
+        .peak-table th { background-color: #2a3547; font-weight: 600; text-align: center; position: sticky; top: 0; }
+        .peak-table input { width: 100%; background: transparent; border: none; color: var(--text-light); text-align: right; padding: 2px; border-radius: 2px; }
+        .peak-table input:focus { background-color: var(--light-bg); outline: 1px solid var(--primary-accent); }
+        .peak-table th, .peak-table td, .peak-table input { text-align: center; }
+        .delete-peak-btn { background: none; border: none; color: var(--text-dark); cursor: pointer; font-weight: bold; }
+        .delete-peak-btn:hover { color: var(--error-red); }
+
+        .solutions-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+        .solutions-table th, .solutions-table td { padding: 0.5rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle;}
+        .solutions-table th { background-color: #2a3547; font-weight: 600; position: sticky; top: 0;}
+        .solutions-table th[data-sort] { cursor: pointer; } 
+        .solutions-table th[data-sort]:hover { background-color: var(--light-bg); }
+        .solutions-table th.sort-asc::after,
+        .solutions-table th.sort-desc::after {
+            content: ''; display: inline-block; margin-left: 5px; width: 0; height: 0;
+            border-left: 4px solid transparent; border-right: 4px solid transparent;
+        }
+        .solutions-table th.sort-asc::after { border-bottom: 4px solid var(--text-light); }
+        .solutions-table th.sort-desc::after { border-top: 4px solid var(--text-light); }
+        .solutions-table td:nth-child(4), .solutions-table td:nth-child(5) { text-align: right; } /* Align Vol and M20 right */
+
+        .solutions-table tbody tr { cursor: pointer; transition: background-color: 0.2s; }
+        .solutions-table tbody tr:hover { background-color: var(--light-bg); }
+        .solutions-table tbody tr.selected { background-color: var(--primary-accent); color: white;}
+
+        .bottom-actions { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--light-bg); }
+
+        #status-box {
+            position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px;
+            color: white; font-size: 0.8rem; font-weight: 500; z-index: 1000;
+            opacity: 0; visibility: hidden; transform: translateY(20px);
+            transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        #status-box.show { opacity: 1; visibility: visible; transform: translateY(0); }
+        #status-box.success { background-color: var(--success-green); }
+        #status-box.error { background-color: var(--error-red); }
+        #status-box.info { background-color: var(--border-color); }
+
+        /* --- Help Tooltip Styles --- */
+        .help-tooltip-container { position: relative; display: inline-block; }
+        .help-icon {
+            display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+            background-color: var(--border-color); color: var(--text-light); border-radius: 50%;
+            font-weight: bold; font-size: 1rem; cursor: help; transition: background-color: 0.2s;
+        }
+        .help-icon:hover { background-color: #6b7280; }
+
+
+        .tooltip-content {
+    visibility: hidden;
+    opacity: 0;
+    width: 320px;
+    background-color: var(--light-bg);
+    color: var(--text-medium);
+    text-align: left;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    position: absolute;
+    z-index: 1001;
+    top: -15px;
+    left: 115%;
+    margin-left: 10px;
+    /* This transition applies when hiding the tooltip */
+    transition: opacity 0.3s;
+    /* Wait 1 second after the mouse leaves before starting to hide */
+    transition-delay: 2s;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.help-tooltip-container:hover .tooltip-content {
+     visibility: visible;
+     opacity: 1;
+     transition-delay: 0s;
+}
+
+.help-tooltip-container::after {
+    content: '';
+    position: absolute;
+    /* This creates a transparent element over the gap */
+    left: 100%;
+    width: 10px; 
+    /* This makes it cover the full height of the icon */
+    top: 0;
+    bottom: 0;
+}
+
+
+        .tooltip-content::after {
+            content: ""; position: absolute;
+            top: 20px; 
+            right: 100%;
+            margin-top: -5px; 
+            border-width: 5px; border-style: solid;
+            border-color: transparent var(--light-bg) transparent transparent;
+        }
+        
+        .tooltip-content h4 { color: var(--text-light); font-size: 0.9rem; margin-top: 0; margin-bottom: 0.5rem; font-weight: 600; }
+        .tooltip-content p { margin-top: 0; margin-bottom: 0.75rem; line-height: 1.4; }
+        .tooltip-content p:last-child { margin-bottom: 0; }
+        .tooltip-content hr { border: none; border-top: 1px solid var(--border-color); margin: 0.75rem 0; }
+
+        #app-footer {
+    position: fixed;   /* Keeps it on the screen even if you scroll */
+    bottom: 8px;      
+    right: 15px;      
+    font-size: 0.75rem; 
+    color: var(--text-dark); 
+    z-index: 1001;     
+}
+
+        /* --- Compact Slider Styles --- */
+        .slider-group {
+            display: grid;
+            grid-template-columns: minmax(100px, auto) 1fr;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .slider-group:last-child {
+            margin-bottom: 0;
+        }
+        .slider-group > .control-label {
+            margin-bottom: 0;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .slider-value-track {
+            grid-column: 2;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+            align-items: center;
+        }
+        .slider-value-track > * {
+            grid-column: 1;
+            grid-row: 1;
+        }
+        .slider-value-display {
+            text-align: center;
+            color: var(--text-dark);
+            font-weight: 500;
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+        input[type="range"].custom-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 32px;
+            background: var(--medium-bg);
+            border-radius: 6px;
+            outline: none;
+            padding: 0;
+            margin: 0;
+        }
+        input[type="range"].custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 15px;
+            height: 15px;
+            background: var(--primary-accent);
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--text-light);
+            box-sizing: border-box;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+        }
+        input[type="range"].custom-slider::-moz-range-thumb {
+            width: 15px;
+            height: 15px;
+            background: var(--primary-accent);
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--text-light);
+            box-sizing: border-box;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+        }
+        input[type="range"].custom-slider:disabled {
+            background: var(--light-bg);
+        }
+        input[type="range"].custom-slider:disabled::-webkit-slider-thumb {
+            background: var(--border-color);
+        }
+        input[type="range"].custom-slider:disabled::-moz-range-thumb {
+            background: var(--border-color);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="controls-panel">
+
+            <div class="control-group">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <label for="file-input" class="file-input-label btn-like" style="flex-grow: 1;">
+                        <span id="file-name">Select Data File</span>
+                    </label>
+                     <div class="help-tooltip-container">
+                        <span class="help-icon" aria-label="Help and usage information">?</span>
+
+
+ 
+                        <div class="tooltip-content">
+    <h4>Powder XRD Indexing</h4>
+    <p>Determine unit cell parameters by using <a href="combs_help.html" target="_blank" style="color: #6495ED;">a random hkl search</a>. Assign random hkl to large d peaks and try to find a corresponding cell.</p>
+    <p>This is a simple version under development, use it for simple systems or for educational purposes. For real stuff use the original code or other indexing programs.</p>
+    <hr>
+    <h4>Supported File Formats:</h4>
+    <p>Generic 2-column (2&theta; intensity), .xrdml, .brml, .ras, .uxd, .udf, GSAS .esd</p>
+    <hr>
+    <h4>Chart Interaction:</h4>
+    <p><b>Zoom:</b> Use the mouse wheel over the plot, X-axis, or Y-axis. Right-click to reset zoom.</p>
+    <p><b>Pan:</b> Click and drag the chart to pan.</p>
+    <p><b>Add Peak:</b> Hold <b>Ctrl</b> and click on the chart to manually add a peak at that position.</p>
+</div>
+
+
+                    </div>
+                </div>
+                <input type="file" id="file-input" class="hidden" accept=".xy,.csv,.txt,.xrdml,.brml,.ras,.esd,.std,.udf,.xra,.gsa">
+            </div>
+
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="peaks">Peaks</button>
+                <button class="tab-btn" data-tab="parameters">Parameters</button>
+                <button class="tab-btn" data-tab="solutions">
+                    Solutions
+                    <span id="solutions-led" class="led-indicator gray" aria-label="Solutions status indicator"></span>
+                </button>
+            </div>
+
+            <div class="tab-content-panels">
+                <div id="peaks-tab-content" class="tab-content-panel active">
+                     <div class="control-group" style="width: 100%; flex-grow: 1; display: flex; flex-direction: column;">
+                        <div id="peak-controls" class="hidden" style="display: flex; flex-direction: column; flex-grow: 1;">
+                            
+                            <div class="slider-group">
+                                <label class="control-label">Min peak (%)</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="peak-threshold-slider" class="custom-slider" min="0" max="100" value="56">
+                                    <span id="peak-threshold-value" class="slider-value-display">2.0</span>
+                                </div>
+                            </div>
+                            
+                            <div class="slider-group">
+                                <label class="control-label">Radius (pts)</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="ball-radius-slider" class="custom-slider" min="1" max="200" value="40" step="1">
+                                    <span id="ball-radius-value" class="slider-value-display">40</span>
+                                </div>
+                            </div>
+                            
+                            <div class="slider-group">
+                                <label class="control-label">Points</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="smoothing-width-slider" class="custom-slider" min="1" max="100" value="10" step="1">
+                                    <span id="smoothing-width-value" class="slider-value-display">10</span>
+                                </div>
+                            </div>
+
+                            <div style="border-top: 1px solid var(--border-color); margin: 1.5rem 0;"></div>
+
+                            <div class="slider-group">
+                                <label class="control-label">2θ Min</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="tth-min-slider" class="custom-slider" disabled>
+                                    <span id="tth-min-value" class="slider-value-display">-</span>
+                                </div>
+                            </div>
+                            <div class="slider-group">
+                                <label class="control-label">2θ Max</label>
+                                <div class="slider-value-track">
+                                    <input type="range" id="tth-max-slider" class="custom-slider" disabled>
+                                    <span id="tth-max-value" class="slider-value-display">-</span>
+                                </div>
+                            </div>
+                            
+                            <div id="peak-table-container" class="hidden" style="flex-grow: 1; min-height: 0;">
+                                <table class="peak-table">
+                                    <thead><tr><th>#</th><th>2θ Obs (°)</th><th>d (Å)</th><th>Del</th></tr></thead>
+                                    <tbody id="peak-list-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="parameters-tab-content" class="tab-content-panel">
+                    <div class="control-group" style="width: 100%;">
+                        <div id="indexing-controls" class="hidden">
+                            <div class="parameter-grid">
+                                <div>
+                                    <label for="wavelength" class="control-label">Wavelength (Å)</label>
+                                    <input type="number" id="wavelength" value="1.54178" step="0.00001" min="0.1" class="control-input">
+                                </div>
+                                <div>
+                                    <label for="max-volume" class="control-label">Max Volume (Å³)</label>
+                                    <input type="number" id="max-volume" value="1000" step="100" min="60" max="12000" class="control-input">
+                                </div>
+                            </div>
+                            <div class="parameter-grid" style="margin-top: 1rem;">
+                                <div>
+                                    <label for="tth-error" class="control-label">2θ Error (°)</label>
+                                    <input type="number" id="tth-error" value="0.05" step="0.005" min="0.001" class="control-input">
+                                </div>
+                                <div>
+                                    <label for="impurity-peaks" class="control-label">Impurity Peaks</label>
+                                    <input type="number" id="impurity-peaks" value="0" min="0" max="5" step="1" class="control-input">
+                                </div>
+                            </div>
+                            
+                            <!-- Zero Refinement Checkbox -->
+                            <div style="margin-top: 1.5rem;">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="refine-zero-checkbox"> Refine Zero-Point Error
+                                </label>
+                            </div>
+
+                            <label class="control-label" style="margin-top: 1.5rem; margin-bottom: 1rem;">Crystal Systems to Search:</label>
+                            <div class="parameter-grid">
+                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="cubic" checked> Cubic</label>
+                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="tetragonal" checked> Tetragonal</label>
+                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="hexagonal" checked> Hexagonal</label>
+                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="orthorhombic" > Orthorhombic</label>
+                                <label class="checkbox-label"><input type="checkbox" class="system-checkbox" value="monoclinic" > Monoclinic</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="solutions-tab-content" class="tab-content-panel">
+                    <div class="control-group" style="width: 100%;">
+                         <div id="solutions-table-container">
+                            <table class="solutions-table">
+                                <thead><tr>
+                                    <th data-sort="system">Sys.</th>
+                                    <th>Parameters (Å)</th>
+                                    <th>Angles (°)</th>
+                                    <th data-sort="volume">Vol</th>
+                                    <th data-sort="m20">M(20)</th>
+                                </tr></thead>
+                                <tbody id="solutions-table-body"></tbody>
+                            </table>
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bottom-actions">
+                <div id="progress-bar-container" class="hidden" style="width: 100%; background-color: var(--light-bg); border-radius: 9999px; height: 0.625rem; margin-bottom: 0.5rem;">
+                    <div id="progress-bar" style="background-color: var(--primary-accent); height: 0.625rem; border-radius: 9999px; width: 0%; transition: width 0.2s;"></div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="start-indexing-button" class="btn btn-primary btn-like" style="flex: 1;" disabled>Find Peaks to Start</button>
+                    <button id="report-button" class="btn btn-secondary btn-like" style="flex: 1;" disabled>Generate PDF Report</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="drag-handle"></div>
+
+        <div id="results-area">
+             <div id="placeholder" style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #6b7280;">
+                <svg xmlns="http://www.w3.org/2000/svg" style="width: 4rem; height: 4rem; margin-bottom: 1rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                <h2 style="font-size: 1.5rem; font-weight: 600;">Awaiting Data</h2>
+                <p>Load a data file to begin indexing.</p>
+            </div>
+            <div id="results-container" style="width: 100%; height: 100%; display: none; flex-direction: column; position: relative;">
+                <canvas id="xrd-chart"></canvas>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="status-box"></div>
+
+    <script>
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    const ui = {
+        fileInput: document.getElementById('file-input'),
+        fileInputLabel: document.querySelector('.file-input-label'),
+        fileName: document.getElementById('file-name'),
+        peakControls: document.getElementById('peak-controls'),
+        peakThresholdSlider: document.getElementById('peak-threshold-slider'),
+        peakThresholdValue: document.getElementById('peak-threshold-value'),
+        peakTableContainer: document.getElementById('peak-table-container'),
+        peakListBody: document.getElementById('peak-list-body'),
+        indexingControls: document.getElementById('indexing-controls'),
+        wavelength: document.getElementById('wavelength'),
+        tthError: document.getElementById('tth-error'),
+        maxVolume: document.getElementById('max-volume'),
+        impurityPeaksInput: document.getElementById('impurity-peaks'),
+        refineZeroCheckbox: document.getElementById('refine-zero-checkbox'),
+        systemCheckboxes: document.querySelectorAll('.system-checkbox'),
+        startIndexingButton: document.getElementById('start-indexing-button'),
+        reportButton: document.getElementById('report-button'),
+        progressBar: document.getElementById('progress-bar'),
+        progressBarContainer: document.getElementById('progress-bar-container'),
+        solutionsTableBody: document.getElementById('solutions-table-body'),
+        solutionsTableHeaders: document.querySelectorAll('#solutions-table-container th'),
+        solutionsLed: document.getElementById('solutions-led'),
+        chartCanvas: document.getElementById('xrd-chart'),
+        placeholder: document.getElementById('placeholder'),
+        resultsContainer: document.getElementById('results-container'),
+        tthMinSlider: document.getElementById('tth-min-slider'),
+        tthMaxSlider: document.getElementById('tth-max-slider'),
+        tthMinValue: document.getElementById('tth-min-value'),
+        tthMaxValue: document.getElementById('tth-max-value'),
+        ballRadiusSlider: document.getElementById('ball-radius-slider'),
+        ballRadiusValue: document.getElementById('ball-radius-value'),
+        smoothingWidthSlider: document.getElementById('smoothing-width-slider'),
+        smoothingWidthValue: document.getElementById('smoothing-width-value'),
+        statusBar: document.getElementById('status-box'),
+        tabButtonsContainer: document.querySelector('.tab-buttons'),
+        tabButtons: document.querySelectorAll('.tab-btn'),
+        tabPanels: document.querySelectorAll('.tab-content-panel')
+    };
+    
+
+
+    
+    ui.solutionsTableHeaders.forEach(header => {
+        header.addEventListener('click', () => {
+            const column = header.dataset.sort;
+            if (!column) return;
+
+            if (sortState.column === column) {
+                sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortState.column = column;
+                sortState.direction = (column === 'm20' || column === 'volume') ? 'desc' : 'asc';
+            }
+
+            sortSolutions();
+            const selectedSystems = Array.from(ui.systemCheckboxes)
+                                         .filter(cb => cb.checked)
+                                         .map(cb => cb.value);
+            displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+            updateSolutionsTable();
+        });
+    });
+
+    ui.systemCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', () => {
+            const selectedSystems = Array.from(ui.systemCheckboxes)
+                                         .filter(cb => cb.checked)
+                                         .map(cb => cb.value);
+            displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+            updateSolutionsTable();
+        });
+    });
+
+    // --- LOGARITHMIC SLIDER CONFIGURATION ---
+    const minPeak = 0.1;
+    const maxPeak = 20;
+    const minLog = Math.log(minPeak);
+    const maxLog = Math.log(maxPeak);
+    const scale = (maxLog - minLog) / 100;
+
+    function valueToLogSlider(value) {
+        if (value <= 0) return 0;
+        return (Math.log(value) - minLog) / scale;
+    }
+
+    function logSliderToValue(position) {
+        return Math.exp(minLog + scale * position);
+    }
+
+    // --- DEBOUNCE UTILITY ---
+    const debounce = (func, delay) => {
+        let timeout;
+        return function(...args) {
+            const context = this;
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(context, args), delay);
+        };
+    };
+    const debouncedFindPeaks = debounce(findPeaks, 250);
+
+    // --- INITIALIZE LOG SLIDER ---
+    const initialPeakThreshold = 2.0;
+    ui.peakThresholdSlider.value = valueToLogSlider(initialPeakThreshold);
+    ui.peakThresholdValue.textContent = initialPeakThreshold.toFixed(1);
+
+    // --- TAB SWITCHING --
+    ui.tabButtonsContainer.addEventListener('click', (e) => {
+        const clickedTab = e.target.closest('.tab-btn');
+        if (!clickedTab || clickedTab.disabled) return;
+        const tabTarget = clickedTab.dataset.tab;
+        ui.tabButtons.forEach(btn => btn.classList.remove('active'));
+        ui.tabPanels.forEach(panel => panel.classList.remove('active'));
+        clickedTab.classList.add('active');
+        document.getElementById(`${tabTarget}-tab-content`).classList.add('active');
+    });
+
+    let statusTimeout;
+    const showStatus = (message, type = 'info', duration = 4000) => {
+        if (!ui.statusBar) {
+            console.warn(`Status bar element (#status-box) not found. Message: "${message}"`);
+            return;
+        }
+        if (statusTimeout) clearTimeout(statusTimeout);
+        ui.statusBar.textContent = message;
+        ui.statusBar.className = `show ${type}`;
+        statusTimeout = setTimeout(() => {
+            if (ui.statusBar) {
+                ui.statusBar.classList.remove('show');
+            }
+        }, duration);
+    };
+
+    let fullExperimentalData = { tth: [], intensity: [] };
+    let pickedPeaks = [];
+    let solutions = [];
+    let displayedSolutions = [];
+    let selectedSolution = null;
+    let currentHklList = [];
+    let xrdChart;
+    let isIndexing = false;
+    let activeWorkers = [];
+    let sortState = { column: 'm20', direction: 'desc' };
+    let workerURL = null;
+
+    const setupWorker = () => {
+        try {
+            const workerScript = document.getElementById('indexing-worker').textContent;
+            const blob = new Blob([workerScript], { type: 'application/javascript' });
+            workerURL = URL.createObjectURL(blob);
+        } catch (error) {
+            console.error("Failed to create worker blob URL:", error);
+            showStatus("Critical error: Could not initialize indexing engine.", "error", 10000);
+        }
+    };
+    setupWorker();
+
+    // --- SYSTEMATIC ABSENCE ANALYSIS HELPERS -
+    const max_hkl_analysis = 10;
+
+
+    function generateHKL_for_analysis(params, lambda, maxTth) { 
+        const { a, b: b_in, c: c_in, beta: beta_in, system } = params;
+        const b = b_in ?? a; const c = c_in ?? a; const beta = beta_in ?? 90;
+        const reflections = [];
+        for (let h = -max_hkl_analysis; h <= max_hkl_analysis; h++) { 
+            for (let k = -max_hkl_analysis; k <= max_hkl_analysis; k++) { 
+                for (let l = -max_hkl_analysis; l <= max_hkl_analysis; l++) {
+                    if (h === 0 && k === 0 && l === 0) continue; 
+                    let inv_d_sq = 0;
+                    switch (system) {
+                        case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
+                        case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                        case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
+                        case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                        case 'monoclinic': 
+                            const sinBeta = Math.sin(beta*Math.PI/180); const cosBeta = Math.cos(beta*Math.PI/180); 
+                            inv_d_sq = (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b); 
+                            break;
+                    }
+                    if (inv_d_sq > 0) { 
+                        const d = 1/Math.sqrt(inv_d_sq); 
+                        const sinThetaSq = (lambda*lambda/4)*inv_d_sq; 
+                        if (sinThetaSq <= 1) { 
+                            const tth = 2*Math.asin(Math.sqrt(sinThetaSq))*(180/Math.PI); 
+                            if(tth <= maxTth*1.05) reflections.push({ tth, h, k, l, d }); 
+                        } 
+                    }
+                }
+            }
+        } 
+        return reflections.sort((a, b) => a.tth - b.tth);
+    };
+
+
+    // --- REPLACE the old function with this NEW version ---
+
+
+
+
+function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
+    // Step 1: Generate a reliable list of observed HKLs, storing the obs 2-theta
+    const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p => p.tth)));
+    const obs_hkl_list = [];
+    const used_peaks = new Set();
+    const corrected_obs_peaks = obs_peaks.map(p => ({ ...p, tth: p.tth - (solution.zero_correction || 0) }));
+    corrected_obs_peaks.forEach(peak => { peak.d = wavelength / (2 * Math.sin(peak.tth * Math.PI / 360)); });
+    const q_from_tth = (tth) => (4 * Math.pow(Math.sin(tth * Math.PI / 360), 2)) / (wavelength * wavelength);
+
+    all_hkls.forEach(hkl => {
+        let bestMatch = null; let minDiff = Infinity;
+        corrected_obs_peaks.forEach((peak, index) => {
+            if (used_peaks.has(index)) return;
+            const diff = Math.abs(hkl.d - peak.d);
+            if (diff < minDiff) { minDiff = diff; bestMatch = { peak, index }; }
+        });
+        if (bestMatch) {
+            const q_o = q_from_tth(bestMatch.peak.tth);
+            const d_theta = tthError * Math.PI / 360;
+            const q_tolerance = ((8 * Math.sin(bestMatch.peak.tth * Math.PI / 360) * Math.cos(bestMatch.peak.tth * Math.PI / 360)) / (wavelength * wavelength)) * d_theta;
+            const d_tolerance = Math.abs(1 / Math.sqrt(q_o + q_tolerance) - 1 / Math.sqrt(q_o - q_tolerance)) / 2;
+            if (minDiff < d_tolerance * 1.5) {
+                // Store the original observed 2-theta with the matched HKL
+                obs_hkl_list.push({ ...hkl, tth_obs: obs_peaks[bestMatch.index].tth });
+                used_peaks.add(bestMatch.index);
+            }
+        }
+    });
+
+    if (obs_hkl_list.length < 5) {
+        return { centering: 'Unknown (too few peaks)', conditions: [], possibleSpaceGroups: [], probableSpaceGroups: [] };
+    }
+
+    // Step 2: Count violations for all possible centering rules
+    const totalObs = obs_hkl_list.length;
+    const system = solution.system;
+    const violations = { F: 0, I: 0, A: 0, B: 0, C: 0, R: 0 };
+    const isOrthoMono = (system === 'orthorhombic' || system === 'monoclinic');
+
+    for (const { h, k, l } of obs_hkl_list) {
+        if (Math.abs((h + k + l) % 2) !== 0) violations.I++;
+        if (Math.abs(h % 2) !== Math.abs(k % 2) || Math.abs(k % 2) !== Math.abs(l % 2)) violations.F++;
+        if (isOrthoMono && Math.abs((k + l) % 2) !== 0) violations.A++;
+        if (isOrthoMono && Math.abs((h + l) % 2) !== 0) violations.B++;
+        if (isOrthoMono && Math.abs((h + k) % 2) !== 0) violations.C++;
+        if ((system === 'trigonal' || system === 'hexagonal') && ((-h + k + l) % 3 !== 0)) violations.R++;
+    }
+
+    const scores = {
+        F: (totalObs - violations.F) / totalObs,
+        I: (totalObs - violations.I) / totalObs,
+        A: (totalObs - violations.A) / totalObs,
+        B: (totalObs - violations.B) / totalObs,
+        C: (totalObs - violations.C) / totalObs,
+        R: (totalObs - violations.R) / totalObs
+    };
+
+    // Step 3: Select best centering based on score and a threshold
+    const THRESHOLD = 0.85;
+    let centering = 'Primitive (P)';
+    let bestScore = 0;
+    let bestKey = null;
+    let violatingReflections = [];
+
+    if (scores.F >= THRESHOLD && scores.F > bestScore) { centering = 'Face (F)'; bestScore = scores.F; bestKey = 'F'; }
+    if (scores.I >= THRESHOLD && scores.I > bestScore) { centering = 'Body (I)'; bestScore = scores.I; bestKey = 'I'; }
+    if (isOrthoMono && scores.A >= THRESHOLD && scores.A > bestScore) { centering = 'A-Face (A)'; bestScore = scores.A; bestKey = 'A'; }
+    if (isOrthoMono && scores.B >= THRESHOLD && scores.B > bestScore) { centering = 'B-Face (B)'; bestScore = scores.B; bestKey = 'B'; }
+    if (isOrthoMono && scores.C >= THRESHOLD && scores.C > bestScore) { centering = 'C-Face (C)'; bestScore = scores.C; bestKey = 'C'; }
+    if ((system === 'trigonal' || system === 'hexagonal') && scores.R >= THRESHOLD && scores.R > bestScore) { centering = 'Rhombohedral (R)'; bestScore = scores.R; bestKey = 'R'; }
+    
+    // Step 4: Identify violating reflections and build the summary string
+    if (bestKey) {
+        let violators = [];
+        let rule = '';
+        switch (bestKey) {
+            case 'I': rule = 'h+k+l=2n'; violators = obs_hkl_list.filter(({h,k,l}) => Math.abs((h+k+l)%2)!==0); break;
+            case 'F': rule = 'h,k,l parity'; violators = obs_hkl_list.filter(({h,k,l}) => Math.abs(h%2)!==Math.abs(k%2) || Math.abs(k%2)!==Math.abs(l%2)); break;
+            case 'A': rule = 'k+l=2n'; violators = obs_hkl_list.filter(({k,l}) => Math.abs((k+l)%2)!==0); break;
+            case 'B': rule = 'h+l=2n'; violators = obs_hkl_list.filter(({h,l}) => Math.abs((h+l)%2)!==0); break;
+            case 'C': rule = 'h+k=2n'; violators = obs_hkl_list.filter(({h,k}) => Math.abs((h+k)%2)!==0); break;
+            case 'R': rule = '-h+k+l=3n'; violators = obs_hkl_list.filter(({h,k,l}) => ((-h+k+l)%3!==0)); break;
+        }
+
+        if (violators.length > 0) {
+            // **MODIFIED PART**: Format the violating reflections string to include the 2-theta value
+            const violatorsString = violators.map(r => `(${r.h},${r.k},${r.l} at ${r.tth_obs.toFixed(2)}°)`)
+                                             .join(', ');
+            violatingReflections.push(`Violates ${rule}: ${violatorsString}`);
+        }
+
+        const matchCount = totalObs - violations[bestKey];
+        violatingReflections.unshift(`${(bestScore * 100).toFixed(0)}% match (${matchCount}/${totalObs} peaks)`);
+    }
+
+    return {
+        centering: centering,
+        conditions: violatingReflections,
+        possibleSpaceGroups: [],
+        probableSpaceGroups: []
+    };
+}
+
+    const inputsToValidate = [
+        { id: 'wavelength', el: ui.wavelength, default: 1.541780 },
+        { id: 'max-volume', el: ui.maxVolume, default: 1000 },
+        { id: 'tth-error', el: ui.tthError, default: 0.05 },
+        { id: 'impurity-peaks', el: ui.impurityPeaksInput, default: 0 },
+    ];
+
+    inputsToValidate.forEach(({ id, el, default: defaultValue }) => {
+        if (el) {
+            el.addEventListener('blur', () => {
+                const min = parseFloat(el.min);
+                const max = parseFloat(el.max);
+                let value = parseFloat(el.value);
+                if (isNaN(value)) { el.value = defaultValue; return; }
+                if (!isNaN(min) && value < min) el.value = min;
+                if (!isNaN(max) && value > max) el.value = max;
+            });
+        } else {
+            console.error(`Initialization Error: The element with id="${id}" was not found.`);
+        }
+    });
+
+    if (ui.wavelength) {
+        ui.wavelength.addEventListener('change', () => {
+            if (pickedPeaks.length > 0) {
+                recalculatePeakValues();
+                updatePeakTable();
+            }
+        });
+    }
+
+
+        const detectAndParseFile = (fileName, fileContent) => {
+    const name = fileName.toLowerCase();
+    const lines = fileContent.trim().split(/\r?\n/);
+    const firstLine = lines.length > 0 ? lines[0].trim() : '';
+    
+    if (name.endsWith('.uxd') || firstLine.startsWith('_FILEVERSION')) return parseUxdFile(fileContent);
+    if (name.endsWith('.xrdml') || (fileContent.includes('<?xml') && fileContent.includes('<xrdMeasurement'))) return parseXrdmlFile(fileContent);
+    if (name.endsWith('.brml') || (fileContent.includes('<?xml') && fileContent.includes('<RawDataFile'))) return parseBrukerBrmlFile(fileContent);
+    if (name.endsWith('.ras') || fileContent.toUpperCase().includes('*RAS_HEADER_START')) return parseRigakuRasFile(fileContent);
+    if (name.endsWith('.udf')) return parsePhilipsUdfFile(fileContent);
+
+    // New, more robust GSAS detection logic
+    const bankLine = lines.find(line => line.trim().toUpperCase().startsWith('BANK'));
+    if (bankLine) {
+        // XRA format has 'STD' on the same line as 'BANK'
+        if (bankLine.toUpperCase().includes('STD')) {
+            return parseGsasXraFile(fileContent);
+        }
+        // Otherwise, assume it's the ESD format (Y, sigY pairs)
+        return parseGsasEsdFile(fileContent);
+    }
+
+    // Fallback to generic two-column parser
+    return parseDataFile(fileContent);
+};
+        
+        const parseDataFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; lines.forEach(line => { if (line.startsWith('#') || line.startsWith('//') || line.trim() === '') return; const parts = line.trim().split(/[\s,;]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } }); return { tth, intensity }; };
+        const parseXrdmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing XRDML file."); } let wavelength = null; const kAlpha1Node = xmlDoc.querySelector("kAlpha1"); if (kAlpha1Node?.textContent) wavelength = parseFloat(kAlpha1Node.textContent); const intensityNode = xmlDoc.querySelector("intensities") || xmlDoc.querySelector("counts"); if (!intensityNode) throw new Error("Could not find <intensities> or <counts> in XRDML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const positionsNode = xmlDoc.querySelector('positions[axis="2Theta"]'); if (!positionsNode) throw new Error("Could not find <positions> in XRDML file."); const startPosNode = positionsNode.querySelector("startPosition"); const endPosNode = positionsNode.querySelector("endPosition"); if (!startPosNode || !endPosNode) throw new Error("Could not find start/end positions in XRDML."); const startPos = parseFloat(startPosNode.textContent); const endPos = parseFloat(endPosNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * (endPos - startPos) / (intensity.length - 1)); return { tth, intensity, wavelength }; };
+        const parseBrukerBrmlFile = (xmlString) => { const parser = new DOMParser(); const xmlDoc = parser.parseFromString(xmlString, "application/xml"); if (xmlDoc.querySelector("parsererror")) { throw new Error("Error parsing BRML file."); } let wavelength = null; const wlNode = xmlDoc.querySelector('usedWavelength'); if (wlNode) { const kAlpha1 = wlNode.getAttribute('kAlpha1'); if (kAlpha1) wavelength = parseFloat(kAlpha1); } const intensityNode = xmlDoc.querySelector("dataPoints > counts"); if (!intensityNode) throw new Error("No <counts> data found in BRML file."); const intensity = intensityNode.textContent.trim().split(/\s+/).map(Number); const startPosNode = xmlDoc.querySelector('startPosition[axis="TwoTheta"]'); const stepSizeNode = xmlDoc.querySelector('increment[axis="TwoTheta"]'); if (!startPosNode || !stepSizeNode) throw new Error("Could not find scan parameters in BRML file."); const startPos = parseFloat(startPosNode.textContent); const stepSize = parseFloat(stepSizeNode.textContent); const tth = Array.from({ length: intensity.length }, (_, i) => startPos + i * stepSize); return { tth, intensity, wavelength }; };
+        const parseRigakuRasFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const upperLine = line.toUpperCase(); if (upperLine.startsWith('*WAVE_LENGTH') || upperLine.startsWith('*MEAS_COND_XG_WAVE_LENGTH')) { const parts = line.trim().split(/\s+/); if (parts.length > 1) { const wl = parseFloat(parts[1]); if (!isNaN(wl)) wavelength = wl; } } if (upperLine.startsWith('*RAS_INT_START')) { inDataSection = true; continue; } if (upperLine.startsWith('*RAS_INT_END')) break; if (inDataSection) { const parts = line.trim().split(/[\s,]+/); if (parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No data found in RAS file data section."); return { tth, intensity, wavelength }; };
+        const parseGsasEsdFile = (text) => { const lines = text.trim().split(/\r?\n/); let wavelength = null; let startTth, stepSize; let dataStartIndex = -1; lines.forEach((line, index) => { const upperLine = line.toUpperCase(); if (upperLine.includes('WAVELENGTH')) { const match = line.match(/wavelength\s+([0-9.]+)/i); if (match && match[1]) wavelength = parseFloat(match[1]); } if (upperLine.startsWith('BANK')) { const parts = line.trim().split(/\s+/); if (parts.length >= 6 && parts[4].toUpperCase() === 'CONST') { startTth = parseFloat(parts[5]) / 100.0; stepSize = parseFloat(parts[6]) / 100.0; dataStartIndex = index + 1; } } }); if (startTth === undefined || stepSize === undefined) throw new Error("GSAS Parse Error: Could not find a valid 'BANK' line with CONST scan parameters."); if (dataStartIndex !== -1 && lines[dataStartIndex]?.toUpperCase().includes('STD')) dataStartIndex++; if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS Parse Error: Found scan parameters but no subsequent data lines."); const intensity = []; for (let i = dataStartIndex; i < lines.length; i++) { const parts = lines[i].trim().split(/\s+/); for (let j = 1; j < parts.length; j += 2) { const val = parseFloat(parts[j]); if (!isNaN(val)) intensity.push(val); } } if (intensity.length === 0) throw new Error("GSAS Parse Error: No intensity data could be parsed."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        
+        const parseGsasXraFile = (text) => {
+    const lines = text.trim().split(/\r?\n/);
+    let wavelength = null;
+    let startTth, stepSize;
+    let dataStartIndex = -1;
+    lines.forEach((line, index) => {
+        const upperLine = line.toUpperCase();
+        if (upperLine.includes('WAVELENGTH')) {
+            const match = line.match(/wavelength\s+([0-9.]+)/i);
+            if (match && match[1]) wavelength = parseFloat(match[1]);
+        }
+        if (upperLine.startsWith('BANK')) {
+            const parts = line.trim().split(/\s+/);
+            // This format has CONST at index 4, start at 5, step at 6
+            if (parts.length >= 7 && parts[4].toUpperCase() === 'CONST') {
+                startTth = parseFloat(parts[5]) / 100.0;
+                stepSize = parseFloat(parts[6]) / 100.0;
+                dataStartIndex = index + 1; // Data starts on the next line
+            }
+        }
+    });
+
+    if (startTth === undefined || stepSize === undefined) throw new Error("GSAS XRA Parse Error: Could not find a valid 'BANK' line with CONST scan parameters.");
+    if (dataStartIndex === -1 || dataStartIndex >= lines.length) throw new Error("GSAS XRA Parse Error: Found scan parameters but no subsequent data lines.");
+
+    const intensity = [];
+    for (let i = dataStartIndex; i < lines.length; i++) {
+        // Ignore blank lines that might be at the end of the file
+        if (lines[i].trim() === '') continue;
+        const parts = lines[i].trim().split(/\s+/);
+        // This loop reads every value, as XRA format is intensity-only
+        for (let j = 0; j < parts.length; j++) {
+            const val = parseFloat(parts[j]);
+            if (!isNaN(val)) intensity.push(val);
+        }
+    }
+    if (intensity.length === 0) throw new Error("GSAS XRA Parse Error: No intensity data could be parsed.");
+    const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize);
+    return { tth, intensity, wavelength };
+};
+        
+        const parseUxdFile = (text) => { const lines = text.trim().split(/\r?\n/); const intensity = []; let startTth, stepSize, wavelength; let inDataSection = false; for (const line of lines) { const trimmedLine = line.trim(); if (inDataSection) { const parts = trimmedLine.split(/\s+/); parts.forEach(part => { const val = parseFloat(part); if (!isNaN(val)) intensity.push(val); }); } else { if (trimmedLine.toUpperCase().startsWith('_START=')) startTth = parseFloat(trimmedLine.substring(7)); else if (trimmedLine.toUpperCase().startsWith('_STEPSIZE=')) stepSize = parseFloat(trimmedLine.substring(10)); else if (trimmedLine.toUpperCase().startsWith('_WL1=')) wavelength = parseFloat(trimmedLine.substring(5)); else if (trimmedLine.toUpperCase() === '_COUNTS') inDataSection = true; } } if (startTth === undefined || stepSize === undefined) throw new Error("Could not find _START and _STEPSIZE in UXD file."); if (intensity.length === 0) throw new Error("No intensity data found after _COUNTS in UXD file."); const tth = Array.from({ length: intensity.length }, (_, i) => startTth + i * stepSize); return { tth, intensity, wavelength }; };
+        const parsePhilipsUdfFile = (text) => { const lines = text.trim().split(/\r?\n/); const tth = [], intensity = []; let inDataSection = false; let wavelength = null; for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine.toUpperCase().startsWith('LAMBDA')) { const parts = trimmedLine.split('='); if (parts.length > 1) wavelength = parseFloat(parts[1]); } if (trimmedLine.toUpperCase() === '[DATA]') { inDataSection = true; continue; } if (trimmedLine.startsWith('[') && trimmedLine.toUpperCase() !== '[DATA]') inDataSection = false; if (inDataSection) { const parts = trimmedLine.split(/,/).map(p => p.trim()); if(parts.length >= 2) { const x = parseFloat(parts[0]); const y = parseFloat(parts[1]); if (!isNaN(x) && !isNaN(y)) { tth.push(x); intensity.push(y); } } } } if (tth.length === 0) throw new Error("No [Data] section found in UDF file."); return { tth, intensity, wavelength }; };
+
+
+
+
+
+    ui.fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        ui.fileInputLabel.classList.remove('error');
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const parsedData = detectAndParseFile(file.name, evt.target.result);
+                if (!parsedData || parsedData.tth.length === 0) throw new Error("No valid data points could be parsed from the file.");
+                fullExperimentalData = parsedData;
+                const maxIntensity = Math.max(...fullExperimentalData.intensity);
+                if (maxIntensity > 0) fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => y / maxIntensity * 1000);
+                solutions = [];
+                updateSolutionsTable();
+                ui.solutionsLed.className = 'led-indicator gray';
+                if (parsedData.wavelength) ui.wavelength.value = parsedData.wavelength.toFixed(5);
+                selectedSolution = null;
+                currentHklList = [];
+                ui.fileName.textContent = file.name;
+                ui.placeholder.style.display = 'none';
+                ui.resultsContainer.style.display = 'flex';
+                ui.peakControls.classList.remove('hidden');
+                ui.indexingControls.classList.remove('hidden');
+                initializeChart();
+                setupTthSliders();
+                findPeaks();
+                showStatus(`File "${file.name}" loaded successfully.`, 'success');
+            } catch (error) {
+                showStatus(`Error reading file: ${error.message}`, 'error');
+                ui.fileInputLabel.classList.add('error');
+                console.error(error);
+            }
+        };
+        reader.onerror = () => {
+             showStatus('Error: Could not read the selected file.', 'error');
+             ui.fileInputLabel.classList.add('error');
+        };
+        reader.readAsText(file);
+    });
+
+    const setupTthSliders = () => {
+        if (fullExperimentalData.tth.length === 0) return;
+        const min = fullExperimentalData.tth[0];
+        const max = fullExperimentalData.tth[fullExperimentalData.tth.length - 1];
+        const step = (max - min) / 2000;
+        [ui.tthMinSlider, ui.tthMaxSlider].forEach(el => { el.disabled = false; Object.assign(el, { min, max, step }); });
+        const initialMin = Math.floor(min);
+        const initialMax = Math.ceil(max);
+        ui.tthMinSlider.value = initialMin;
+        ui.tthMaxSlider.value = initialMax;
+        ui.tthMinValue.textContent = initialMin.toFixed(2);
+        ui.tthMaxValue.textContent = initialMax.toFixed(2);
+        updatePlotRange(true);
+    };
+
+    const updatePlotRange = (updateYScale = false) => {
+        if(!xrdChart) return;
+        const min = parseFloat(ui.tthMinSlider.value);
+        const max = parseFloat(ui.tthMaxSlider.value);
+        xrdChart.options.scales.x.min = min;
+        xrdChart.options.scales.x.max = max;
+        if (updateYScale) {
+            const visibleIntensities = fullExperimentalData.intensity.filter((_, index) => {
+                const tth = fullExperimentalData.tth[index];
+                return tth >= min && tth <= max;
+            });
+            if (visibleIntensities.length > 0) {
+                const yMaxInRange = Math.max(...visibleIntensities);
+                xrdChart.options.scales.y.min = -yMaxInRange * 0.05;
+                xrdChart.options.scales.y.max = yMaxInRange * 1.1;
+            } else {
+                const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
+                xrdChart.options.scales.y.min = -yMax * 0.05;
+                xrdChart.options.scales.y.max = yMax * 1.1;
+            }
+        }
+        xrdChart.update('none');
+        updateAllMarkers();
+    };
+
+    ui.tthMinSlider.addEventListener('input', () => {
+        let minVal = parseFloat(ui.tthMinSlider.value);
+        let maxVal = parseFloat(ui.tthMaxSlider.value);
+        if (minVal >= maxVal) { minVal = maxVal - parseFloat(ui.tthMinSlider.step); ui.tthMinSlider.value = minVal; }
+        ui.tthMinValue.textContent = minVal.toFixed(2);
+        updatePlotRange();
+    });
+     ui.tthMaxSlider.addEventListener('input', () => {
+        let minVal = parseFloat(ui.tthMinSlider.value);
+        let maxVal = parseFloat(ui.tthMaxSlider.value);
+        if (maxVal <= minVal) { maxVal = minVal + parseFloat(ui.tthMaxSlider.step); ui.tthMaxSlider.value = maxVal; }
+        ui.tthMaxValue.textContent = maxVal.toFixed(2);
+        updatePlotRange();
+    });
+    
+    ui.ballRadiusSlider.addEventListener('input', () => { ui.ballRadiusValue.textContent = ui.ballRadiusSlider.value; debouncedFindPeaks(); });
+    ui.smoothingWidthSlider.addEventListener('input', () => { ui.smoothingWidthValue.textContent = ui.smoothingWidthSlider.value; debouncedFindPeaks(); });
+    ui.peakThresholdSlider.addEventListener('input', () => { const value = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)); ui.peakThresholdValue.textContent = value.toFixed(1); debouncedFindPeaks(); });
+
+    const rollingBallBackground = (y, radius, smoothingWidth) => {
+        const n = y.length;
+        if (n === 0 || radius <= 0) return new Array(n).fill(0);
+        let smoothed_y = y;
+        if (smoothingWidth > 1) {
+            smoothed_y = new Array(n);
+            const halfWidth = Math.floor(smoothingWidth / 2);
+            for (let i = 0; i < n; i++) {
+                const start = Math.max(0, i - halfWidth);
+                const end = Math.min(n, i + halfWidth + 1);
+                let sum = 0;
+                for (let j = start; j < end; j++) sum += y[j];
+                smoothed_y[i] = sum / (end - start);
+            }
+        }
+        const eroded = new Array(n);
+        for (let i = 0; i < n; i++) {
+            const start = Math.max(0, i - radius);
+            const end = Math.min(n, i + radius + 1);
+            let min = Infinity;
+            for (let j = start; j < end; j++) if (smoothed_y[j] < min) min = smoothed_y[j];
+            eroded[i] = min;
+        }
+        const background = new Array(n);
+        for (let i = 0; i < n; i++) {
+            const start = Math.max(0, i - radius);
+            const end = Math.min(n, i + radius + 1);
+            let max = -Infinity;
+            for (let j = start; j < end; j++) if (eroded[j] > max) max = eroded[j];
+            background[i] = max;
+        }
+        return background;
+    };
+
+    const savitzkyGolay = (data, windowSize = 9, polyOrder = 2) => {
+        const n = data.length; if (n === 0) return [];
+        windowSize = Math.max(3, windowSize); if (windowSize % 2 === 0) windowSize += 1; windowSize = Math.min(windowSize, n);
+        const halfWindow = Math.floor(windowSize / 2);
+        const result = new Array(n);
+        const coefficients = (windowSize === 9 && polyOrder === 2) ? [-0.0909, 0.0606, 0.1687, 0.2333, 0.2545, 0.2333, 0.1687, 0.0606, -0.0909] : (() => { const weights = []; for (let i = -halfWindow; i <= halfWindow; i++) weights.push(1 - Math.abs(i) / (halfWindow + 1)); const sum = weights.reduce((a, b) => a + b, 0); return weights.map(w => w / sum); })();
+        for (let i = 0; i < n; i++) {
+            let smoothedValue = 0;
+            for (let j = -halfWindow; j <= halfWindow; j++) {
+                let idx = i + j;
+                if (idx < 0) idx = Math.abs(idx);
+                else if (idx >= n) idx = n - 1 - (idx - (n - 1));
+                smoothedValue += data[idx] * coefficients[j + halfWindow];
+            }
+            result[i] = smoothedValue;
+        }
+        return result;
+    };
+
+    function findPeaks() {
+        if (!fullExperimentalData || !fullExperimentalData.intensity || fullExperimentalData.intensity.length < 5) return;
+        const { intensity, tth } = fullExperimentalData; const n = tth.length;
+        const minTth = parseFloat(ui.tthMinSlider.value) || tth[0];
+        const maxTth = parseFloat(ui.tthMaxSlider.value) || tth[n - 1];
+        const minHeightPercent = logSliderToValue(parseFloat(ui.peakThresholdSlider.value)) || 2;
+        const ballRadius = parseInt(ui.ballRadiusSlider.value, 10);
+        const smoothingWidth = parseInt(ui.smoothingWidthSlider.value, 10);
+        const background = rollingBallBackground(intensity, ballRadius, smoothingWidth);
+        const backgroundCorrected = intensity.map((y, i) => Math.max(0, y - background[i]));
+        const windowSize = Math.max(5, Math.min(11, Math.floor(n / 100)));
+        const smoothed = savitzkyGolay(backgroundCorrected, windowSize, 2);
+        const maxCorrectedIntensity = Math.max(...backgroundCorrected) || 1;
+        const minAbsoluteHeight = (minHeightPercent / 100) * maxCorrectedIntensity;
+        const calculateNoiseLevel = (data) => { const n_s = data.length; if (n_s < 10) return 0; const sample = []; for (let i = 0; i < n_s; i += Math.max(1, Math.floor(n_s / 100))) sample.push(data[i]); sample.sort((a, b) => a - b); const median = sample[Math.floor(sample.length / 2)]; const deviations = sample.map(x => Math.abs(x - median)); deviations.sort((a, b) => a - b); return deviations[Math.floor(deviations.length / 2)] * 1.4826; };
+        const adaptiveThreshold = Math.max(minAbsoluteHeight, calculateNoiseLevel(backgroundCorrected) * 3);
+        const localMaxIndices = [];
+        for (let i = 1; i < n - 1; i++) {
+            const current = smoothed[i]; if (current < adaptiveThreshold) continue;
+            if (current > smoothed[i - 1] && current > smoothed[i + 1]) localMaxIndices.push(i);
+            else if (current === smoothed[i + 1] && current > smoothed[i - 1]) { let plateauEnd = i + 1; while (plateauEnd < n - 1 && Math.abs(smoothed[plateauEnd] - current) < maxCorrectedIntensity * 0.001) plateauEnd++; if (plateauEnd < n && smoothed[plateauEnd] < current) localMaxIndices.push(Math.round((i + plateauEnd - 1) / 2)); i = plateauEnd - 1; }
+        }
+        const candidates = localMaxIndices.filter(idx => tth[idx] >= minTth && tth[idx] <= maxTth && backgroundCorrected[idx] >= adaptiveThreshold)
+            .map(idx => ({ idx, tth: tth[idx], height: smoothed[idx], backgroundCorrectedHeight: backgroundCorrected[idx] }));
+        const refinedPeaks = [];
+        for (const peak of candidates) {
+            const { idx } = peak; let refinedTth = peak.tth;
+            if (idx > 0 && idx < n - 1) { const y1 = smoothed[idx - 1], y2 = smoothed[idx], y3 = smoothed[idx + 1]; const denominator = 2 * (y1 - 2 * y2 + y3); if (Math.abs(denominator) > 1e-10) { const delta = (y1 - y3) / denominator; if (Math.abs(delta) < 1.0) { const stepSize = idx < n - 1 ? tth[idx + 1] - tth[idx] : tth[idx] - tth[idx - 1]; refinedTth = tth[idx] + delta * stepSize; } } }
+            refinedPeaks.push({ ...peak, tth: refinedTth });
+        }
+        refinedPeaks.sort((a, b) => a.tth - b.tth);
+        const finalPeaks = []; const mergeThreshold = 0.02;
+        for (const peak of refinedPeaks) {
+            if (finalPeaks.length === 0 || Math.abs(peak.tth - finalPeaks[finalPeaks.length - 1].tth) >= mergeThreshold) finalPeaks.push(peak);
+            else if (peak.height > finalPeaks[finalPeaks.length - 1].height) finalPeaks[finalPeaks.length - 1] = peak;
+        }
+        const lambda = parseFloat(ui.wavelength.value) || 1.54178;
+        pickedPeaks = finalPeaks.map(p => { const d = lambda / (2 * Math.sin(p.tth * Math.PI / 360)); return { tth: p.tth, d: d, q: 1 / (d * d) }; });
+        updatePeakTable(); updateStartIndexingButtonState();
+    };
+
+    const recalculatePeakValues = () => {
+        const lambda = parseFloat(ui.wavelength.value);
+        pickedPeaks.forEach(peak => { peak.d = lambda / (2 * Math.sin(peak.tth * Math.PI / 360)); peak.q = 1 / (peak.d * peak.d); });
+    };
+
+    const updatePeakTable = () => {
+        ui.peakListBody.innerHTML = '';
+        pickedPeaks.forEach((peak, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${index + 1}</td><td><input type="number" class="peak-tth-input" value="${peak.tth.toFixed(4)}" data-index="${index}" step="0.0001"></td><td><input type="number" class="peak-d-input" value="${peak.d.toFixed(5)}" data-index="${index}" disabled></td><td><button class="delete-peak-btn" data-index="${index}">X</button></td>`;
+            ui.peakListBody.appendChild(row);
+        });
+        ui.peakTableContainer.classList.toggle('hidden', pickedPeaks.length === 0);
+        updateAllMarkers();
+    };
+    
+    const updateStartIndexingButtonState = () => {
+        const needed = 4 - pickedPeaks.length;
+        if (needed > 0) { ui.startIndexingButton.disabled = true; ui.startIndexingButton.textContent = `Need ${needed} more peak${needed > 1 ? 's' : ''}`; } 
+        else { ui.startIndexingButton.disabled = false; ui.startIndexingButton.textContent = 'Start Indexing'; }
+    };
+
+    ui.peakListBody.addEventListener('change', (e) => {
+        if (e.target.classList.contains('peak-tth-input')) {
+            const index = parseInt(e.target.dataset.index); const tth = parseFloat(e.target.value); const lambda = parseFloat(ui.wavelength.value);
+            const d = lambda / (2 * Math.sin(tth * Math.PI / 360)); const q = 1 / (d*d);
+            pickedPeaks[index] = {tth, d, q};
+            e.target.closest('tr').querySelector('.peak-d-input').value = d.toFixed(5);
+            updateAllMarkers(); updateStartIndexingButtonState();
+        }
+    });
+     ui.peakListBody.addEventListener('click', (e) => {
+        if (e.target.classList.contains('delete-peak-btn')) { const index = parseInt(e.target.dataset.index); pickedPeaks.splice(index, 1); updatePeakTable(); updateStartIndexingButtonState(); }
+    });
+    
+    const setUIState = (indexing) => {
+        isIndexing = indexing; document.body.style.cursor = indexing ? 'wait' : 'default';
+        const controlsToDisable = [ ui.fileInput, ui.peakThresholdSlider, ui.tthMinSlider, ui.tthMaxSlider, ui.ballRadiusSlider, ui.smoothingWidthSlider, ui.wavelength, ui.tthError, ui.maxVolume, ui.impurityPeaksInput, ui.refineZeroCheckbox, ...ui.systemCheckboxes, ...ui.tabButtons ];
+        controlsToDisable.forEach(el => { if (el) el.disabled = indexing; });
+        ui.peakListBody.querySelectorAll('input, button').forEach(el => { el.disabled = indexing; });
+        ui.fileInputLabel.style.pointerEvents = indexing ? 'none' : 'auto'; ui.fileInputLabel.style.opacity = indexing ? '0.7' : '1';
+        if (indexing) {
+            ui.startIndexingButton.disabled = true; ui.startIndexingButton.textContent = 'Indexing...'; ui.reportButton.textContent = 'Stop'; ui.reportButton.disabled = false;
+            ui.progressBarContainer.classList.remove('hidden'); ui.progressBar.style.width = '0%';
+        } else {
+            updateStartIndexingButtonState(); ui.reportButton.textContent = 'Generate PDF Report'; ui.reportButton.disabled = (solutions.length === 0);
+            ui.progressBarContainer.classList.add('hidden'); ui.progressBar.style.width = '0%';
+            if (fullExperimentalData.tth.length > 0) { ui.tthMinSlider.disabled = false; ui.tthMaxSlider.disabled = false; }
+        }
+    };
+    
+    const applyFinalSieve = (solutions) => {
+        if (solutions.length <= 1) return solutions;
+        showStatus('Applying final sieve to results...', 'info', 2000);
+        const symmetryOrder = { 'cubic': 5, 'hexagonal': 4, 'tetragonal': 4, 'orthorhombic': 3, 'monoclinic': 2 };
+        solutions.sort((a, b) => a.volume - b.volume);
+        const toKeep = new Array(solutions.length).fill(true);
+        for (let i = 0; i < solutions.length; i++) {
+            if (!toKeep[i]) continue;
+            for (let j = i + 1; j < solutions.length; j++) {
+                if (!toKeep[j]) continue;
+                const vol_i = solutions[i].volume; const vol_j = solutions[j].volume;
+                if (vol_j > vol_i * 1.01) break;
+                const sym_i = symmetryOrder[solutions[i].system]; const sym_j = symmetryOrder[solutions[j].system];
+                if (sym_i > sym_j) toKeep[j] = false;
+                else if (sym_j > sym_i) { toKeep[i] = false; break; } 
+                else { if (solutions[i].m20 >= solutions[j].m20) toKeep[j] = false; else { toKeep[i] = false; break; } }
+            }
+        }
+        const filteredSolutions = solutions.filter((_, index) => toKeep[index]);
+        const numDiscarded = solutions.length - filteredSolutions.length;
+        if (numDiscarded > 0) showStatus(`Sieve discarded ${numDiscarded} redundant solution(s).`, 'success');
+        return filteredSolutions.slice(0, 50);
+    };
+
+    const startIndexing = () => {
+        if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
+        const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+        if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", 'error'); return; }
+        if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
+        
+        setUIState(true); 
+        solutions = []; 
+        selectedSolution = null; 
+        currentHklList = []; 
+        activeWorkers = [];
+        updateSolutionsTable(); 
+        showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
+
+        const baseParams = {
+            peaks: pickedPeaks,
+            wavelength: parseFloat(ui.wavelength.value),
+            tth_error: parseFloat(ui.tthError.value),
+            max_volume: parseFloat(ui.maxVolume.value),
+            impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
+            refineZero: ui.refineZeroCheckbox.checked,
+            allowedSystems: systemsToSearch
+        };
+
+        let completedWorkers = 0; 
+        const totalWorkers = systemsToSearch.length;
+        
+        systemsToSearch.forEach(system => {
+            const worker = new Worker(workerURL);
+            activeWorkers.push(worker);
+            worker.onmessage = (e) => {
+                const { type, payload } = e.data;
+                if (type === 'solution') {
+                    solutions.push(payload);
+                } else if (type === 'done') {
+                    completedWorkers++;
+                    ui.progressBar.style.width = `${(completedWorkers / totalWorkers) * 100}%`;
+                    worker.terminate();
+                    activeWorkers = activeWorkers.filter(w => w !== worker);
+                    
+                    if (completedWorkers === totalWorkers) {
+                        solutions = applyFinalSieve(solutions); 
+                        
+                        solutions.forEach(sol => {
+                            sol.analysis = analyzeSystematicAbsences(sol, pickedPeaks, parseFloat(ui.wavelength.value), parseFloat(ui.tthError.value));
+                        });
+                        
+                        setUIState(false);
+                        displayedSolutions = [...solutions];
+                        updateSolutionsTable();
+
+                        if (solutions.length > 0) {
+                            showStatus(`Indexing complete. Found ${solutions.length} potential solution(s).`, 'success');
+                            ui.solutionsLed.className = 'led-indicator green';
+                        } else {
+                            showStatus('Indexing finished, but no valid solutions were found.', 'info');
+                            ui.solutionsLed.className = 'led-indicator red';
+                        }
+                    }
+                }
+            };
+            worker.postMessage({ ...baseParams, systemToSearch: system });
+        });
+    };
+
+    ui.startIndexingButton.addEventListener('click', startIndexing);
+
+    ui.reportButton.addEventListener('click', () => {
+        if (isIndexing) {
+            activeWorkers.forEach(w => w.terminate()); activeWorkers = [];
+            setUIState(false); showStatus('Indexing stopped by user.', 'info');
+        } else { generatePDFReport(); }
+    });
+    
+    const sortSolutions = () => {
+        const { column, direction } = sortState;
+        const dir = direction === 'asc' ? 1 : -1;
+        solutions.sort((a, b) => {
+            if (column === 'system') {
+                return (a.system || '').localeCompare(b.system || '') * dir;
+            } else {
+                let valA = a[column]; let valB = b[column];
+                if (isNaN(valA) || valA == null) valA = -Infinity;
+                if (isNaN(valB) || valB == null) valB = -Infinity;
+                return (valA - valB) * dir;
+            }
+        });
+    };
+
+    const updateSolutionsTable = () => {
+        ui.solutionsTableBody.innerHTML = '';
+        displayedSolutions.forEach((sol, index) => {
+            const row = document.createElement('tr'); row.dataset.index = index; 
+            let paramsCell = '', anglesCell = '';
+            switch(sol.system) {
+                case 'cubic': paramsCell = `a = ${sol.a.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
+                case 'tetragonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
+                case 'hexagonal': paramsCell = `a = ${sol.a.toFixed(4)}, c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 120`; break;
+                case 'orthorhombic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, 90, 90`; break;
+                case 'monoclinic': paramsCell = `a = ${sol.a.toFixed(4)}<br>b = ${sol.b.toFixed(4)}<br>c = ${sol.c.toFixed(4)}`; anglesCell = `90, ${sol.beta.toFixed(3)}, 90`; break;
+                default: paramsCell = `${sol.a.toFixed(4)}`; anglesCell = `-`;
+            }
+            if (sol.zero_correction) {
+                anglesCell += `<br><span style="font-size:0.9em; color: var(--text-dark);">(Z=${sol.zero_correction.toFixed(4)}°)</span>`;
+            }
+            row.innerHTML = `<td>${sol.system.substring(0,4)}</td><td>${paramsCell}</td><td>${anglesCell}</td><td>${sol.volume.toFixed(2)}</td><td>${sol.m20.toFixed(2)}</td>`;
+            ui.solutionsTableBody.appendChild(row);
+        });
+        
+        ui.solutionsTableHeaders.forEach(h => {
+            h.classList.remove('sort-asc', 'sort-desc');
+            if (h.dataset.sort === sortState.column) {
+               h.classList.add(sortState.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        });
+    };
+
+    ui.solutionsTableBody.addEventListener('click', (e) => {
+        const row = e.target.closest('tr'); if (!row) return;
+        document.querySelectorAll('#solutions-table-body tr').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        const index = parseInt(row.dataset.index);
+        selectedSolution = displayedSolutions[index];
+        const lambda = parseFloat(ui.wavelength.value);
+        const maxTth = xrdChart.options.scales.x.max || Math.max(...pickedPeaks.map(p => p.tth));
+        currentHklList = generateHKL(maxTth, {...selectedSolution, lambda}, selectedSolution.system);
+        updateAllMarkers();
+    });
+
+    Chart.register({ id: 'verticalCursorLine', afterDraw: chart => { if (chart.tooltip?._active?.length) { let x = chart.tooltip._active[0].element.x; let yAxis = chart.scales.y; let ctx = chart.ctx; ctx.save(); ctx.beginPath(); ctx.moveTo(x, yAxis.top); ctx.lineTo(x, yAxis.bottom); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(156, 163, 175, 0.7)'; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore(); } } });
+    Chart.register({ id: 'legendMargin', beforeInit(chart) { const originalFit = chart.legend.fit; chart.legend.fit = function() { originalFit.bind(chart.legend)(); this.height += 15; }; } });
+
+    const initializeChart = () => {
+        if (xrdChart) xrdChart.destroy();
+        const experimentalPoints = fullExperimentalData.tth.map((t, i) => ({ x: t, y: Math.max(0, fullExperimentalData.intensity[i]) }));
+        const yMax = Math.max(...fullExperimentalData.intensity) || 1000;
+        xrdChart = new Chart(ui.chartCanvas, {
+            type: 'line',
+            data: {
+                datasets: [
+                    { label: 'Intensity', data: experimentalPoints, borderColor: 'rgba(107, 114, 128, 0.7)', showLine: true, borderWidth: 0.75, pointRadius: 1.5, pointHoverRadius: 4, pointBackgroundColor: 'rgba(107, 114, 128, 0.7)' },
+                    { type: 'bar', label: 'Observed Peaks', data: [], backgroundColor: 'rgba(239, 68, 68, 0.7)', barThickness: 1 },
+                    { type: 'bar', label: 'Calculated Peaks', data: [], backgroundColor: 'rgba(59, 130, 246, 0.9)', barThickness: 1 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                scales: {
+                    x: { type: 'linear', title: { display: true, text: '2-theta (degrees)' } },
+                    y: { title: { display: true, text: 'Intensity (a.u.)' }, min: -yMax * 0.05, max: yMax * 1.1, suggestedMin: 0 }
+                },
+                plugins: {
+                    zoom: {
+                        pan: { enabled: true, mode: 'xy', threshold: 5, onPanComplete: () => { updateAllMarkers(); } },
+                        zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, onZoomComplete: () => { updateAllMarkers(); } }
+                    },
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                if (!tooltipItems.length) return '';
+                                const tth = tooltipItems[0].parsed.x;
+                                let title = `2θ: ${tth.toFixed(3)}°`;
+                                if (currentHklList && currentHklList.length > 0) {
+                                    let closestPeak = null; let minDiff = Infinity;
+                                    for (const hkl of currentHklList) {
+                                        const diff = Math.abs(tth - hkl.tth);
+                                        if (diff < minDiff) { minDiff = diff; closestPeak = hkl; }
+                                    }
+                                    const tolerance = parseFloat(ui.tthError.value) || 0.05;
+                                    if (closestPeak && minDiff < tolerance) {
+title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${closestPeak.d.toFixed(4)} Å`;                                    }
+                                }
+                                return title;
+                            },
+                            label: function(context) {
+                                const datasetLabel = context.dataset.label || '';
+                                if (datasetLabel === 'Observed Peaks' || datasetLabel === 'Calculated Peaks') return null;
+                                let label = datasetLabel ? `${datasetLabel}: ` : '';
+                                if (context.parsed.y !== null) { label += Math.round(context.parsed.y); }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    };
+
+    ui.chartCanvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        if (!xrdChart || !xrdChart.chartArea) return;
+        const { left, right, top, bottom } = xrdChart.chartArea;
+        const zoomDirection = e.deltaY < 0 ? 1.1 : 0.9;
+        const zoomOptions = { x: 1, y: 1 };
+        if (e.offsetY > bottom && e.offsetX > left && e.offsetX < right) {
+            zoomOptions.x = zoomDirection;
+        } else if (e.offsetX < left && e.offsetY > top && e.offsetY < bottom) {
+            zoomOptions.y = zoomDirection;
+        } else if (e.offsetX >= left && e.offsetX <= right && e.offsetY >= top && e.offsetY <= bottom) {
+            zoomOptions.x = zoomDirection;
+            zoomOptions.y = zoomDirection;
+        } else {
+            return;
+        }
+        xrdChart.zoom(zoomOptions, 'none');
+        updateAllMarkers();
+    });
+
+    const updateAllMarkers = () => {
+        if (!xrdChart) return;
+        const xMin = xrdChart.scales.x.min; const xMax = xrdChart.scales.x.max;
+        const yMin = xrdChart.scales.y.min; const yMax = xrdChart.scales.y.max;
+        const yRange = yMax - yMin;
+        const markerHeight = yRange * 0.02;
+        const visibleObsPeaks = pickedPeaks.filter(p => p.tth >= xMin && p.tth <= xMax);
+        xrdChart.data.datasets[1].data = visibleObsPeaks.map(p => ({ x: p.tth, y: [yMin, yMin + markerHeight] }));
+        if (selectedSolution) {
+            const calculatedBottom = yMin + markerHeight * 1.2;
+            const calculatedTop = calculatedBottom + markerHeight;
+            const visibleCalcPeaks = currentHklList.filter(hkl => hkl.tth >= xMin && hkl.tth <= xMax);
+            xrdChart.data.datasets[2].data = visibleCalcPeaks.map(hkl => ({ x: hkl.tth, y: [calculatedBottom, calculatedTop] }));
+        } else {
+            xrdChart.data.datasets[2].data = [];
+        }
+        xrdChart.update('none');
+    };
+    
+    // ==================================================================
+    // ==================================================================
+    const generateHKL = (maxTth, params, system) => {
+        const { a, b, c, beta, lambda } = params; if (!a || !lambda) return [];
+        const reflections = [];
+        const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360));
+        const q_max_limit = (1 / (d_min * d_min)) * 1.05;
+        const h_max = Math.ceil(a / d_min);
+        const k_max = b ? Math.ceil(b / d_min) : h_max;
+        const l_max = c ? Math.ceil(c / d_min) : h_max;
+
+        const processHKL = (h, k, l) => {
+            if (h === 0 && k === 0 && l === 0) return;
+            let inv_d_sq = 0;
+            switch (system) {
+                case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
+                case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
+                case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                case 'monoclinic':
+                    const sinBeta = Math.sin(beta*Math.PI/180); const cosBeta = Math.cos(beta*Math.PI/180);
+                    inv_d_sq = (1/(sinBeta*sinBeta))*(h*h/(a*a)+l*l/(c*c)-2*h*l*cosBeta/(a*c))+k*k/(b*b);
+                    break;
+            }
+            if (inv_d_sq > 0 && inv_d_sq <= q_max_limit) {
+                const sinThetaSq = (lambda*lambda/4)*inv_d_sq;
+                if (sinThetaSq <= 1) {
+                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                    reflections.push({tth, h, k, l, d: 1/Math.sqrt(inv_d_sq)});
+                }
+            }
+        };
+
+        if (system === 'cubic') {
+            for (let h = 0; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= k; l++) processHKL(h,k,l);
+        } else if (system === 'hexagonal' || system === 'tetragonal') {
+            for (let h = 0; h <= h_max; h++) for (let k = 0; k <= h; k++) for (let l = 0; l <= l_max; l++) {
+                if(h===0 && k===0 && l===0) continue;
+                processHKL(h,k,l);
+            }
+        } else if (system === 'orthorhombic') {
+            for (let h = 0; h <= h_max; h++) for (let k = 0; k <= k_max; k++) for (let l = 0; l <= l_max; l++) processHKL(h,k,l);
+        } else { // Monoclinic & Triclinic (fallback)
+             for (let h = -h_max; h <= h_max; h++) for (let k = 0; k <= k_max; k++) for (let l = -l_max; l <= l_max; l++) processHKL(h,k,l);
+        }
+
+        const uniqueReflections = [];
+        const tolerance = 1e-4;
+        if (reflections.length > 0) {
+            reflections.sort((a,b) => a.tth - b.tth);
+            uniqueReflections.push(reflections[0]);
+            for(let i=1; i<reflections.length; i++){
+                if(Math.abs(reflections[i].tth - uniqueReflections[uniqueReflections.length-1].tth) > tolerance){
+                    uniqueReflections.push(reflections[i]);
+                }
+            }
+        }
+        return uniqueReflections;
+    };
+
+    const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel');
+    resizer.addEventListener('mousedown', (e) => { e.preventDefault(); document.body.style.cursor = 'col-resize';
+        const moveHandler = (moveEvent) => { if (moveEvent.clientX > 350 && moveEvent.clientX < window.innerWidth - 350) { leftPanel.style.width = `${moveEvent.clientX}px`; } };
+        const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
+        window.addEventListener('mousemove', moveHandler); window.addEventListener('mouseup', upHandler);
+    });
+    
+    ui.chartCanvas.addEventListener('contextmenu', e => { e.preventDefault(); if (xrdChart) { xrdChart.resetZoom('none'); updateAllMarkers(); } });
+    ui.chartCanvas.addEventListener('click', (e) => {
+        if (!e.ctrlKey || !xrdChart) return;
+        const rect = xrdChart.canvas.getBoundingClientRect(); const x = e.clientX - rect.left;
+        if (x < xrdChart.chartArea.left || x > xrdChart.chartArea.right) return;
+        const tth = xrdChart.scales.x.getValueForPixel(x); if (!tth) return;
+        const lambda = parseFloat(ui.wavelength.value); if (isNaN(lambda)) { showStatus('Wavelength is not a valid number.', 'error'); return; }
+        const sin_theta = Math.sin(tth * Math.PI / 360); if (sin_theta <= 0) return;
+        const d = lambda / (2 * sin_theta); const q = 1 / (d * d);
+        pickedPeaks.push({ tth, d, q }); pickedPeaks.sort((a, b) => a.tth - b.tth);
+        updatePeakTable(); updateStartIndexingButtonState(); showStatus(`Peak added at ${tth.toFixed(3)}°`, 'success', 2000);
+    });
+
+    const formatWithError = (value, error) => {
+        if (error === undefined || error === null || !isFinite(error) || error <= 0) {
+            const places = Math.abs(value) > 10 ? 3 : 4;
+            return value.toFixed(places);
+        }
+        const errorMagnitude = Math.floor(Math.log10(error));
+        let decimalPlaces;
+        const firstSigDigit = Math.floor(error / Math.pow(10, errorMagnitude));
+        if (firstSigDigit >= 3 && errorMagnitude < 0) {
+            decimalPlaces = -errorMagnitude;
+        } else if (errorMagnitude < 0) {
+            decimalPlaces = -errorMagnitude + 1;
+        } else {
+             decimalPlaces = 0;
+        }
+        decimalPlaces = Math.max(0, Math.min(8, decimalPlaces));
+        const multiplier = Math.pow(10, decimalPlaces);
+        const roundedValue = (Math.round(value * multiplier) / multiplier).toFixed(decimalPlaces);
+        const errorInLastDigits = Math.round(error * multiplier);
+        return `${roundedValue}(${errorInLastDigits})`;
+    };
+
+const generatePDFReport = async () => {
+    if (displayedSolutions.length === 0) {
+        showStatus("No solutions found to generate a report.", 'info');
+        return;
+    }
+    ui.reportButton.textContent = 'Generating...';
+    ui.reportButton.disabled = true;
+    document.body.style.cursor = 'wait';
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({
+            orientation: 'p',
+            unit: 'mm',
+            format: 'a4'
+        });
+        const margin = 15;
+        let yPos = 20;
+
+        // --- Page Header ---
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        doc.setFontSize(18);
+        doc.text('Powder Indexing Report', 105, yPos, {
+            align: 'center'
+        });
+        yPos += 10;
+        doc.setFontSize(10);
+        doc.text(`Generated: ${timestamp}`, margin, yPos);
+        yPos += 5;
+        doc.text(`Data File: ${ui.fileName.textContent}`, margin, yPos);
+        yPos += 10;
+
+        // --- Chart Image ---
+        const canvas = await html2canvas(ui.chartCanvas, {
+            backgroundColor: '#ffffff',
+            scale: 2
+        });
+        const imgData = canvas.toDataURL('image/png');
+        const imgProps = doc.getImageProperties(imgData);
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const availableWidth = pdfWidth - 2 * margin;
+        let imgHeight = (imgProps.height * availableWidth) / imgProps.width;
+        let imgWidth = availableWidth;
+        const maxAspectRatio = 4 / 3;
+        if (imgWidth / imgHeight > maxAspectRatio) {
+            imgWidth = imgHeight * maxAspectRatio;
+        }
+        const xOffset = margin + (availableWidth - imgWidth) / 2;
+        doc.addImage(imgData, 'PNG', xOffset, yPos, imgWidth, imgHeight);
+        yPos += imgHeight + 10;
+
+        // --- Summary Table ---
+        doc.addPage();
+        yPos = 20;
+        doc.setFontSize(14);
+        doc.text('Indexing Solutions Summary', margin, yPos);
+        yPos += 8;
+        doc.setFont('courier', 'normal');
+        doc.setFontSize(9);
+        doc.text('Sys  M(20)   Volume(A^3)  Parameters', margin, yPos);
+        yPos += 5;
+
+        displayedSolutions.slice(0, 30).forEach(sol => {
+            if (yPos > 280) {
+                doc.addPage();
+                yPos = 20;
+            }
+            let paramStr = '';
+            const p = sol.errors || {};
+            switch (sol.system) {
+                case 'cubic':
+                    paramStr = `a=${formatWithError(sol.a, p.s_a)}`;
+                    break;
+                case 'tetragonal':
+                    paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`;
+                    break;
+                case 'hexagonal':
+                    paramStr = `a=${formatWithError(sol.a, p.s_a)}, c=${formatWithError(sol.c, p.s_c)}`;
+                    break;
+                case 'orthorhombic':
+                    paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}`;
+                    break;
+                case 'monoclinic':
+                    paramStr = `a=${formatWithError(sol.a, p.s_a)}, b=${formatWithError(sol.b, p.s_b)}, c=${formatWithError(sol.c, p.s_c)}, beta=${formatWithError(sol.beta, p.s_beta)}`;
+                    break;
+            }
+            const line = `${sol.system.substring(0,4).padEnd(5)}${sol.m20.toFixed(2).padStart(6)}  ${sol.volume.toFixed(2).padStart(10)}  ${paramStr}`;
+            doc.text(line, margin, yPos);
+            yPos += 5;
+        });
+
+        // --- Detailed Solution Pages ---
+        const lambda = parseFloat(ui.wavelength.value);
+
+        displayedSolutions.forEach((sol, solIndex) => {
+            doc.addPage();
+            yPos = 20;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(12);
+            doc.text(`Details for Solution #${solIndex + 1}: ${sol.system}, M(20) = ${sol.m20.toFixed(2)}`, margin, yPos);
+            yPos += 7;
+            doc.setFont('courier', 'normal');
+            doc.setFontSize(9);
+            const p = sol.errors || {};
+            switch (sol.system) {
+                case 'cubic':
+                    doc.text(`a = ${formatWithError(sol.a, p.s_a)} Å`, margin, yPos); yPos += 5;
+                    break;
+                case 'tetragonal':
+                    doc.text(`a = ${formatWithError(sol.a, p.s_a)} Å, c = ${formatWithError(sol.c, p.s_c)} Å`, margin, yPos); yPos += 5;
+                    break;
+                case 'hexagonal':
+                    doc.text(`a = ${formatWithError(sol.a, p.s_a)} Å, c = ${formatWithError(sol.c, p.s_c)} Å, (gamma = 120°)`, margin, yPos); yPos += 5;
+                    break;
+                case 'orthorhombic':
+                    doc.text(`a = ${formatWithError(sol.a, p.s_a)} Å, b = ${formatWithError(sol.b, p.s_b)} Å, c = ${formatWithError(sol.c, p.s_c)} Å`, margin, yPos); yPos += 5;
+                    break;
+                case 'monoclinic':
+                    doc.text(`a = ${formatWithError(sol.a, p.s_a)} Å, b = ${formatWithError(sol.b, p.s_b)} Å, c = ${formatWithError(sol.c, p.s_c)} Å`, margin, yPos); yPos += 5;
+                    doc.text(`beta = ${formatWithError(sol.beta, p.s_beta)}°`, margin, yPos); yPos += 5;
+                    break;
+            }
+            if (sol.zero_correction !== undefined) {
+                doc.text(`Zero Error (2Th) = ${formatWithError(sol.zero_correction, p.s_zero)} deg`, margin, yPos); yPos += 5;
+            }
+            yPos += 2;
+            doc.setFont('helvetica', 'bold');
+            doc.text(`Suggested Centering:`, margin, yPos);
+            doc.setFont('courier', 'normal');
+            doc.text(sol.analysis.centering, margin + 45, yPos);
+            yPos += 5;
+            if (sol.analysis.conditions.length > 0) {
+                doc.setFont('helvetica', 'bold');
+                doc.text(`Reflection Conditions:`, margin, yPos);
+                doc.setFont('courier', 'normal');
+                doc.text(sol.analysis.conditions.join(', '), margin + 45, yPos);
+                yPos += 5;
+            }
+            yPos += 3;
+            doc.setFont('courier', 'normal');
+            const tableHeader = ' h k l   | 2t_meas 2t_corr 2t_calc  d_corr      d_calc    diff(d)   diff(2t)';
+            doc.text(tableHeader, margin, yPos); yPos += 5;
+
+            const hklList = generateHKL(Math.max(...pickedPeaks.map(p => p.tth)), { ...sol, lambda }, sol.system);
+            const tth_err = parseFloat(ui.tthError.value);
+            const corrected_tth_obs = pickedPeaks.map(p => ({ ...p, tth_corr: p.tth - (sol.zero_correction || 0) }));
+            
+            // **MODIFIED ALGORITHM**
+            const reportLines = [];
+            const assignedHkls = new Set();
+
+            // Part 1: Iterate over OBSERVED peaks to find the best HKL for each.
+            corrected_tth_obs.forEach((corr_peak, obs_index) => {
+                let bestMatchHkl = null;
+                let minDiff = Infinity;
+
+                hklList.forEach(hkl => {
+                    const diff = Math.abs(hkl.tth - corr_peak.tth_corr);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        bestMatchHkl = hkl;
+                    }
+                });
+
+                if (bestMatchHkl && minDiff < tth_err * 2) {
+                    let ambiguity_marker = ' ';
+                    let neighbor_count = 0;
+                    hklList.forEach(other_hkl => {
+                        if (other_hkl === bestMatchHkl) return;
+                        if (Math.abs(other_hkl.tth - corr_peak.tth_corr) < tth_err) {
+                            neighbor_count++;
+                        }
+                    });
+                    if (neighbor_count > 0) {
+                        ambiguity_marker = '*';
+                    }
+
+                    const d_corr = lambda / (2 * Math.sin(corr_peak.tth_corr * Math.PI / 360));
+                    reportLines.push({
+                        h: bestMatchHkl.h, k: bestMatchHkl.k, l: bestMatchHkl.l,
+                        tth_meas: pickedPeaks[obs_index].tth,
+                        tth_corr: corr_peak.tth_corr,
+                        tth_calc: bestMatchHkl.tth,
+                        d_corr: d_corr,
+                        d_calc: bestMatchHkl.d,
+                        ambiguity_marker: ambiguity_marker
+                    });
+                    assignedHkls.add(bestMatchHkl);
+                }
+            });
+
+            // Part 2: Add any calculated HKLs that were not assigned to an observed peak.
+            hklList.forEach(hkl => {
+                if (!assignedHkls.has(hkl)) {
+                    reportLines.push({
+                        h: hkl.h, k: hkl.k, l: hkl.l,
+                        tth_meas: null, tth_corr: null, d_corr: null,
+                        tth_calc: hkl.tth,
+                        d_calc: hkl.d,
+                        ambiguity_marker: ' '
+                    });
+                }
+            });
+
+            // Part 3: Sort the final list by calculated 2-theta for a clean report.
+            reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
+
+            // **NEW PRINTING LOOP**
+            reportLines.slice(0, 45).forEach(line => {
+                if (yPos > 280) {
+                    doc.addPage(); yPos = 20; doc.setFont('courier', 'normal');
+                    doc.setFontSize(9); doc.text(tableHeader, margin, yPos); yPos += 5;
+                }
+
+                const tth_meas_str = line.tth_meas ? line.tth_meas.toFixed(3) : '-';
+                const tth_corr_str = line.tth_corr ? line.tth_corr.toFixed(3) : '-';
+                const tth_calc_str = line.tth_calc.toFixed(3);
+                const d_corr_str = line.d_corr ? line.d_corr.toFixed(5) : '-';
+                const d_calc_str = line.d_calc.toFixed(5);
+                const diff_d_str = (line.d_corr) ? (line.d_corr - line.d_calc).toExponential(2) : '-';
+                const diff_2t_str = (line.tth_corr) ? (line.tth_corr - line.tth_calc).toFixed(3) : '-';
+
+                const hkl_str = `${String(line.h).padStart(2)} ${String(line.k).padStart(2)} ${String(line.l).padStart(2)}${line.ambiguity_marker}`.padEnd(8);
+                const pdfLine = `${hkl_str}|${tth_meas_str.padStart(8)}${tth_corr_str.padStart(8)}${tth_calc_str.padStart(8)} ${d_corr_str.padStart(10)} ${d_calc_str.padStart(10)} ${diff_d_str.padStart(10)} ${diff_2t_str.padStart(9)}`;
+                doc.text(pdfLine, margin, yPos);
+                yPos += 5;
+            });
+        });
+
+        const filename = `Indexing-Report-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.pdf`;
+        doc.save(filename);
+        showStatus('PDF report generated and saved.', 'success');
+    } catch (error) {
+        console.error("Failed to generate PDF:", error);
+        showStatus("An error occurred during PDF generation.", 'error');
+    } finally {
+        ui.reportButton.textContent = 'Generate PDF Report';
+        ui.reportButton.disabled = (solutions.length === 0);
+        document.body.style.cursor = 'default';
+    }
+};
+
+    window.addEventListener('beforeunload', () => { if (workerURL) URL.revokeObjectURL(workerURL); });
+});
+
+    </script>
+    
+<script id="indexing-worker" type="text/javascript">
+self.onmessage = function(e) {
+    // --- INITIAL SETUP ---
+    const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
+    const N_FOR_M20 = Math.min(20, peaks.length);
+    const min_m20 = 2.0;
+    const d_min = wavelength / (2 * Math.sin(Math.max(...peaks.map(p => p.tth)) * Math.PI / 360));
+    const q_max = 1 / (d_min * d_min);
+    
+    const peaks_sorted_by_q = peaks.map((p, i) => ({...p, original_index: i})).sort((a,b) => a.q - b.q);
+    const q_obs = new Float64Array(peaks_sorted_by_q.map(p => p.q));
+    const original_indices = peaks_sorted_by_q.map(p => p.original_index);
+    const tth_obs_rad = new Float64Array(peaks.map(p => p.tth * Math.PI / 180));
+    
+    const foundSolutions = [];
+    const foundSolutionMap = new Map();
+
+    // --- UTILITY & CRYSTALLOGRAPHY HELPER FUNCTIONS ---
+    const metricFromCell = (cell) => {
+        const deg2rad = Math.PI / 180;
+        const a = cell.a; const b = cell.b ?? cell.a; const c = cell.c ?? cell.a;
+        const alpha = (cell.alpha ?? 90) * deg2rad; const beta  = (cell.beta  ?? 90) * deg2rad; const gamma = (cell.gamma ?? 90) * deg2rad;
+        const ca = Math.cos(alpha), cb = Math.cos(beta), cg = Math.cos(gamma);
+        return [ [a*a, a*b*cg, a*c*cb], [a*b*cg, b*b, b*c*ca], [a*c*cb, b*c*ca, c*c] ];
+    };
+    const cellFromMetric = (G) => {
+        const a = Math.sqrt(G[0][0]), b = Math.sqrt(G[1][1]), c = Math.sqrt(G[2][2]);
+        const clamp = v => Math.max(-1, Math.min(1, v));
+        const alpha = Math.acos(clamp(G[1][2]/(b*c)))*180/Math.PI, beta=Math.acos(clamp(G[0][2]/(a*c)))*180/Math.PI, gamma=Math.acos(clamp(G[0][1]/(a*b)))*180/Math.PI;
+        return { a, b, c, alpha, beta, gamma };
+    };
+    const transpose = (M) => M[0].map((_,i) => M.map(r => r[i]));
+    const matMul = (A,B) => {
+        const r=A.length, c=B[0].length, k=A[0].length;
+        const C = Array.from({length:r}, () => Array(c).fill(0));
+        for(let i=0; i<r; i++) for(let j=0; j<c; j++) for(let t=0; t<k; t++) C[i][j] += A[i][t] * B[t][j];
+        return C;
+    };
+    const getSymmetry = (a, b, c, alpha, beta, gamma, tol = 0.02) => {
+        const eq = (v1, v2) => Math.abs(v1 - v2) < tol;
+        const is90 = (v) => Math.abs(v - 90) < tol; const is120 = (v) => Math.abs(v - 120) < tol;
+        const angles90 = is90(alpha) && is90(beta) && is90(gamma);
+        if (angles90) {
+            if (eq(a, b) && eq(b, c)) return 'cubic';
+            if (eq(a, b) || eq(b, c) || eq(a, c)) return 'tetragonal';
+            return 'orthorhombic';
+        }
+        if (is90(alpha) && is90(gamma) && is120(beta)) return 'hexagonal'; // Check for permuted hexagonal
+        if (is90(beta) && is90(gamma) && is120(alpha)) return 'hexagonal'; // Check for permuted hexagonal
+        if (is90(alpha) && is90(beta) && is120(gamma)) return 'hexagonal';
+        if (is90(alpha) && is90(gamma) && !is90(beta)) return 'monoclinic';
+        if (is90(beta) && is90(gamma) && !is90(alpha)) return 'monoclinic'; // b,c unique
+        if (is90(alpha) && is90(beta) && !is90(gamma)) return 'monoclinic'; // a,b unique
+        return 'triclinic';
+    };
+    const standardizeCell = (cell) => {
+        const newCell = { ...cell };
+        switch (cell.system) {
+            case 'tetragonal': {
+                const axes = [cell.a, cell.b, cell.c];
+                const tol = 0.02;
+                let uniqueAxis, repeatedAxis;
+    
+                if (Math.abs(axes[0] - axes[1]) < tol) { // a == b
+                    uniqueAxis = axes[2];
+                    repeatedAxis = axes[0];
+                } else if (Math.abs(axes[0] - axes[2]) < tol) { // a == c
+                    uniqueAxis = axes[1];
+                    repeatedAxis = axes[0];
+                } else { // b and c must be equal
+                    uniqueAxis = axes[0];
+                    repeatedAxis = axes[1];
+                }
+                newCell.a = repeatedAxis;
+                newCell.b = repeatedAxis;
+                newCell.c = uniqueAxis;
+                break;
+            }
+            case 'orthorhombic': { const sorted = [cell.a, cell.b, cell.c].sort((x,y)=>x-y); newCell.a=sorted[0]; newCell.b=sorted[1]; newCell.c=sorted[2]; break; }
+            case 'cubic': { newCell.b = newCell.a; newCell.c = newCell.a; break; }
+        }
+        return newCell;
+    };
+    const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+    const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
+    
+
+    // ==================================================================
+// == CORRECTED HKL Generation for Reporting and Display ==
+// == This version enforces crystallographic conventions to avoid listing
+// == redundant equivalent reflections (e.g., (100) vs (010) in cubic).
+// ==================================================================
+const generateHKL = (maxTth, params, system) => {
+     const { a, b, c, beta, lambda } = params; if (!a || !lambda) return []; const reflections = [];
+     const d_min = lambda / (2 * Math.sin(maxTth * Math.PI / 360)); const q_max_limit = (1 / (d_min * d_min)) * 1.05;
+     const h_max = Math.ceil(a / d_min); 
+     const k_max = b ? Math.ceil(b / d_min) : h_max; 
+     const l_max = c ? Math.ceil(c / d_min) : h_max;
+     
+     // Loop over positive-only indices with conditions to generate a unique set.
+     for (let h = 0; h <= h_max; h++) { 
+        for (let k = 0; k <= k_max; k++) {
+            // For higher symmetries, skip permutations to get a unique set (e.g., 100, not 010)
+            if ((system === 'cubic' || system === 'tetragonal' || system === 'hexagonal') && k > h) continue;
+
+            for (let l = 0; l <= l_max; l++) { 
+                // For cubic, enforce h >= k >= l
+                if (system === 'cubic' && l > k) continue;
+                if (h === 0 && k === 0 && l === 0) continue;
+
+                let inv_d_sq = 0;
+                 switch (system) {
+                     case 'cubic': inv_d_sq = (h*h + k*k + l*l) / (a*a); break;
+                     case 'tetragonal': inv_d_sq = (h*h + k*k) / (a*a) + (l*l) / (c*c); break;
+                     case 'orthorhombic': inv_d_sq = (h*h)/(a*a) + (k*k)/(b*b) + (l*l)/(c*c); break;
+                     case 'hexagonal': inv_d_sq = (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c); break;
+                     case 'monoclinic': 
+                        const sinBeta = Math.sin(beta*Math.PI/180); 
+                        const cosBeta = Math.cos(beta*Math.PI/180); 
+                        inv_d_sq = (1/(sinBeta*sinBeta))*(h*h/(a*a)+l*l/(c*c)-2*h*l*cosBeta/(a*c))+k*k/(b*b); 
+                        break;
+                 }
+                 if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue; 
+                 const sinThetaSq = (lambda*lambda/4)*inv_d_sq;
+                 if (sinThetaSq <= 1) { 
+                    const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI); 
+                    reflections.push({tth, h, k, l, d: 1/Math.sqrt(inv_d_sq)}); 
+                }
+            }
+        }
+    }
+     // For monoclinic, we need to generate negative h/l values separately
+     if (system === 'monoclinic') {
+        for (let h = 1; h <= h_max; h++) {
+            for (let k = 0; k <= k_max; k++) {
+                for (let l = 1; l <= l_max; l++) {
+                    const h_neg = -h;
+                    const inv_d_sq = (1 / (Math.sin(beta * Math.PI / 180) ** 2)) * (h_neg * h_neg / (a * a) + l * l / (c * c) - 2 * h_neg * l * Math.cos(beta * Math.PI / 180) / (a * c)) + k * k / (b * b);
+                    if (inv_d_sq <= 0 || inv_d_sq > q_max_limit) continue;
+                    const sinThetaSq = (lambda * lambda / 4) * inv_d_sq;
+                    if (sinThetaSq <= 1) {
+                        const tth = 2 * Math.asin(Math.sqrt(sinThetaSq)) * (180 / Math.PI);
+                        reflections.push({ tth, h: h_neg, k, l, d: 1 / Math.sqrt(inv_d_sq) });
+                    }
+                }
+            }
+        }
+     }
+
+     return reflections.sort((a, b) => a.tth - b.tth);
+ };
+
+    const findIndexedPeaksForSolution = (solution, tthError) => {
+        const maxTth = Math.max(...peaks.map(p => p.tth));
+        const theoreticalHKLs = generateHKL(maxTth, { ...solution, lambda: wavelength }, solution.system);
+        if (!theoreticalHKLs || theoreticalHKLs.length === 0) return [];
+        const indexedPeaks = []; const usedTheoreticalPeaks = new Set();
+        for (const obsPeak of peaks) {
+            let bestMatch = null; let minDiff = Infinity;
+            for (let i = 0; i < theoreticalHKLs.length; i++) {
+                if (usedTheoreticalPeaks.has(i)) continue;
+                const diff = Math.abs(obsPeak.tth - theoreticalHKLs[i].tth);
+                if (diff < minDiff) { minDiff = diff; bestMatch = { ...theoreticalHKLs[i], originalIndex: i }; }
+            }
+            if (bestMatch && minDiff < tthError) { indexedPeaks.push({ h: bestMatch.h, k: bestMatch.k, l: bestMatch.l }); usedTheoreticalPeaks.add(bestMatch.originalIndex); }
+        }
+        return indexedPeaks;
+    };
+
+    // --- CORE REFINEMENT AND ANALYSIS FUNCTIONS ---
+    const getQcalc = (hkl, cell) => {
+        const [h, k, l] = hkl;
+        const { a, b, c, beta, system } = cell;
+        switch (system) {
+            case 'cubic': return (h*h + k*k + l*l) / (a*a);
+            case 'tetragonal': return (h*h + k*k) / (a*a) + (l*l) / (c*c);
+            case 'hexagonal': return (4/3) * (h*h + h*k + k*k) / (a*a) + (l*l) / (c*c);
+            case 'orthorhombic': return h*h/(a*a) + k*k/(b*b) + l*l/(c*c);
+            case 'monoclinic':
+                const sinBeta = Math.sin(beta * Math.PI / 180), cosBeta = Math.cos(beta * Math.PI / 180);
+                return (1/(sinBeta*sinBeta)) * (h*h/(a*a) + l*l/(c*c) - 2*h*l*cosBeta/(a*c)) + k*k/(b*b);
+        }
+        return 0;
+    };
+    
+    const getLSDesignRow = (hkl, system) => {
+        const [h, k, l] = hkl;
+        switch(system) {
+            case 'cubic': return [h*h + k*k + l*l];
+            case 'tetragonal': return [h*h + k*k, l*l];
+            case 'hexagonal': return [(4/3)*(h*h + h*k + k*k), l*l];
+            case 'orthorhombic': return [h*h, k*k, l*l];
+            case 'monoclinic': return [h*h, k*k, l*l, h*l];
+        }
+    };
+    
+    // ==================================================================
+    // == THIS FUNCTION HAS BEEN CORRECTED TO PREVENT THE CRASH ==
+    // ==================================================================
+    const extractCellFromFit = (params, system) => {
+        let cell = { system, alpha: 90, gamma: 90 };
+        try {
+            if (params.some(p => isNaN(p))) return null;
+
+            switch(system) {
+                case 'cubic':
+                    if (params[0] <= 0) return null;
+                    cell.a = 1/Math.sqrt(params[0]);
+                    cell.b = cell.a;
+                    cell.c = cell.a;
+                    cell.beta = 90;
+                    break;
+                case 'tetragonal':
+                    if (params[0] <= 0 || params[1] <= 0) return null;
+                    cell.a = 1/Math.sqrt(params[0]);
+                    cell.b = cell.a; // Explicitly set b = a
+                    cell.c = 1/Math.sqrt(params[1]);
+                    cell.beta = 90;
+                    break;
+                case 'hexagonal':
+                    if (params[0] <= 0 || params[1] <= 0) return null;
+                    cell.a = 1/Math.sqrt(params[0]);
+                    cell.b = cell.a; // Explicitly set b = a
+                    cell.c = 1/Math.sqrt(params[1]);
+                    cell.beta = 90;
+                    cell.gamma = 120;
+                    break;
+                case 'orthorhombic':
+                    if (params.some(p => p <= 0)) return null;
+                    cell.a = 1/Math.sqrt(params[0]);
+                    cell.b = 1/Math.sqrt(params[1]);
+                    cell.c = 1/Math.sqrt(params[2]);
+                    cell.beta = 90;
+                    break;
+                case 'monoclinic':
+                    const [A, B, C, D] = params;
+                    if (A <= 0 || B <= 0 || C <= 0 || D*D >= 4*A*C) return null;
+                    const cosBeta = -D / (2 * Math.sqrt(A*C));
+                    if (Math.abs(cosBeta) >= 1) return null;
+                    cell.beta = Math.acos(cosBeta) * 180 / Math.PI;
+                    if (cell.beta < 80 || cell.beta > 140) return null;
+                    const sinBetaSq = 1 - cosBeta*cosBeta;
+                    if (sinBetaSq <= 0) return null;
+                    cell.a = 1/Math.sqrt(A * sinBetaSq);
+                    cell.b = 1/Math.sqrt(B);
+                    cell.c = 1/Math.sqrt(C * sinBetaSq);
+                    break;
+            }
+        } catch { return null; }
+        
+        if (isNaN(cell.a) || isNaN(cell.b) || isNaN(cell.c) || isNaN(cell.beta)) return null;
+
+        return cell;
+    };
+    
+    const getVolume = (cell) => {
+        const { a, b, c, beta, system } = cell;
+        switch(system){
+            case 'cubic': return a**3;
+            case 'tetragonal': return a**2 * c;
+            case 'hexagonal': return a**2 * c * Math.sqrt(3)/2;
+            case 'orthorhombic': return a * b * c;
+            case 'monoclinic': return a * b * c * Math.sin(beta * Math.PI / 180);
+        }
+    };
+    
+    const getSolutionKey = (cell) => {
+        const P = 2;
+        const std = standardizeCell(cell);
+        switch(std.system) {
+            case 'cubic': return `${std.system}_${std.a.toFixed(P)}`;
+            case 'tetragonal': case 'hexagonal': return `${std.system}_${std.a.toFixed(P)}_${std.c.toFixed(P)}`;
+            case 'orthorhombic': return `${std.system}_${[std.a,std.b,std.c].sort().map(p => p.toFixed(P)).join('_')}`;
+            case 'monoclinic': return `${std.system}_${std.volume.toFixed(2)}_${std.beta.toFixed(2)}`;
+        }
+    };
+    
+    const get_q_tolerance = (original_peak_index) => {
+        const theta_rad = tth_obs_rad[original_peak_index] / 2.0;
+        const d_theta_rad = tth_error * Math.PI / 360;
+        return ((8 * Math.sin(theta_rad) * Math.cos(theta_rad)) / (wavelength**2)) * d_theta_rad;
+    };
+
+    const binarySearchClosest = (arr, target) => {
+        let low = 0, high = arr.length - 1;
+        if (arr.length === 0 || target <= arr[low]) return 0;
+        if (target >= arr[high]) return high;
+        while (low <= high) {
+            let mid = Math.floor((low + high) / 2);
+            if (arr[mid] < target) low = mid + 1; else high = mid - 1;
+        }
+        return (low >= arr.length) ? high : ((arr[low] - target) < (target - arr[high]) ? low : high);
+    };
+    
+    const calculateM20 = (q_calc_sorted, q_obs_for_m20, original_indices_for_m20) => {
+        if (!q_calc_sorted || q_calc_sorted.length === 0) return 0;
+        let N_indexed = 0, sum_delta_q = 0;
+        for (let i = 0; i < N_FOR_M20; i++) {
+            const q_o = q_obs_for_m20[i];
+            const tolerance = get_q_tolerance(original_indices_for_m20[i]);
+            const diff = Math.abs(q_o - q_calc_sorted[binarySearchClosest(q_calc_sorted, q_o)]);
+            if (diff < tolerance) { N_indexed++; sum_delta_q += diff; }
+        }
+        if (N_FOR_M20 - N_indexed > impurity_peaks || N_indexed === 0) return 0;
+        const q_n = q_obs_for_m20[N_FOR_M20 - 1];
+        let N_calc = q_calc_sorted.filter(q => q <= q_n * 1.05).length;
+        if (N_calc === 0) return 0;
+        const avg_delta_q = sum_delta_q / N_indexed;
+        return avg_delta_q > 0 ? (q_n / (2 * avg_delta_q * N_calc)) : 0;
+    };
+
+    const solveLeastSquares = (M, q_vec) => {
+        const num_eq = M.length, num_params = M[0].length;
+        if (num_eq < num_params) return null;
+
+        const MT = Array(num_params).fill(0).map((_, i) => Array(num_eq).fill(0).map((_, j) => M[j][i]));
+        const MTM = Array(num_params).fill(0).map((_, i) => Array(num_params).fill(0).map((_, j) => MT[i].reduce((s, v, k) => s + v * M[k][j], 0)));
+        
+        const cofactor = (mat, r, c) => mat.slice(0, r).concat(mat.slice(r + 1)).map(row => row.slice(0, c).concat(row.slice(c + 1)));
+        const determinant = (mat) => {
+            if (mat.length === 0) return 1; if (mat.length === 1) return mat[0][0];
+            return mat[0].reduce((sum, el, i) => sum + el * determinant(cofactor(mat, 0, i)) * (i % 2 === 0 ? 1 : -1), 0);
+        };
+        
+        const det = determinant(MTM);
+        if (Math.abs(det) < 1e-12) return null;
+
+        const adjugate = (mat) => {
+            const n = mat.length; const adj = Array(n).fill(0).map(() => Array(n).fill(0));
+            for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) adj[j][i] = determinant(cofactor(mat, i, j)) * ((i + j) % 2 === 0 ? 1 : -1);
+            return adj;
+        };
+        const invDet = 1.0 / det;
+        const MTM_inv = adjugate(MTM).map(row => row.map(el => el * invDet));
+        
+        const MTq = Array(num_params).fill(0).map((_, i) => MT[i].reduce((s, v, j) => s + v * q_vec[j], 0));
+        const x = Array(num_params).fill(0).map((_, i) => MTM_inv[i].reduce((s, v, j) => s + v * MTq[j], 0));
+        
+        const df = num_eq - num_params;
+        if (df <= 0) return { solution: x, covarianceMatrix: null };
+        
+        const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
+        const SSR = q_vec.reduce((sum, q_obs, i) => sum + (q_obs - q_calc[i])**2, 0);
+        const V = MTM_inv.map(row => row.map(el => el * (SSR / df)));
+
+        return { solution: x, covarianceMatrix: V };
+    };
+    
+    const propagateErrors = (system, fitResult, cell) => {
+        if (!fitResult || !fitResult.covarianceMatrix) return {};
+        const V = fitResult.covarianceMatrix, errors = {}, num_params = V.length;
+        try {
+            switch (system) {
+                case 'cubic': errors.s_a = 0.5 * cell.a**3 * Math.sqrt(Math.abs(V[0][0])); break;
+                case 'tetragonal': case 'hexagonal':
+                    errors.s_a = 0.5 * cell.a**3 * Math.sqrt(Math.abs(V[0][0]));
+                    errors.s_c = 0.5 * cell.c**3 * Math.sqrt(Math.abs(V[1][1]));
+                    break;
+                case 'orthorhombic':
+                    errors.s_a = 0.5 * cell.a**3 * Math.sqrt(Math.abs(V[0][0]));
+                    errors.s_b = 0.5 * cell.b**3 * Math.sqrt(Math.abs(V[1][1]));
+                    errors.s_c = 0.5 * cell.c**3 * Math.sqrt(Math.abs(V[2][2]));
+                    break;
+                case 'monoclinic':
+                    const [A,B,C,D] = fitResult.solution;
+                    errors.s_b = 0.5 * cell.b**3 * Math.sqrt(Math.abs(V[1][1]));
+                    const betaRad = cell.beta*Math.PI/180, sinBeta=Math.sin(betaRad), sqrtAC=Math.sqrt(A*C);
+                    const d_beta_d_A = (-1/sinBeta)*(D/(4*A*sqrtAC)), d_beta_d_C = (-1/sinBeta)*(D/(4*C*sqrtAC)), d_beta_d_D = (-1/sinBeta)*(-1/(2*sqrtAC));
+                    errors.s_beta = Math.sqrt(Math.abs(d_beta_d_A**2*V[0][0] + d_beta_d_C**2*V[2][2] + d_beta_d_D**2*V[3][3] + 2*(d_beta_d_A*d_beta_d_C*V[0][2] + d_beta_d_A*d_beta_d_D*V[0][3] + d_beta_d_C*d_beta_d_D*V[2][3]))) * 180 / Math.PI;
+                    errors.s_a = (cell.a / (2*A)) * Math.sqrt(Math.abs(V[0][0]));
+                    errors.s_c = (cell.c / (2*C)) * Math.sqrt(Math.abs(V[2][2]));
+                    break;
+            }
+            const cell_param_count = { cubic: 1, tetragonal: 2, hexagonal: 2, orthorhombic: 3, monoclinic: 4 };
+            if (num_params > cell_param_count[system]) {
+                errors.s_zero = Math.sqrt(Math.abs(V[num_params - 1][num_params - 1])) * 180 / Math.PI;
+            }
+        } catch (e) { console.error("Error during propagation:", e); }
+        return errors;
+    };
+
+    const hkl_search_list_cache = {};
+    const get_hkl_search_list = (system) => {
+        if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
+        const hkls = []; const max_h = (system === 'monoclinic' ? 5 : 7);
+        for (let h=0; h<=max_h; h++) for (let k=0; k<=max_h; k++) for (let l=0; l<=max_h; l++) if(h||k||l) hkls.push([h,k,l]);
+        hkls.sort((a,b) => (a[0]**2+a[1]**2+a[2]**2)-(b[0]**2+b[1]**2+b[2]**2));
+        return hkl_search_list_cache[system] = hkls;
+    };
+   
+    const refineAndTestSolution = (initialParams) => {
+        if (!initialParams || !initialParams.system) return;
+        const { system } = initialParams;
+        let candidate_cell = { ...initialParams };
+        const min_lp = 0.5, max_lp = 50.0;
+        if (Object.values(candidate_cell).some(p => typeof p==='number' && (isNaN(p) || p<min_lp || p>max_lp))) return;
+        if (system === 'monoclinic' && candidate_cell.beta < 90.0) candidate_cell.beta = 180.0 - candidate_cell.beta;
+
+        const hkl_search_list = get_hkl_search_list(system);
+        const indexed_pairs = [], peak_indices_for_ls = [];
+        for (let i = 0; i < N_FOR_M20; i++) {
+            const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
+            let best_match = null, min_diff = Infinity;
+            for (const hkl of hkl_search_list) {
+                const q_calc = getQcalc(hkl, candidate_cell);
+                const diff = Math.abs(q_calc - q_o);
+                if (diff < min_diff) { min_diff = diff; best_match = hkl; }
+                if (q_calc > q_o + tolerance * 2) break;
+            }
+            if (best_match && min_diff < tolerance) {
+                indexed_pairs.push({ q_obs: q_o, hkl: best_match });
+                peak_indices_for_ls.push(i);
+            }
+        }
+        
+        const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7 };
+        if (indexed_pairs.length < min_indexed[system]) return;
+        
+        let M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+        const q_vec = indexed_pairs.map(p => p.q_obs);
+        if (refineZero) {
+            M.forEach((row, i) => {
+                const tth_rad = tth_obs_rad[original_indices[peak_indices_for_ls[i]]];
+                row.push((2 / (wavelength**2)) * Math.sin(tth_rad));
+            });
+        }
+        
+        const fitResult = solveLeastSquares(M, q_vec);
+        if (!fitResult || !fitResult.solution) return;
+        const final_cell = extractCellFromFit(fitResult.solution, system);
+        if (!final_cell) return;
+
+        if (refineZero) final_cell.zero_correction = fitResult.solution[fitResult.solution.length - 1] * 180 / Math.PI;
+
+        final_cell.volume = getVolume(final_cell);
+        if (final_cell.volume > max_volume || final_cell.volume < 20) return;
+        final_cell.errors = propagateErrors(system, fitResult, final_cell);
+
+        const q_calc_set = new Set();
+        const h_max = Math.ceil((final_cell.a||0)/d_min), k_max = Math.ceil((final_cell.b||final_cell.a||0)/d_min), l_max = Math.ceil((final_cell.c||final_cell.a||0)/d_min);
+        for(let h=-h_max; h<=h_max; h++) for(let k=-k_max; k<=k_max; k++) for(let l=-l_max; l<=l_max; l++) {
+            if(h||k||l) q_calc_set.add(getQcalc([h,k,l], final_cell));
+        }
+        const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
+        
+        let q_obs_for_m20 = q_obs;
+        if (refineZero) {
+            const z_corr_deg = final_cell.zero_correction || 0;
+            q_obs_for_m20 = new Float64Array(peaks_sorted_by_q.map(p => {
+                const corrected_tth_rad = (peaks[p.original_index].tth - z_corr_deg) * Math.PI / 180;
+                return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+            }));
+        }
+        
+        const m20 = calculateM20(q_calc_sorted, q_obs_for_m20, original_indices);
+
+        if (m20 > min_m20) {
+            final_cell.m20 = m20;
+            const key = getSolutionKey(final_cell);
+            const existing = foundSolutionMap.get(key);
+            if (!existing || m20 > existing.m20) {
+                 if (existing) foundSolutions[existing.index] = final_cell;
+                 else foundSolutions.push(final_cell);
+                 foundSolutionMap.set(key, { m20: m20, index: existing ? existing.index : foundSolutions.length - 1 });
+            }
+        }
+    };
+    
+    // --- SEARCH ALGORITHMS ---
+    const indexCubic = () => {
+        const h_max = 8;
+        for (let i=0; i<Math.min(peaks.length,10); i++) for (let h=1; h<=h_max; h++) for (let k=0; k<=h; k++) for (let l=0; l<=k; l++) {
+            if(!h&&!k&&!l) continue;
+            refineAndTestSolution({a: Math.sqrt((h*h+k*k+l*l)/q_obs[i]), system: 'cubic'});
+        }
+    };
+    const indexTetragonalOrHexagonal = (system) => {
+        const max_hkl=5, i_depth=Math.min(10,peaks.length), j_depth=Math.min(10,peaks.length);
+        for (let i=0; i<i_depth; i++) for (let j=i+1; j<j_depth; j++) {
+            for (let h1=0; h1<=max_hkl; h1++) for (let k1=0; k1<=h1; k1++) for (let l1=0; l1<=max_hkl; l1++) {
+                if(!h1&&!k1&&!l1) continue;
+                const S1 = system==='tetragonal'? h1*h1+k1*k1 : h1*h1+h1*k1+k1*k1;
+                for (let h2=0; h2<=max_hkl; h2++) for (let k2=0; k2<=h2; k2++) for (let l2=0; l2<=max_hkl; l2++) {
+                    if(!h2&&!k2&&!l2) continue;
+                    const S2 = system==='tetragonal'? h2*h2+k2*k2 : h2*h2+h2*k2+k2*k2;
+                    const det = S1*l2*l2-S2*l1*l1;
+                    if(Math.abs(det)<1e-6) continue;
+                    const a_term_inv = (q_obs[i]*l2*l2-q_obs[j]*l1*l1)/det, c_term_inv=(q_obs[j]*S1-q_obs[i]*S2)/det;
+                    if (a_term_inv>0 && c_term_inv>0) {
+                        const a = system==='tetragonal'? 1/Math.sqrt(a_term_inv) : Math.sqrt(4/(3*a_term_inv));
+                        refineAndTestSolution({a: a, c: 1/Math.sqrt(c_term_inv), system});
+                    }
+                }
+            }
+        }
+    };
+    const indexOrthorhombic = () => {
+        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('orthorhombic').slice(0,30);
+        for(let i=0;i<max_p-2;i++) for(let j=i+1;j<max_p-1;j++) for(let k=j+1;k<max_p;k++) {
+            for(let n1=0;n1<basis_hkls.length-2;n1++) for(let n2=n1+1;n2<basis_hkls.length-1;n2++) for(let n3=n2+1;n3<basis_hkls.length;n3++) {
+                const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl=>[hkl[0]**2, hkl[1]**2, hkl[2]**2]);
+                const fit = solveLeastSquares(M, [q_obs[i],q_obs[j],q_obs[k]]);
+                if(fit&&fit.solution&&fit.solution.every(s=>s>0)) {
+                    refineAndTestSolution({a:1/Math.sqrt(fit.solution[0]),b:1/Math.sqrt(fit.solution[1]),c:1/Math.sqrt(fit.solution[2]),system:'orthorhombic'});
+                }
+            }
+        }
+    };
+    const indexMonoclinic = () => {
+        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('monoclinic').slice(0,35);
+        for(let i=0;i<max_p-3;i++) for(let j=i+1;j<max_p-2;j++) for(let k=j+1;k<max_p-1;k++) for(let l=k+1;l<max_p;l++) {
+            for(let n1=0;n1<basis_hkls.length-3;n1++) for(let n2=n1+1;n2<basis_hkls.length-2;n2++) for(let n3=n2+1;n3<basis_hkls.length-1;n3++) for(let n4=n3+1;n4<basis_hkls.length;n4++) {
+                const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
+                const M = hkls.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
+                const fit = solveLeastSquares(M, [q_obs[i],q_obs[j],q_obs[k],q_obs[l]]);
+                if(!fit||!fit.solution) continue;
+                const [A,B,C,D] = fit.solution;
+                if(A>0&&B>0&&C>0&&D*D<4*A*C) {
+                    const cosB=-D/(2*Math.sqrt(A*C)), sinBSq=1-cosB*cosB;
+                    refineAndTestSolution({a:1/Math.sqrt(A*sinBSq),b:1/Math.sqrt(B),c:1/Math.sqrt(C*sinBSq),beta:Math.acos(cosB)*180/Math.PI,system:'monoclinic'});
+                }
+            }
+        }
+    };
+
+    // --- DERIVED/TRANSFORMED CELL SEARCH ---
+    const findTransformedSolutions = (initialSolutions) => {
+        const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
+        
+        initialSolutions.forEach(sol => {
+            // 1. Matrix Transformations
+            cellTransforms.forEach(tf => {
+                try {
+                    const G = metricFromCell(sol); const Pt = transpose(tf.P); const Gprime = matMul(matMul(Pt, G), tf.P);
+                    const candCell = cellFromMetric(Gprime);
+                    const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
+                    if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
+                } catch {}
+            });
+
+            // 2. HKL Divisor Analysis
+            const indexedPeaks = findIndexedPeaksForSolution(sol, tth_error);
+            if (indexedPeaks.length > 5) {
+                const h_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.h)).filter(h => h > 0));
+                const k_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.k)).filter(k => k > 0));
+                const l_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.l)).filter(l => l > 0));
+                if (h_div > 1 || k_div > 1 || l_div > 1) {
+                    const candCell = { ...sol, a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
+                    const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
+                    if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
+                }
+            }
+            
+            // 3. Orthorhombic to Hexagonal Check
+            if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {
+                const axes = { a: sol.a, b: sol.b, c: sol.c }; const pairs = [['a','b','c'], ['a','c','b'], ['b','c','a']];
+                pairs.forEach(([ax1, ax2, unique_ax]) => {
+                    if (Math.abs(axes[ax2] / axes[ax1] / Math.sqrt(3) - 1) < 0.03) {
+                        refineAndTestSolution({ system: 'hexagonal', a: axes[ax1], c: axes[unique_ax], beta: 90, gamma: 120 });
+                    }
+                });
+            }
+        });
+    };
+    
+    // --- EXECUTION & REPORTING ---
+    if (systemToSearch === 'cubic') indexCubic();
+    if (systemToSearch === 'tetragonal') indexTetragonalOrHexagonal('tetragonal');
+    if (systemToSearch === 'hexagonal') indexTetragonalOrHexagonal('hexagonal');
+    if (systemToSearch === 'orthorhombic') indexOrthorhombic();
+    if (systemToSearch === 'monoclinic') indexMonoclinic();
+    
+    // After initial search, try transformations on the found solutions
+    findTransformedSolutions([...foundSolutions]);
+    
+    foundSolutions.forEach(solution => self.postMessage({ type: 'solution', payload: solution }));
+    self.postMessage({ type: 'done' });
+};
+
+
+</script>
+
+<div id="app-footer">Combs, version 15 oct 2025</div>
+</body>
+</html>
+
