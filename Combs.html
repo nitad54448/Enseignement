@@ -708,11 +708,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
 
-    // --- REPLACE the old function with this NEW version ---
-
-
-
-
 function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
     // Step 1: Generate a reliable list of observed HKLs, storing the obs 2-theta
     const all_hkls = generateHKL_for_analysis(solution, wavelength, Math.max(...obs_peaks.map(p => p.tth)));
@@ -859,7 +854,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
     if (name.endsWith('.ras') || fileContent.toUpperCase().includes('*RAS_HEADER_START')) return parseRigakuRasFile(fileContent);
     if (name.endsWith('.udf')) return parsePhilipsUdfFile(fileContent);
 
-    // New, more robust GSAS detection logic
+    // robust GSAS detection logic
     const bankLine = lines.find(line => line.trim().toUpperCase().startsWith('BANK'));
     if (bankLine) {
         // XRA format has 'STD' on the same line as 'BANK'
@@ -1424,8 +1419,6 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
         xrdChart.update('none');
     };
     
-    // ==================================================================
-    // ==================================================================
     const generateHKL = (maxTth, params, system) => {
         const { a, b, c, beta, lambda } = params; if (!a || !lambda) return [];
         const reflections = [];
@@ -1548,7 +1541,7 @@ const generatePDFReport = async () => {
         const now = new Date();
         const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         doc.setFontSize(18);
-        doc.text('Powder Indexing Report', 105, yPos, {
+        doc.text('Combs - Powder Indexing Report', 105, yPos, {
             align: 'center'
         });
         yPos += 10;
@@ -1860,10 +1853,7 @@ self.onmessage = function(e) {
     const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
     
 
-    // ==================================================================
-// == CORRECTED HKL Generation for Reporting and Display ==
-// == This version enforces crystallographic conventions to avoid listing
-// == redundant equivalent reflections (e.g., (100) vs (010) in cubic).
+// HKL Generation for Reporting and Display ==
 // ==================================================================
 const generateHKL = (maxTth, params, system) => {
      const { a, b, c, beta, lambda } = params; if (!a || !lambda) return []; const reflections = [];
@@ -1970,8 +1960,6 @@ const generateHKL = (maxTth, params, system) => {
     };
     
     // ==================================================================
-    // == THIS FUNCTION HAS BEEN CORRECTED TO PREVENT THE CRASH ==
-    // ==================================================================
     const extractCellFromFit = (params, system) => {
         let cell = { system, alpha: 90, gamma: 90 };
         try {
@@ -2035,7 +2023,7 @@ const generateHKL = (maxTth, params, system) => {
             case 'tetragonal': return a**2 * c;
             case 'hexagonal': return a**2 * c * Math.sqrt(3)/2;
             case 'orthorhombic': return a * b * c;
-            case 'monoclinic': return a * b * c * Math.sin(beta * Math.PI / 180);
+            case 'monoclinic': return a * b * c * Math.sin(beta * Math.PI / 180); //ca aurait ete plus simple avec le tenseur metrique
         }
     };
     
@@ -2157,7 +2145,7 @@ const generateHKL = (maxTth, params, system) => {
     const hkl_search_list_cache = {};
     const get_hkl_search_list = (system) => {
         if (hkl_search_list_cache[system]) return hkl_search_list_cache[system];
-        const hkls = []; const max_h = (system === 'monoclinic' ? 5 : 7);
+        const hkls = []; const max_h = (system === 'monoclinic' ? 8 : 10);
         for (let h=0; h<=max_h; h++) for (let k=0; k<=max_h; k++) for (let l=0; l<=max_h; l++) if(h||k||l) hkls.push([h,k,l]);
         hkls.sort((a,b) => (a[0]**2+a[1]**2+a[2]**2)-(b[0]**2+b[1]**2+b[2]**2));
         return hkl_search_list_cache[system] = hkls;
@@ -2250,7 +2238,7 @@ const generateHKL = (maxTth, params, system) => {
         }
     };
     const indexTetragonalOrHexagonal = (system) => {
-        const max_hkl=5, i_depth=Math.min(10,peaks.length), j_depth=Math.min(10,peaks.length);
+        const max_hkl=7, i_depth=Math.min(10,peaks.length), j_depth=Math.min(10,peaks.length);
         for (let i=0; i<i_depth; i++) for (let j=i+1; j<j_depth; j++) {
             for (let h1=0; h1<=max_hkl; h1++) for (let k1=0; k1<=h1; k1++) for (let l1=0; l1<=max_hkl; l1++) {
                 if(!h1&&!k1&&!l1) continue;
@@ -2270,7 +2258,7 @@ const generateHKL = (maxTth, params, system) => {
         }
     };
     const indexOrthorhombic = () => {
-        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('orthorhombic').slice(0,30);
+        const max_p=Math.min(14,q_obs.length), basis_hkls=get_hkl_search_list('orthorhombic').slice(0,30);
         for(let i=0;i<max_p-2;i++) for(let j=i+1;j<max_p-1;j++) for(let k=j+1;k<max_p;k++) {
             for(let n1=0;n1<basis_hkls.length-2;n1++) for(let n2=n1+1;n2<basis_hkls.length-1;n2++) for(let n3=n2+1;n3<basis_hkls.length;n3++) {
                 const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl=>[hkl[0]**2, hkl[1]**2, hkl[2]**2]);
@@ -2282,7 +2270,7 @@ const generateHKL = (maxTth, params, system) => {
         }
     };
     const indexMonoclinic = () => {
-        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('monoclinic').slice(0,35);
+        const max_p=Math.min(16,q_obs.length), basis_hkls=get_hkl_search_list('monoclinic').slice(0,35);
         for(let i=0;i<max_p-3;i++) for(let j=i+1;j<max_p-2;j++) for(let k=j+1;k<max_p-1;k++) for(let l=k+1;l<max_p;l++) {
             for(let n1=0;n1<basis_hkls.length-3;n1++) for(let n2=n1+1;n2<basis_hkls.length-2;n2++) for(let n3=n2+1;n3<basis_hkls.length-1;n3++) for(let n4=n3+1;n4<basis_hkls.length;n4++) {
                 const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
@@ -2298,11 +2286,22 @@ const generateHKL = (maxTth, params, system) => {
         }
     };
 
+    
     // --- DERIVED/TRANSFORMED CELL SEARCH ---
     const findTransformedSolutions = (initialSolutions) => {
         const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
-        
+
         initialSolutions.forEach(sol => {
+            // NEW: Get the zero correction for this specific solution, defaulting to 0 if not present.
+            const zero_correction = sol.zero_correction || 0;
+
+            // NEW: Create a temporary array of observed peaks with their 2-theta values corrected.
+            // All subsequent logic in this loop will use this corrected list.
+            const corrected_observed_peaks = peaks.map(p => ({
+                ...p,
+                tth: p.tth - zero_correction
+            }));
+
             // 1. Matrix Transformations
             cellTransforms.forEach(tf => {
                 try {
@@ -2313,19 +2312,67 @@ const generateHKL = (maxTth, params, system) => {
                 } catch {}
             });
 
-            // 2. HKL Divisor Analysis
-            const indexedPeaks = findIndexedPeaksForSolution(sol, tth_error);
-            if (indexedPeaks.length > 5) {
-                const h_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.h)).filter(h => h > 0));
-                const k_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.k)).filter(k => k > 0));
-                const l_div = gcdOfList(indexedPeaks.map(p => Math.abs(p.l)).filter(l => l > 0));
-                if (h_div > 1 || k_div > 1 || l_div > 1) {
-                    const candCell = { ...sol, a: sol.a/h_div, b: (sol.b??sol.a)/k_div, c:(sol.c??sol.a)/l_div };
-                    const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
-                    if (allowedSystems.includes(newSystem)) refineAndTestSolution({ ...candCell, system: newSystem });
+            // 2. Advanced HKL Divisor Analysis with Ambiguity Filter
+            const all_theoretical_hkls = generateHKL(Math.max(...corrected_observed_peaks.map(p => p.tth)), { ...sol, lambda: wavelength }, sol.system);
+            if (!all_theoretical_hkls || all_theoretical_hkls.length === 0) return;
+
+            const indexed_peak_details = [];
+            const used_theoretical_indices = new Set();
+            
+            // Match each corrected observed peak to its best theoretical counterpart.
+            for (const corrected_obsPeak of corrected_observed_peaks) { // MODIFIED: Use corrected peaks
+                let bestMatch = null;
+                let minDiff = Infinity;
+
+                for (let i = 0; i < all_theoretical_hkls.length; i++) {
+                    if (used_theoretical_indices.has(i)) continue;
+                    const diff = Math.abs(corrected_obsPeak.tth - all_theoretical_hkls[i].tth); // MODIFIED: Use corrected tth
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        bestMatch = { hkl: all_theoretical_hkls[i], theoreticalIndex: i };
+                    }
+                }
+
+                if (bestMatch && minDiff < tth_error) {
+                    indexed_peak_details.push({
+                        obs_tth: corrected_obsPeak.tth, // MODIFIED: Use corrected tth
+                        assigned_hkl: bestMatch.hkl
+                    });
+                    used_theoretical_indices.add(bestMatch.theoreticalIndex);
                 }
             }
             
+            if (indexed_peak_details.length > 5) {
+                const unambiguous_hkls = indexed_peak_details.filter(peak_detail => {
+                    let neighbor_count = 0;
+                    all_theoretical_hkls.forEach(theoretical_hkl => {
+                        const is_same_hkl = (
+                            theoretical_hkl.h === peak_detail.assigned_hkl.h &&
+                            theoretical_hkl.k === peak_detail.assigned_hkl.k &&
+                            theoretical_hkl.l === peak_detail.assigned_hkl.l
+                        );
+                        if (!is_same_hkl && Math.abs(peak_detail.obs_tth - theoretical_hkl.tth) < tth_error) { // MODIFIED: Use corrected obs_tth
+                            neighbor_count++;
+                        }
+                    });
+                    return neighbor_count === 0;
+                }).map(p => p.assigned_hkl);
+
+                if (unambiguous_hkls.length > 5) {
+                    const h_div = gcdOfList(unambiguous_hkls.map(p => Math.abs(p.h)).filter(h => h > 0));
+                    const k_div = gcdOfList(unambiguous_hkls.map(p => Math.abs(p.k)).filter(k => k > 0));
+                    const l_div = gcdOfList(unambiguous_hkls.map(p => Math.abs(p.l)).filter(l => l > 0));
+                    
+                    if (h_div > 1 || k_div > 1 || l_div > 1) {
+                        const candCell = { ...sol, a: sol.a / h_div, b: (sol.b ?? sol.a) / k_div, c: (sol.c ?? sol.a) / l_div };
+                        const newSystem = getSymmetry(candCell.a, candCell.b, candCell.c, candCell.alpha, candCell.beta, candCell.gamma);
+                        if (allowedSystems.includes(newSystem)) {
+                            refineAndTestSolution({ ...candCell, system: newSystem });
+                        }
+                    }
+                }
+            }
+
             // 3. Orthorhombic to Hexagonal Check
             if (sol.system === 'orthorhombic' && allowedSystems.includes('hexagonal')) {
                 const axes = { a: sol.a, b: sol.b, c: sol.c }; const pairs = [['a','b','c'], ['a','c','b'], ['b','c','a']];
@@ -2337,7 +2384,7 @@ const generateHKL = (maxTth, params, system) => {
             }
         });
     };
-    
+
     // --- EXECUTION & REPORTING ---
     if (systemToSearch === 'cubic') indexCubic();
     if (systemToSearch === 'tetragonal') indexTetragonalOrHexagonal('tetragonal');
