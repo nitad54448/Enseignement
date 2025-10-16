@@ -117,11 +117,11 @@
         <div class="logo">Help Guide: <span>Combs</span></div>
         <nav>
             <ul id="toc">
-                <li><a href="#introduction" class="active">Introduction</a></li>
+                <li><a href="#introduction" class="active">Technical Overview</a></li>
                 <li><a href="#quick-start">Quick Start Guide</a></li>
                 <li><a href="#ui">The User Interface</a></li>
                 <li><a href="#peak-finding">Peak Finding</a></li>
-                <li><a href="#indexing-method">The Indexing Method</a></li>
+                <li><a href="#indexing-method">Indexing Algorithm</a></li>
                 <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
                 <li><a href="#advanced-topics">Advanced Topics</a></li>
                 <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -132,272 +132,198 @@
 
     <main id="main-content">
         <section id="introduction">
-            <h1>Introduction to Powder Indexing</h1>
-            <p>Welcome to the comprehensive help guide for the Combs Powder Indexing software. This document provides a full overview of the program's features, the underlying scientific principles, and practical advice for achieving reliable results.</p>
+            <h1>Technical Overview & Methodology</h1>
+            <p>This document provides a technical reference for the Combs Powder Indexing software. It details the program's algorithms, search parameters, and methodologies for scientists and researchers familiar with powder X-ray diffraction techniques.</p>
             
-            <h3>What is Powder X-ray Diffraction?</h3>
+            <h3>Core Methodology</h3>
             <p>
-                Powder X-ray Diffraction (PXRD) is a powerful analytical technique used to determine the atomic and molecular structure of a crystal. When a finely powdered crystalline material is exposed to a monochromatic X-ray beam, the X-rays are scattered by the electrons of the atoms. Due to the periodic arrangement of atoms in the crystal lattice, constructive interference occurs at specific angles, producing a diffraction pattern of sharp peaks (or lines).
+                The goal of <em>ab initio</em> powder indexing is to determine the unit cell parameters ($a, b, c, \alpha, \beta, \gamma$) from a list of observed diffraction peak positions ($2\theta$). This program implements an iterative trial-and-error search algorithm, conceptually based on <strong>Ito's method</strong>, to solve this problem.
             </p>
             <p>
-                The positions of these peaks are defined by <strong>Bragg's Law</strong>:
-                $$ n\lambda = 2d \sin\theta $$
-                where $n$ is an integer (the order of reflection), $\lambda$ is the wavelength of the X-rays, $d$ is the spacing between a specific set of atomic planes in the crystal, and $\theta$ is the angle of diffraction. Each peak in the pattern corresponds to a specific set of atomic planes with a unique $d$-spacing.
+                The core principle is to assume that a small subset of the most intense, low-angle reflections must correspond to simple crystal planes with low-integer Miller indices $(hkl)$. By systematically assigning these indices, the algorithm generates trial unit cells. Each trial cell is immediately used to calculate a theoretical diffraction pattern, which is compared against the experimental data. If the cell fails to account for a significant number of observed peaks, it is discarded, and the algorithm proceeds to the next trial.
             </p>
-            
-            <h3>What is Unit Cell Indexing?</h3>
-            <p>
-                The goal of <em>ab initio</em> powder indexing is to determine the dimensions (lattice parameters $a, b, c$) and angles ($\alpha, \beta, \gamma$) of the crystal's fundamental building block—the <strong>unit cell</strong>—using only the positions of the diffraction peaks.
-            </p>
-            <p>
-                This process is called "indexing" because it involves assigning a unique set of three integer Miller indices $(hkl)$ to each observed diffraction peak. These indices describe the orientation of the corresponding atomic planes within the crystal lattice. The relationship between the $d$-spacing, the Miller indices, and the cell parameters depends on the crystal system, as shown by the general quadratic form of Bragg's Law:
-                $$ \frac{1}{d_{hkl}^2} = f(a, b, c, \alpha, \beta, \gamma, h, k, l) $$
-                Indexing is often the most challenging step in structure determination from powder data, as it involves finding a small set of parameters (the cell geometry) that can account for all the observed peak positions. It is a prerequisite for any further structural analysis.
-            </p>
-            
-            <h3>The Method</h3>
-            <p>
-                This software implements the <strong>Ito's Method</strong>, a powerful and widely-used algorithm for indexing developed by T. Ito. The method operates by assuming that the first few diffraction lines (which have the largest $d$-spacings and thus occur at the lowest $2\theta$ angles) must correspond to simple crystal planes with small Miller indices (e.g., (100), (011), (200)).
-            </p>
-            <p>
-                By assigning these low-integer indices to the first few peaks, it generates trial unit cells. By making logical assumptions about the first few peaks, it can rapidly test and discard large regions of possibilities, converging on valid solutions much faster than a pure brute-force approach. The algorithm is particularly robust and is considered one of the standard methods for powder indexing.
+             <p>
+                To linearize the indexing equations, all peak positions are first converted from $2\theta$ to Q-space, where $Q = 1/d^2$. The relationship between $Q$, the Miller indices, and the reciprocal cell parameters ($A, B, C, D, E, F$) is given by the general quadratic form:
+                $$ Q_{hkl} = Ah^2 + Bk^2 + Cl^2 + Dkl + Ehl + Fhk $$
+                The software solves for these reciprocal parameters and then converts them back to the real-space cell parameters for the final solution.
             </p>
         </section>
 
         <section id="quick-start">
             <h2>Quick Start Guide</h2>
-            <p>Follow these steps to perform a basic indexing routine. This guide assumes you have a clean, single-phase powder pattern.</p>
+            <p>Follow these steps for a standard indexing routine on a single-phase powder pattern.</p>
             <ol>
-                <li><strong>Load Data File:</strong> Click the <code>Select Data File</code> button and choose your powder diffraction data. The program supports numerous common formats (e.g., <code>.xy</code>, <code>.xrdml</code>, <code>.ras</code>). The chart will display your pattern.</li>
-                <li><strong>Find Peaks:</strong> Navigate to the <strong>Peaks</strong> tab. Adjust the <code>Min peak (%)</code>, <code>Radius (pts)</code>, and <code>Points</code> (for smoothing) sliders until the automatically detected peaks (red markers on the chart) accurately represent your experimental data. Start with the defaults and adjust as needed.</li>
-                <li><strong>Review Peaks:</strong> The peak table shows the list of found peaks. Carefully examine this list. Manually edit the 2θ position of any peak for greater accuracy or delete spurious ones (e.g., from noise or Kα2 contamination). Use <code>Ctrl + Click</code> on the chart to add any significant peaks that were missed. A minimum of 4 peaks is required, but 15-20 clean peaks is ideal.</li>
-                <li><strong>Set Parameters:</strong> Switch to the <strong>Parameters</strong> tab.
+                <li><strong>Load Data File:</strong> Use the <code>Select Data File</code> button. Supported formats include <code>.xy</code>, <code>.xrdml</code>, <code>.ras</code>, etc.</li>
+                <li><strong>Find Peaks:</strong> On the <strong>Peaks</strong> tab, adjust the <code>Min peak (%)</code>, <code>Radius (pts)</code>, and <code>Points</code> sliders to accurately capture your experimental peaks.</li>
+                <li><strong>Review & Refine Peaks:</strong> Critically examine the peak list. Edit 2θ positions for accuracy, delete spurious peaks (noise, Kα2), and add any missed reflections using <code>Ctrl + Click</code> on the chart. A clean list of 15-20 peaks is ideal.</li>
+                <li><strong>Set Parameters:</strong> On the <strong>Parameters</strong> tab:
                     <ul>
-                        <li>Verify the X-ray <code>Wavelength (Å)</code> is correct for your experiment (e.g., 1.5406 for Cu Kα1).</li>
-                        <li>Set a reasonable <code>Max Volume (Å³)</code> for your expected unit cell. This is a crucial parameter to constrain the search and eliminate unrealistic solutions. If you are unsure, you can estimate it based on the chemical formula.</li>
-                        <li>Adjust the <code>2θ Error (°)</code> to reflect the quality and resolution of your data (e.g., 0.02° for high-resolution synchrotron, 0.05° for a typical laboratory diffractometer).</li>
-                        <li>Select the crystal systems you wish to search. For a completely unknown sample, it's often wise to start with higher symmetry systems (cubic, tetragonal, hexagonal) first before moving to lower symmetries.</li>
+                        <li>Verify the X-ray <code>Wavelength (Å)</code>.</li>
+                        <li>Set a chemically sensible <code>Max Volume (Å³)</code> to constrain the search.</li>
+                        <li>Set the <code>2θ Error (°)</code> appropriate for your instrument's resolution (e.g., 0.02° for synchrotron, 0.05° for lab data).</li>
+                        <li>Select the crystal systems to search. Start with higher symmetries first.</li>
                     </ul>
                 </li>
-                <li><strong>Start Indexing:</strong> Click the <code>Start Indexing</code> button. The progress bar will show the status as the program searches for solutions.</li>
-                <li><strong>Analyze Solutions:</strong> Once finished, go to the <strong>Solutions</strong> tab. A table of potential solutions will be displayed, sorted by their figure of merit (M20). A high M20 value (e.g., > 20) indicates a very likely correct solution. Click on a solution to view its calculated peak positions (blue markers) on the chart and visually assess the fit with your observed peaks (red markers).</li>
+                <li><strong>Start Indexing:</strong> Click <code>Start Indexing</code>.</li>
+                <li><strong>Analyze Solutions:</strong> On the <strong>Solutions</strong> tab, review the results. Sort by M(20) and click on high-scoring solutions to visually compare the calculated (blue) and observed (red) peak markers on the chart.</li>
             </ol>
         </section>
         
         <section id="ui">
             <h2>The User Interface</h2>
-            <p>The application is divided into two main panels: the Controls Panel on the left and the Results Area on the right.</p>
+            <p>The application is divided into the Controls Panel (left) and the Results Area (right).</p>
 
             <h3>Controls Panel</h3>
-            <p>This panel contains all inputs and controls for the indexing process, organized into three tabs for a clear workflow.</p>
-            <h4>1. File Input & Help</h4>
+            <p>This panel contains all inputs and controls, organized into three primary tabs.</p>
+            <h4>1. Peaks Tab</h4>
             <ul>
-                <li><strong>Select Data File:</strong> This button opens a file dialog to load your experimental data. Supported formats include two-column ASCII (<code>.xy</code>, <code>.csv</code>, <code>.txt</code>), Rigaku (<code>.ras</code>), Bruker (<code>.xrdml</code>, <code>.brml</code>), Philips (<code>.udf</code>, <code>.uxd</code>), and GSAS (<code>.esd</code>).</li>
-                <li><strong>Help Icon (?):</strong> Displays a tooltip with basic usage instructions, chart interaction tips, and a link to this full help guide.</li>
+                <li><strong>Peak Finding Sliders:</strong> Control the background subtraction (<code>Radius</code>), data smoothing (<code>Points</code>), and peak detection threshold (<code>Min peak</code>, logarithmic scale).</li>
+                <li><strong>2θ Range Sliders:</strong> Define the angular range for peak detection, useful for excluding noisy regions.</li>
+                <li><strong>Peak Table:</strong> A list of all detected peaks. <code>2θ Obs (°)</code> values can be manually edited for precision.</li>
             </ul>
 
-            <h4>2. Peaks Tab</h4>
-            <p>This tab is dedicated to finding and managing the list of diffraction peaks used for indexing. The quality of this list is paramount for success.</p>
+            <h4>2. Parameters Tab</h4>
             <ul>
-                <li><strong>Peak Finding Sliders:</strong>
-                    <ul>
-                        <li><code>Min peak (%)</code>: Sets the minimum height threshold for a peak to be detected, relative to the most intense peak in the pattern. This slider uses a logarithmic scale for finer control over weak peaks. Lowering it helps detect smaller peaks but may also pick up more noise.</li>
-                        <li><code>Radius (pts)</code>: Defines the window size (in data points) for the rolling-ball algorithm used to subtract the background. Larger values are suitable for patterns with a broad, amorphous background, while smaller values are better for patterns with a flatter background.</li>
-                        <li><code>Points</code>: Sets the width for the Savitzky-Golay smoothing filter applied to the data before peak detection. Higher values provide more smoothing (good for noisy data) but can broaden peaks and merge closely spaced reflections.</li>
-                    </ul>
-                </li>
-                <li><strong>2θ Range Sliders:</strong> These sliders (<code>2θ Min</code>, <code>2θ Max</code>) define the angular range in which peaks are detected. This is useful for excluding noisy regions at the start or end of the pattern, or for focusing on a specific area of interest.</li>
-                <li><strong>Peak Table:</strong> A list of all detected peaks. You can manually edit the <code>2θ Obs (°)</code> values for higher precision or delete peaks using the 'X' button. The d-spacing is calculated automatically based on the current wavelength.</li>
-            </ul>
-
-            <h4>3. Parameters Tab</h4>
-            <p>Here you define the core parameters for the search algorithm.</p>
-            <ul>
-                <li><strong>Wavelength (Å):</strong> The wavelength of the X-ray source. This is critical for correct d-spacing calculation. Common values are ~1.5406 Å for Cu Kα1, ~0.7093 Å for Mo Kα1, or shorter wavelengths for synchrotron sources.</li>
-                <li><strong>Max Volume (Å³):</strong> The maximum acceptable unit cell volume for a solution. Setting a realistic value is one of the most effective ways to speed up the search and reduce the number of false solutions.</li>
-                <li><strong>2θ Error (°):</strong> This defines the tolerance window for matching calculated peaks to observed peaks, reflecting the instrumental resolution and data quality. Use a smaller value (e.g., 0.01-0.02) for high-resolution data and a larger value (e.g., 0.04-0.06) for standard laboratory data.</li>
-                <li><strong>Impurity Peaks:</strong> The number of allowed un-indexed peaks among the first 20 observed peaks when calculating the M(20) figure of merit. Set this to 1 or 2 if you suspect minor impurities.</li>
-                <li><strong>Refine Zero-Point Error:</strong> If checked, the program will simultaneously refine a zero-point correction along with the lattice parameters. This is highly recommended for high-quality work.</li>
-                <li><strong>Crystal Systems to Search:</strong> Checkboxes to select which symmetries to search for (Cubic, Tetragonal, Hexagonal, Orthorhombic, Monoclinic).</li>
+                <li><strong>Wavelength (Å):</strong> X-ray wavelength. Critical for d-spacing calculation.</li>
+                <li><strong>Max Volume (Å³):</strong> The upper limit for acceptable unit cell volume. A key parameter for constraining the search.</li>
+                <li><strong>2θ Error (°):</strong> Tolerance for matching calculated to observed peaks.</li>
+                <li><strong>Impurity Peaks:</strong> Number of allowed un-indexed peaks among the first 20 when calculating M(20).</li>
+                <li><strong>Refine Zero-Point Error:</strong> Enables simultaneous refinement of a zero-point correction with the lattice parameters. Highly recommended.</li>
+                <li><strong>Crystal Systems to Search:</strong> Checkboxes for Cubic, Tetragonal, Hexagonal, Orthorhombic, and Monoclinic systems.</li>
             </ul>
             
-            <h4>4. Solutions Tab</h4>
-            <p>This tab displays the results of the indexing process.</p>
+            <h4>3. Solutions Tab</h4>
             <ul>
-                <li><strong>Solutions Table:</strong> Lists all valid solutions found, showing their crystal system, refined lattice parameters, cell volume, and M(20) figure of merit. The table can be sorted by clicking on the headers.</li>
-                <li><strong>Selection:</strong> Clicking on a row in the table selects that solution, overlaying its calculated peak positions on the chart for visual inspection. This is a critical step for validating a potential solution.</li>
+                <li><strong>Solutions Table:</strong> Lists all valid solutions found, with their system, parameters, volume, and M(20) score. Click a row to select it for visual analysis on the chart.</li>
             </ul>
 
             <h3>Results Area</h3>
-            <p>This area provides a visual representation of your data and the indexing results.</p>
             <ul>
-                <li><strong>Chart:</strong> Displays the powder diffraction pattern. The Y-axis uses a logarithmic scale to make weak peaks more visible.
-                    <ul>
-                        <li><strong>Experimental Data:</strong> The raw data shown as a line plot.</li>
-                        <li><strong>Observed Peaks:</strong> Short red tick marks below the pattern indicate the positions of the peaks you are using for indexing.</li>
-                        <li><strong>Calculated Peaks:</strong> When a solution is selected from the Solutions table, longer blue tick marks appear, showing the calculated peak positions for that unit cell. A good solution will have blue ticks that align almost perfectly with the red ticks.</li>
-                    </ul>
-                </li>
-                <li><strong>Chart Interaction:</strong>
-                    <ul>
-                        <li><strong>Zoom:</strong> Use the mouse wheel over the chart. The zoom will be centered on your mouse cursor position, allowing for precise inspection of specific regions.</li>
-                        <li><strong>Pan:</strong> Click and drag the chart to pan the view.</li>
-                        <li><strong>Reset Zoom:</strong> Right-click anywhere on the chart to reset the zoom to the full pattern.</li>
-                        <li><strong>Add Peak:</strong> Hold the <code>Ctrl</code> key and click on the pattern to manually add a peak at that 2θ position.</li>
-                    </ul>
-                </li>
+                <li><strong>Chart:</strong> Displays the diffraction pattern, observed peaks (red ticks), and calculated peaks for the selected solution (blue ticks). A good fit shows excellent alignment between red and blue ticks.</li>
+                <li><strong>Chart Interaction:</strong> Zoom (mouse wheel), Pan (click-drag), Reset Zoom (right-click), Add Peak (<code>Ctrl + Click</code>).</li>
             </ul>
         </section>
 
         <section id="peak-finding">
             <h2>Peak Finding in Detail</h2>
-            <p>Accurate peak positions are the single most important input for a successful indexing. Garbage in, garbage out. This program uses a robust, multi-step process to identify peaks from the raw data.</p>
+            <p>Accurate peak positions are the most critical input for successful indexing. The program uses a multi-step process to identify peaks from raw data.</p>
             
             <h4>The Algorithm Steps</h4>
             <ol>
-                <li><strong>Background Subtraction:</strong> A "rolling ball" algorithm is used to estimate the background signal. Imagine a virtual ball of a specified <code>Radius</code> rolling along the bottom of your data. The path it traces forms the background curve, which is then subtracted from the raw data. This is particularly effective at removing broad features like amorphous humps.</li>
-                <li><strong>Data Smoothing:</strong> To reduce high-frequency noise without significantly distorting the peaks, a Savitzky-Golay smoothing filter is applied to the background-subtracted data. This is a digital filter that fits a small window of adjacent data points to a polynomial, effectively smoothing the data while preserving the shape and position of the peaks better than a simple moving average. The <code>Points</code> slider controls the size of this window.</li>
-                <li><strong>Peak Detection:</strong> The algorithm scans the smoothed data for local maxima (points that are higher than their immediate neighbors). A point is only considered a peak if its intensity is above the threshold set by the <code>Min peak (%)</code> slider and an adaptive noise-level calculation.</li>
-                <li><strong>Position Refinement:</strong> The integer data point of the maximum is often not the true peak center. To find a more precise position, a parabola is fitted to the top three points of the detected maximum. The vertex of this fitted parabola provides a sub-pixel-accuracy estimate of the true peak position, which is crucial for high-precision indexing.</li>
+                <li><strong>Background Subtraction:</strong> A "rolling ball" algorithm estimates and subtracts the background signal. The <code>Radius</code> slider controls the size of the virtual ball.</li>
+                <li><strong>Data Smoothing:</strong> A Savitzky-Golay filter is applied to the background-subtracted data to reduce noise while preserving peak shape. The <code>Points</code> slider controls the smoothing window size.</li>
+                <li><strong>Peak Detection:</strong> The algorithm identifies local maxima in the smoothed data that are above the <code>Min peak (%)</code> threshold.</li>
+                <li><strong>Position Refinement:</strong> A parabolic fit to the top three points of each detected maximum is used to calculate a sub-pixel-accuracy peak position.</li>
             </ol>
             
-            <h4>Practical Advice for Peak Finding</h4>
+            <h4>Practical Advice</h4>
             <ul>
-                <li>Start with default slider values and visually inspect the detected peaks on the chart.</li>
-                <li>If weak but clear peaks are being missed, lower the <code>Min peak (%)</code> threshold. If you are picking up a lot of noise, increase it.</li>
-                <li>If the background is not being subtracted well (especially for patterns with broad amorphous contributions), increase the <code>Radius</code>. For a pattern with a mostly flat background, a smaller radius is sufficient.</li>
-                <li>If your data is very noisy, increase the smoothing <code>Points</code>. Be careful not to over-smooth, as this can merge adjacent peaks or shift their positions slightly.</li>
-                <li><strong>Always visually inspect the final peak list.</strong> Remove any peaks that are clearly noise, artefacts (like Kα2 shoulders if they haven't been stripped), or belong to a known impurity phase. The quality of your indexing depends entirely on the quality of your peak list.</li>
+                <li>Start with default values and visually inspect the results.</li>
+                <li>If weak but clear peaks are missed, lower the <code>Min peak (%)</code>. If picking up noise, increase it.</li>
+                <li>For patterns with a broad amorphous background, increase the <code>Radius</code>.</li>
+                <li>If data is very noisy, increase smoothing <code>Points</code>, but avoid over-smoothing, which can merge or shift peaks.</li>
+                <li><strong>Always manually curate the final peak list.</strong> Remove artifacts, Kα2 shoulders, and known impurity peaks.</li>
             </ul>
         </section>
 
         <section id="indexing-method">
-            <h2>The Indexing Method: Mathematical Foundations</h2>
-            <p>The core of the program is the <strong>Ito's search algorithm</strong> which aims to solve the fundamental equation of powder diffraction relating peak positions ($Q_{obs}$) to Miller indices ($h,k,l$) and unit cell parameters.</p>
-
-            <h3>From 2θ to Q-space</h3>
-            <p>The first step is to convert the list of observed 2θ peak positions into a list of $Q$ values. $Q$ is defined as the reciprocal of the d-spacing squared ($1/d^2$), and working in Q-space linearizes the indexing equations, which is crucial for the algorithm.</p>
-            $$Q_{obs} = \frac{1}{d^2} = \left( \frac{2\sin\theta}{\lambda} \right)^2$$
-            <p>The indexing problem is now to find unit cell parameters that generate a set of theoretical $Q_{calc}$ values that match the $Q_{obs}$ list.</p>
-            
-            <h3>The Principle of indexing is</h3>
-            <p>
-                The algorithm works by making a logical assumption: <strong>the first few peaks in the pattern</strong> (those at the lowest 2θ angles) must correspond to crystal planes with small, simple Miller indices (e.g., (100), (011), (200)). The algorithm systematically tries all plausible combinations of these low-integer $(hkl)$ assignments for a small number of initial peaks.
-            </p>
-            <p>
-                For each trial assignment, a set of linear equations is formed and solved to yield a trial unit cell. For example, in the orthorhombic system, the equation is:
-                $$ Q_{hkl} = h^2\left(\frac{1}{a^2}\right) + k^2\left(\frac{1}{b^2}\right) + l^2\left(\frac{1}{c^2}\right) = h^2A + k^2B + l^2C $$
-                Here, $A, B, C$ are the unknown reciprocal lattice parameters. If we assign three observed peaks ($Q_1, Q_2, Q_3$) to three sets of Miller indices, we get a system of three linear equations with three unknowns (A, B, C), which can be solved directly.
-            </p>
-            <p>
-                Once a trial cell is generated, it is immediately tested by calculating all its theoretical reflections up to the 20th observed peak. If it fails to index a sufficient number of these peaks within the given tolerance, it is <strong>immediately discarded</strong>. This rapid "assign-solve-test-discard" loop is the essence of the method; by making assumptions about the first few peaks, it efficiently divides and conquers the vast search space, converging on valid solutions much faster than a brute-force approach.
-            </p>
+            <h2>Indexing Algorithm and Search Parameters</h2>
+            <p>The program employs a dedicated search routine for each crystal system. The number of peaks required to generate a trial cell depends on the number of unknown lattice parameters.</p>
 
             <h3>System-by-System Search Logic</h3>
-            <p>The number of peaks required to generate a trial cell depends on the number of unknown lattice parameters for each crystal system:</p>
             <ul>
-                <li><strong>Cubic (1 parameter, $a$):</strong> Only <strong>one</strong> peak is assigned a trial $(hkl)$ to solve for the single unknown ($A=1/a^2$).</li>
-                <li><strong>Tetragonal & Hexagonal (2 parameters, $a, c$):</strong> <strong>Two</strong> peaks are assigned trial $(hkl)$s to solve for the two reciprocal parameters ($A=1/a^2, C=1/c^2$).</li>
-                <li><strong>Orthorhombic (3 parameters, $a, b, c$):</strong> <strong>Three</strong> peaks are assigned trial $(hkl)$s to solve for the three reciprocal parameters ($A, B, C$).</li>
-                <li><strong>Monoclinic (4 parameters, $a, b, c, \beta$):</strong> <strong>Four</strong> peaks are assigned trial $(hkl)$s to solve for the four parameters in the monoclinic equation.</li>
+                <li><strong>Cubic (1 parameter, $a$):</strong> Uses a single peak assigned to a trial $(hkl)$ to solve for the single unknown, $A=1/a^2$.</li>
+                <li><strong>Tetragonal & Hexagonal (2 parameters, $a, c$):</strong> Assigns two peaks to trial $(hkl)$s, solving a 2x2 system of linear equations for the two reciprocal parameters ($A=1/a^2, C=1/c^2$).</li>
+                <li><strong>Orthorhombic (3 parameters, $a, b, c$):</strong> Assigns three peaks to trial $(hkl)$s to solve a 3x3 system for the three reciprocal parameters ($A, B, C$).</li>
+                <li><strong>Monoclinic (4 parameters, $a, b, c, \beta$):</strong> This search assumes three low-angle peaks define the `(h0l)` reciprocal plane. By assigning three `(h0l)` indices, it solves a 3x3 system for the plane parameters ($A, C, D$). A subsequent search through the remaining observed peaks is performed to find a consistent value for the fourth parameter, $B$.</li>
             </ul>
+
+            <h3>Search Depth and HKL Limits</h3>
+            <p>To ensure performance, the search depth and the range of Miller indices tested are internally limited. These hard-coded parameters represent a balance between exhaustive searching and computational time.</p>
+             <table>
+                <thead><tr><th>Crystal System</th><th>Peak Subset Used</th><th>HKL Index Limits</th></tr></thead>
+                <tbody>
+                    <tr><td>Cubic</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 8</td></tr>
+                    <tr><td>Tetragonal</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 5</td></tr>
+                    <tr><td>Hexagonal</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 5</td></tr>
+                    <tr><td>Orthorhombic</td><td>First 12 peaks</td><td>Uses a basis set of the first 30 plausible low-index reflections.</td></tr>
+                    <tr><td>Monoclinic</td><td>First 18 peaks</td><td>Plane search uses <code>h</code> and <code>l</code> up to 3.</td></tr>
+                </tbody>
+            </table>
         </section>
 
         <section id="evaluating-solutions">
             <h2>Evaluating Solutions</h2>
-            <p>The search often produces multiple candidate solutions. Distinguishing the correct one from spurious mathematical fits requires a reliable figure of merit and careful refinement.</p>
+            <p>The indexing search often produces multiple candidate solutions. Distinguishing the correct one requires a reliable figure of merit and careful refinement.</p>
             
             <h3>The de Wolff Figure of Merit: M(20)</h3>
-            <p>
-                The primary metric used to rank solutions is the <strong>de Wolff Figure of Merit, M(20)</strong>. It assesses the quality of a fit by considering both its accuracy and completeness. A high M(20) value (typically > 20) indicates a very likely correct solution.
-            </p>
-            <h4>Interpretation of M(20) Values</h4>
+            <p>Solutions are ranked by the <strong>de Wolff Figure of Merit, M(20)</strong>, which assesses the fit's accuracy and completeness. A high M(20) value is a strong indicator of a correct solution.</p>
             <table>
                 <thead><tr><th>M(20) Value</th><th>Interpretation</th></tr></thead>
                 <tbody>
                     <tr><td>> 20</td><td>The solution is very likely to be correct.</td></tr>
                     <tr><td>> 10</td><td>The solution is likely correct, especially if the volume is chemically sensible.</td></tr>
-                    <tr><td>> 5</td><td>The solution is plausible and deserves further investigation (e.g., Le Bail fitting).</td></tr>
-                    <tr><td>&lt; 5</td><td>The solution is possibly spurious or based on poor quality data and should be viewed with skepticism.</td></tr>
+                    <tr><td>5 - 10</td><td>The solution is plausible and deserves further investigation.</td></tr>
+                    <tr><td>&lt; 5</td><td>The solution is likely spurious and should be viewed with skepticism.</td></tr>
                 </tbody>
             </table>
-            <p>The program also accounts for a user-defined number of <code>Impurity Peaks</code>. These are peaks within the first 20 that are allowed to be un-indexed without invalidating the solution or penalizing the M(20) calculation.
-            </p>
 
-            <h3>Least-Squares Refinement</h3>
+            <h3>Least-Squares and Zero-Point Refinement</h3>
             <p>
-                The initial trial cell is a good first guess. To improve its accuracy, the program performs a <strong>linear least-squares refinement</strong> on every promising candidate. It uses all the peaks that were successfully indexed by the trial cell to re-calculate the reciprocal lattice parameters, minimizing the overall difference between $Q_{obs}$ and $Q_{calc}$.
+                Every promising trial cell is refined using linear least-squares to minimize the difference between $Q_{obs}$ and $Q_{calc}$.
             </p>
-
-            <h3>Zero-Point Error Refinement</h3>
             <p>
-                A "zero-point error" is a common instrumental artifact that causes a systematic shift in peak positions. When the <code>Refine Zero-Point Error</code> option is enabled, the program uses a robust two-step approach:
+                When the <code>Refine Zero-Point Error</code> option is enabled, the program uses a robust two-step approach:
             </p>
             <ol>
-                <li><strong>Baseline Refinement:</strong> It first performs a stable refinement of <strong>only the lattice parameters</strong>. This solution is saved as a reliable fallback.</li>
-                <li><strong>Full Refinement:</strong> It then attempts a more complex refinement that solves for both the lattice parameters and the zero-point error simultaneously.</li>
-                <li><strong>Fallback Logic:</strong> If the full refinement is successful, that more accurate result is used. If it is unstable, the program <strong>gracefully falls back</strong> to the reliable baseline solution from step 1, ensuring a valid result is never discarded.</li>
+                <li><strong>Baseline Refinement:</strong> It first performs a stable refinement of <strong>only the lattice parameters</strong>. This provides a reliable fallback solution.</li>
+                <li><strong>Full Refinement:</strong> It then attempts a more complex refinement solving for both the lattice parameters and the zero-point error simultaneously.</li>
             </ol>
+            <p>If the full refinement is unstable or produces an invalid cell, the program gracefully falls back to the reliable baseline solution, ensuring a valid result is never discarded due to an unstable higher-order fit.</p>
         </section>
 
         <section id="advanced-topics">
             <h2>Advanced Topics: Enhanced Search and Sieving</h2>
             <p>
-                To improve the chances of finding the correct solution, the program integrates several advanced search strategies directly into the indexing routine.
+                To improve the success rate, the program integrates several advanced search strategies after the initial indexing routine.
             </p>
             
             <h3>1. Matrix-based Cell Transformations</h3>
-            <p>Initial promising solutions are transformed using crystallographic matrices to test for related, higher-symmetry, or primitive cells. For example, it will test if a body-centered cell ($I$) has a valid primitive equivalent. Each new candidate cell is then subjected to a full refinement and M(20) evaluation.</p>
+            <p>Promising solutions are transformed using crystallographic matrices to test for related primitive or higher-symmetry cells. For example, a body-centered cell ($I$) is tested for a valid primitive ($P$) equivalent.</p>
             
             <h3>2. HKL Divisor Analysis</h3>
-            <p>
-                The program examines the list of indexed Miller indices for a given solution. If all indices in one direction (e.g., all $h$ values) share a common divisor (e.g., they are all even), it may indicate that the true unit cell axis is smaller. The program will test a new cell with the corresponding axis halved.
-            </p>
+            <p>The program examines the list of indexed Miller indices. If all indices in one direction (e.g., all $h$ values) share a common divisor, it tests a new cell with the corresponding axis halved.</p>
             
             <h3>3. Orthorhombic to Hexagonal Check</h3>
-            <p>
-                A hexagonal lattice can sometimes be indexed as a C-centered orthorhombic cell where the ratio of two axes is approximately $\sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition (e.g., $b/a \approx \sqrt{3}$). If found, it generates the equivalent hexagonal cell and evaluates it as a new candidate.
-            </p>
+            <p>A hexagonal lattice can be indexed as a C-centered orthorhombic cell where $b/a \approx \sqrt{3}$. The program specifically checks all orthorhombic solutions for this condition and generates the equivalent hexagonal cell for evaluation.</p>
             
             <h3>4. Final Sieving</h3>
-            <p>
-                After all searches are complete, a final sieving process is applied. If two solutions have very similar volumes, the one with higher symmetry and a better M(20) figure of merit is preferred, and the lower-quality, redundant solution is discarded to simplify the final results.
-            </p>
+            <p>After all searches, a final sieving process is applied. If two solutions have very similar volumes, the one with higher symmetry and a better M(20) score is preferred, and the redundant solution is discarded.</p>
         </section>
         
         <section id="troubleshooting">
             <h2>Troubleshooting & FAQ</h2>
             
-            <h4>Why did I get no solutions?</h4>
+            <h4>Why were no solutions found?</h4>
             <ul>
-                <li><strong>Poor Peak List:</strong> This is the most common reason. Ensure your peak list is accurate. Remove impurity peaks, check for missed peaks, and make sure the positions are precise. You need at least 4 peaks for the simplest system, but 15-20 clean peaks is a much better starting point.</li>
-                <li><strong>Incorrect Parameters:</strong> Double-check the <code>Wavelength</code>. Ensure the <code>Max Volume</code> is large enough to contain your unit cell. An unrealistically small volume will cause the correct solution to be missed.</li>
-                <li><strong>High Zero-Point Error:</strong> If your instrument is misaligned, the peak positions might be too shifted for the algorithm to succeed without correction. Try running the indexing again with the <code>Refine Zero-Point Error</code> box checked.</li>
-                <li><strong>Sample is a Mixture:</strong> If the sample contains multiple crystalline phases, the peak list will be a combination from different unit cells, making indexing impossible without first isolating the peaks of a single phase.</li>
+                <li><strong>Poor Peak List:</strong> The most common cause. Ensure the peak list is accurate, with impurity peaks removed and positions refined. A minimum of 15-20 clean peaks is recommended.</li>
+                <li><strong>Incorrect Parameters:</strong> Verify the <code>Wavelength</code> and ensure the <code>Max Volume</code> is chemically reasonable and sufficiently large.</li>
+                <li><strong>High Zero-Point Error:</strong> A significant instrument misalignment may require enabling the <code>Refine Zero-Point Error</code> option.</li>
+                <li><strong>Sample is a Mixture:</strong> Indexing requires a peak list from a single crystalline phase.</li>
             </ul>
 
-            <h4>Why is my M(20) value low even if the fit looks good?</h4>
+            <h4>Why is M(20) low for a visually good fit?</h4>
             <ul>
-                <li><strong>Incorrect Cell (Sub-multiple/Super-multiple):</strong> You may have found a cell that is a multiple or sub-multiple of the true cell. It will index some lines correctly but will be penalized in the M(20) calculation for either being too "empty" or too "dense" with calculated reflections.</li>
-                <li><strong>High Error / Low Resolution:</strong> If your peaks are very broad, the <code>2θ Error</code> might be set too tight, causing the program to incorrectly count peaks as "un-indexed." Try slightly increasing the error value.</li>
-                <li><strong>The solution is simply wrong.</strong> A spurious solution can sometimes appear to fit a few lines by chance. Even with a decent M(20), visual inspection is key. If the calculated pattern (blue ticks) clearly misses major observed peaks (red ticks), the solution is incorrect.</li>
+                <li><strong>Incorrect Cell (Sub-multiple/Super-multiple):</strong> The found cell may be a multiple or sub-multiple of the true cell. It indexes some lines but is penalized by M(20) for being too "empty" or "dense" with calculated reflections.</li>
+                <li><strong>High Error / Low Resolution:</strong> The <code>2θ Error</code> might be set too tight for broad peaks. Try slightly increasing this value.</li>
+                <li><strong>Spurious Solution:</strong> A random solution can sometimes fit a few lines by chance. Visual inspection is key; if major observed peaks are missed by the calculated pattern, the solution is incorrect regardless of the M(20) value.</li>
             </ul>
-            
-            <h4>What does "Derived from orth (b/a≈√3)" mean?</h4>
-            <p>
-                This indicates that the program first found a valid orthorhombic solution. During its advanced search phase, it noticed that the ratio of two lattice parameters (in this case, b/a) was very close to $\sqrt{3} \approx 1.732$. This is a special condition that often means the true symmetry is hexagonal. The program then tested this hypothesis, generated the equivalent hexagonal cell, and found it was also a valid (and higher-symmetry) solution, which was then added to the list.
-            </p>
         </section>
 
         <section id="references">
             <h2>References</h2>
             <p>This program was developed by Nita Dragoe at Université Paris-Saclay (2024-2025) as a successor to a prior software, Powder 4, originally created by the same author in 1999-2000. For a deeper understanding of the methodology, consulting the original scientific papers is highly recommended.</p>
             <ol>
-                <li>
-                    <strong>Method:</strong><br>
-                </li>
-                Ito, T. (1949). "A General Powder X-ray Photography."<em>Nature</em>, 164, 755-756.
-                Visser, J. W. (1969). "A fully automatic program for finding the unit cell from powder data."<em>Journal of Applied Crystallography</em>, 2, 89-95
                  <li>
                     <strong>The M(20) Figure of Merit:</strong><br>
                     de Wolff, P. M. (1968). "A Simplified Criterion for the Reliability of a Powder Pattern Indexing." <em>Journal of Applied Crystallography</em>, <strong>1</strong>, 108-113.
@@ -406,17 +332,9 @@
                     <strong>General Powder Diffraction Text:</strong><br>
                     Klug, H. P. & Alexander, L. E. (1974). <em>X-Ray Diffraction Procedures for Polycrystalline and Amorphous Materials</em>, 2nd ed. New York: Wiley-Interscience.
                 </li>
-                <li>
-                    <strong>Alternative Indexing Methods:</strong><br>
-                     Werner, P.-E., Eriksson, L., & Westdahl, M. (1985). "TREOR, a semi-exhaustive trial-and-error powder indexing program for all symmetries." <em>Journal of Applied Crystallography</em>, <strong>18</strong>, 367-370.<br>
-                     Visser, J. W. (1969). "A fully automatic program for finding the unit cell from powder data." <em>Journal of Applied Crystallography</em>, <strong>2</strong>, 89-95.<br>
-                     Le Bail, A. (2004). "Monte Carlo Indexing with McMaille". <em>Powder Diffraction</em>, <strong>19(3)</strong>, 249-254.<br>
-                     Boultif, A. & Louër, D. (2004). "Powder pattern indexing with the dichotomy method." <em>Journal of Applied Crystallography</em>, <strong>37</strong>, 724-731.
-                   
-                    </li>
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 15 Oct 2025 by an AI assistant.</p>
+                <p>Help Guide updated on 16 Oct 2025 by an AI assistant.</p>
             </div>
         </section>
 
@@ -427,51 +345,24 @@
         const sections = document.querySelectorAll('section');
         const navLinks = document.querySelectorAll('#toc a');
         const mainContent = document.getElementById('main-content');
-
-        // This observer handles highlighting when you scroll manually.
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const id = entry.target.getAttribute('id');
-                    
-                    navLinks.forEach(link => {
-                        link.classList.remove('active');
-                    });
-
+                    navLinks.forEach(link => link.classList.remove('active'));
                     const activeLink = document.querySelector(`#toc a[href="#${id}"]`);
-                    if (activeLink) {
-                        activeLink.classList.add('active');
-                    }
+                    if (activeLink) activeLink.classList.add('active');
                 }
             });
-        }, { 
-            root: mainContent, 
-            rootMargin: "0px 0px -80% 0px" // Triggers when a section enters the top 20% of the view
-        });
-
-        sections.forEach(section => {
-            observer.observe(section);
-        });
-
-        // This click handler provides an immediate highlight update when a link is clicked.
+        }, { root: mainContent, rootMargin: "0px 0px -80% 0px" });
+        sections.forEach(section => observer.observe(section));
         navLinks.forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
-
-                // 1. Immediately remove active class from all links
                 navLinks.forEach(l => l.classList.remove('active'));
-
-                // 2. Immediately add active class to the clicked link
                 this.classList.add('active');
-
-                // 3. Scroll to the correct section
                 const targetId = this.getAttribute('href');
-                const targetSection = document.querySelector(targetId);
-                
-                targetSection.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
+                document.querySelector(targetId).scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
         });
     });
