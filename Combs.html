@@ -485,6 +485,7 @@
                 <div id="progress-bar-container" class="hidden" style="width: 100%; background-color: var(--light-bg); border-radius: 9999px; height: 0.625rem; margin-bottom: 0.5rem;">
                     <div id="progress-bar" style="background-color: var(--primary-accent); height: 0.625rem; border-radius: 9999px; width: 0%; transition: width 0.2s;"></div>
                 </div>
+                <p id="status-text" style="text-align: center; font-size: 0.8rem; color: var(--text-dark); margin: 0 0 0.5rem 0; height: 1.2em;"></p>
                 <div style="display: flex; gap: 0.5rem;">
                     <button id="start-indexing-button" class="btn btn-primary btn-like" style="flex: 1;" disabled>Find Peaks to Start</button>
                     <button id="report-button" class="btn btn-secondary btn-like" style="flex: 1;" disabled>Generate PDF Report</button>
@@ -941,6 +942,7 @@ function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
                 const maxIntensity = Math.max(...fullExperimentalData.intensity);
                 if (maxIntensity > 0) fullExperimentalData.intensity = fullExperimentalData.intensity.map(y => y / maxIntensity * 1000);
                 solutions = [];
+                displayedSolutions = [];
                 updateSolutionsTable();
                 ui.solutionsLed.className = 'led-indicator gray';
                 if (parsedData.wavelength) ui.wavelength.value = parsedData.wavelength.toFixed(5);
@@ -1163,7 +1165,9 @@ function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
         ui.peakListBody.querySelectorAll('input, button').forEach(el => { el.disabled = indexing; });
         ui.fileInputLabel.style.pointerEvents = indexing ? 'none' : 'auto'; ui.fileInputLabel.style.opacity = indexing ? '0.7' : '1';
         if (indexing) {
-            ui.startIndexingButton.disabled = true; ui.startIndexingButton.textContent = 'Indexing...'; ui.reportButton.textContent = 'Stop'; ui.reportButton.disabled = false;
+            ui.startIndexingButton.disabled = true;
+           // ui.startIndexingButton.textContent = 'Indexing...';
+            ui.reportButton.textContent = 'Stop'; ui.reportButton.disabled = false;
             ui.progressBarContainer.classList.remove('hidden'); ui.progressBar.style.width = '0%';
         } else {
             updateStartIndexingButtonState(); ui.reportButton.textContent = 'Generate PDF Report'; ui.reportButton.disabled = (solutions.length === 0);
@@ -1197,69 +1201,99 @@ function analyzeSystematicAbsences(solution, obs_peaks, wavelength, tthError) {
     };
 
     const startIndexing = () => {
-        if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
-        const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
-        if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", 'error'); return; }
-        if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
-        
-        setUIState(true); 
-        solutions = []; 
-        selectedSolution = null; 
-        currentHklList = []; 
-        activeWorkers = [];
-        updateSolutionsTable(); 
-        showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
+    if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
+    const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+    if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", 'error'); return; }
+    if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
+    
+    // --- ADDED: Get a reference to the new status text element ---
+    const statusTextElement = document.getElementById('status-text');
+    if (statusTextElement) statusTextElement.textContent = 'Initializing...';
 
-        const baseParams = {
-            peaks: pickedPeaks,
-            wavelength: parseFloat(ui.wavelength.value),
-            tth_error: parseFloat(ui.tthError.value),
-            max_volume: parseFloat(ui.maxVolume.value),
-            impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
-            refineZero: ui.refineZeroCheckbox.checked,
-            allowedSystems: systemsToSearch
-        };
+    setUIState(true); 
+    solutions = []; 
+    selectedSolution = null; 
+    currentHklList = []; 
+    activeWorkers = [];
+    updateSolutionsTable(); 
+    showStatus(`Indexing started for ${systemsToSearch.length} system(s)...`, 'info');
 
-        let completedWorkers = 0; 
-        const totalWorkers = systemsToSearch.length;
-        
-        systemsToSearch.forEach(system => {
-            const worker = new Worker(workerURL);
-            activeWorkers.push(worker);
-            worker.onmessage = (e) => {
-                const { type, payload } = e.data;
-                if (type === 'solution') {
-                    solutions.push(payload);
-                } else if (type === 'done') {
-                    completedWorkers++;
-                    ui.progressBar.style.width = `${(completedWorkers / totalWorkers) * 100}%`;
-                    worker.terminate();
-                    activeWorkers = activeWorkers.filter(w => w !== worker);
+    const baseParams = {
+        peaks: pickedPeaks,
+        wavelength: parseFloat(ui.wavelength.value),
+        tth_error: parseFloat(ui.tthError.value),
+        max_volume: parseFloat(ui.maxVolume.value),
+        impurity_peaks: parseInt(ui.impurityPeaksInput.value, 10),
+        refineZero: ui.refineZeroCheckbox.checked,
+        allowedSystems: systemsToSearch
+    };
+
+    let completedWorkers = 0; 
+    const totalWorkers = systemsToSearch.length;
+    
+    systemsToSearch.forEach(system => {
+        const worker = new Worker(workerURL);
+        activeWorkers.push(worker);
+        worker.onmessage = (e) => {
+            const { type, payload } = e.data;
+
+            // --- NEW: Handle status updates ---
+            if (type === 'status') {
+                if (statusTextElement) statusTextElement.textContent = payload;
+                // Also update the main button for more prominent feedback
+                //ui.startIndexingButton.textContent = payload;
+            
+            // --- MODIFIED: Handle solutions as they arrive ---
+            } else if (type === 'solution') {
+                solutions.push(payload);
+
+                // As soon as the first solution is found, turn the LED green
+                if (solutions.length === 1) {
+                    ui.solutionsLed.className = 'led-indicator green';
+                }
+                
+                // Re-sort and update the table in real-time
+                sortSolutions(); 
+                const selectedSystems = Array.from(ui.systemCheckboxes)
+                                             .filter(cb => cb.checked)
+                                             .map(cb => cb.value);
+                displayedSolutions = solutions.filter(sol => selectedSystems.includes(sol.system));
+                updateSolutionsTable();
+            
+            } else if (type === 'done') {
+                completedWorkers++;
+                ui.progressBar.style.width = `${(completedWorkers / totalWorkers) * 100}%`;
+                worker.terminate();
+                activeWorkers = activeWorkers.filter(w => w !== worker);
+                
+                if (completedWorkers === totalWorkers) {
+                    if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
+                    solutions = applyFinalSieve(solutions); 
                     
-                    if (completedWorkers === totalWorkers) {
-                        solutions = applyFinalSieve(solutions); 
-                        
-                        solutions.forEach(sol => {
-                            sol.analysis = analyzeSystematicAbsences(sol, pickedPeaks, parseFloat(ui.wavelength.value), parseFloat(ui.tthError.value));
-                        });
-                        
-                        setUIState(false);
-                        displayedSolutions = [...solutions];
-                        updateSolutionsTable();
+                    if (statusTextElement) statusTextElement.textContent = 'Analyzing symmetries...';
+                    solutions.forEach(sol => {
+                        sol.analysis = analyzeSystematicAbsences(sol, pickedPeaks, parseFloat(ui.wavelength.value), parseFloat(ui.tthError.value));
+                    });
+                    
+                    if (statusTextElement) statusTextElement.textContent = ''; // Clear status on completion
+                    setUIState(false);
+                    sortSolutions(); // Final sort
+                    displayedSolutions = [...solutions];
+                    updateSolutionsTable();
 
-                        if (solutions.length > 0) {
-                            showStatus(`Indexing complete. Found ${solutions.length} potential solution(s).`, 'success');
-                            ui.solutionsLed.className = 'led-indicator green';
-                        } else {
-                            showStatus('Indexing finished, but no valid solutions were found.', 'info');
-                            ui.solutionsLed.className = 'led-indicator red';
-                        }
+                    if (solutions.length > 0) {
+                        showStatus(`Indexing complete. Found ${solutions.length} potential solution(s).`, 'success');
+                        ui.solutionsLed.className = 'led-indicator green';
+                    } else {
+                        showStatus('Indexing finished, but no valid solutions were found.', 'info');
+                        ui.solutionsLed.className = 'led-indicator red';
                     }
                 }
-            };
-            worker.postMessage({ ...baseParams, systemToSearch: system });
-        });
-    };
+            }
+        };
+        worker.postMessage({ ...baseParams, systemToSearch: system });
+    });
+};
 
     ui.startIndexingButton.addEventListener('click', startIndexing);
 
@@ -1776,7 +1810,7 @@ const generatePDFReport = async () => {
 <script id="indexing-worker" type="text/javascript">
 self.onmessage = function(e) {
     // --- INITIAL SETUP ---
-    const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
+const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
     const N_FOR_M20 = Math.min(20, peaks.length);
     const min_m20 = 2.0;
     const d_min = wavelength / (2 * Math.sin(Math.max(...peaks.map(p => p.tth)) * Math.PI / 360));
@@ -1860,8 +1894,6 @@ self.onmessage = function(e) {
     const gcdOfList = (arr) => arr.length > 0 ? arr.reduce((acc, val) => gcd(acc, val), arr[0]) : 1;
     
 
-    // ==================================================================
-// == CORRECTED HKL Generation for Reporting and Display ==
 // == This version enforces crystallographic conventions to avoid listing
 // == redundant equivalent reflections (e.g., (100) vs (010) in cubic).
 // ==================================================================
@@ -1943,6 +1975,50 @@ const generateHKL = (maxTth, params, system) => {
     };
 
     // --- CORE REFINEMENT AND ANALYSIS FUNCTIONS ---
+
+    const generateHKL_for_worker = (cell) => {
+    const { system, a, b, c, beta } = cell;
+    const reflections = [];
+    const q_max_limit = q_max * 1.05; // Use the global q_max from the worker's scope
+    const h_max = Math.ceil((a || 0) / d_min);
+    const k_max = Math.ceil((b || a || 0) / d_min);
+    const l_max = Math.ceil((c || a || 0) / d_min);
+
+    for (let h = -h_max; h <= h_max; h++) {
+        for (let k = -k_max; k <= k_max; k++) {
+            for (let l = -l_max; l <= l_max; l++) {
+                if (h === 0 && k === 0 && l === 0) continue;
+
+                let q_calc = 0;
+                switch (system) {
+                    case 'cubic':
+                        q_calc = (h * h + k * k + l * l) / (a * a);
+                        break;
+                    case 'tetragonal':
+                        q_calc = (h * h + k * k) / (a * a) + (l * l) / (c * c);
+                        break;
+                    case 'hexagonal':
+                        q_calc = (4 / 3) * (h * h + h * k + k * k) / (a * a) + (l * l) / (c * c);
+                        break;
+                    case 'orthorhombic':
+                        q_calc = (h * h) / (a * a) + (k * k) / (b * b) + (l * l) / (c * c);
+                        break;
+                    case 'monoclinic':
+                        const sinBeta = Math.sin(beta * Math.PI / 180);
+                        const cosBeta = Math.cos(beta * Math.PI / 180);
+                        q_calc = (1 / (sinBeta * sinBeta)) * ((h * h) / (a * a) + (l * l) / (c * c) - (2 * h * l * cosBeta) / (a * c)) + (k * k) / (b * b);
+                        break;
+                }
+                if (q_calc > 0 && q_calc <= q_max_limit) {
+                    reflections.push({ q: q_calc, h, k, l });
+                }
+            }
+        }
+    }
+    // Sort by q-value for efficient searching
+    return reflections.sort((a, b) => a.q - b.q);
+};
+
     const getQcalc = (hkl, cell) => {
         const [h, k, l] = hkl;
         const { a, b, c, beta, system } = cell;
@@ -1969,58 +2045,67 @@ const generateHKL = (maxTth, params, system) => {
         }
     };
     
-    // ==================================================================
-    // == THIS FUNCTION HAS BEEN CORRECTED TO PREVENT THE CRASH ==
-    // ==================================================================
+    
     const extractCellFromFit = (params, system) => {
         let cell = { system, alpha: 90, gamma: 90 };
         try {
             if (params.some(p => isNaN(p))) return null;
 
             switch(system) {
-                case 'cubic':
-                    if (params[0] <= 0) return null;
-                    cell.a = 1/Math.sqrt(params[0]);
-                    cell.b = cell.a;
-                    cell.c = cell.a;
-                    cell.beta = 90;
-                    break;
-                case 'tetragonal':
-                    if (params[0] <= 0 || params[1] <= 0) return null;
-                    cell.a = 1/Math.sqrt(params[0]);
-                    cell.b = cell.a; // Explicitly set b = a
-                    cell.c = 1/Math.sqrt(params[1]);
-                    cell.beta = 90;
-                    break;
-                case 'hexagonal':
-                    if (params[0] <= 0 || params[1] <= 0) return null;
-                    cell.a = 1/Math.sqrt(params[0]);
-                    cell.b = cell.a; // Explicitly set b = a
-                    cell.c = 1/Math.sqrt(params[1]);
-                    cell.beta = 90;
-                    cell.gamma = 120;
-                    break;
-                case 'orthorhombic':
-                    if (params.some(p => p <= 0)) return null;
-                    cell.a = 1/Math.sqrt(params[0]);
-                    cell.b = 1/Math.sqrt(params[1]);
-                    cell.c = 1/Math.sqrt(params[2]);
-                    cell.beta = 90;
-                    break;
-                case 'monoclinic':
-                    const [A, B, C, D] = params;
-                    if (A <= 0 || B <= 0 || C <= 0 || D*D >= 4*A*C) return null;
-                    const cosBeta = -D / (2 * Math.sqrt(A*C));
-                    if (Math.abs(cosBeta) >= 1) return null;
-                    cell.beta = Math.acos(cosBeta) * 180 / Math.PI;
-                    if (cell.beta < 80 || cell.beta > 140) return null;
-                    const sinBetaSq = 1 - cosBeta*cosBeta;
-                    if (sinBetaSq <= 0) return null;
-                    cell.a = 1/Math.sqrt(A * sinBetaSq);
-                    cell.b = 1/Math.sqrt(B);
-                    cell.c = 1/Math.sqrt(C * sinBetaSq);
-                    break;
-            }
+    case 'cubic':
+        if (params[0] <= 0) return null;
+        cell.a = 1/Math.sqrt(params[0]);
+        cell.b = cell.a;
+        cell.c = cell.a;
+        cell.beta = 90;
+        break;
+
+    case 'tetragonal':
+        if (params[0] <= 0 || params[1] <= 0) return null;
+        cell.a = 1/Math.sqrt(params[0]);
+        cell.b = cell.a;
+        cell.c = 1/Math.sqrt(params[1]);
+        cell.beta = 90;
+        break;
+
+    case 'hexagonal':
+        if (params[0] <= 0 || params[1] <= 0) return null;
+        cell.a = 1/Math.sqrt(params[0]);
+        cell.b = cell.a;
+        cell.c = 1/Math.sqrt(params[1]);
+        cell.beta = 90;
+        cell.gamma = 120;
+        break;
+
+    case 'orthorhombic':
+        if (params.slice(0, 3).some(p => p <= 0)) return null;
+        cell.a = 1/Math.sqrt(params[0]);
+        cell.b = 1/Math.sqrt(params[1]);
+        cell.c = 1/Math.sqrt(params[2]);
+        cell.beta = 90;
+        break;
+
+    case 'monoclinic':
+        const cell_params = params.slice(0, 4);
+        const [A, B, C, D] = cell_params;
+        
+        if (A <= 0 || B <= 0 || C <= 0 || D*D >= 4*A*C) return null;
+        
+        const cosBeta = -D / (2 * Math.sqrt(A*C));
+        if (Math.abs(cosBeta) >= 1) return null;
+        
+        cell.beta = Math.acos(cosBeta) * 180 / Math.PI;
+        if (cell.beta < 80 || cell.beta > 140) return null;
+        
+        const sinBetaSq = 1 - cosBeta*cosBeta;
+        if (sinBetaSq <= 0) return null;
+        
+        cell.a = 1/Math.sqrt(A * sinBetaSq);
+        cell.b = 1/Math.sqrt(B);
+        cell.c = 1/Math.sqrt(C * sinBetaSq);
+        break;
+}
+
         } catch { return null; }
         
         if (isNaN(cell.a) || isNaN(cell.b) || isNaN(cell.c) || isNaN(cell.beta)) return null;
@@ -2084,43 +2169,75 @@ const generateHKL = (maxTth, params, system) => {
         return avg_delta_q > 0 ? (q_n / (2 * avg_delta_q * N_calc)) : 0;
     };
 
-    const solveLeastSquares = (M, q_vec) => {
-        const num_eq = M.length, num_params = M[0].length;
-        if (num_eq < num_params) return null;
+    const solveLeastSquares = (M, q_vec, weights) => {
+    const num_eq = M.length, num_params = M[0].length;
+    if (num_eq < num_params) return null;
 
-        const MT = Array(num_params).fill(0).map((_, i) => Array(num_eq).fill(0).map((_, j) => M[j][i]));
-        const MTM = Array(num_params).fill(0).map((_, i) => Array(num_params).fill(0).map((_, j) => MT[i].reduce((s, v, k) => s + v * M[k][j], 0)));
-        
-        const cofactor = (mat, r, c) => mat.slice(0, r).concat(mat.slice(r + 1)).map(row => row.slice(0, c).concat(row.slice(c + 1)));
-        const determinant = (mat) => {
-            if (mat.length === 0) return 1; if (mat.length === 1) return mat[0][0];
-            return mat[0].reduce((sum, el, i) => sum + el * determinant(cofactor(mat, 0, i)) * (i % 2 === 0 ? 1 : -1), 0);
-        };
-        
-        const det = determinant(MTM);
-        if (Math.abs(det) < 1e-12) return null;
-
-        const adjugate = (mat) => {
-            const n = mat.length; const adj = Array(n).fill(0).map(() => Array(n).fill(0));
-            for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) adj[j][i] = determinant(cofactor(mat, i, j)) * ((i + j) % 2 === 0 ? 1 : -1);
-            return adj;
-        };
-        const invDet = 1.0 / det;
-        const MTM_inv = adjugate(MTM).map(row => row.map(el => el * invDet));
-        
-        const MTq = Array(num_params).fill(0).map((_, i) => MT[i].reduce((s, v, j) => s + v * q_vec[j], 0));
-        const x = Array(num_params).fill(0).map((_, i) => MTM_inv[i].reduce((s, v, j) => s + v * MTq[j], 0));
-        
-        const df = num_eq - num_params;
-        if (df <= 0) return { solution: x, covarianceMatrix: null };
-        
-        const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
-        const SSR = q_vec.reduce((sum, q_obs, i) => sum + (q_obs - q_calc[i])**2, 0);
-        const V = MTM_inv.map(row => row.map(el => el * (SSR / df)));
-
-        return { solution: x, covarianceMatrix: V };
+    // --- NEW: Create a diagonal weight matrix conceptually ---
+    // If no weights are provided, default to an unweighted fit (all weights are 1)
+    const w = weights || Array(num_eq).fill(1);
+    
+    // Pre-weight the design matrix M and the observation vector q_vec
+    // This is equivalent to W*M and W*q_vec where W is a diagonal matrix
+    const weighted_M = M.map((row, i) => row.map(val => val * w[i]));
+    const weighted_q_vec = q_vec.map((q, i) => q * w[i]);
+    
+    // Standard least-squares calculations now use the weighted values
+    const MT = Array(num_params).fill(0).map((_, i) => Array(num_eq).fill(0).map((_, j) => M[j][i]));
+    
+    // Calculate M_transpose * Weighted_M, which is equivalent to MᵀWM
+    const MTWM = Array(num_params).fill(0).map((_, i) => 
+        Array(num_params).fill(0).map((_, j) => 
+            MT[i].reduce((s, v, k) => s + v * weighted_M[k][j], 0)
+        )
+    );
+    
+    const cofactor = (mat, r, c) => mat.slice(0, r).concat(mat.slice(r + 1)).map(row => row.slice(0, c).concat(row.slice(c + 1)));
+    const determinant = (mat) => {
+        if (mat.length === 0) return 1;
+        if (mat.length === 1) return mat[0][0];
+        if (mat.length === 2) return mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0];
+        return mat[0].reduce((sum, el, i) => sum + el * determinant(cofactor(mat, 0, i)) * (i % 2 === 0 ? 1 : -1), 0);
     };
     
+    const det = determinant(MTWM);
+    if (Math.abs(det) < 1e-12) return null; // Matrix is singular, no unique solution
+
+    const adjugate = (mat) => {
+        const n = mat.length;
+        if (n === 1) return [[1]];
+        const adj = Array(n).fill(0).map(() => Array(n).fill(0));
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                adj[j][i] = determinant(cofactor(mat, i, j)) * ((i + j) % 2 === 0 ? 1 : -1);
+            }
+        }
+        return adj;
+    };
+
+    const invDet = 1.0 / det;
+    const MTWM_inv = adjugate(MTWM).map(row => row.map(el => el * invDet));
+    
+    // Calculate M_transpose * Weighted_q_vec, which is MᵀWq
+    const MTWq = Array(num_params).fill(0).map((_, i) => MT[i].reduce((s, v, j) => s + v * weighted_q_vec[j], 0));
+    
+    // The solution vector x = (MᵀWM)⁻¹ * (MᵀWq)
+    const x = Array(num_params).fill(0).map((_, i) => MTWM_inv[i].reduce((s, v, j) => s + v * MTWq[j], 0));
+    
+    const df = num_eq - num_params;
+    if (df <= 0) return { solution: x, covarianceMatrix: null };
+    
+    const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
+    
+    // --- NEW: Calculate the weighted sum of squared residuals ---
+    const SSR = q_vec.reduce((sum, q_obs, i) => sum + w[i] * (q_obs - q_calc[i])**2, 0);
+    
+    // The covariance matrix V = (MᵀWM)⁻¹ * (SSR / df)
+    const V = MTWM_inv.map(row => row.map(el => el * (SSR / df)));
+
+    return { solution: x, covarianceMatrix: V };
+};
+
     const propagateErrors = (system, fitResult, cell) => {
         if (!fitResult || !fitResult.covarianceMatrix) return {};
         const V = fitResult.covarianceMatrix, errors = {}, num_params = V.length;
@@ -2162,85 +2279,172 @@ const generateHKL = (maxTth, params, system) => {
         hkls.sort((a,b) => (a[0]**2+a[1]**2+a[2]**2)-(b[0]**2+b[1]**2+b[2]**2));
         return hkl_search_list_cache[system] = hkls;
     };
-   
-    const refineAndTestSolution = (initialParams) => {
-        if (!initialParams || !initialParams.system) return;
-        const { system } = initialParams;
-        let candidate_cell = { ...initialParams };
-        const min_lp = 0.5, max_lp = 50.0;
-        if (Object.values(candidate_cell).some(p => typeof p==='number' && (isNaN(p) || p<min_lp || p>max_lp))) return;
-        if (system === 'monoclinic' && candidate_cell.beta < 90.0) candidate_cell.beta = 180.0 - candidate_cell.beta;
 
-        const hkl_search_list = get_hkl_search_list(system);
-        const indexed_pairs = [], peak_indices_for_ls = [];
-        for (let i = 0; i < N_FOR_M20; i++) {
-            const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
-            let best_match = null, min_diff = Infinity;
-            for (const hkl of hkl_search_list) {
-                const q_calc = getQcalc(hkl, candidate_cell);
-                const diff = Math.abs(q_calc - q_o);
-                if (diff < min_diff) { min_diff = diff; best_match = hkl; }
-                if (q_calc > q_o + tolerance * 2) break;
+    const refineAndTestSolution = (initialParams) => {
+    if (!initialParams || !initialParams.system) return;
+    const { system } = initialParams;
+    let candidate_cell = { ...initialParams };
+    const min_lp = 0.5, max_lp = 50.0;
+    if (Object.values(candidate_cell).some(p => typeof p==='number' && (isNaN(p) || p<min_lp || p>max_lp))) return;
+    if (system === 'monoclinic' && candidate_cell.beta < 90.0) candidate_cell.beta = 180.0 - candidate_cell.beta;
+
+    // --- STEP 1: Perform the initial refinement WITHOUT zero error ---
+    let initial_indexed_pairs = [];
+    for (let i = 0; i < N_FOR_M20; i++) {
+        const q_o = q_obs[i], tolerance = get_q_tolerance(original_indices[i]);
+        let best_match = null, min_diff = Infinity;
+        for (const hkl of get_hkl_search_list(system)) {
+            const q_calc = getQcalc(hkl, candidate_cell);
+            const diff = Math.abs(q_calc - q_o);
+            if (diff < min_diff) { min_diff = diff; best_match = hkl; }
+            if (q_calc > q_o + tolerance * 2) break;
+        }
+        if (best_match && min_diff < tolerance) {
+            initial_indexed_pairs.push({ q_obs: q_o, hkl: best_match });
+        }
+    }
+    
+    const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7 };
+    if (initial_indexed_pairs.length < min_indexed[system]) return;
+
+    let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+    const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
+    const fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
+    
+    if (!fitResult_no_zero || !fitResult_no_zero.solution) return;
+    const initial_cell = extractCellFromFit(fitResult_no_zero.solution, system);
+    if (!initial_cell) return;
+
+    initial_cell.volume = getVolume(initial_cell);
+    if (initial_cell.volume > max_volume || initial_cell.volume < 20) return;
+
+    // --- STEP 2: Validate the initial cell with an M(20) score ---
+    const q_calc_set = new Set(generateHKL_for_worker(initial_cell).map(r => r.q));
+    const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
+    const m20 = calculateM20(q_calc_sorted, q_obs, original_indices);
+
+    if (m20 <= min_m20) return;
+
+    let final_solution_to_post = initial_cell;
+    final_solution_to_post.m20 = m20;
+    final_solution_to_post.errors = propagateErrors(system, fitResult_no_zero, initial_cell);
+    
+    // --- STEP 3 (OPTIONAL): Perform the FINAL refinement WITH zero error ---
+    if (refineZero) {
+        // --- THIS IS THE CORRECTED LOGIC ---
+        // 1. Generate a complete and accurate list of theoretical reflections from the good cell.
+        const all_possible_reflections = generateHKL_for_worker(initial_cell);
+        
+        // 2. Re-index the OBSERVED peaks using this high-quality theoretical pattern.
+        const final_indexed_pairs = [];
+        const final_peak_indices_for_ls = [];
+        const used_reflections = new Set();
+
+        for (let i = 0; i < N_FOR_M20; i++) { // Loop through OBSERVED peaks
+            const q_o = q_obs[i];
+            const tolerance = get_q_tolerance(original_indices[i]);
+            let best_match_idx = -1, min_diff = Infinity;
+
+            // Find the best theoretical match for the current observed peak
+            for (let j = 0; j < all_possible_reflections.length; j++) {
+                const diff = Math.abs(all_possible_reflections[j].q - q_o);
+                if (diff < min_diff) {
+                    min_diff = diff;
+                    best_match_idx = j;
+                }
             }
-            if (best_match && min_diff < tolerance) {
-                indexed_pairs.push({ q_obs: q_o, hkl: best_match });
-                peak_indices_for_ls.push(i);
+
+            // If a good, unique match is found, add this OBSERVED peak to our final dataset.
+            if (best_match_idx !== -1 && min_diff < tolerance && !used_reflections.has(best_match_idx)) {
+                const {h, k, l} = all_possible_reflections[best_match_idx];
+                final_indexed_pairs.push({ q_obs: q_o, hkl: [h, k, l] });
+                final_peak_indices_for_ls.push(original_indices[i]);
+                used_reflections.add(best_match_idx);
             }
         }
         
-        const min_indexed = { cubic: 4, tetragonal: 5, hexagonal: 5, orthorhombic: 6, monoclinic: 7 };
-        if (indexed_pairs.length < min_indexed[system]) return;
-        
-        let M = indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
-        const q_vec = indexed_pairs.map(p => p.q_obs);
-        if (refineZero) {
-            M.forEach((row, i) => {
-                const tth_rad = tth_obs_rad[original_indices[peak_indices_for_ls[i]]];
+        // 3. Perform the final refinement ONLY if we have enough high-quality indexed peaks.
+      // console.log(`System: ${system}, Indexed Peaks for Zero-Refinement: ${final_indexed_pairs.length}, Required: > ${min_indexed[system]}`);
+       
+        if (final_indexed_pairs.length > min_indexed[system]) {
+            let M_with_zero = final_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
+            const q_vec_final = final_indexed_pairs.map(p => p.q_obs);
+            M_with_zero.forEach((row, i) => {
+                const tth_rad = tth_obs_rad[final_peak_indices_for_ls[i]];
                 row.push((2 / (wavelength**2)) * Math.sin(tth_rad));
             });
-        }
-        
-        const fitResult = solveLeastSquares(M, q_vec);
-        if (!fitResult || !fitResult.solution) return;
-        const final_cell = extractCellFromFit(fitResult.solution, system);
-        if (!final_cell) return;
 
-        if (refineZero) final_cell.zero_correction = fitResult.solution[fitResult.solution.length - 1] * 180 / Math.PI;
-
-        final_cell.volume = getVolume(final_cell);
-        if (final_cell.volume > max_volume || final_cell.volume < 20) return;
-        final_cell.errors = propagateErrors(system, fitResult, final_cell);
-
-        const q_calc_set = new Set();
-        const h_max = Math.ceil((final_cell.a||0)/d_min), k_max = Math.ceil((final_cell.b||final_cell.a||0)/d_min), l_max = Math.ceil((final_cell.c||final_cell.a||0)/d_min);
-        for(let h=-h_max; h<=h_max; h++) for(let k=-k_max; k<=k_max; k++) for(let l=-l_max; l<=l_max; l++) {
-            if(h||k||l) q_calc_set.add(getQcalc([h,k,l], final_cell));
-        }
-        const q_calc_sorted = new Float64Array(Array.from(q_calc_set)).sort((a,b)=>a-b);
-        
-        let q_obs_for_m20 = q_obs;
-        if (refineZero) {
-            const z_corr_deg = final_cell.zero_correction || 0;
-            q_obs_for_m20 = new Float64Array(peaks_sorted_by_q.map(p => {
-                const corrected_tth_rad = (peaks[p.original_index].tth - z_corr_deg) * Math.PI / 180;
-                return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
-            }));
-        }
-        
-        const m20 = calculateM20(q_calc_sorted, q_obs_for_m20, original_indices);
-
-        if (m20 > min_m20) {
-            final_cell.m20 = m20;
-            const key = getSolutionKey(final_cell);
-            const existing = foundSolutionMap.get(key);
-            if (!existing || m20 > existing.m20) {
-                 if (existing) foundSolutions[existing.index] = final_cell;
-                 else foundSolutions.push(final_cell);
-                 foundSolutionMap.set(key, { m20: m20, index: existing ? existing.index : foundSolutions.length - 1 });
+            const fitResult_with_zero = solveLeastSquares(M_with_zero, q_vec_final, q_vec_final);
+            
+            /*
+                        if (system === 'orthorhombic') {
+               console.log("Orthorhombic zero-refinement attempt:");
+                if (!fitResult_with_zero || !fitResult_with_zero.solution) {
+                    console.error(" -> Failed: solveLeastSquares returned null.");
+                } else {
+                    console.log(" -> Fit Success. Solution vector:", fitResult_with_zero.solution);
+                    const refined_cell = extractCellFromFit(fitResult_with_zero.solution, system);
+                    if (!refined_cell) {
+                        console.error(" -> Failed: extractCellFromFit returned null (likely an invalid parameter).");
+                    } else {
+                        const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell).map(r => r.q));
+                        const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
+                        const q_obs_for_m20_refined = new Float64Array(peaks_sorted_by_q.map(p => {
+                            const corrected_tth_rad = (peaks[p.original_index].tth - refined_cell.zero_correction) * Math.PI / 180;
+                            return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                        }));
+                        const final_m20 = calculateM20(q_calc_sorted_refined, q_obs_for_m20_refined, original_indices);
+                        console.log(` -> M(20) with zero-correction: ${final_m20.toFixed(2)}. (Threshold is > ${min_m20})`);
+                        if (final_m20 <= min_m20) {
+                             console.warn(" -> REJECTED: M(20) score is too low.");
+                        } else {
+                             console.log(" -> ACCEPTED: Solution should be updated.");
+                        }
+                    }
+                }
+            }
+            
+            */
+            
+            
+            if (fitResult_with_zero && fitResult_with_zero.solution) {
+                const refined_cell = extractCellFromFit(fitResult_with_zero.solution, system);
+                if (refined_cell) {
+                    refined_cell.zero_correction = fitResult_with_zero.solution[fitResult_with_zero.solution.length - 1] * 180 / Math.PI;
+                    refined_cell.volume = getVolume(refined_cell);
+                    
+                    const q_calc_set_refined = new Set(generateHKL_for_worker(refined_cell).map(r => r.q));
+                    const q_calc_sorted_refined = new Float64Array(Array.from(q_calc_set_refined)).sort((a,b)=>a-b);
+                    const q_obs_for_m20_refined = new Float64Array(peaks_sorted_by_q.map(p => {
+                        const corrected_tth_rad = (peaks[p.original_index].tth - refined_cell.zero_correction) * Math.PI / 180;
+                        return (4 * Math.sin(corrected_tth_rad / 2)**2) / (wavelength**2);
+                    }));
+                    const final_m20 = calculateM20(q_calc_sorted_refined, q_obs_for_m20_refined, original_indices);
+                    
+                    if (final_m20 > min_m20) {
+                        refined_cell.m20 = final_m20;
+                        refined_cell.errors = propagateErrors(system, fitResult_with_zero, refined_cell);
+                        final_solution_to_post = refined_cell; // This is now the best solution
+                    }
+                }
             }
         }
-    };
-    
+    }
+
+    // --- STEP 4: Post the best found solution to the UI ---
+    const key = getSolutionKey(final_solution_to_post);
+    const existing = foundSolutionMap.get(key);
+    if (!existing || final_solution_to_post.m20 > existing.m20) {
+        self.postMessage({ type: 'solution', payload: final_solution_to_post });
+        if (existing) {
+            foundSolutions[existing.index] = final_solution_to_post;
+        } else {
+            foundSolutions.push(final_solution_to_post);
+        }
+        foundSolutionMap.set(key, { m20: final_solution_to_post.m20, index: existing ? existing.index : foundSolutions.length - 1 });
+    }
+};
+
     // --- SEARCH ALGORITHMS ---
     const indexCubic = () => {
         const h_max = 8;
@@ -2269,36 +2473,92 @@ const generateHKL = (maxTth, params, system) => {
             }
         }
     };
-    const indexOrthorhombic = () => {
-        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('orthorhombic').slice(0,30);
-        for(let i=0;i<max_p-2;i++) for(let j=i+1;j<max_p-1;j++) for(let k=j+1;k<max_p;k++) {
-            for(let n1=0;n1<basis_hkls.length-2;n1++) for(let n2=n1+1;n2<basis_hkls.length-1;n2++) for(let n3=n2+1;n3<basis_hkls.length;n3++) {
-                const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl=>[hkl[0]**2, hkl[1]**2, hkl[2]**2]);
-                const fit = solveLeastSquares(M, [q_obs[i],q_obs[j],q_obs[k]]);
-                if(fit&&fit.solution&&fit.solution.every(s=>s>0)) {
-                    refineAndTestSolution({a:1/Math.sqrt(fit.solution[0]),b:1/Math.sqrt(fit.solution[1]),c:1/Math.sqrt(fit.solution[2]),system:'orthorhombic'});
-                }
-            }
-        }
-    };
-    const indexMonoclinic = () => {
-        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('monoclinic').slice(0,35);
-        for(let i=0;i<max_p-3;i++) for(let j=i+1;j<max_p-2;j++) for(let k=j+1;k<max_p-1;k++) for(let l=k+1;l<max_p;l++) {
-            for(let n1=0;n1<basis_hkls.length-3;n1++) for(let n2=n1+1;n2<basis_hkls.length-2;n2++) for(let n3=n2+1;n3<basis_hkls.length-1;n3++) for(let n4=n3+1;n4<basis_hkls.length;n4++) {
-                const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
-                const M = hkls.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
-                const fit = solveLeastSquares(M, [q_obs[i],q_obs[j],q_obs[k],q_obs[l]]);
-                if(!fit||!fit.solution) continue;
-                const [A,B,C,D] = fit.solution;
-                if(A>0&&B>0&&C>0&&D*D<4*A*C) {
-                    const cosB=-D/(2*Math.sqrt(A*C)), sinBSq=1-cosB*cosB;
-                    refineAndTestSolution({a:1/Math.sqrt(A*sinBSq),b:1/Math.sqrt(B),c:1/Math.sqrt(C*sinBSq),beta:Math.acos(cosB)*180/Math.PI,system:'monoclinic'});
-                }
-            }
-        }
-    };
 
-    // --- DERIVED/TRANSFORMED CELL SEARCH ---
+    const indexOrthorhombic = () => {
+    const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('orthorhombic').slice(0,30);
+    for(let i=0;i<max_p-2;i++) for(let j=i+1;j<max_p-1;j++) for(let k=j+1;k<max_p;k++) {
+        for(let n1=0;n1<basis_hkls.length-2;n1++) for(let n2=n1+1;n2<basis_hkls.length-1;n2++) for(let n3=n2+1;n3<basis_hkls.length;n3++) {
+            const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl=>[hkl[0]**2, hkl[1]**2, hkl[2]**2]);
+            const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
+            const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
+            
+            if(fit&&fit.solution&&fit.solution.every(s=>s>0)) {
+                refineAndTestSolution({a:1/Math.sqrt(fit.solution[0]),b:1/Math.sqrt(fit.solution[1]),c:1/Math.sqrt(fit.solution[2]),system:'orthorhombic'});
+            }
+        }
+    }
+};
+
+    const indexMonoclinic = () => {
+    const max_p = Math.min(18, q_obs.length); // Number of observed peaks to use
+    const h_max = 3, l_max = 3; // Maximum h, l indices for plane search
+    
+    // 1. Create a list of simple (h0l) indices to test
+    const h0l_indices = [];
+    for (let h = 0; h <= h_max; h++) {
+        for (let l = -l_max; l <= l_max; l++) {
+            if (h === 0 && l <= 0) continue; // Avoid redundant/zero indices
+            h0l_indices.push([h, 0, l]);
+        }
+    }
+
+    // 2. Loop through combinations of THREE peaks (i, j, k)
+    for (let i = 0; i < max_p - 2; i++) {
+        for (let j = i + 1; j < max_p - 1; j++) {
+            for (let k = j + 1; k < max_p; k++) {
+                
+                // 3. Loop through combinations of THREE (h0l) indices
+                for (let n1 = 0; n1 < h0l_indices.length; n1++) {
+                    for (let n2 = 0; n2 < h0l_indices.length; n2++) {
+                        for (let n3 = 0; n3 < h0l_indices.length; n3++) {
+                            if (n1 === n2 || n1 === n3 || n2 === n3) continue; // Must be unique indices
+
+                            const hkl1 = h0l_indices[n1];
+                            const hkl2 = h0l_indices[n2];
+                            const hkl3 = h0l_indices[n3];
+
+                            // 4. Solve the 3x3 system for A, C, D
+                            const M = [
+                                [hkl1[0]**2, hkl1[2]**2, hkl1[0]*hkl1[2]],
+                                [hkl2[0]**2, hkl2[2]**2, hkl2[0]*hkl2[2]],
+                                [hkl3[0]**2, hkl3[2]**2, hkl3[0]*hkl3[2]]
+                            ];
+                            const q_vec = [q_obs[i], q_obs[j], q_obs[k]];
+                            
+                            const fit_3x3 = solveLeastSquares(M, q_vec);
+                            if (!fit_3x3 || !fit_3x3.solution) continue;
+
+                            const [A, C, D] = fit_3x3.solution;
+                            if (A <= 0 || C <= 0 || D*D >= 4*A*C) continue;
+                            
+                            // 5. Now find the B parameter by checking other peaks
+                            for (let p_idx = 0; p_idx < max_p; p_idx++) {
+                                // Assume this peak is (010) - the simplest case
+                                const B = q_obs[p_idx]; // q = B*k^2, so B=q for k=1
+                                if (B <= 0) continue;
+                                
+                                const cosBeta = -D / (2 * Math.sqrt(A * C));
+                                if (Math.abs(cosBeta) >= 1) continue;
+                                const sinBetaSq = 1 - cosBeta*cosBeta;
+                                if (sinBetaSq <= 0) continue;
+
+                                refineAndTestSolution({
+                                    a: 1 / Math.sqrt(A * sinBetaSq),
+                                    b: 1 / Math.sqrt(B),
+                                    c: 1 / Math.sqrt(C * sinBetaSq),
+                                    beta: Math.acos(cosBeta) * 180 / Math.PI,
+                                    system: 'monoclinic'
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+};
+
+// --- DERIVED/TRANSFORMED CELL SEARCH ---
     const findTransformedSolutions = (initialSolutions) => {
         const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
         
@@ -2339,12 +2599,16 @@ const generateHKL = (maxTth, params, system) => {
     };
     
     // --- EXECUTION & REPORTING ---
+postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...` });
+
     if (systemToSearch === 'cubic') indexCubic();
     if (systemToSearch === 'tetragonal') indexTetragonalOrHexagonal('tetragonal');
     if (systemToSearch === 'hexagonal') indexTetragonalOrHexagonal('hexagonal');
     if (systemToSearch === 'orthorhombic') indexOrthorhombic();
     if (systemToSearch === 'monoclinic') indexMonoclinic();
     
+    postMessage({ type: 'status', payload: `Analyzing transformations for ${systemToSearch}...` });
+
     // After initial search, try transformations on the found solutions
     findTransformedSolutions([...foundSolutions]);
     
@@ -2355,7 +2619,7 @@ const generateHKL = (maxTth, params, system) => {
 
 </script>
 
-<div id="app-footer">Combs, version 15 oct 2025</div>
+<div id="app-footer">Combs, version 16 oct 2025</div>
 </body>
 </html>
 
