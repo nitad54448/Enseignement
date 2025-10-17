@@ -2489,74 +2489,47 @@ const generateHKL = (maxTth, params, system) => {
     }
 };
 
+
     const indexMonoclinic = () => {
-    const max_p = Math.min(18, q_obs.length); // Number of observed peaks to use
-    const h_max = 3, l_max = 3; // Maximum h, l indices for plane search
-    
-    // 1. Create a list of simple (h0l) indices to test
-    const h0l_indices = [];
-    for (let h = 0; h <= h_max; h++) {
-        for (let l = -l_max; l <= l_max; l++) {
-            if (h === 0 && l <= 0) continue; // Avoid redundant/zero indices
-            h0l_indices.push([h, 0, l]);
-        }
-    }
-
-    // 2. Loop through combinations of THREE peaks (i, j, k)
-    for (let i = 0; i < max_p - 2; i++) {
-        for (let j = i + 1; j < max_p - 1; j++) {
-            for (let k = j + 1; k < max_p; k++) {
-                
-                // 3. Loop through combinations of THREE (h0l) indices
-                for (let n1 = 0; n1 < h0l_indices.length; n1++) {
-                    for (let n2 = 0; n2 < h0l_indices.length; n2++) {
-                        for (let n3 = 0; n3 < h0l_indices.length; n3++) {
-                            if (n1 === n2 || n1 === n3 || n2 === n3) continue; // Must be unique indices
-
-                            const hkl1 = h0l_indices[n1];
-                            const hkl2 = h0l_indices[n2];
-                            const hkl3 = h0l_indices[n3];
-
-                            // 4. Solve the 3x3 system for A, C, D
-                            const M = [
-                                [hkl1[0]**2, hkl1[2]**2, hkl1[0]*hkl1[2]],
-                                [hkl2[0]**2, hkl2[2]**2, hkl2[0]*hkl2[2]],
-                                [hkl3[0]**2, hkl3[2]**2, hkl3[0]*hkl3[2]]
-                            ];
-                            const q_vec = [q_obs[i], q_obs[j], q_obs[k]];
-                            
-                            const fit_3x3 = solveLeastSquares(M, q_vec);
-                            if (!fit_3x3 || !fit_3x3.solution) continue;
-
-                            const [A, C, D] = fit_3x3.solution;
-                            if (A <= 0 || C <= 0 || D*D >= 4*A*C) continue;
-                            
-                            // 5. Now find the B parameter by checking other peaks
-                            for (let p_idx = 0; p_idx < max_p; p_idx++) {
-                                // Assume this peak is (010) - the simplest case
-                                const B = q_obs[p_idx]; // q = B*k^2, so B=q for k=1
-                                if (B <= 0) continue;
-                                
-                                const cosBeta = -D / (2 * Math.sqrt(A * C));
-                                if (Math.abs(cosBeta) >= 1) continue;
-                                const sinBetaSq = 1 - cosBeta*cosBeta;
-                                if (sinBetaSq <= 0) continue;
-
-                                refineAndTestSolution({
-                                    a: 1 / Math.sqrt(A * sinBetaSq),
-                                    b: 1 / Math.sqrt(B),
-                                    c: 1 / Math.sqrt(C * sinBetaSq),
-                                    beta: Math.acos(cosBeta) * 180 / Math.PI,
-                                    system: 'monoclinic'
-                                });
-                            }
-                        }
-                    }
+        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('monoclinic').slice(0,35);
+        for(let i=0;i<max_p-3;i++) for(let j=i+1;j<max_p-2;j++) for(let k=j+1;k<max_p-1;k++) for(let l=k+1;l<max_p;l++) {
+            for(let n1=0;n1<basis_hkls.length-3;n1++) for(let n2=n1+1;n2<basis_hkls.length-2;n2++) for(let n3=n2+1;n3<basis_hkls.length-1;n3++) for(let n4=n3+1;n4<basis_hkls.length;n4++) {
+                const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
+                const M = hkls.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
+                const fit = solveLeastSquares(M, [q_obs[i],q_obs[j],q_obs[k],q_obs[l]]);
+                if(!fit||!fit.solution) continue;
+                const [A,B,C,D] = fit.solution;
+                if(A>0&&B>0&&C>0&&D*D<4*A*C) {
+                    const cosB=-D/(2*Math.sqrt(A*C)), sinBSq=1-cosB*cosB;
+                    refineAndTestSolution({a:1/Math.sqrt(A*sinBSq),b:1/Math.sqrt(B),c:1/Math.sqrt(C*sinBSq),beta:Math.acos(cosB)*180/Math.PI,system:'monoclinic'});
                 }
             }
         }
-    }
-};
+    };
+
+
+
+// Helper function to calculate 3x3 determinant
+function calculateDeterminant3x3(M) {
+    return M[0][0] * (M[1][1]*M[2][2] - M[1][2]*M[2][1]) -
+           M[0][1] * (M[1][0]*M[2][2] - M[1][2]*M[2][0]) +
+           M[0][2] * (M[1][0]*M[2][1] - M[1][1]*M[2][0]);
+}
+
+// Helper function to validate cell parameters
+function isValidCellParams(a, b, c, beta) {
+    // Check for reasonable cell dimensions (e.g., 2-50 Angstroms)
+    if (a < 2 || a > 50 || b < 2 || b > 50 || c < 2 || c > 50) return false;
+    
+    // Check beta is in valid range for monoclinic (typically 90° < beta < 180°)
+    if (beta < 70 || beta > 110) return false;
+    
+    // Check all values are finite
+    if (!isFinite(a) || !isFinite(b) || !isFinite(c) || !isFinite(beta)) return false;
+    
+    return true;
+}
+
 
 // --- DERIVED/TRANSFORMED CELL SEARCH ---
     const findTransformedSolutions = (initialSolutions) => {
