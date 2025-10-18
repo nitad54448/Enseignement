@@ -730,8 +730,7 @@ document.addEventListener('DOMContentLoaded', () => {
 /**
  * Analyzes observed diffraction peaks to determine compatible space groups.
  * Uses an INCLUSIVE approach: only flags violations when forbidden reflections are OBSERVED.
- * 
- * @param {object} solution - Crystal solution with unit cell parameters and system
+ * * @param {object} solution - Crystal solution with unit cell parameters and system
  * @param {Array<object>} obs_peaks - Observed peaks {tth, intensity}
  * @param {object} spaceGroupData - Parsed reflection_conditions.json
  * @param {string} wavelength - Radiation wavelength (e.g., 'CuKa')
@@ -917,8 +916,7 @@ function determineCentering(indexed_hkls, system) {
  * Detects systematic extinctions from observed reflections.
  * Reports only clear, unambiguous extinctions.
  * This is primarily for diagnostic/educational purposes.
- * 
- * NOTE: With incomplete powder data, this may miss many extinctions.
+ * * NOTE: With incomplete powder data, this may miss many extinctions.
  * The main space group ranking is more reliable (cette version a été utilisé avant le 18 oct 25)
  */
 function detectExtinctions(indexed_hkls) {
@@ -1486,13 +1484,15 @@ function getReflectionZone(h, k, l) {
         return filteredSolutions.slice(0, 50);
     };
 
+    // ==================================================================
+    // ==         FUNCTION MODIFIED FOR PROGRESS BAR FIX               ==
+    // ==================================================================
     const startIndexing = () => {
     if (pickedPeaks.length < 4) { showStatus("Please find at least 4 peaks before starting indexing.", 'error'); return; }
     const systemsToSearch = Array.from(ui.systemCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
     if (systemsToSearch.length === 0) { showStatus("Please select at least one crystal system to search.", 'error'); return; }
     if (!workerURL) { showStatus("Error: Indexing engine is not available.", "error"); return; }
     
-    // --- Get a reference to the new status text element ---
     const statusTextElement = document.getElementById('status-text');
     if (statusTextElement) statusTextElement.textContent = 'Initializing...';
 
@@ -1514,31 +1514,35 @@ function getReflectionZone(h, k, l) {
         allowedSystems: systemsToSearch
     };
 
-    let completedWorkers = 0; 
+    // --- MODIFIED ---
     const totalWorkers = systemsToSearch.length;
-    
-    systemsToSearch.forEach(system => {
+    // Create an array to store the progress of each worker (0-100)
+    const workerProgress = new Array(totalWorkers).fill(0);
+    // ---
+
+    systemsToSearch.forEach((system, workerIndex) => { // <-- Added workerIndex
         const worker = new Worker(workerURL);
         activeWorkers.push(worker);
         worker.onmessage = (e) => {
             const { type, payload } = e.data;
 
-            // --- Handle status updates ---
             if (type === 'status') {
                 if (statusTextElement) statusTextElement.textContent = payload;
-                // Also update the main button for more prominent feedback
-                //ui.startIndexingButton.textContent = payload;
             
-            // --- MODIFIED: Handle solutions as they arrive ---
+            // --- Handle new 'progress' message ---
+            } else if (type === 'progress') {
+                workerProgress[workerIndex] = payload; // Update this worker's specific progress
+                
+                // Calculate total progress by averaging all workers
+                const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
+                ui.progressBar.style.width = `${Math.min(100, totalProgress)}%`;
+            // ---
+
             } else if (type === 'solution') {
                 solutions.push(payload);
-
-                // As soon as the first solution is found, turn the LED green, attention un filtre sera appliqué à la fin
                 if (solutions.length === 1) {
                     ui.solutionsLed.className = 'led-indicator green';
                 }
-                
-                // Re-sort and update the table in real-time
                 sortSolutions(); 
                 const selectedSystems = Array.from(ui.systemCheckboxes)
                                              .filter(cb => cb.checked)
@@ -1547,43 +1551,45 @@ function getReflectionZone(h, k, l) {
                 updateSolutionsTable();
             
             } else if (type === 'done') {
-                completedWorkers++;
-                ui.progressBar.style.width = `${(completedWorkers / totalWorkers) * 100}%`;
+                // --- Mark this worker as 100% done and recalculate ---
+                workerProgress[workerIndex] = 100;
+                const totalProgress = workerProgress.reduce((sum, p) => sum + p, 0) / totalWorkers;
+                ui.progressBar.style.width = `${totalProgress}%`;
+                // ---
+
                 worker.terminate();
                 activeWorkers = activeWorkers.filter(w => w !== worker);
                 
-                if (completedWorkers === totalWorkers) {
+                // --- Check if all workers are gone ---
+                if (activeWorkers.length === 0) {
                     if (statusTextElement) statusTextElement.textContent = 'Applying final sieve...';
                     solutions = applyFinalSieve(solutions); 
                     
-// Analyze space groups in main thread (after worker completes)
-if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
-if (spaceGroupData) {
-    solutions.forEach(sol => {
-        sol.analysis = analyzeSystematicAbsences(
-            sol, 
-            pickedPeaks, 
-            spaceGroupData,                      // Use the loaded data
-            parseFloat(ui.wavelength.value),     
-            parseFloat(ui.tthError.value)
-        );
-        //console.log('Space groups for solution:', sol.analysis.rankedSpaceGroups.map(sg => `${sg.number}. ${sg.symbol}`));
-    });
-  //  console.log('Space group analysis completed for', solutions.length, 'solutions');
-} else {
-    console.warn('Space group data not available');
-    solutions.forEach(sol => {
-        sol.analysis = {
-            centering: 'Unknown (data not loaded)',
-            rankedSpaceGroups: [],
-            detectedExtinctions: []
-        };
-    });
-}
-                    
-                    if (statusTextElement) statusTextElement.textContent = ''; // Clear status on completion
+                    if (statusTextElement) statusTextElement.textContent = 'Analyzing space groups...';
+                    if (spaceGroupData) {
+                        solutions.forEach(sol => {
+                            sol.analysis = analyzeSystematicAbsences(
+                                sol, 
+                                pickedPeaks, 
+                                spaceGroupData,
+                                parseFloat(ui.wavelength.value),     
+                                parseFloat(ui.tthError.value)
+                            );
+                        });
+                    } else {
+                        console.warn('Space group data not available');
+                        solutions.forEach(sol => {
+                            sol.analysis = {
+                                centering: 'Unknown (data not loaded)',
+                                rankedSpaceGroups: [],
+                                detectedExtinctions: []
+                            };
+                        });
+                    }
+                                        
+                    if (statusTextElement) statusTextElement.textContent = '';
                     setUIState(false);
-                    sortSolutions(); // Final sort
+                    sortSolutions();
                     displayedSolutions = [...solutions];
                     updateSolutionsTable();
 
@@ -1600,6 +1606,7 @@ if (spaceGroupData) {
         worker.postMessage({ ...baseParams, systemToSearch: system });
     });
 };
+
 
     ui.startIndexingButton.addEventListener('click', startIndexing);
 
@@ -2201,8 +2208,9 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
             // Sort by calculated 2theta
             reportLines.sort((a, b) => a.tth_calc - b.tth_calc);
 
-            // Print reflection table (limit to 60 lines)
-            reportLines.slice(0, 60).forEach(line => {
+            
+            // Print reflection table (REMOVED .slice(0, 60))
+            reportLines.forEach(line => {
                 if (yPos > 285) {
                     doc.addPage(); 
                     yPos = 20; 
@@ -2247,6 +2255,7 @@ title += `, HKL: (${closestPeak.h},${closestPeak.k},${closestPeak.l}), d: ${clos
 
 
 <script id="indexing-worker" type="text/javascript">
+
 self.onmessage = function(e) {
     // --- INITIAL SETUP ---
 const { peaks, wavelength, tth_error, max_volume, systemToSearch, impurity_peaks, refineZero, allowedSystems } = e.data;
@@ -2612,7 +2621,7 @@ const generateHKL = (maxTth, params, system) => {
     const num_eq = M.length, num_params = M[0].length;
     if (num_eq < num_params) return null;
 
-    // --- NEW: Create a diagonal weight matrix conceptually ---
+    // --- Create a diagonal weight matrix conceptually ---
     // If no weights are provided, default to an unweighted fit (all weights are 1)
     const w = weights || Array(num_eq).fill(1);
     
@@ -2668,7 +2677,7 @@ const generateHKL = (maxTth, params, system) => {
     
     const q_calc = M.map(row => row.reduce((s, v, j) => s + v * x[j], 0));
     
-    // --- NEW: Calculate the weighted sum of squared residuals ---
+    // ---Calculate the weighted sum of squared residuals ---
     const SSR = q_vec.reduce((sum, q_obs, i) => sum + w[i] * (q_obs - q_calc[i])**2, 0);
     
     // The covariance matrix V = (MᵀWM)⁻¹ * (SSR / df)
@@ -2855,64 +2864,116 @@ const generateHKL = (maxTth, params, system) => {
     }
 };
 
-    // --- SEARCH ALGORITHMS ---
+    // --- SEARCH ALGORITHMS 
     const indexCubic = () => {
         const h_max = 8;
-        for (let i=0; i<Math.min(peaks.length,10); i++) for (let h=1; h<=h_max; h++) for (let k=0; k<=h; k++) for (let l=0; l<=k; l++) {
-            if(!h&&!k&&!l) continue;
-            refineAndTestSolution({a: Math.sqrt((h*h+k*k+l*l)/q_obs[i]), system: 'cubic'});
-        }
-    };
-    const indexTetragonalOrHexagonal = (system) => {
-        const max_hkl=5, i_depth=Math.min(10,peaks.length), j_depth=Math.min(10,peaks.length);
-        for (let i=0; i<i_depth; i++) for (let j=i+1; j<j_depth; j++) {
-            for (let h1=0; h1<=max_hkl; h1++) for (let k1=0; k1<=h1; k1++) for (let l1=0; l1<=max_hkl; l1++) {
-                if(!h1&&!k1&&!l1) continue;
-                const S1 = system==='tetragonal'? h1*h1+k1*k1 : h1*h1+h1*k1+k1*k1;
-                for (let h2=0; h2<=max_hkl; h2++) for (let k2=0; k2<=h2; k2++) for (let l2=0; l2<=max_hkl; l2++) {
-                    if(!h2&&!k2&&!l2) continue;
-                    const S2 = system==='tetragonal'? h2*h2+k2*k2 : h2*h2+h2*k2+k2*k2;
-                    const det = S1*l2*l2-S2*l1*l1;
-                    if(Math.abs(det)<1e-6) continue;
-                    const a_term_inv = (q_obs[i]*l2*l2-q_obs[j]*l1*l1)/det, c_term_inv=(q_obs[j]*S1-q_obs[i]*S2)/det;
-                    if (a_term_inv>0 && c_term_inv>0) {
-                        const a = system==='tetragonal'? 1/Math.sqrt(a_term_inv) : Math.sqrt(4/(3*a_term_inv));
-                        refineAndTestSolution({a: a, c: 1/Math.sqrt(c_term_inv), system});
+        const totalIterations = Math.min(peaks.length, 10);
+        if (totalIterations === 0) return;
+        // ---
+
+        for (let i = 0; i < totalIterations; i++) { 
+            for (let h = 1; h <= h_max; h++) {
+                for (let k = 0; k <= h; k++) {
+                    for (let l = 0; l <= k; l++) {
+                        if (!h && !k && !l) continue;
+                        refineAndTestSolution({ a: Math.sqrt((h * h + k * k + l * l) / q_obs[i]), system: 'cubic' });
                     }
                 }
             }
+            // Report progress based on the outer loop
+            const progress = ((i + 1) / totalIterations) * 80; // Scale to 80% (20% for transforms)
+            self.postMessage({ type: 'progress', payload: progress });
+            // ---
+        }
+    };
+
+    const indexTetragonalOrHexagonal = (system) => {
+        const max_hkl = 5, i_depth = Math.min(10, peaks.length), j_depth = Math.min(10, peaks.length);
+        // --- MODIFIED ---
+        const totalIterations = i_depth;
+        if (totalIterations === 0) return;
+        // ---
+
+        for (let i = 0; i < totalIterations; i++) { // <-- MODIFIED
+            for (let j = i + 1; j < j_depth; j++) {
+                for (let h1 = 0; h1 <= max_hkl; h1++) for (let k1 = 0; k1 <= h1; k1++) for (let l1 = 0; l1 <= max_hkl; l1++) {
+                    if (!h1 && !k1 && !l1) continue;
+                    const S1 = system === 'tetragonal' ? h1 * h1 + k1 * k1 : h1 * h1 + h1 * k1 + k1 * k1;
+                    for (let h2 = 0; h2 <= max_hkl; h2++) for (let k2 = 0; k2 <= h2; k2++) for (let l2 = 0; l2 <= max_hkl; l2++) {
+                        if (!h2 && !k2 && !l2) continue;
+                        const S2 = system === 'tetragonal' ? h2 * h2 + k2 * k2 : h2 * h2 + h2 * k2 + k2 * k2;
+                        const det = S1 * l2 * l2 - S2 * l1 * l1;
+                        if (Math.abs(det) < 1e-6) continue;
+                        const a_term_inv = (q_obs[i] * l2 * l2 - q_obs[j] * l1 * l1) / det, c_term_inv = (q_obs[j] * S1 - q_obs[i] * S2) / det;
+                        if (a_term_inv > 0 && c_term_inv > 0) {
+                            const a = system === 'tetragonal' ? 1 / Math.sqrt(a_term_inv) : Math.sqrt(4 / (3 * a_term_inv));
+                            refineAndTestSolution({ a: a, c: 1 / Math.sqrt(c_term_inv), system });
+                        }
+                    }
+                }
+            }
+            const progress = ((i + 1) / totalIterations) * 80; 
+            self.postMessage({ type: 'progress', payload: progress });
+            // ---
         }
     };
 
     const indexOrthorhombic = () => {
-    const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('orthorhombic').slice(0,40);
-    for(let i=0;i<max_p-2;i++) for(let j=i+1;j<max_p-1;j++) for(let k=j+1;k<max_p;k++) {
-        for(let n1=0;n1<basis_hkls.length-2;n1++) for(let n2=n1+1;n2<basis_hkls.length-1;n2++) for(let n3=n2+1;n3<basis_hkls.length;n3++) {
-            const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl=>[hkl[0]**2, hkl[1]**2, hkl[2]**2]);
-            const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
-            const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
-            
-            if(fit&&fit.solution&&fit.solution.every(s=>s>0)) {
-                refineAndTestSolution({a:1/Math.sqrt(fit.solution[0]),b:1/Math.sqrt(fit.solution[1]),c:1/Math.sqrt(fit.solution[2]),system:'orthorhombic'});
-            }
-        }
-    }
-};
+        const max_p = Math.min(12, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 40);
+        const totalIterations = max_p - 2;
+        if (totalIterations <= 0) return;
+        // ---
 
-    const indexMonoclinic = () => {
-        const max_p=Math.min(12,q_obs.length), basis_hkls=get_hkl_search_list('monoclinic').slice(0,50);
-        for(let i=0;i<max_p-3;i++) for(let j=i+1;j<max_p-2;j++) for(let k=j+1;k<max_p-1;k++) for(let l=k+1;l<max_p;l++) {
-            for(let n1=0;n1<basis_hkls.length-3;n1++) for(let n2=n1+1;n2<basis_hkls.length-2;n2++) for(let n3=n2+1;n3<basis_hkls.length-1;n3++) for(let n4=n3+1;n4<basis_hkls.length;n4++) {
-                const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
-                const M = hkls.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
-                const fit = solveLeastSquares(M, [q_obs[i],q_obs[j],q_obs[k],q_obs[l]]);
-                if(!fit||!fit.solution) continue;
-                const [A,B,C,D] = fit.solution;
-                if(A>0&&B>0&&C>0&&D*D<4*A*C) {
-                    const cosB=-D/(2*Math.sqrt(A*C)), sinBSq=1-cosB*cosB;
-                    refineAndTestSolution({a:1/Math.sqrt(A*sinBSq),b:1/Math.sqrt(B),c:1/Math.sqrt(C*sinBSq),beta:Math.acos(cosB)*180/Math.PI,system:'monoclinic'});
+        for (let i = 0; i < totalIterations; i++) { 
+            for (let j = i + 1; j < max_p - 1; j++) {
+                for (let k = j + 1; k < max_p; k++) {
+                    for (let n1 = 0; n1 < basis_hkls.length - 2; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 1; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length; n3++) {
+                        const M = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3]].map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2]);
+                        const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k]];
+                        const fit = solveLeastSquares(M, q_vec_for_guess, q_vec_for_guess);
+
+                        if (fit && fit.solution && fit.solution.every(s => s > 0)) {
+                            refineAndTestSolution({ a: 1 / Math.sqrt(fit.solution[0]), b: 1 / Math.sqrt(fit.solution[1]), c: 1 / Math.sqrt(fit.solution[2]), system: 'orthorhombic' });
+                        }
+                    }
                 }
             }
+            // 
+            const progress = ((i + 1) / totalIterations) * 80; // Scale to 80%
+            self.postMessage({ type: 'progress', payload: progress });
+            // ---
+        }
+    };
+
+    const indexMonoclinic = () => {
+        const max_p = Math.min(12, q_obs.length), basis_hkls = get_hkl_search_list('monoclinic').slice(0, 50);
+ 
+        const totalIterations = max_p - 3;
+        if (totalIterations <= 0) return;
+        // ---
+
+        for (let i = 0; i < totalIterations; i++) { // <-- pour la barre d e progress
+            for (let j = i + 1; j < max_p - 2; j++) {
+                for (let k = j + 1; k < max_p - 1; k++) {
+                    for (let l = k + 1; l < max_p; l++) {
+                        for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
+                            const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
+                            const M = hkls.map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2, hkl[0] * hkl[2]]);
+                            const fit = solveLeastSquares(M, [q_obs[i], q_obs[j], q_obs[k], q_obs[l]]);
+                            if (!fit || !fit.solution) continue;
+                            const [A, B, C, D] = fit.solution;
+                            if (A > 0 && B > 0 && C > 0 && D * D < 4 * A * C) {
+                                const cosB = -D / (2 * Math.sqrt(A * C)), sinBSq = 1 - cosB * cosB;
+                                refineAndTestSolution({ a: 1 / Math.sqrt(A * sinBSq), b: 1 / Math.sqrt(B), c: 1 / Math.sqrt(C * sinBSq), beta: Math.acos(cosB) * 180 / Math.PI, system: 'monoclinic' });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            const progress = ((i + 1) / totalIterations) * 80; // Scale to 80%
+            self.postMessage({ type: 'progress', payload: progress });
+            // ---
         }
     };
 
@@ -2937,11 +2998,16 @@ function isValidCellParams(a, b, c, beta) {
     return true;
 }
 
-// --- DERIVED/TRANSFORMED CELL SEARCH ---
+// --- DERIVED/TRANSFORMED CELL SEARCH (MODIFIED) ---
     const findTransformedSolutions = (initialSolutions) => {
         const cellTransforms = [ { P: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]] }, { P: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]] }, { P: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]] }, { P: [[0.5, 0, 0], [0, 1, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 0.5, 0], [0, 0, 1]] }, { P: [[1, 0, 0], [0, 1, 0], [0, 0, 0.5]] }, { P: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]] } ];
         
-        initialSolutions.forEach(sol => {
+        // --- ADDED ---
+        const totalSolutions = initialSolutions.length;
+        if (totalSolutions === 0) return;
+        // ---
+
+        initialSolutions.forEach((sol, index) => { // <-- Added index
             // 1. Matrix Transformations
             cellTransforms.forEach(tf => {
                 try {
@@ -2974,11 +3040,18 @@ function isValidCellParams(a, b, c, beta) {
                     }
                 });
             }
+
+  
+            // This transformation phase accounts for progress from 80% to 95%
+            const progress = 80 + ((index + 1) / totalSolutions) * 15;
+            self.postMessage({ type: 'progress', payload: progress });
+           
         });
     };
     
-    // --- EXECUTION & REPORTING ---
-postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...` });
+    // --- EXECUTION & REPORTING (MODIFIED) ---
+    postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...` });
+    self.postMessage({ type: 'progress', payload: 1 }); // Start at 1%
 
     if (systemToSearch === 'cubic') indexCubic();
     if (systemToSearch === 'tetragonal') indexTetragonalOrHexagonal('tetragonal');
@@ -2986,16 +3059,24 @@ postMessage({ type: 'status', payload: `Searching for ${systemToSearch} cells...
     if (systemToSearch === 'orthorhombic') indexOrthorhombic();
     if (systemToSearch === 'monoclinic') indexMonoclinic();
     
+    self.postMessage({ type: 'progress', payload: 80 });
     postMessage({ type: 'status', payload: `Analyzing transformations for ${systemToSearch}...` });
-
-    // After initial search, try transformations on the found solutions
+  
     findTransformedSolutions([...foundSolutions]);
     
+  
+    // Mark transform phase as 95% complete
+    self.postMessage({ type: 'progress', payload: 95 });
+    postMessage({ type: 'status', payload: `Analyzing ${systemToSearch}...` });
+    // ---
+    
     foundSolutions.forEach(solution => self.postMessage({ type: 'solution', payload: solution }));
+  
+    // Mark as 100% complete just before sending 'done'
+    self.postMessage({ type: 'progress', payload: 100 });
     self.postMessage({ type: 'done' });
+    // ---
 };
-
-
 </script>
 
 <div id="app-footer">Combs, version 18 oct 2025</div>
