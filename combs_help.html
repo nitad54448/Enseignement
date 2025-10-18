@@ -122,7 +122,8 @@
                 <li><a href="#ui">The User Interface</a></li>
                 <li><a href="#peak-finding">Peak Finding</a></li>
                 <li><a href="#indexing-method">Indexing Algorithm</a></li>
-                <li><a href="#evaluating-solutions">Evaluating Solutions</a></li>
+                <li><a href="#evaluating-solutions">Evaluating Solutions (M(20))</a></li>
+                <li><a href="#space-group-analysis">Space Group Analysis</a></li>
                 <li><a href="#advanced-topics">Advanced Topics</a></li>
                 <li><a href="#troubleshooting">Troubleshooting</a></li>
                 <li><a href="#references">References</a></li>
@@ -165,7 +166,7 @@
                     </ul>
                 </li>
                 <li><strong>Start Indexing:</strong> Click <code>Start Indexing</code>.</li>
-                <li><strong>Analyze Solutions:</strong> On the <strong>Solutions</strong> tab, review the results. Sort by M(20) and click on high-scoring solutions to visually compare the calculated (blue) and observed (red) peak markers on the chart.</li>
+                <li><strong>Analyze Solutions:</strong> On the <strong>Solutions</strong> tab, review the results. Sort by M(20) and click on high-scoring solutions to visually compare the calculated (blue) and observed (red) peak markers on the chart. A good solution will also have plausible space group suggestions.</li>
             </ol>
         </section>
         
@@ -228,14 +229,37 @@
 
         <section id="indexing-method">
             <h2>Indexing Algorithm and Search Parameters</h2>
-            <p>The program employs a dedicated search routine for each crystal system. The number of peaks required to generate a trial cell depends on the number of unknown lattice parameters.</p>
+            <p>The program employs a dedicated search routine for each crystal system. This is an "exhaustive" or "brute-force" trial method that iterates through combinations of low-angle peaks and low-integer Miller indices. The number of peaks required to generate a trial cell depends on the number of unknown lattice parameters.</p>
 
             <h3>System-by-System Search Logic</h3>
+            <p>The search algorithm's goal is to solve a system of linear equations of the form $Q_{obs} = \sum P_i \cdot H_i$, where $Q_{obs}$ are the $1/d^2$ values from the observed peaks, $H_i$ are terms derived from the trial Miller indices (e.g., $h^2, k^2, l^2$), and $P_i$ are the reciprocal lattice parameters (e.g., $1/a^2, 1/b^2, 1/c^2$) we want to find.</p>
             <ul>
-                <li><strong>Cubic (1 parameter, $a$):</strong> Uses a single peak assigned to a trial $(hkl)$ to solve for the single unknown, $A=1/a^2$.</li>
-                <li><strong>Tetragonal & Hexagonal (2 parameters, $a, c$):</strong> Assigns two peaks to trial $(hkl)$s, solving a 2x2 system of linear equations for the two reciprocal parameters ($A=1/a^2, C=1/c^2$).</li>
-                <li><strong>Orthorhombic (3 parameters, $a, b, c$):</strong> Assigns three peaks to trial $(hkl)$s to solve a 3x3 system for the three reciprocal parameters ($A, B, C$).</li>
-                <li><strong>Monoclinic (4 parameters, $a, b, c, \beta$):</strong> This search assumes three low-angle peaks define the `(h0l)` reciprocal plane. By assigning three `(h0l)` indices, it solves a 3x3 system for the plane parameters ($A, C, D$). A subsequent search through the remaining observed peaks is performed to find a consistent value for the fourth parameter, $B$.</li>
+                <li>
+                    <strong>Cubic (1 parameter, $a$):</strong>
+                    Solves a 1x1 system.
+                    $Q_{obs, 1} = (h_1^2 + k_1^2 + l_1^2) \cdot (1/a^2)$.
+                    The program iterates through the first 10 observed peaks, assigning each one a single trial $(hkl)$ vector (where $h,k,l$ are integers up to 8).
+                </li>
+                <li>
+                    <strong>Tetragonal & Hexagonal (2 parameters, $a, c$):</strong>
+                    Solves a 2x2 system of equations.
+                    $Q_{obs, 1} = H_{1,a} \cdot (1/a^2) + H_{1,c} \cdot (1/c^2)$
+                    $Q_{obs, 2} = H_{2,a} \cdot (1/a^2) + H_{2,c} \cdot (1/c^2)$
+                    The program iterates through *pairs* of observed peaks (from the first 10), assigning *pairs* of trial $(hkl)$ vectors (where $h,k,l$ are integers up to 5).
+                </li>
+                <li>
+                    <strong>Orthorhombic (3 parameters, $a, b, c$):</strong>
+                    Solves a 3x3 system of equations.
+                    $Q_{obs, 1} = h_1^2 \cdot (1/a^2) + k_1^2 \cdot (1/b^2) + l_1^2 \cdot (1/c^2)$
+                    $Q_{obs, 2} = h_2^2 \cdot (1/a^2) + k_2^2 \cdot (1/b^2) + l_2^2 \cdot (1/c^2)$
+                    $Q_{obs, 3} = h_3^2 \cdot (1/a^2) + k_3^2 \cdot (1/b^2) + l_3^2 \cdot (1/c^2)$
+                    It iterates through *triplets* of observed peaks (from the first 12), assigning *triplets* of trial $(hkl)$ vectors from a pre-calculated basis set of 40 reflections.
+                </li>
+                <li>
+                    <strong>Monoclinic (4 parameters, $a, b, c, \beta$):</strong>
+                    Solves a 4x4 system for the four reciprocal parameters ($A, B, C, D$) in the equation $Q_{hkl} = A h^2 + B k^2 + C l^2 + D hl$.
+                    It iterates through *quadruplets* of observed peaks (from the first 12), assigning *quadruplets* of trial $(hkl)$ vectors from a basis set of 50 reflections (with h,k,l smaller than 6).
+                </li>
             </ul>
 
             <h3>Search Depth and HKL Limits</h3>
@@ -246,18 +270,18 @@
                     <tr><td>Cubic</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 8</td></tr>
                     <tr><td>Tetragonal</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 5</td></tr>
                     <tr><td>Hexagonal</td><td>First 10 peaks</td><td><code>h, k, l</code> up to 5</td></tr>
-                    <tr><td>Orthorhombic</td><td>First 12 peaks</td><td>Uses a basis set of the first 30 plausible low-index reflections.</td></tr>
-                    <tr><td>Monoclinic</td><td>First 18 peaks</td><td>Plane search uses <code>h</code> and <code>l</code> up to 3.</td></tr>
+                    <tr><td>Orthorhombic</td><td>First 12 peaks</td><td>Uses a basis set of the first 40 plausible low-index reflections.</td></tr>
+                    <tr><td>Monoclinic</td><td>First 12 peaks</td><td>Uses a basis set of the first 50 plausible low-index reflections.</td></tr>
                 </tbody>
             </table>
         </section>
 
         <section id="evaluating-solutions">
-            <h2>Evaluating Solutions</h2>
+            <h2>Evaluating Solutions (M(20))</h2>
             <p>The indexing search often produces multiple candidate solutions. Distinguishing the correct one requires a reliable figure of merit and careful refinement.</p>
             
             <h3>The de Wolff Figure of Merit: M(20)</h3>
-            <p>Solutions are ranked by the <strong>de Wolff Figure of Merit, M(20)</strong>, which assesses the fit's accuracy and completeness. A high M(20) value is a strong indicator of a correct solution.</p>
+            <p>Solutions are ranked by the <strong>de Wolff Figure of Merit, M(20)</strong>, which assesses the fit's accuracy and completeness. It is calculated using the first 20 observed reflections. A high M(20) value is a strong indicator of a correct solution.</p>
             <table>
                 <thead><tr><th>M(20) Value</th><th>Interpretation</th></tr></thead>
                 <tbody>
@@ -277,11 +301,54 @@
             </p>
             <ol>
                 <li><strong>Baseline Refinement:</strong> It first performs a stable refinement of <strong>only the lattice parameters</strong>. This provides a reliable fallback solution.</li>
-                <li><strong>Full Refinement:</strong> It then attempts a more complex refinement solving for both the lattice parameters and the zero-point error simultaneously.</li>
+                <li><strong>Full Refinement:</strong> It then attempts a more complex refinement solving for both the lattice parameters and the zero-point error simultaneously. This is done by adding a term to the least-squares fit that models the $2\theta$ shift.</li>
             </ol>
             <p>If the full refinement is unstable or produces an invalid cell, the program gracefully falls back to the reliable baseline solution, ensuring a valid result is never discarded due to an unstable higher-order fit.</p>
         </section>
 
+        <section id="space-group-analysis">
+            <h2>Space Group Analysis</h2>
+            <p>
+                After a high-scoring unit cell is found, the program provides an automated analysis to suggest the most probable space groups. This feature serves as a powerful guide for subsequent structure solution or Rietveld refinement.
+            </p>
+            <p>
+                The analysis relies on a comprehensive internal database of reflection conditions (<code>space_groups_complete.json</code>) derived from crystallographic libraries like <strong>Pymatgen</strong>.
+            </p>
+            
+            <h3>Methodology</h3>
+            <p>The analysis is a systematic process of elimination based on observed systematic absences:</p>
+            <ol>
+                <li>
+                    <strong>Index Observed Peaks:</strong> The program takes the refined unit cell and generates a complete theoretical reflection list. It then indexes *all* high-quality observed peaks from the user's peak list, not just the first 20.
+                </li>
+                <li>
+                    <strong>Build High-Confidence Set:</strong> To avoid errors from peak overlap, the algorithm filters this list to find <strong>unambiguous</strong> reflections—observed peaks that correspond to a single, non-overlapping theoretical $(hkl)$ line.
+                </li>
+                <li>
+                    <strong>Determine Centering:</strong> This high-confidence set of *observed* $(hkl)$s is tested against the rules for all lattice centerings (P, I, F, A, B, C, R). The program determines the most likely centering by finding the one with the <strong>minimum number of violations</strong>. A violation is defined as an *observed reflection* that *should be absent* (e.g., observing a (100) reflection for an I-centered lattice).
+                </li>
+                <li>
+                    <strong>Rank Space Groups:</strong> The program filters its database for all space groups matching the solution's crystal system (e.g., 'monoclinic') and the most plausible centering(s).
+                </li>
+                <li>
+                    <strong>Count Extinction Violations:</strong> For each candidate space group, it checks the high-confidence observed reflections against that group's specific extinction rules for glide planes and screw axes (e.g., $0k0: k=2n$). Again, it only counts violations where an *observed peak* breaks a rule.
+                </li>
+            </ol>
+
+            <h3>How to Interpret the Results</h3>
+            <p>
+                The program ranks space groups by their number of violations. This ranking is displayed in the PDF report.
+            </p>
+            <ul>
+                <li><strong>0 Violations:</strong> This is the ideal result. It means that *no observed reflection* in the high-confidence set violated any of the space group's extinction rules. These are the strongest candidates.</li>
+                <li><strong>1-2 Violations:</strong> These are still plausible. A single violation could be caused by an experimental artifact, a mis-indexed ambiguous peak, or a weak, theoretically-forbidden reflection appearing due to experimental factors.</li>
+                <li><strong>Many Violations:</strong> These space groups are highly unlikely to be correct.</li>
+            </ul>
+            <blockquote>
+                <strong>Important:</strong> This analysis is a <strong>suggestion</strong>, not a definitive assignment. It is based *only* on the observed extinctions in a powder pattern, which can be incomplete. The final determination must be made with chemical knowledge and confirmed via structure refinement.
+            </blockquote>
+        </section>
+        
         <section id="advanced-topics">
             <h2>Advanced Topics: Enhanced Search and Sieving</h2>
             <p>
@@ -334,7 +401,7 @@
                 </li>
             </ol>
             <div class="footer">
-                <p>Help Guide updated on 16 Oct 2025 by an AI assistant.</p>
+                <p>Help Guide updated on 18 Oct 2025.</p>
             </div>
         </section>
 
@@ -345,6 +412,7 @@
         const sections = document.querySelectorAll('section');
         const navLinks = document.querySelectorAll('#toc a');
         const mainContent = document.getElementById('main-content');
+        
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
@@ -355,16 +423,51 @@
                 }
             });
         }, { root: mainContent, rootMargin: "0px 0px -80% 0px" });
+        
         sections.forEach(section => observer.observe(section));
+        
         navLinks.forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
                 navLinks.forEach(l => l.classList.remove('active'));
                 this.classList.add('active');
                 const targetId = this.getAttribute('href');
-                document.querySelector(targetId).scrollIntoView({ behavior: 'smooth', block: 'start' });
+                const targetElement = document.querySelector(targetId);
+                
+                // Manually scroll the main-content panel
+                if (targetElement) {
+                    mainContent.scrollTo({
+                        top: targetElement.offsetTop - 32, // 32px padding-top
+                        behavior: 'smooth'
+                    });
+                }
             });
         });
+
+        // Set the active link on load
+        const updateActiveLink = () => {
+            let currentActive = '';
+            sections.forEach(section => {
+                const rect = section.getBoundingClientRect();
+                // Check if the top of the section is within the top 20% of the viewport
+                if (rect.top >= 0 && rect.top <= mainContent.clientHeight * 0.2) {
+                    currentActive = section.getAttribute('id');
+                }
+            });
+
+            if (currentActive) {
+                navLinks.forEach(link => link.classList.remove('active'));
+                const activeLink = document.querySelector(`#toc a[href="#${currentActive}"]`);
+                if (activeLink) activeLink.classList.add('active');
+            } else {
+                // If no section is at the top, activate the first one
+                navLinks.forEach(link => link.classList.remove('active'));
+                if (navLinks.length > 0) navLinks[0].classList.add('active');
+            }
+        };
+        
+        // Use timeout to ensure content is rendered before first check
+        setTimeout(updateActiveLink, 100);
     });
 </script>
 
