@@ -2947,100 +2947,257 @@ const generateHKL = (maxTth, params, system) => {
     };
 
 
-    const indexMonoclinic = () => {
-        // 1. Define parameters
-        const max_p = Math.min(12, q_obs.length); // Use first 12 peaks
-        
-        // 2. Define the expanded set of 20 low-index HKLs
+// Improved indexMonoclinic
+const indexMonoclinic = (opts = {}) => {
+    // Options (override if needed)
+    const MAX_BASIS = opts.maxBasis || 30;        // max basis size to use
+    const MAX_PEAKS = opts.maxPeaks || 12;       // use first N peaks
+    const SAMPLE_COMBINATIONS = opts.sampleCombinations || false; // sample instead of exhaustive
+    const SAMPLE_TRIES = opts.sampleTries || 20000; // if sampling, how many random tries
+    const MIN_DET = opts.minDeterminant || 1e-8; // threshold for degenerate M
+    const CELL_LIMITS = opts.cellLimits || { a: [0.5, 50], b: [0.5, 50], c: [0.5, 50] }; // plausible Å ranges
 
-        const basis_hkls = [
-            // Original 12
-            [1,0,0], [0,1,0], [0,0,1],    // Axes
-            [1,1,0], [1,0,1], [0,1,1],    // Face diagonals
-            [1,-1,0], [1,0,-1], [0,1,-1], // Other face diagonals
-            [1,1,1], [1,1,-1], [1,-1,1],  // Simple body diagonals
-            
-            // Added 8 (total 20)
-            [2,0,0], [0,2,0], [0,0,2],    // 2nd order axes
-            [2,1,0], [1,2,0],             // Simple mixed
-            [2,0,1], [1,0,2],             // Simple mixed
-            [2,1,1],                     // Simple mixed
-            
-            // Added 10 more (total 30)
-            [2,1,-1], [1,2,-1], [1,-2,1], // More mixed
-            [2,2,0], [2,0,2], [0,2,2],    // 2nd order face diagonals
-            [2,2,1], [1,2,2], [2,1,2],    // More mixed
-            [3,0,0]                      // 3rd order axis
-        ];
-        const num_hkls = basis_hkls.length; // This is now 20
+    // 1) Decide peaks to use
+    const max_p = Math.min(MAX_PEAKS, q_obs.length);
+    if (max_p < 4) return;
 
-        // --- For progress bar, same logic as your other functions ---
-        const totalProgressIterations = max_p - 3; // Based on the 'i' loop
-        if (totalProgressIterations <= 0) return;
-        // ---
+    // 2) Define HKL basis (expanded). Keep only up to MAX_BASIS entries.
+    const basis_hkls = [
+        [1,0,0],[0,1,0],[0,0,1],
+        [1,1,0],[1,0,1],[0,1,1],
+        [1,-1,0],[1,0,-1],[0,1,-1],
+        [1,1,1],[1,1,-1],[1,-1,1],
+        [2,0,0],[0,2,0],[0,0,2],
+        [2,1,0],[1,2,0],[2,0,1],[1,0,2],[2,1,1],
+        [2,1,-1],[1,2,-1],[1,-2,1],[2,2,0],[2,0,2],
+        [0,2,2],[2,2,1],[1,2,2],[2,1,2],[3,0,0]
+    ].slice(0, MAX_BASIS);
 
-        // 3. Loop 1: Pick 4 peaks (i, j, k, l) from the first 'max_p' peaks
-        for (let i = 0; i < max_p - 3; i++) { 
+    const num_hkls = basis_hkls.length;
+    if (num_hkls < 4) return;
+
+    // Helper: check if two HKLs are linearly dependent / duplicates (simple check)
+    const isDuplicateHKL = (hkl1, hkl2) => {
+        // trivial equality
+        if (hkl1[0] === hkl2[0] && hkl1[1] === hkl2[1] && hkl1[2] === hkl2[2]) return true;
+        // proportional check (avoid zero)
+        const a = hkl1[0], b = hkl1[1], c = hkl1[2];
+        const x = hkl2[0], y = hkl2[1], z = hkl2[2];
+        // if one is zero vector, treat as duplicate (degenerate)
+        if ((a===0 && b===0 && c===0) || (x===0 && y===0 && z===0)) return true;
+        // ratio approach but guard zeros:
+        let r = null;
+        const pairs = [[a,x],[b,y],[c,z]];
+        for (const [p,q] of pairs) {
+            if (q === 0) {
+                if (p !== 0) return false;
+                continue;
+            }
+            if (r === null) r = p / q;
+            else if (Math.abs(r - p/q) > 1e-8) return false;
+        }
+        return true;
+    };
+
+    // Helper: build M (4x4) from 4 hkls where Q = A*h^2 + B*k^2 + C*l^2 + D*h*l
+    const buildM = (hkls) => hkls.map(hkl => [hkl[0]*hkl[0], hkl[1]*hkl[1], hkl[2]*hkl[2], hkl[0]*hkl[2]]);
+
+    // Robust 4x4 solver using Gaussian elimination with partial pivoting
+    const solve4x4 = (A, b) => {
+        // A: array of 4 arrays (length 4), b: length 4
+        // Work on copies
+        const M = A.map(r => r.slice());
+        const v = b.slice();
+        const n = 4;
+        const idx = Array.from({length:n}, (_,i)=>i);
+
+        let det = 1;
+        for (let i = 0; i < n; i++) {
+            // partial pivot
+            let maxRow = i;
+            let maxVal = Math.abs(M[i][i]);
+            for (let r = i+1; r < n; r++) {
+                const val = Math.abs(M[r][i]);
+                if (val > maxVal) { maxVal = val; maxRow = r; }
+            }
+            if (maxVal < 1e-14) {
+                return null; // singular or nearly singular
+            }
+            if (maxRow !== i) {
+                [M[i], M[maxRow]] = [M[maxRow], M[i]];
+                [v[i], v[maxRow]] = [v[maxRow], v[i]];
+                det = -det;
+            }
+            const pivot = M[i][i];
+            det *= pivot;
+            // normalize and eliminate
+            for (let r = i+1; r < n; r++) {
+                const fac = M[r][i] / pivot;
+                for (let c = i; c < n; c++) M[r][c] -= fac * M[i][c];
+                v[r] -= fac * v[i];
+            }
+        }
+
+        if (Math.abs(det) < MIN_DET) return null;
+
+        // back substitution
+        const x = new Array(n).fill(0);
+        for (let i = n-1; i >= 0; i--) {
+            let s = v[i];
+            for (let j = i+1; j < n; j++) s -= M[i][j] * x[j];
+            x[i] = s / M[i][i];
+        }
+        return { solution: x, det };
+    };
+
+    // Simple plausibility test for the extracted cell
+    const plausibleCell = (cell) => {
+        if (!isFinite(cell.a) || !isFinite(cell.b) || !isFinite(cell.c) || !isFinite(cell.beta)) return false;
+        if (cell.a <= 0 || cell.b <= 0 || cell.c <= 0) return false;
+        if (cell.beta <= 0 || cell.beta >= 180) return false;
+        if (cell.a < CELL_LIMITS.a[0] || cell.a > CELL_LIMITS.a[1]) return false;
+        if (cell.b < CELL_LIMITS.b[0] || cell.b > CELL_LIMITS.b[1]) return false;
+        if (cell.c < CELL_LIMITS.c[0] || cell.c > CELL_LIMITS.c[1]) return false;
+        return true;
+    };
+
+    // Prepare combinations generator (exhaustive or sampling)
+    const combos = [];
+    if (!SAMPLE_COMBINATIONS) {
+        // Exhaustive indices for 4 peaks
+        for (let i = 0; i < max_p - 3; i++) {
             for (let j = i + 1; j < max_p - 2; j++) {
                 for (let k = j + 1; k < max_p - 1; k++) {
                     for (let l = k + 1; l < max_p; l++) {
-                        
-                        // 4. Loop 2: Pick 4 HKLs (n1, n2, n3, n4) from our new 'basis_hkls' list
-                        for (let n1 = 0; n1 < num_hkls - 3; n1++) {
-                            for (let n2 = n1 + 1; n2 < num_hkls - 2; n2++) {
-                                for (let n3 = n2 + 1; n3 < num_hkls - 1; n3++) {
-                                    for (let n4 = n3 + 1; n4 < num_hkls; n4++) {
-                                        
-                                        // 5. We now have 4 peaks and 4 HKLs. Solve the 4x4 system.
-                                        const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
-                                        
-                                        // Build the design matrix M for Q(hkl) = h^2*P1 + k^2*P2 + l^2*P3 + hl*P4
-                                        const M = hkls.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
-                                        
-                                        // Build the observation vector q
-                                        const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
-                                        
-                                        // 6. Solve M*x = q to get parameters [P1, P2, P3, P4]
-                                        const fit = solveLeastSquares(M, q_vec_for_guess); // No weighting for the initial guess
-                                        
-                                        if (!fit || !fit.solution) continue;
-                                        
-                                        const [A, B, C, D] = fit.solution;
-                                        
-                                        // 7. Check if the solution is physically reasonable
-                                        if (A > 0 && B > 0 && C > 0 && (D * D < 4 * A * C)) {
-                                            
-                                            const cosB = -D / (2 * Math.sqrt(A * C));
-                                            
-                                            if (Math.abs(cosB) < Math.cos(70 * Math.PI / 180)) { 
-                                                const sinBSq = 1 - cosB * cosB;
-                                                const beta = Math.acos(cosB) * 180 / Math.PI;
-                                                
-                                                const trialCell = {
-                                                    a: 1 / Math.sqrt(A * sinBSq),
-                                                    b: 1 / Math.sqrt(B),
-                                                    c: 1 / Math.sqrt(C * sinBSq),
-                                                    beta: beta,
-                                                    system: 'monoclinic'
-                                                };
-
-                                                // 8. Pass the valid trial cell to your existing refinement function
-                                                refineAndTestSolution(trialCell);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        combos.push([i,j,k,l]);
                     }
                 }
             }
-            
-            // --- Report progress based on the outer-most loop ---
-            const progress = ((i + 1) / totalProgressIterations) * 80; // Scale to 80%
-            self.postMessage({ type: 'progress', payload: progress });
         }
-    };
+    } else {
+        // Random sampling of peak-quads
+        const rng = () => Math.floor(Math.random() * max_p);
+        for (let t = 0; t < SAMPLE_TRIES; t++) {
+            let s = new Set();
+            while (s.size < 4) s.add(rng());
+            const arr = Array.from(s).sort((a,b)=>a-b);
+            combos.push(arr);
+        }
+    }
+
+    // For progress:
+    const totalProgressIterations = combos.length || 1;
+    let progressCount = 0;
+
+    // Now loop: for each 4-peak combination, pick 4 hkls from basis
+    // To avoid combinatorial explosion when basis is large, we can sample HKL combos too if necessary.
+    const hklsCombosLimit = 200000; // safety limit before sampling HKL combos
+    const allHKLCombos = [];
+    // If small enough, build exhaustive list of hkl index quadruples
+    const estimatedHKLQuads = (num_hkls * (num_hkls-1) * (num_hkls-2) * (num_hkls-3)) / 24;
+    const hklsShouldSample = estimatedHKLQuads > hklsCombosLimit;
+
+    // Precompute HKL combos (either exhaustive or will sample inside loop)
+    if (!hklsShouldSample) {
+        for (let n1 = 0; n1 < num_hkls - 3; n1++) {
+            for (let n2 = n1 + 1; n2 < num_hkls - 2; n2++) {
+                for (let n3 = n2 + 1; n3 < num_hkls - 1; n3++) {
+                    for (let n4 = n3 + 1; n4 < num_hkls; n4++) {
+                        allHKLCombos.push([n1,n2,n3,n4]);
+                    }
+                }
+            }
+        }
+    }
+
+    // Main loops
+    for (const peakIndices of combos) {
+        // early exit not used (we must run now)
+        // For each selection of hkl quadruples (either exhaustive or sampled ones)
+        const hklsIter = hklsShouldSample ? (() => {
+            // generator that yields a limited number of random HKL quadruples
+            const tries = Math.min(5000, SAMPLE_TRIES); // cap per peak-quad
+            const yielded = [];
+            for (let t = 0; t < tries; t++) {
+                const pick = [];
+                while (pick.length < 4) {
+                    const r = Math.floor(Math.random() * num_hkls);
+                    if (!pick.includes(r)) pick.push(r);
+                }
+                pick.sort((a,b)=>a-b);
+                yielded.push(pick);
+            }
+            return yielded;
+        })() : allHKLCombos;
+
+        for (const [n1,n2,n3,n4] of hklsIter) {
+            // quick duplicate hkl rejection
+            const h1 = basis_hkls[n1], h2 = basis_hkls[n2], h3 = basis_hkls[n3], h4 = basis_hkls[n4];
+            if (isDuplicateHKL(h1,h2) || isDuplicateHKL(h1,h3) || isDuplicateHKL(h1,h4) ||
+                isDuplicateHKL(h2,h3) || isDuplicateHKL(h2,h4) || isDuplicateHKL(h3,h4)) continue;
+
+            // Build M and q
+            const hkls = [h1,h2,h3,h4];
+            const M = buildM(hkls);
+            const q_vec_for_guess = [ q_obs[peakIndices[0]], q_obs[peakIndices[1]],
+                                      q_obs[peakIndices[2]], q_obs[peakIndices[3]] ];
+
+            // Solve M * x = q
+            const fit = solve4x4(M, q_vec_for_guess);
+            if (!fit) continue;
+
+            const [P1, P2, P3, P4] = fit.solution; // P1->A, P2->B, P3->C, P4->D (per your formula)
+
+            // Physical checks: A,B,C positive
+            if (!(P1 > 0 && P2 > 0 && P3 > 0)) continue;
+
+            // From the standard monoclinic (unique b) reciprocal-lattice/d-spacing formula:
+            // 1/d^2 = (h^2 / a^2) + (k^2 / b^2) + (l^2 / c^2) + (2*h*l*cosβ / (a*c))
+            // Compare with your model: Q = P1*h^2 + P2*k^2 + P3*l^2 + P4*h*l
+            // => P1 = 1/a^2 ; P2 = 1/b^2 ; P3 = 1/c^2 ; P4 = 2*cosβ/(a*c)
+            // Therefore:
+            const A = P1, B = P2, C = P3, D = P4;
+
+            // compute cos(beta) from D
+            const denom = 2 * Math.sqrt(A * C);
+            if (!isFinite(denom) || Math.abs(denom) < 1e-14) continue;
+            const cosBeta = D / denom; // fixed sign compared to previous code
+            if (!isFinite(cosBeta) || Math.abs(cosBeta) > 1 + 1e-6) continue; // allow tiny tolerance
+
+            // clamp to [-1,1]
+            const cosB_clamped = Math.max(-1, Math.min(1, cosBeta));
+            const betaRad = Math.acos(cosB_clamped);
+            const beta = betaRad * 180 / Math.PI;
+
+            // compute lattice parameters a,b,c
+            const a = 1 / Math.sqrt(A);
+            const b = 1 / Math.sqrt(B);
+            const c = 1 / Math.sqrt(C);
+
+            // quick plausibility filters
+            const trialCell = { a, b, c, beta, system: 'monoclinic' };
+            if (!plausibleCell(trialCell)) continue;
+
+            // Pass to refinement and testing (user's existing routine)
+            try {
+                refineAndTestSolution(trialCell);
+            } catch (e) {
+                // keep going if refinement throws
+                console.warn('refineAndTestSolution threw', e);
+            }
+        } // end hkls selection
+
+        // Progress reporting (scale to 80% like your original)
+        progressCount++;
+        const progress = (progressCount / totalProgressIterations) * 80;
+        self.postMessage({ type: 'progress', payload: progress });
+    } // end peak combos
+
+    // finish progress at 100%
+    self.postMessage({ type: 'progress', payload: 100 });
+};
+
+
 
 
 // Helper function to calculate 3x3 determinant
