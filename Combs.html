@@ -2757,6 +2757,7 @@ const generateHKL = (maxTth, params, system) => {
 
     let M_no_zero = initial_indexed_pairs.map(p => getLSDesignRow(p.hkl, system));
     const q_vec_initial = initial_indexed_pairs.map(p => p.q_obs);
+    const weights_initial = q_vec_initial.map(q => 1 / (q*q));
     const fitResult_no_zero = solveLeastSquares(M_no_zero, q_vec_initial, q_vec_initial);
     
     if (!fitResult_no_zero || !fitResult_no_zero.solution) return;
@@ -2919,7 +2920,7 @@ const generateHKL = (maxTth, params, system) => {
     };
 
     const indexOrthorhombic = () => {
-        const max_p = Math.min(12, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 40);
+        const max_p = Math.min(10, q_obs.length), basis_hkls = get_hkl_search_list('orthorhombic').slice(0, 30);
         const totalIterations = max_p - 2;
         if (totalIterations <= 0) return;
         // ---
@@ -2945,37 +2946,102 @@ const generateHKL = (maxTth, params, system) => {
         }
     };
 
+
     const indexMonoclinic = () => {
-        const max_p = Math.min(12, q_obs.length), basis_hkls = get_hkl_search_list('monoclinic').slice(0, 50);
- 
-        const totalIterations = max_p - 3;
-        if (totalIterations <= 0) return;
+        // 1. Define parameters
+        const max_p = Math.min(12, q_obs.length); // Use first 12 peaks
+        
+        // 2. Define the expanded set of 20 low-index HKLs
+
+        const basis_hkls = [
+            // Original 12
+            [1,0,0], [0,1,0], [0,0,1],    // Axes
+            [1,1,0], [1,0,1], [0,1,1],    // Face diagonals
+            [1,-1,0], [1,0,-1], [0,1,-1], // Other face diagonals
+            [1,1,1], [1,1,-1], [1,-1,1],  // Simple body diagonals
+            
+            // Added 8 (total 20)
+            [2,0,0], [0,2,0], [0,0,2],    // 2nd order axes
+            [2,1,0], [1,2,0],             // Simple mixed
+            [2,0,1], [1,0,2],             // Simple mixed
+            [2,1,1],                     // Simple mixed
+            
+            // Added 10 more (total 30)
+            [2,1,-1], [1,2,-1], [1,-2,1], // More mixed
+            [2,2,0], [2,0,2], [0,2,2],    // 2nd order face diagonals
+            [2,2,1], [1,2,2], [2,1,2],    // More mixed
+            [3,0,0]                      // 3rd order axis
+        ];
+        const num_hkls = basis_hkls.length; // This is now 20
+
+        // --- For progress bar, same logic as your other functions ---
+        const totalProgressIterations = max_p - 3; // Based on the 'i' loop
+        if (totalProgressIterations <= 0) return;
         // ---
 
-        for (let i = 0; i < totalIterations; i++) { // <-- pour la barre d e progress
+        // 3. Loop 1: Pick 4 peaks (i, j, k, l) from the first 'max_p' peaks
+        for (let i = 0; i < max_p - 3; i++) { 
             for (let j = i + 1; j < max_p - 2; j++) {
                 for (let k = j + 1; k < max_p - 1; k++) {
                     for (let l = k + 1; l < max_p; l++) {
-                        for (let n1 = 0; n1 < basis_hkls.length - 3; n1++) for (let n2 = n1 + 1; n2 < basis_hkls.length - 2; n2++) for (let n3 = n2 + 1; n3 < basis_hkls.length - 1; n3++) for (let n4 = n3 + 1; n4 < basis_hkls.length; n4++) {
-                            const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
-                            const M = hkls.map(hkl => [hkl[0] ** 2, hkl[1] ** 2, hkl[2] ** 2, hkl[0] * hkl[2]]);
-                            const fit = solveLeastSquares(M, [q_obs[i], q_obs[j], q_obs[k], q_obs[l]]);
-                            if (!fit || !fit.solution) continue;
-                            const [A, B, C, D] = fit.solution;
-                            if (A > 0 && B > 0 && C > 0 && D * D < 4 * A * C) {
-                                const cosB = -D / (2 * Math.sqrt(A * C)), sinBSq = 1 - cosB * cosB;
-                                refineAndTestSolution({ a: 1 / Math.sqrt(A * sinBSq), b: 1 / Math.sqrt(B), c: 1 / Math.sqrt(C * sinBSq), beta: Math.acos(cosB) * 180 / Math.PI, system: 'monoclinic' });
+                        
+                        // 4. Loop 2: Pick 4 HKLs (n1, n2, n3, n4) from our new 'basis_hkls' list
+                        for (let n1 = 0; n1 < num_hkls - 3; n1++) {
+                            for (let n2 = n1 + 1; n2 < num_hkls - 2; n2++) {
+                                for (let n3 = n2 + 1; n3 < num_hkls - 1; n3++) {
+                                    for (let n4 = n3 + 1; n4 < num_hkls; n4++) {
+                                        
+                                        // 5. We now have 4 peaks and 4 HKLs. Solve the 4x4 system.
+                                        const hkls = [basis_hkls[n1], basis_hkls[n2], basis_hkls[n3], basis_hkls[n4]];
+                                        
+                                        // Build the design matrix M for Q(hkl) = h^2*P1 + k^2*P2 + l^2*P3 + hl*P4
+                                        const M = hkls.map(hkl => [hkl[0]**2, hkl[1]**2, hkl[2]**2, hkl[0]*hkl[2]]);
+                                        
+                                        // Build the observation vector q
+                                        const q_vec_for_guess = [q_obs[i], q_obs[j], q_obs[k], q_obs[l]];
+                                        
+                                        // 6. Solve M*x = q to get parameters [P1, P2, P3, P4]
+                                        const fit = solveLeastSquares(M, q_vec_for_guess); // No weighting for the initial guess
+                                        
+                                        if (!fit || !fit.solution) continue;
+                                        
+                                        const [A, B, C, D] = fit.solution;
+                                        
+                                        // 7. Check if the solution is physically reasonable
+                                        if (A > 0 && B > 0 && C > 0 && (D * D < 4 * A * C)) {
+                                            
+                                            const cosB = -D / (2 * Math.sqrt(A * C));
+                                            
+                                            if (Math.abs(cosB) < Math.cos(70 * Math.PI / 180)) { 
+                                                const sinBSq = 1 - cosB * cosB;
+                                                const beta = Math.acos(cosB) * 180 / Math.PI;
+                                                
+                                                const trialCell = {
+                                                    a: 1 / Math.sqrt(A * sinBSq),
+                                                    b: 1 / Math.sqrt(B),
+                                                    c: 1 / Math.sqrt(C * sinBSq),
+                                                    beta: beta,
+                                                    system: 'monoclinic'
+                                                };
+
+                                                // 8. Pass the valid trial cell to your existing refinement function
+                                                refineAndTestSolution(trialCell);
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
             
-            const progress = ((i + 1) / totalIterations) * 80; // Scale to 80%
+            // --- Report progress based on the outer-most loop ---
+            const progress = ((i + 1) / totalProgressIterations) * 80; // Scale to 80%
             self.postMessage({ type: 'progress', payload: progress });
-            // ---
         }
     };
+
 
 // Helper function to calculate 3x3 determinant
 function calculateDeterminant3x3(M) {
