@@ -218,13 +218,21 @@
              atomicFormFactorViz = {
                 atomCloud: null, scattererFixed: null, scattererMovable: null,
                 k_in_vec: null, k_in_vec_movable: null, k_out_vec: null, k_out_vec_movable: null, q_vec: null,
+                r_vec: null, // <-- ADDED for the r vector arrow
                 wave1: null, wave2: null,
-                lights: [], ground: null, dragTarget: null
+                lights: [], ground: null, dragTarget: null,
+                dragPlane: null // <-- Was missing in your original reset, but present in setup
             };
             atomicFormFactorParams = {
                 scatteringAngle: Math.PI / 4, // 45 degrees
                 atomRadius: 3,
                 waveVectorMagnitude: 4,
+                // --- ADDED FOR SLIDERS ---
+                scatterer_x: 1.5,
+                scatterer_y: 1.0,
+                scatterer_z: 0.0,
+                show_r_vector: true
+                // --- END ADDED ---
             };
         }
 
@@ -379,6 +387,7 @@
             numberInput.addEventListener('change', e => updateValue(e.target.value));
         }
 
+    
         function setupConceptUI(concept) {
             parameterControlsContainer.innerHTML = ''; 
 
@@ -457,7 +466,7 @@
                     </div>
                      <div class="param-info">Amplitude decreases exponentially with distance from the center.</div>
                      <div class="param-info" style="margin-top: 8px;">A₀=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
-                connectSliderAndNumberInput('attenuation-slider', 'attenuation-value', 'attenuationFactor', true);
+                connectSliderAndNumberInput('attenuation-slider', 'attenuation-value', 'attenuationFactor', true, updateConceptVisualization); // Added updateFn
             } else if (concept === 'doppler_effect') {
                  waveParams.amplitude = 1.0; waveParams.wavelength = 2.0;
                  parameterControlsContainer.innerHTML = `
@@ -470,7 +479,7 @@
                     </div>
                      <div class="param-info">Shows change in λ due to source motion. The source resets its position periodically.</div>
                      <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
-                connectSliderAndNumberInput('velocity-slider', 'velocity-value', 'sourceVelocity', true);
+                connectSliderAndNumberInput('velocity-slider', 'velocity-value', 'sourceVelocity', true); // No updateFn needed, animation loop handles it
             }
             else if (concept === 'polarization') {
                 waveParams.amplitude = 1.0; waveParams.wavelength = 4.0;
@@ -579,8 +588,12 @@
                 document.getElementById('section-toggle').addEventListener('change', (e) => scatteringParams.showSection = e.target.checked);
             } else if (concept === 'atomic_form_factor') {
                 const angleMin = 0, angleMax = Math.PI, angleStep = 0.01;
+                const posMin = -atomicFormFactorParams.atomRadius;
+                const posMax = atomicFormFactorParams.atomRadius;
+                const posStep = 0.01;
+
                 parameterControlsContainer.innerHTML = `
-                    <div class="param-info" style="margin-bottom: 20px;">The blue dot is a scatterer inside the atom. The path difference changes the phase relationship, shown in the top-right phasor diagram.</div>
+                    <div class="param-info" style="margin-bottom: 20px;">The blue dot is a scatterer inside the atom. Drag it or use the sliders. The path difference changes the phase, shown in the top-right phasor diagram.</div>
                     <div class="control-group">
                         <label for="angle-slider">Scattering Angle (θ)<span id="angle-deg-value"> (${(atomicFormFactorParams.scatteringAngle * 180 / Math.PI).toFixed(0)}°)</span></label>
                         <div class="slider-group">
@@ -588,9 +601,38 @@
                         </div>
                         <input type="number" class="value-input" id="angle-value" min="${angleMin}" max="${angleMax.toFixed(4)}" step="${angleStep}" value="${atomicFormFactorParams.scatteringAngle.toFixed(2)}" style="margin-top: 8px;">
                     </div>
-                    <div id="phasor-info-container" class="param-info" style="font-size:0.95em; text-align: left; line-height:1.6;">
-                        <!-- Phasor data will be injected here by the script -->
+                    
+                    <div class="control-group" style="border-top: 1px solid var(--border-color); padding-top: 20px;">
+                        <label for="scatter-x-slider">Scatterer Position X</label>
+                        <div class="slider-group">
+                            <input type="range" id="scatter-x-slider" min="${posMin}" max="${posMax}" step="${posStep}" value="${atomicFormFactorParams.scatterer_x}">
+                        </div>
+                        <input type="number" class="value-input" id="scatter-x-value" min="${posMin}" max="${posMax}" step="${posStep}" value="${atomicFormFactorParams.scatterer_x.toFixed(2)}" style="margin-top: 8px;">
                     </div>
+                    <div class="control-group">
+                        <label for="scatter-y-slider">Scatterer Position Y</label>
+                        <div class="slider-group">
+                            <input type="range" id="scatter-y-slider" min="${posMin}" max="${posMax}" step="${posStep}" value="${atomicFormFactorParams.scatterer_y}">
+                        </div>
+                        <input type="number" class="value-input" id="scatter-y-value" min="${posMin}" max="${posMax}" step="${posStep}" value="${atomicFormFactorParams.scatterer_y.toFixed(2)}" style="margin-top: 8px;">
+                    </div>
+                    <div class="control-group">
+                        <label for="scatter-z-slider">Scatterer Position Z</label>
+                        <div class="slider-group">
+                            <input type="range" id="scatter-z-slider" min="${posMin}" max="${posMax}" step="${posStep}" value="${atomicFormFactorParams.scatterer_z}">
+                        </div>
+                        <input type="number" class="value-input" id="scatter-z-value" min="${posMin}" max="${posMax}" step="${posStep}" value="${atomicFormFactorParams.scatterer_z.toFixed(2)}" style="margin-top: 8px;">
+                    </div>
+                    <div class="control-group">
+                        <label>Show r Vector (Magenta):</label>
+                        <label class="switch" style="vertical-align: middle;">
+                            <input type="checkbox" id="show-r-vec-toggle" ${atomicFormFactorParams.show_r_vector ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div id="phasor-info-container" class="param-info" style="font-size:0.95em; text-align: left; line-height:1.6; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                        </div>
                     <div class="param-info" style="font-size:0.95em; text-align: left; line-height:1.5; margin-top: 10px;">
                         <b>Phasor Diagram:</b><br>
                         <span style="color: #ffaa00;">■</span> Yellow: Reference Wave<br>
@@ -602,13 +644,28 @@
                         <b>k</b><sub>f</sub>: Scattered Wave (Green)<br>
                         <b>q</b> = <b>k</b><sub>f</sub> - <b>k</b><sub>i</sub>: Scattering Vector (Red)
                     </div>`;
-                connectSliderAndNumberInput('angle-slider', 'angle-value', 'scatteringAngle', true, null, atomicFormFactorParams);
+                
+                // --- FIX ---
+                // Connect Angle Slider
+                connectSliderAndNumberInput('angle-slider', 'angle-value', 'scatteringAngle', true, updateConceptVisualization, atomicFormFactorParams);
+                
+                // Connect NEW Position Sliders
+                connectSliderAndNumberInput('scatter-x-slider', 'scatter-x-value', 'scatterer_x', true, updateConceptVisualization, atomicFormFactorParams);
+                connectSliderAndNumberInput('scatter-y-slider', 'scatter-y-value', 'scatterer_y', true, updateConceptVisualization, atomicFormFactorParams);
+                connectSliderAndNumberInput('scatter-z-slider', 'scatter-z-value', 'scatterer_z', true, updateConceptVisualization, atomicFormFactorParams);
+                
+                // Connect NEW Toggle
+                document.getElementById('show-r-vec-toggle').addEventListener('change', (e) => {
+                    atomicFormFactorParams.show_r_vector = e.target.checked;
+                    updateConceptVisualization(currentConcept); // Force update
+                });
+                // --- END FIX ---
             } else {
                 parameterControlsContainer.innerHTML = '<p style="text-align:center; padding:10px;">Concept not implemented.</p>';
             }
             updateScales();
         }
-        
+
         function setupConceptVisualization(concept) {
             if (concept === 'wavelength_amplitude') { 
                 waveLine1 = createSingleWaveObject(0x2ecc71); scene.add(waveLine1); 
@@ -685,7 +742,15 @@
                 const scattererGeom = new THREE.SphereGeometry(0.15, 16, 12);
                 atomicFormFactorViz.scattererFixed = new THREE.Mesh(scattererGeom, new THREE.MeshPhongMaterial({color: 0xffaa00, emissive: 0xcc8800}));
                 atomicFormFactorViz.scattererMovable = new THREE.Mesh(scattererGeom.clone(), new THREE.MeshPhongMaterial({color: 0x00aaff, emissive: 0x0088cc}));
-                atomicFormFactorViz.scattererMovable.position.set(1.5, 0, 1.0); // Initial position on XY plane
+                
+                // --- MODIFIED ---
+                // Set initial position from params
+                atomicFormFactorViz.scattererMovable.position.set(
+                    atomicFormFactorParams.scatterer_x,
+                    atomicFormFactorParams.scatterer_y,
+                    atomicFormFactorParams.scatterer_z
+                );
+                // --- END MODIFIED ---
 
                 // Invisible plane for dragging
                 const dragPlaneGeom = new THREE.PlaneGeometry(atomicFormFactorParams.atomRadius * 2, atomicFormFactorParams.atomRadius * 2);
@@ -703,6 +768,13 @@
                 atomicFormFactorViz.k_out_vec = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), origin, 1, 0x00ffaa, 0.4, 0.2);
                 atomicFormFactorViz.k_out_vec_movable = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), origin, 1, 0x00ffaa, 0.4, 0.2);
                 atomicFormFactorViz.q_vec = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), origin, 1, 0xff5555, 0.4, 0.2);
+                
+                // --- ADDED ---
+                // Create the r vector
+                atomicFormFactorViz.r_vec = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), origin, 1, 0xff00ff, 0.3, 0.15);
+                scene.add(atomicFormFactorViz.r_vec);
+                // --- END ADDED ---
+
                 scene.add(atomicFormFactorViz.k_in_vec, atomicFormFactorViz.k_in_vec_movable, atomicFormFactorViz.k_out_vec, atomicFormFactorViz.k_out_vec_movable, atomicFormFactorViz.q_vec);
 
                 // Waves
@@ -733,7 +805,7 @@
                 scene.add(atomicFormFactorViz.wave1Indicator, atomicFormFactorViz.wave2Indicator);
             }
         }
-        
+
         function updateConceptVisualization(concept) { 
             let A = waveParams.amplitude; let L = waveParams.wavelength; let k = (2 * Math.PI) / L; if (L <= 0.001) k = (2 * Math.PI) / 0.001; 
             const phaseOffset = -omegaAnimation * animationTime;
@@ -876,9 +948,51 @@
                 emitScatteringPulse(particlePhase, (animationTime - 0.015) * scatteringParams.oscillationFrequency);
                 updateRadiatedScatteringWave(effectiveAmplitude);
             } else if (concept === 'atomic_form_factor') {
-                const { k_in_vec, k_out_vec, q_vec, wave1, wave2, scattererFixed, scattererMovable, k_in_vec_movable, k_out_vec_movable } = atomicFormFactorViz;
+                const { k_in_vec, k_out_vec, q_vec, wave1, wave2, scattererFixed, scattererMovable, k_in_vec_movable, k_out_vec_movable, r_vec } = atomicFormFactorViz;
                 if (!k_in_vec || !k_in_vec_movable) return;
                 
+                // === SYNC SLIDERS, DRAGGING, AND PARAMS START ===
+                // If not dragging, update object position from sliders
+                if (!draggedObject) {
+                    const r_pos = new THREE.Vector3(
+                        atomicFormFactorParams.scatterer_x,
+                        atomicFormFactorParams.scatterer_y,
+                        atomicFormFactorParams.scatterer_z
+                    );
+                    // Clamp to radius
+                    if (r_pos.length() > atomicFormFactorParams.atomRadius) {
+                        r_pos.normalize().multiplyScalar(atomicFormFactorParams.atomRadius);
+                        // Update params back to reflect clamping
+                        atomicFormFactorParams.scatterer_x = r_pos.x;
+                        atomicFormFactorParams.scatterer_y = r_pos.y;
+                        atomicFormFactorParams.scatterer_z = r_pos.z;
+                    }
+                    scattererMovable.position.copy(r_pos);
+                } else {
+                    // If dragging, update params from object position
+                    // Note: onMouseMove clamps position, so we just read it
+                    atomicFormFactorParams.scatterer_x = scattererMovable.position.x;
+                    atomicFormFactorParams.scatterer_y = scattererMovable.position.y;
+                    // Z is not changed by drag, so no need to update it here
+                }
+
+                // Update slider UI elements to match current state (handles both cases)
+                // This ensures sliders update during drag
+                const x_slider = document.getElementById('scatter-x-slider');
+                const x_num = document.getElementById('scatter-x-value');
+                const y_slider = document.getElementById('scatter-y-slider');
+                const y_num = document.getElementById('scatter-y-value');
+                const z_slider = document.getElementById('scatter-z-slider');
+                const z_num = document.getElementById('scatter-z-value');
+                
+                if (x_slider && document.activeElement !== x_slider) x_slider.value = atomicFormFactorParams.scatterer_x;
+                if (x_num && document.activeElement !== x_num) x_num.value = atomicFormFactorParams.scatterer_x.toFixed(2);
+                if (y_slider && document.activeElement !== y_slider) y_slider.value = atomicFormFactorParams.scatterer_y;
+                if (y_num && document.activeElement !== y_num) y_num.value = atomicFormFactorParams.scatterer_y.toFixed(2);
+                if (z_slider && document.activeElement !== z_slider) z_slider.value = atomicFormFactorParams.scatterer_z;
+                if (z_num && document.activeElement !== z_num) z_num.value = atomicFormFactorParams.scatterer_z.toFixed(2);
+                // === SYNC SLIDERS, DRAGGING, AND PARAMS END ===
+
                 const k_mag = atomicFormFactorParams.waveVectorMagnitude;
                 const angle = atomicFormFactorParams.scatteringAngle;
 
@@ -888,7 +1002,7 @@
                 const k_in = k_in_dir.clone().multiplyScalar(k_mag);
                 const k_out = k_out_dir.clone().multiplyScalar(k_mag);
                 const q = new THREE.Vector3().subVectors(k_out, k_in);
-                const r = scattererMovable.position;
+                const r = scattererMovable.position; // Use the synced position
 
                 // Incoming wave to fixed scatterer (yellow)
                 k_in_vec.position.copy(scattererFixed.position).addScaledVector(k_in_dir, -k_mag);
@@ -914,8 +1028,22 @@
                 q_vec.position.set(0,0,0);
                 q_vec.setDirection(q.clone().normalize());
                 q_vec.setLength(q.length());
+                
+                // Update r_vec
+                if (r_vec) {
+                    const r_len = r.length();
+                    if (r_len > 0.01 && atomicFormFactorParams.show_r_vector) {
+                        r_vec.setDirection(r.clone().normalize());
+                        r_vec.setLength(r_len);
+                        r_vec.visible = true;
+                    } else {
+                        r_vec.visible = false; // Hide if at origin or toggled off
+                    }
+                }
 
-                const phaseDiff = q.dot(r);
+                // Calculate the physical phase difference
+                const phaseDiff_q_dot_r = q.dot(r);
+                const physicalPhaseDiff = -phaseDiff_q_dot_r;
                 
                 const visualWavelength = (2 * Math.PI) / k_mag;
                 const waveMagnitude = 6;
@@ -923,17 +1051,17 @@
                 // Update wave 1 (from fixed scatterer, yellow)
                 update3DWaveGeometry(wave1, scattererFixed.position, k_out_dir, waveMagnitude, visualWavelength, 0);
                 
-                // Update wave 2 (from movable scatterer, blue). Phase shift is -q.r
-                update3DWaveGeometry(wave2, r, k_out_dir, waveMagnitude, visualWavelength, -phaseDiff);
+                // Update wave 2 (from movable scatterer, blue)
+                update3DWaveGeometry(wave2, r, k_out_dir, waveMagnitude, visualWavelength, physicalPhaseDiff);
 
-                const waveAmplitude = 0.2; // This is the amplitude from update3DWaveGeometry
+                const waveAmplitude = 0.2; 
                 const tangent = k_out_dir.clone().normalize();
                 let up = new THREE.Vector3(0, 0, 1);
                 if (Math.abs(tangent.z) > 0.95) { up.set(0, 1, 0); }
                 const perpendicular = new THREE.Vector3().crossVectors(tangent, up).normalize();
 
                 // Indicator 1 (Reference wave)
-                const startAmp1 = waveAmplitude * Math.sin(0); // Starts at 0 displacement
+                const startAmp1 = waveAmplitude * Math.sin(0);
                 const origin1 = scattererFixed.position;
                 const endPoint1 = origin1.clone().addScaledVector(perpendicular, startAmp1);
                 const pos1 = atomicFormFactorViz.wave1Indicator.geometry.attributes.position;
@@ -942,7 +1070,7 @@
                 pos1.needsUpdate = true;
                 
                 // Indicator 2 (Movable wave)
-                const startAmp2 = waveAmplitude * Math.sin(-phaseDiff); // Starts displaced based on phase
+                const startAmp2 = waveAmplitude * Math.sin(physicalPhaseDiff);
                 const origin2 = r;
                 const endPoint2 = origin2.clone().addScaledVector(perpendicular, startAmp2);
                 const pos2 = atomicFormFactorViz.wave2Indicator.geometry.attributes.position;
@@ -952,16 +1080,18 @@
                 
                 const phasorInfoEl = document.getElementById('phasor-info-container');
                 if (phasorInfoEl) {
-                    const resultantAmplitude = Math.sqrt(2 + 2 * Math.cos(phaseDiff)); // Range 0 to 2
+                    const resultantAmplitude = Math.sqrt(2 + 2 * Math.cos(physicalPhaseDiff));
                     phasorInfoEl.innerHTML = `
-                        <b>Phase Diff (q·r):</b> ${phaseDiff.toFixed(2)} rad<br>
+                        <b>Phase Diff (Δϕ):</b> ${physicalPhaseDiff.toFixed(2)} rad<br>
                         <b>Resultant Amp.:</b> ${(resultantAmplitude / 2 * 100).toFixed(0)}%
                     `;
                 }
-
-                drawPhasorDiagram(phaseDiff, { showResultant: true, color1: '#ffaa00', color2: '#00aaff' });
+                
+                // Call phasor diagram with the correct physical phase
+                drawPhasorDiagram(physicalPhaseDiff, { showResultant: true, color1: '#ffaa00', color2: '#00aaff' });
             }
         }
+
 
         function clearConceptVisualization(conceptToClear) {
             if (conceptToClear === 'phase' || conceptToClear === 'atomic_form_factor') {
@@ -1233,12 +1363,16 @@
             mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             
-            const intersects = raycaster.intersectObject(atomicFormFactorViz.dragPlane); 
+            // FIX: Use intersectObjects which returns an array
+            const intersects = raycaster.intersectObjects([atomicFormFactorViz.dragPlane]); 
             
-            if (intersects.length > 0) {
+            if (intersects.length > 0) { // This check will now work
                 const intersectionPoint = intersects[0].point;
                 const scattererPos = atomicFormFactorViz.scattererMovable.position;
-                const distance = intersectionPoint.distanceTo(scattererPos);
+                
+                // Check distance on the XY plane only, since that's where we click
+                const distance = new THREE.Vector2(intersectionPoint.x, intersectionPoint.y)
+                                    .distanceTo(new THREE.Vector2(scattererPos.x, scattererPos.y));
 
                 // Start dragging if the click is close to the scatterer
                 if (distance < 0.5) { // A larger click radius for usability
@@ -1247,6 +1381,7 @@
                 }
             }
         }
+
         function onMouseMove(event) {
             if (draggedObject) {
                 const rect = renderer.domElement.getBoundingClientRect();
@@ -1254,17 +1389,33 @@
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
                 raycaster.setFromCamera(mouse, camera);
                 
-                const intersects = raycaster.intersectObject(atomicFormFactorViz.dragPlane);
+                // FIX: Use intersectObjects which returns an array
+                const intersects = raycaster.intersectObjects([atomicFormFactorViz.dragPlane]);
                 if (intersects.length > 0) {
-                    const intersection = intersects[0].point;
+                    const intersection = intersects[0].point; // This point has z=0
                     const radius = atomicFormFactorParams.atomRadius;
-                    if (intersection.length() > radius) {
-                        intersection.normalize().multiplyScalar(radius);
+                    
+                    // We only care about X and Y from the intersection
+                    const pos_xy = new THREE.Vector2(intersection.x, intersection.y);
+                    
+                    // Check if XY part is outside the radius
+                    const current_z = atomicFormFactorParams.scatterer_z;
+                    const total_vec = new THREE.Vector3(pos_xy.x, pos_xy.y, current_z);
+
+                    if (total_vec.length() > radius) {
+                        // Clamp the 3D vector
+                        total_vec.normalize().multiplyScalar(radius);
+                        draggedObject.position.copy(total_vec);
+                    } else {
+                        // We are inside the radius, so just set X and Y from mouse
+                        // and keep Z from slider.
+                        draggedObject.position.set(pos_xy.x, pos_xy.y, current_z);
                     }
-                    draggedObject.position.set(intersection.x, intersection.y, 0);
                 }
             }
         }
+
+
         function onMouseUp(event) {
             if (draggedObject) {
                 draggedObject = null;
@@ -1291,8 +1442,9 @@
             const vectorLength = showResultant ? maxRadius / 2.1 : maxRadius * 0.85;
             const v1x = vectorLength;
             const v1y = 0;
-            const v2x = vectorLength * Math.cos(-phaseDiff);
-            const v2y = vectorLength * Math.sin(-phaseDiff);
+            // FIX: Draw at phaseDiff, not -phaseDiff
+            const v2x = vectorLength * Math.cos(phaseDiff);
+            const v2y = vectorLength * Math.sin(phaseDiff);
 
             // --- Draw Vector 1 ---
             phasorCtx.strokeStyle = color1; 
@@ -1321,21 +1473,22 @@
                 phasorCtx.stroke();
             }
 
-            // --- NEW: Draw the phase difference arc and text ---
+            // --- Draw the phase difference arc and text ---
             if (Math.abs(phaseDiff) > 0.01) {
                 const arcRadius = vectorLength * 0.5;
                 phasorCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
                 phasorCtx.lineWidth = 1;
                 phasorCtx.beginPath();
-                // Draw the arc in the shorter direction
-                const startAngle = Math.min(0, -phaseDiff);
-                const endAngle = Math.max(0, -phaseDiff);
+                // FIX: Draw arc from 0 to phaseDiff
+                const startAngle = Math.min(0, phaseDiff);
+                const endAngle = Math.max(0, phaseDiff);
                 phasorCtx.arc(centerX, centerY, arcRadius, startAngle, endAngle);
                 phasorCtx.stroke();
 
                 // Add text for the angle
                 const angleDeg = (phaseDiff * 180 / Math.PI).toFixed(0);
-                const textAngle = -phaseDiff / 2; // Position text in the middle of the arc
+                // FIX: Position text in middle of the actual angle
+                const textAngle = phaseDiff / 2; 
                 const textRadius = arcRadius + 15;
                 const textX = centerX + textRadius * Math.cos(textAngle);
                 const textY = centerY + textRadius * Math.sin(textAngle);
