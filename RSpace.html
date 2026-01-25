@@ -567,13 +567,16 @@
         }
       
 
-        // --- Helpers for BZ construction -------------------------------------------
-
+        // --- 1. Improved Neighbor Gathering (Gets more shells to ensure proper shape) ---
 function gatherNearestNeighbors(b1, b2, b3, centering) {
-    const eps = 1e-9, rel = 1e-6;
-    let limit = 1, vectors = [];
+    let limit = 1;
+    const maxLimit = 8; // Safety cap
+    
+    // We want to find at least 2 distinct non-zero shells (e.g. for truncated octahedron)
+    // usually 3 is safer for distorted lattices.
+    const targetShells = 3; 
 
-    while (limit <= 6) {
+    while (limit <= maxLimit) {
         const cand = [];
         const lengths = [];
 
@@ -581,7 +584,7 @@ function gatherNearestNeighbors(b1, b2, b3, centering) {
             for (let k = -limit; k <= limit; k++) {
                 for (let l = -limit; l <= limit; l++) {
                     if (h === 0 && k === 0 && l === 0) continue;
-                    if (!isAllowed(h,k,l,centering)) continue;
+                    if (!isAllowed(h, k, l, centering)) continue;
 
                     const G = new THREE.Vector3()
                         .addScaledVector(b1, h)
@@ -595,27 +598,110 @@ function gatherNearestNeighbors(b1, b2, b3, centering) {
             }
         }
 
-        if (cand.length === 0) { limit++; continue; }
+        // If we found nothing, expand search immediately
+        if (cand.length === 0) { 
+            limit++; 
+            continue; 
+        }
 
-        // sort squared lengths and find distinct shells
-        lengths.sort((a,b)=>a-b);
+        // Sort to find shells
+        lengths.sort((a, b) => a - b);
+        
+        // Identify distinct distance shells (using relative tolerance)
         const unique = [];
-        for (const s of lengths) {
-            if (unique.length === 0 || Math.abs(s - unique[unique.length-1]) > 1e-6 * unique[unique.length-1]) {
-                unique.push(s);
+        if (lengths.length > 0) unique.push(lengths[0]);
+        
+        for (let i = 1; i < lengths.length; i++) {
+            const last = unique[unique.length - 1];
+            if (Math.abs(lengths[i] - last) > 1e-5 * last) {
+                unique.push(lengths[i]);
             }
         }
 
-        if (unique.length >= 2) {
-            const cutoff = unique[1] * (1 + rel); // include first two shells
-            vectors = cand.filter(o => o.s <= cutoff).map(o => o.G);
-            break;
+        // Check if we have enough shells to define the BZ robustly
+        if (unique.length >= targetShells) {
+            // Cutoff at the specific target shell
+            const cutoff = unique[targetShells - 1] * 1.001; 
+            return cand.filter(o => o.s <= cutoff).map(o => o.G);
+        }
+        
+        // If we reached the limit but have at least 2 shells (often enough for simple cases), take them
+        if (limit === maxLimit && unique.length >= 2) {
+            const cutoff = unique[unique.length - 1] * 1.001;
+            return cand.filter(o => o.s <= cutoff).map(o => o.G);
         }
 
         limit++;
     }
 
-    return vectors;
+    return [];
+}
+
+// --- 2. Improved BZ Generation (Better fallback logic) ---
+function generateBrillouinZone(b1, b2, b3) {
+    brillouinZone.clear();
+
+    try {
+        const centering = dom.centering.value;
+        
+        // Attempt 1: Standard neighbor gathering
+        const neighbors = gatherNearestNeighbors(b1, b2, b3, centering);
+        
+        let bzGeometry = null;
+
+        if (neighbors.length > 0) {
+            const planes = neighbors.map(G => planeFromG(G));
+            bzGeometry = buildConvexFromPlanes(planes);
+        }
+
+        // Attempt 2: Fallback if geometry failed (e.g. numerical issue or not enough neighbors found)
+        if (!bzGeometry) {
+            console.warn("BZ generation: Primary attempt failed, trying fallback...");
+            const all = [];
+            const limit = 3; 
+            // Collect a grid of points
+            for (let h = -limit; h <= limit; h++) {
+                for (let k = -limit; k <= limit; k++) {
+                    for (let l = -limit; l <= limit; l++) {
+                        if (h === 0 && k === 0 && l === 0) continue;
+                        if (!isAllowed(h, k, l, centering)) continue;
+                        all.push(new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l));
+                    }
+                }
+            }
+            if(all.length > 0) {
+                const minSq = Math.min(...all.map(v => v.lengthSq()));
+            
+                const planes2 = all
+                    .filter(v => v.lengthSq() <= 2.0 * minSq) 
+                    .map(planeFromG);
+                bzGeometry = buildConvexFromPlanes(planes2);
+            }
+        }
+
+        if (!bzGeometry) return; // Failed to generate
+
+        // -- Visuals --
+        const mat = new THREE.MeshPhongMaterial({
+            color: 0x5e81ac,
+            transparent: true,
+            opacity: 0.4,
+            side: THREE.DoubleSide,
+            shininess: 50,
+            flatShading: true
+        });
+        const mesh = new THREE.Mesh(bzGeometry, mat);
+        brillouinZone.add(mesh);
+
+        const edges = new THREE.LineSegments(
+            new THREE.EdgesGeometry(bzGeometry, 1e-4), // Increased threshold slightly
+            new THREE.LineBasicMaterial({ color: 0x2e3440 })
+        );
+        brillouinZone.add(edges);
+
+    } catch (err) {
+        console.error("BZ generation error:", err);
+    }
 }
 
 
@@ -671,7 +757,7 @@ function orderFaceVerticesOnPlane(faceVerts, n) {
 }
 
 function buildConvexFromPlanes(planes) {
-    // 1) candidate vertices from all triple plane intersections
+    // candidate vertices from all triple plane intersections
     const cand = [];
     for (let i = 0; i < planes.length; i++) {
         for (let j = i+1; j < planes.length; j++) {
@@ -685,7 +771,7 @@ function buildConvexFromPlanes(planes) {
     const vertices = dedupeVertices(cand);
     if (vertices.length === 0) return null;
 
-    // 2) faces: collect vertices lying on each plane
+    //  faces: collect vertices lying on each plane
     const eps = 1e-5;
     const positions = [];
     const indices = [];
@@ -722,66 +808,8 @@ function buildConvexFromPlanes(planes) {
     return geom;
 }
 
-// --- Replacement for your BZ builder ---------------------------------------
-
-function generateBrillouinZone(b1, b2, b3) {
-    brillouinZone.clear();
-
-    try {
-        const centering = dom.centering.value;
-        // 1) nearest neighbors
-        const neighbors = gatherNearestNeighbors(b1, b2, b3, centering);
-        if (neighbors.length === 0) return;
-
-        // 2) half-spaces (bisector planes)
-        const planes = neighbors.map(G => planeFromG(G));
-
-        // 3) convex polyhedron from half-space intersection (Voronoi cell)
-        let bzGeometry = buildConvexFromPlanes(planes);
-
-        // Fallback: if numerical issues left it empty, include next shell
-        if (!bzGeometry) {
-            // widen set slightly
-            const all = [];
-            const limit = 4;
-            for (let h=-limit; h<=limit; h++)
-             for (let k=-limit; k<=limit; k++)
-              for (let l=-limit; l<=limit; l++) {
-                if (h===0&&k===0&&l===0) continue;
-                if (!isAllowed(h,k,l,centering)) continue;
-                all.push(new THREE.Vector3().addScaledVector(b1,h).addScaledVector(b2,k).addScaledVector(b3,l));
-              }
-            const minSq = Math.min(...all.map(v=>v.lengthSq()));
-            const planes2 = all.filter(v => v.lengthSq() <= 1.15*minSq).map(planeFromG);
-            bzGeometry = buildConvexFromPlanes(planes2);
-            if (!bzGeometry) return;
-        }
-
-        // 4) draw solid + true wireframe edges
-        const mat = new THREE.MeshPhongMaterial({
-            color: 0x5e81ac,
-            transparent: true,
-            opacity: 0.4,
-            side: THREE.DoubleSide,
-            shininess: 50
-        });
-        const mesh = new THREE.Mesh(bzGeometry, mat);
-        brillouinZone.add(mesh);
-
-        const edges = new THREE.LineSegments(
-            new THREE.EdgesGeometry(bzGeometry, 1e-5),
-            new THREE.LineBasicMaterial({ color: 0x2e3440 })
-        );
-        brillouinZone.add(edges);
-
-    } catch (err) {
-        console.error("BZ generation error:", err);
-    }
-}
-
-
-
-        function setProjection() { const mode = dom.projection.value; if (mode === 'orthographic') { currentCamera = orthographicCamera; dom.orthoViews.style.display = 'block'; setOrthographicView('c'); } else { currentCamera = perspectiveCamera; dom.orthoViews.style.display = 'none'; } controls.object = currentCamera; onWindowResize(); controls.reset(); }
+      
+function setProjection() { const mode = dom.projection.value; if (mode === 'orthographic') { currentCamera = orthographicCamera; dom.orthoViews.style.display = 'block'; setOrthographicView('c'); } else { currentCamera = perspectiveCamera; dom.orthoViews.style.display = 'none'; } controls.object = currentCamera; onWindowResize(); controls.reset(); }
         function setOrthographicView(axis) { if (!reciprocalBasis.b1) return; let direction, up; if (axis === 'a') { direction = reciprocalBasis.b1.clone().normalize(); up = reciprocalBasis.b3.clone().normalize(); } else if (axis === 'b') { direction = reciprocalBasis.b2.clone().normalize(); up = reciprocalBasis.b3.clone().normalize(); } else { direction = reciprocalBasis.b3.clone().normalize(); up = reciprocalBasis.b2.clone().normalize(); } if (Math.abs(direction.dot(up)) > 0.999) { up.copy(reciprocalBasis.b1).normalize(); } currentCamera.position.copy(direction.multiplyScalar(10)); currentCamera.up.copy(up); currentCamera.lookAt(0, 0, 0); controls.target.set(0, 0, 0); controls.update(); }
         
         function resetSelection() { 
