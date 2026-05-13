@@ -102,8 +102,8 @@
             position: absolute;
             top: 15px;
             right: 15px;
-            width: 200px;
-            height: 200px;
+            width: 240px;
+            height: 180px;
             background-color: rgba(20, 30, 50, 0.8);
             border: 1px solid var(--border-color);
             border-radius: 8px;
@@ -116,6 +116,68 @@
         .switch .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background-color: var(--accent-color); }
         input:checked + .slider:before { transform: translateX(22px); }
+
+        /* HUD overlay: play/pause, speed, reset, time */
+        #hud-bar {
+            position: absolute; top: 15px; left: 15px;
+            display: flex; align-items: center; gap: 10px;
+            background-color: rgba(20, 30, 50, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: #d0d0d0;
+            user-select: none;
+            z-index: 10;
+        }
+        #hud-bar button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: Arial, sans-serif;
+        }
+        #hud-bar button:hover { opacity: 0.85; }
+        #hud-bar input[type="range"] {
+            -webkit-appearance: none; appearance: none;
+            width: 80px; height: 4px;
+            background: var(--border-color);
+            border-radius: 3px; outline: none;
+        }
+        #hud-bar input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 12px; height: 12px;
+            background: var(--accent-color); cursor: pointer; border-radius: 50%;
+        }
+        #hud-bar input[type="range"]::-moz-range-thumb {
+            width: 12px; height: 12px;
+            background: var(--accent-color); cursor: pointer; border-radius: 50%;
+        }
+        #hud-bar .hud-sep { width: 1px; height: 18px; background: var(--border-color); }
+
+        /* Polar plot inset (used by wave_scattering) */
+        #polar-canvas {
+            position: absolute;
+            top: 15px; right: 15px;
+            width: 200px; height: 200px;
+            background-color: rgba(20, 30, 50, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: none;
+        }
+        /* Atomic-form-factor inset: f(Q) curve (used alongside phasor) */
+        #aff-graph-canvas {
+            position: absolute;
+            top: 210px; right: 15px;   /* directly under the phasor canvas (top:15 + height:180 + 15 gap) */
+            width: 240px; height: 180px;
+            background-color: rgba(20, 30, 50, 0.85);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: none;
+        }
 
     </style>
 </head>
@@ -130,15 +192,18 @@
                     <option value="wavelength_amplitude">Wavelength & Amplitude</option>
                     <option value="phase">Phase (Phase Shift)</option>
                     <option value="interference">Interference</option>
+                    <option value="beats">Beats</option>
                     <option value="standing_waves">Standing Waves</option>
                     <option value="attenuation">Attenuation (Damping)</option>
-                    <option value="doppler_effect">Doppler Effect</option>
+                    <option value="reflection_transmission">Reflection & Transmission</option>
+                    <option value="snell">Refraction (Snell's Law)</option>
                     <option value="polarization">Polarization</option>
                     <option value="poynting_vector">Poynting Vector</option>
                     <option value="phase_group_velocity">Phase/Group Velocity</option>
                     <option value="wave_type_comparison">Wave Type (Comparison)</option>
                     <option value="wavefront">Wavefront</option>
                     <option value="wave_scattering">Wave Scattering</option>
+                    <option value="atomic_form_factor">Atomic Form Factor (Diffraction)</option>
                 </select>
             </div>
             <div id="parameter-controls">
@@ -147,7 +212,18 @@
         <div id="drag-handle"></div>
         <div id="visualization-area">
             <canvas id="webgl-canvas"></canvas>
-            <canvas id="phasor-canvas"></canvas> <!-- Canvas for the new phasor diagram -->
+            <canvas id="phasor-canvas" width="240" height="180"></canvas> <!-- Phasor diagram (phase concept, atomic form factor) -->
+            <canvas id="polar-canvas" width="200" height="200"></canvas> <!-- Dipole polar pattern (scattering) -->
+            <canvas id="aff-graph-canvas" width="240" height="180"></canvas> <!-- f(Q) plot for atomic form factor -->
+            <div id="hud-bar">
+                <button id="hud-playpause" title="Play/Pause (Space)">⏸ Pause</button>
+                <span class="hud-sep"></span>
+                <span>Speed</span>
+                <input type="range" id="hud-speed" min="0" max="2" step="0.05" value="1">
+                <span id="hud-speed-value">1.0×</span>
+                <span class="hud-sep"></span>
+                <button id="hud-reset-view" title="Reset camera zoom/pan">⟳ Reset zoom</button>
+            </div>
             <div id="scale-container"></div>
         </div>
     </div>
@@ -157,10 +233,17 @@
     <script>
         let scene, camera, renderer;
         let axesHelper;
+        let gridHelper;
         let controls; 
         let scaleContainerElement;
         let parameterControlsContainer; 
         let animationTime = 0;
+        let isPaused = false;
+        let timeSpeed = 1.0;
+        let polarCanvas, polarCtx;
+        let phasorCanvas, phasorCtx;
+        let raycaster, mouse;
+        let draggedObject = null;
         const omegaAnimation = Math.PI / 1.5; 
         let currentConcept = 'wavelength_amplitude'; 
         let conceptSelector;
@@ -169,7 +252,8 @@
         // --- Visualization objects ---
         let waveLine1, waveLine2; 
         let wavelengthIndicatorViz, phaseShiftIndicatorViz;
-        let animatedEVector, eVectorTracePath; 
+        let animatedEVector, eVectorTracePath;
+        let polarizationHelixPath; // NEW: helix path connecting arrow tips in spatial polarization
         let spatialPolarizationEVectors = []; 
         let poyntingArrowViz;
         let phaseMarkerViz, groupMarkerViz; 
@@ -177,6 +261,19 @@
         let particleSystemViz = []; 
         let wavefrontObjects = []; 
         let interferenceSuperposition, standingWaveFwd, standingWaveBwd, standingWaveResult, dopplerSourceViz;
+        // NEW: extra visualization objects for new features
+        let standingNodeMarkers = [], standingAntinodeMarkers = [];
+        let attenuationEnvelopeUpper, attenuationEnvelopeLower;
+        let dopplerObserverLeft, dopplerObserverRight;
+        let reflectionWaveIncident, reflectionWaveReflected, reflectionWaveTransmitted;
+        let reflectionInterfaceLine;
+        let beatsWave1, beatsWave2, beatsSuperposition, beatsEnvelopeUpper, beatsEnvelopeLower;
+        let snellIncidentRay, snellRefractedRay, snellReflectedRay, snellInterfaceLine, snellNormalLine;
+        // Atomic form factor visualization objects
+        let aff_atom1, aff_atom2;
+        let aff_kInArrow, aff_kOutArrow, aff_qArrow;
+        let aff_atomPairLine;
+        let aff_graphCanvas, aff_graphCtx; // f(Q) inset
 
         // --- Parameters for all concepts ---
         const waveParams = { 
@@ -184,7 +281,24 @@
             polarizationType: 'linear_vertical', polarizationViewMode: 'temporal', Ey_amplitude: 1.0, Ez_amplitude: 0.5, 
             packet_delta_k_factor: 0.15, dispersionFactor: 0.1, poyntingShow: true, velocityDisplayType: 'phase', 
             waveComparisonType: 'transverse', wavefrontType: 'plane', particleCount: 30,
-            interferenceSeparation: 2.0, attenuationFactor: 0.2, sourceVelocity: 0.5,
+            interferenceSeparation: 2.0, interferenceWavelength: 2.5, interferenceAmplitude: 1.0,
+            standingWavelength: 4.0, standingAmplitude: 1.0,
+            attenuationFactor: 0.2, sourceVelocity: 0.5,
+            // Reflection & transmission
+            n1: 1.0, n2: 1.5,
+            // Beats
+            beatFreq1: 1.0, beatFreq2: 1.15,
+            // Snell
+            snellTheta_i: Math.PI / 6, snellN1: 1.0, snellN2: 1.5,
+            // Atomic form factor (diffraction)
+            aff_mode: 'single',         // 'single' or 'two'
+            aff_atomSize: 0.5,          // Gaussian width a (electron cloud)
+            aff_Z: 12,                   // electrons per atom
+            aff_k_in_mag: 4.0,           // |k_in|
+            aff_theta_in: 0,             // incident direction angle (0 = +x)
+            aff_theta_out: Math.PI / 4,  // outgoing direction angle
+            aff_atomDistance: 2.0,       // inter-atomic distance in 2-atom mode
+            aff_atomPairAngle: 0,        // orientation of inter-atomic axis
         };
 
         // --- Wave Scattering ---
@@ -237,15 +351,23 @@
                 }
                 scatteringViz.incomingWave.vectors.push(vectorsForPlane);
             }
-            const radiatedMat = new THREE.MeshPhongMaterial({ color: 0xff8c00, emissive: 0xcc5500, transparent: true, opacity: 0.7, emissiveIntensity: 2.5 });         
-            const sphereGeom = new THREE.SphereGeometry(1, 32, 24);
+            // Wireframe material for radiated shells — clearer view of the dipole pattern shape
+            // than a solid filled torus, especially when shells overlap.
+            const radiatedMat = new THREE.MeshBasicMaterial({
+                color: 0xff8c00,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.85
+            });
+            const sphereGeom = new THREE.SphereGeometry(1, 24, 16);
             const points = [];
             const profileSegments = 32;
             for (let i = 0; i <= profileSegments; i++) {
                 const theta = (i / profileSegments) * Math.PI;
                 points.push(new THREE.Vector2(Math.pow(Math.sin(theta), 2), Math.sin(theta) * Math.cos(theta)));
             }
-            const dipoleGeom = new THREE.LatheGeometry(points, 48);
+            // Reduce lathe segments slightly for cleaner wireframe lines
+            const dipoleGeom = new THREE.LatheGeometry(points, 24);
             for (let i = 0; i < scatteringParams.numRadiatedShells; i++) {
                 const shell = {
                     sphere: new THREE.Mesh(sphereGeom.clone(), radiatedMat.clone()),
@@ -260,7 +382,7 @@
             }
         }
 
-        function emitScatteringPulse(currentPhase, lastPhase) {
+        function emitScatteringPulse(currentPhase) {
             const currentCycle = Math.floor((currentPhase / Math.PI) - 0.5);
             if (currentCycle > scatteringViz.lastEmittedCycle) {
                 scatteringViz.lastEmittedCycle = currentCycle;
@@ -366,7 +488,10 @@
 
                 case 'phase': {
                     const phaseMin = 0, phaseMax = 2 * Math.PI, phaseStep = 0.01;
-                    waveParams.amplitude = 1.0; waveParams.wavelength = 2.0;
+                    // Per-wave amplitudes (Phase concept owns these; default to 1 if unset)
+                    if (typeof waveParams.phaseAmp1 !== 'number') waveParams.phaseAmp1 = 1.0;
+                    if (typeof waveParams.phaseAmp2 !== 'number') waveParams.phaseAmp2 = 1.0;
+                    waveParams.wavelength = 2.0;
                     parameterControlsContainer.innerHTML = `
                         <div class="control-group">
                             <label for="phase-slider">Phase Shift (ϕ)<span id="phase-deg-value"> (${(waveParams.phaseShift * 180 / Math.PI).toFixed(0)}°)</span></label>
@@ -375,24 +500,40 @@
                             </div>
                             <input type="number" class="value-input" id="phase-value" min="${phaseMin}" max="${phaseMax.toFixed(4)}" step="${phaseStep}" value="${waveParams.phaseShift.toFixed(2)}" style="margin-top: 8px;">
                         </div>
+                        <div class="control-group">
+                            <label for="phase-amp1-slider"><span style="color:#3498db">Amplitude A₁ (reference)</span></label>
+                            <div class="slider-group">
+                                <input type="range" id="phase-amp1-slider" min="0.1" max="2" step="0.05" value="${waveParams.phaseAmp1}">
+                            </div>
+                            <input type="number" class="value-input" id="phase-amp1-value" min="0.1" max="2" step="0.05" value="${waveParams.phaseAmp1.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="phase-amp2-slider"><span style="color:#e67e22">Amplitude A₂ (shifted)</span></label>
+                            <div class="slider-group">
+                                <input type="range" id="phase-amp2-slider" min="0.1" max="2" step="0.05" value="${waveParams.phaseAmp2}">
+                            </div>
+                            <input type="number" class="value-input" id="phase-amp2-value" min="0.1" max="2" step="0.05" value="${waveParams.phaseAmp2.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
                         <div class="param-info" style="font-size:0.95em; text-align: left; line-height:1.5; margin-top: 10px;">
                             The cyan arrow at the bottom of the waves indicates the spatial shift between them, which corresponds to the phase angle in the phasor diagram.
                         </div>
                         <div class="param-info" style="font-size:0.95em; text-align: left; line-height:1.5; margin-top: 10px;">
-                            <b>Phasor Diagram:</b><br>
-                            <span style="color: #3498db;">■</span> Blue: Reference Wave<br>
-                            <span style="color: #e67e22;">■</span> Orange: Shifted Wave<br>
+                            <b>Phasor Diagram</b> (positive ϕ → counter-clockwise):<br>
+                            <span style="color: #3498db;">■</span> Blue: Reference Wave (A₁)<br>
+                            <span style="color: #e67e22;">■</span> Orange: Shifted Wave (A₂)<br>
                             <span style="color: #ffffff; background-color: #555; padding: 0 2px; border-radius: 2px;">■</span> White: Resultant (Sum)
                         </div>
-                        <div class="param-info" style="margin-top: 8px;">Amplitude (A): ${waveParams.amplitude.toFixed(1)} (Fixed)</div>
                         <div class="param-info" style="margin-top: 8px;">Wavelength (λ): ${waveParams.wavelength.toFixed(1)} (Fixed)</div>
                         <div id="sum-amplitude-info" class="param-info" style="margin-top: 8px;"></div>`;
                     connectSliderAndNumberInput('phase-slider', 'phase-value', 'phaseShift', true, updateConceptVisualization);
+                    connectSliderAndNumberInput('phase-amp1-slider', 'phase-amp1-value', 'phaseAmp1', true, updateConceptVisualization);
+                    connectSliderAndNumberInput('phase-amp2-slider', 'phase-amp2-value', 'phaseAmp2', true, updateConceptVisualization);
                     break;
                 }
 
                 case 'interference': {
-                    waveParams.amplitude = 1.0; waveParams.wavelength = 2.5;
+                    waveParams.amplitude = waveParams.interferenceAmplitude;
+                    waveParams.wavelength = waveParams.interferenceWavelength;
                     parameterControlsContainer.innerHTML = `
                         <div class="control-group">
                             <label for="separation-slider">Source Separation</label>
@@ -401,18 +542,61 @@
                             </div>
                             <input type="number" class="value-input" id="separation-value" min="0" max="5" step="0.1" value="${waveParams.interferenceSeparation.toFixed(2)}" style="margin-top: 8px;">
                         </div>
+                        <div class="control-group">
+                            <label for="interf-wavelength-slider">Wavelength (λ)</label>
+                            <div class="slider-group">
+                                <input type="range" id="interf-wavelength-slider" min="0.5" max="4" step="0.05" value="${waveParams.interferenceWavelength}">
+                            </div>
+                            <input type="number" class="value-input" id="interf-wavelength-value" min="0.5" max="4" step="0.05" value="${waveParams.interferenceWavelength.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="interf-amplitude-slider">Amplitude (A)</label>
+                            <div class="slider-group">
+                                <input type="range" id="interf-amplitude-slider" min="0.1" max="2" step="0.05" value="${waveParams.interferenceAmplitude}">
+                            </div>
+                            <input type="number" class="value-input" id="interf-amplitude-value" min="0.1" max="2" step="0.05" value="${waveParams.interferenceAmplitude.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
                         <div class="param-info">Resultant Wave (White) = Sum of Source Waves (Colors)</div>
-                        <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
+                        <div id="interf-pathdiff-info" class="param-info" style="margin-top: 8px;"></div>`;
                     connectSliderAndNumberInput('separation-slider', 'separation-value', 'interferenceSeparation', true);
+                    connectSliderAndNumberInput('interf-wavelength-slider', 'interf-wavelength-value', 'interferenceWavelength', true,
+                        () => { waveParams.wavelength = waveParams.interferenceWavelength; });
+                    connectSliderAndNumberInput('interf-amplitude-slider', 'interf-amplitude-value', 'interferenceAmplitude', true,
+                        () => { waveParams.amplitude = waveParams.interferenceAmplitude; });
                     break;
                 }
 
                 case 'standing_waves': {
-                    waveParams.amplitude = 1.0; waveParams.wavelength = 4.0;
+                    waveParams.amplitude = waveParams.standingAmplitude;
+                    waveParams.wavelength = waveParams.standingWavelength;
                     parameterControlsContainer.innerHTML = `
                         <div class="param-info">A standing wave is formed by two waves of identical frequency and amplitude traveling in opposite directions.</div>
-                        <div class="param-info" style="margin-top: 8px;">Resultant (White) = Sum of Traveling Waves (Colors)</div>
-                        <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
+                        <div class="control-group" style="margin-top: 12px;">
+                            <label for="standing-wavelength-slider">Wavelength (λ)</label>
+                            <div class="slider-group">
+                                <input type="range" id="standing-wavelength-slider" min="1" max="8" step="0.1" value="${waveParams.standingWavelength}">
+                            </div>
+                            <input type="number" class="value-input" id="standing-wavelength-value" min="1" max="8" step="0.1" value="${waveParams.standingWavelength.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="standing-amplitude-slider">Amplitude (A)</label>
+                            <div class="slider-group">
+                                <input type="range" id="standing-amplitude-slider" min="0.2" max="2" step="0.05" value="${waveParams.standingAmplitude}">
+                            </div>
+                            <input type="number" class="value-input" id="standing-amplitude-value" min="0.2" max="2" step="0.05" value="${waveParams.standingAmplitude.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group"> <label>Show Nodes & Antinodes:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="standing-markers-toggle" checked> <span class="slider"></span> </label> </div>
+                        <div class="param-info">Resultant (White) = Sum of Traveling Waves (Colors)</div>
+                        <div class="param-info" style="margin-top: 8px;"><span style="color:#ff5050">●</span> Nodes (distance λ/2)  &nbsp; <span style="color:#50ff50">●</span> Antinodes</div>`;
+                    connectSliderAndNumberInput('standing-wavelength-slider', 'standing-wavelength-value', 'standingWavelength', true,
+                        () => { waveParams.wavelength = waveParams.standingWavelength; rebuildStandingMarkers(); });
+                    connectSliderAndNumberInput('standing-amplitude-slider', 'standing-amplitude-value', 'standingAmplitude', true,
+                        () => { waveParams.amplitude = waveParams.standingAmplitude; });
+                    document.getElementById('standing-markers-toggle').addEventListener('change', e => {
+                        const v = e.target.checked;
+                        standingNodeMarkers.forEach(m => m.visible = v);
+                        standingAntinodeMarkers.forEach(m => m.visible = v);
+                    });
                     break;
                 }
 
@@ -443,8 +627,9 @@
                             <input type="number" class="value-input" id="velocity-value" min="-0.9" max="0.9" step="0.05" value="${waveParams.sourceVelocity.toFixed(2)}" style="margin-top: 8px;">
                         </div>
                         <div class="param-info">Shows change in λ due to source motion. The source resets its position periodically.</div>
-                        <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
-                    connectSliderAndNumberInput('velocity-slider', 'velocity-value', 'sourceVelocity', true); // No updateFn needed, animation loop handles it
+                        <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ₀=${waveParams.wavelength.toFixed(1)} (source rest λ)</div>
+                        <div id="doppler-freq-info" class="param-info" style="margin-top: 8px;"></div>`;
+                    connectSliderAndNumberInput('velocity-slider', 'velocity-value', 'sourceVelocity', true);
                     break;
                 }
 
@@ -514,7 +699,18 @@
                             <div class="slider-group"> <input type="range" id="dispersion_slider" min="0" max="0.5" step="0.01" value="${waveParams.dispersionFactor}"> </div>
                             <input type="number" class="value-input" id="dispersion_value" min="0" max="0.5" step="0.01" value="${waveParams.dispersionFactor.toFixed(2)}" style="margin-top: 8px;">
                         </div>
-                        <div class="param-info">A=${waveParams.amplitude.toFixed(1)}, λ₀=${waveParams.wavelength.toFixed(1)} (Carrier)</div>`;
+                        <div class="param-info">A=${waveParams.amplitude.toFixed(1)}, λ₀=${waveParams.wavelength.toFixed(1)} (Carrier)</div>
+                        <div class="param-info" style="text-align:left; margin-top:8px;">
+                            <b>In packet mode:</b><br>
+                            <span style="color:#3498db">―</span> Component wave 1 (k₁ = k₀ − Δk)<br>
+                            <span style="color:#e67e22">―</span> Component wave 2 (k₂ = k₀ + Δk)<br>
+                            <span style="color:#ffffff">―</span> Superposition (the packet)<br>
+                            <span style="color:#e74c3c">┄</span> <b>Envelope</b> ±2A·cos((Δk)x − (Δω)t):<br>
+                            &nbsp;&nbsp;&nbsp;the slowly-varying modulation. It travels at the <b>group velocity</b>.<br>
+                            <span style="color:#f1c40f">●</span> Phase marker — rides a single carrier zero-crossing<br>
+                            <span style="color:cyan">●</span> Group marker — rides an envelope peak
+                        </div>
+                        <div id="velocity-readout" class="param-info" style="margin-top: 8px;"></div>`;
                     document.getElementsByName('vel_type').forEach(r => r.addEventListener('change', e => { waveParams.velocityDisplayType = e.target.value; animationTime = 0; clearConceptVisualization(currentConcept); setupConceptVisualization(currentConcept); }));
                     connectSliderAndNumberInput('dispersion_slider', 'dispersion_value', 'dispersionFactor', true, () => { if(waveParams.velocityDisplayType === 'group'){ animationTime = 0; } });
                     break;
@@ -571,6 +767,160 @@
                     break;
                 }
 
+                case 'reflection_transmission': {
+                    parameterControlsContainer.innerHTML = `
+                        <div class="param-info">Wave incident from a medium with index n₁ onto an interface (vertical line at x=0) with medium n₂.</div>
+                        <div class="control-group" style="margin-top: 12px;">
+                            <label for="n1-slider">Index n₁ (left medium)</label>
+                            <div class="slider-group"><input type="range" id="n1-slider" min="1" max="3" step="0.05" value="${waveParams.n1}"></div>
+                            <input type="number" class="value-input" id="n1-value" min="1" max="3" step="0.05" value="${waveParams.n1.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="n2-slider">Index n₂ (right medium)</label>
+                            <div class="slider-group"><input type="range" id="n2-slider" min="1" max="3" step="0.05" value="${waveParams.n2}"></div>
+                            <input type="number" class="value-input" id="n2-value" min="1" max="3" step="0.05" value="${waveParams.n2.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="param-info" style="text-align:left;">
+                            <b>Legend:</b><br>
+                            <span style="color:#3498db">■</span> Incident (left-going on left side)<br>
+                            <span style="color:#e67e22">■</span> Reflected (right-going on left side)<br>
+                            <span style="color:#ffffff; background:#555; padding:0 2px;">■</span> Resultant on left (sum)<br>
+                            <span style="color:#2ecc71">■</span> Transmitted on right
+                        </div>
+                        <div id="rt-coefs" class="param-info" style="margin-top: 8px;"></div>`;
+                    connectSliderAndNumberInput('n1-slider', 'n1-value', 'n1', true);
+                    connectSliderAndNumberInput('n2-slider', 'n2-value', 'n2', true);
+                    break;
+                }
+
+                case 'beats': {
+                    parameterControlsContainer.innerHTML = `
+                        <div class="param-info">Two waves of similar frequency superpose. The envelope oscillates at the <b>beat frequency</b> |f₁ − f₂|.</div>
+                        <div class="control-group" style="margin-top: 12px;">
+                            <label for="beat-f1-slider">Frequency f₁</label>
+                            <div class="slider-group"><input type="range" id="beat-f1-slider" min="0.5" max="2" step="0.01" value="${waveParams.beatFreq1}"></div>
+                            <input type="number" class="value-input" id="beat-f1-value" min="0.5" max="2" step="0.01" value="${waveParams.beatFreq1.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="beat-f2-slider">Frequency f₂</label>
+                            <div class="slider-group"><input type="range" id="beat-f2-slider" min="0.5" max="2" step="0.01" value="${waveParams.beatFreq2}"></div>
+                            <input type="number" class="value-input" id="beat-f2-value" min="0.5" max="2" step="0.01" value="${waveParams.beatFreq2.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div id="beat-readout" class="param-info" style="margin-top: 8px;"></div>`;
+                    connectSliderAndNumberInput('beat-f1-slider', 'beat-f1-value', 'beatFreq1', true);
+                    connectSliderAndNumberInput('beat-f2-slider', 'beat-f2-value', 'beatFreq2', true);
+                    break;
+                }
+
+                case 'snell': {
+                    parameterControlsContainer.innerHTML = `
+                        <div class="param-info">A plane wave hits an interface between media. Snell's law: n₁ sin θᵢ = n₂ sin θₜ.</div>
+                        <div class="control-group" style="margin-top: 12px;">
+                            <label for="snell-theta-slider">Incident angle θᵢ (deg) <span id="snell-theta-deg"></span></label>
+                            <div class="slider-group"><input type="range" id="snell-theta-slider" min="0" max="1.5" step="0.01" value="${waveParams.snellTheta_i}"></div>
+                            <input type="number" class="value-input" id="snell-theta-value" min="0" max="1.5" step="0.01" value="${waveParams.snellTheta_i.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="snell-n1-slider">Index n₁ (top)</label>
+                            <div class="slider-group"><input type="range" id="snell-n1-slider" min="1" max="3" step="0.05" value="${waveParams.snellN1}"></div>
+                            <input type="number" class="value-input" id="snell-n1-value" min="1" max="3" step="0.05" value="${waveParams.snellN1.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="snell-n2-slider">Index n₂ (bottom)</label>
+                            <div class="slider-group"><input type="range" id="snell-n2-slider" min="1" max="3" step="0.05" value="${waveParams.snellN2}"></div>
+                            <input type="number" class="value-input" id="snell-n2-value" min="1" max="3" step="0.05" value="${waveParams.snellN2.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div id="snell-readout" class="param-info" style="margin-top: 8px;"></div>`;
+                    const updateThetaLabel = () => {
+                        const el = document.getElementById('snell-theta-deg');
+                        if (el) el.textContent = `(${(waveParams.snellTheta_i * 180 / Math.PI).toFixed(0)}°)`;
+                    };
+                    connectSliderAndNumberInput('snell-theta-slider', 'snell-theta-value', 'snellTheta_i', true, updateThetaLabel);
+                    connectSliderAndNumberInput('snell-n1-slider', 'snell-n1-value', 'snellN1', true);
+                    connectSliderAndNumberInput('snell-n2-slider', 'snell-n2-value', 'snellN2', true);
+                    updateThetaLabel();
+                    break;
+                }
+
+                case 'atomic_form_factor': {
+                    const isSingle = (waveParams.aff_mode === 'single');
+                    parameterControlsContainer.innerHTML = `
+                        <div class="control-group radio-group"><label>Mode:</label>
+                            <div class="radio-options-container">
+                                <div><label><input type="radio" name="aff_mode" value="single" ${isSingle ? 'checked' : ''}> Single atom — f(Q)</label></div>
+                                <div><label><input type="radio" name="aff_mode" value="two" ${!isSingle ? 'checked' : ''}> Two atoms — |F(Q)|²</label></div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label for="aff-a-slider">Atom size a (Gaussian width)</label>
+                            <div class="slider-group"><input type="range" id="aff-a-slider" min="0.1" max="1.5" step="0.02" value="${waveParams.aff_atomSize}"></div>
+                            <input type="number" class="value-input" id="aff-a-value" min="0.1" max="1.5" step="0.02" value="${waveParams.aff_atomSize.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="aff-z-slider">Electrons per atom Z</label>
+                            <div class="slider-group"><input type="range" id="aff-z-slider" min="1" max="30" step="1" value="${waveParams.aff_Z}"></div>
+                            <input type="number" class="value-input" id="aff-z-value" min="1" max="30" step="1" value="${waveParams.aff_Z}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="aff-kin-slider">|k_in| (wavevector magnitude)</label>
+                            <div class="slider-group"><input type="range" id="aff-kin-slider" min="0.5" max="10" step="0.1" value="${waveParams.aff_k_in_mag}"></div>
+                            <input type="number" class="value-input" id="aff-kin-value" min="0.5" max="10" step="0.1" value="${waveParams.aff_k_in_mag.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="aff-thin-slider">Incident direction θ_in (deg) <span id="aff-thin-deg"></span></label>
+                            <div class="slider-group"><input type="range" id="aff-thin-slider" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_in}"></div>
+                            <input type="number" class="value-input" id="aff-thin-value" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_in.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div class="control-group">
+                            <label for="aff-thout-slider">Scattered direction θ_out (deg) <span id="aff-thout-deg"></span></label>
+                            <div class="slider-group"><input type="range" id="aff-thout-slider" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_out}"></div>
+                            <input type="number" class="value-input" id="aff-thout-value" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_out.toFixed(2)}" style="margin-top: 8px;">
+                        </div>
+                        <div id="aff-two-controls" style="display:${isSingle ? 'none' : 'block'};">
+                            <div class="control-group">
+                                <label for="aff-d-slider">Inter-atomic distance d</label>
+                                <div class="slider-group"><input type="range" id="aff-d-slider" min="0.5" max="6" step="0.05" value="${waveParams.aff_atomDistance}"></div>
+                                <input type="number" class="value-input" id="aff-d-value" min="0.5" max="6" step="0.05" value="${waveParams.aff_atomDistance.toFixed(2)}" style="margin-top: 8px;">
+                            </div>
+                            <div class="control-group">
+                                <label for="aff-pair-angle-slider">Pair orientation (deg) <span id="aff-pair-deg"></span></label>
+                                <div class="slider-group"><input type="range" id="aff-pair-angle-slider" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_atomPairAngle}"></div>
+                                <input type="number" class="value-input" id="aff-pair-angle-value" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_atomPairAngle.toFixed(2)}" style="margin-top: 8px;">
+                            </div>
+                        </div>
+                        <div class="param-info" style="text-align:left; margin-top:8px;">
+                            <b>Elastic scattering:</b> |k_out| = |k_in|.<br>
+                            <span style="color:#3498db">→</span> k_in &nbsp;
+                            <span style="color:#2ecc71">→</span> k_out &nbsp;
+                            <span style="color:#e74c3c">→</span> Q = k_out − k_in<br>
+                            <span style="font-size:0.9em;">In 2-atom mode the arrows are drawn at the pair midpoint (origin). The incident plane wave illuminates both atoms; phase differences come from the path difference Q·d.</span><br>
+                            <b>Form factor</b> = Fourier transform of the electron density:<br>
+                            f(Q) = ∫ρ(r) e<sup>iQ·r</sup> d³r<br>
+                            For ρ(r) ∝ exp(−r²/a²) ⟹ <b>f(Q) = Z · exp(−Q²a²/4)</b><br>
+                            <span style="font-size:0.95em;">(Q small → forward scattering, f ≈ Z; large Q → cloud "averages out", f → 0.)</span>
+                        </div>
+                        <div id="aff-readout" class="param-info" style="margin-top: 8px;"></div>`;
+                    // Wire controls
+                    document.getElementsByName('aff_mode').forEach(el => el.addEventListener('change', e => {
+                        waveParams.aff_mode = e.target.value;
+                        document.getElementById('aff-two-controls').style.display =
+                            (waveParams.aff_mode === 'single') ? 'none' : 'block';
+                        rebuildAffAtoms();
+                    }));
+                    const updateThInLabel = () => { const el = document.getElementById('aff-thin-deg'); if (el) el.textContent = `(${(waveParams.aff_theta_in*180/Math.PI).toFixed(0)}°)`; };
+                    const updateThOutLabel = () => { const el = document.getElementById('aff-thout-deg'); if (el) el.textContent = `(${(waveParams.aff_theta_out*180/Math.PI).toFixed(0)}°)`; };
+                    const updatePairLabel = () => { const el = document.getElementById('aff-pair-deg'); if (el) el.textContent = `(${(waveParams.aff_atomPairAngle*180/Math.PI).toFixed(0)}°)`; };
+                    connectSliderAndNumberInput('aff-a-slider',           'aff-a-value',           'aff_atomSize',     true, () => rebuildAffAtoms());
+                    connectSliderAndNumberInput('aff-z-slider',           'aff-z-value',           'aff_Z',            true, () => rebuildAffAtoms());
+                    connectSliderAndNumberInput('aff-kin-slider',         'aff-kin-value',         'aff_k_in_mag',     true);
+                    connectSliderAndNumberInput('aff-thin-slider',        'aff-thin-value',        'aff_theta_in',     true, updateThInLabel);
+                    connectSliderAndNumberInput('aff-thout-slider',       'aff-thout-value',       'aff_theta_out',    true, updateThOutLabel);
+                    connectSliderAndNumberInput('aff-d-slider',           'aff-d-value',           'aff_atomDistance', true, () => rebuildAffAtoms());
+                    connectSliderAndNumberInput('aff-pair-angle-slider',  'aff-pair-angle-value',  'aff_atomPairAngle',true, () => { rebuildAffAtoms(); updatePairLabel(); });
+                    updateThInLabel(); updateThOutLabel(); updatePairLabel();
+                    break;
+                }
+
                 default: {
                     parameterControlsContainer.innerHTML = '<p style="text-align:center; padding:10px;">Concept not implemented.</p>';
                     break;
@@ -624,11 +974,17 @@ function setupConceptVisualization(concept) {
                     scene.add(standingWaveBwd);
                     standingWaveResult = createSingleWaveObject(0xffffff, 1.0);
                     scene.add(standingWaveResult);
+                    rebuildStandingMarkers();
                     break;
                 }
                 case 'attenuation': {
                     waveLine1 = createSingleWaveObject(0x1abc9c);
                     scene.add(waveLine1);
+                    // Faint dashed-looking envelope ±A₀ exp(−α|x|)
+                    attenuationEnvelopeUpper = createSingleWaveObject(0xe74c3c, 0.6);
+                    attenuationEnvelopeLower = createSingleWaveObject(0xe74c3c, 0.6);
+                    scene.add(attenuationEnvelopeUpper);
+                    scene.add(attenuationEnvelopeLower);
                     break;
                 }
                 case 'doppler_effect': {
@@ -640,6 +996,14 @@ function setupConceptVisualization(concept) {
                     });
                     dopplerSourceViz = new THREE.Mesh(sourceGeom, sourceMat);
                     scene.add(dopplerSourceViz);
+                    // Observers (left and right of the scene)
+                    const obsGeom = new THREE.SphereGeometry(0.12, 12, 8);
+                    dopplerObserverLeft = new THREE.Mesh(obsGeom.clone(), new THREE.MeshBasicMaterial({ color: 0xe74c3c }));
+                    dopplerObserverLeft.position.set(-waveParams.extent / 2 + 0.4, -0.6, 0);
+                    scene.add(dopplerObserverLeft);
+                    dopplerObserverRight = new THREE.Mesh(obsGeom.clone(), new THREE.MeshBasicMaterial({ color: 0x2ecc71 }));
+                    dopplerObserverRight.position.set(waveParams.extent / 2 - 0.4, -0.6, 0);
+                    scene.add(dopplerObserverRight);
                     animationTime = -5;
                     break;
                 }
@@ -715,6 +1079,17 @@ function setupConceptVisualization(concept) {
                             if (waveParams.polarizationType === 'unpolarized') arrow.userData.randomAngleSpatial = Math.random() * 2 * Math.PI;
                             spatialPolarizationEVectors.push(arrow);
                             scene.add(arrow);
+                        }
+                        // Helix path: connects arrow tips, shown for circular/elliptical.
+                        const helixPolarizationTypes = ['circular_right_expected', 'circular_left_expected', 'elliptical'];
+                        if (helixPolarizationTypes.includes(waveParams.polarizationType)) {
+                            const helixGeom = new THREE.BufferGeometry();
+                            const helixPoints = 200;
+                            helixGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(helixPoints * 3), 3));
+                            const helixMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
+                            polarizationHelixPath = new THREE.Line(helixGeom, helixMat);
+                            polarizationHelixPath.userData = { points: helixPoints };
+                            scene.add(polarizationHelixPath);
                         }
                     }
                     updateConceptVisualization(currentConcept);
@@ -827,6 +1202,8 @@ function setupConceptVisualization(concept) {
                 case 'wave_scattering': {
                     switchToPerspectiveCamera();
                     axesHelper.visible = false;
+                    if (gridHelper) gridHelper.visible = false;
+                    if (polarCanvas) polarCanvas.style.display = 'block';
                     scatteringViz.lights.push(new THREE.AmbientLight(0xffffff, 0.6));
                     scatteringViz.lights.push(new THREE.DirectionalLight(0xffffff, 0.8));
                     scatteringViz.lights.forEach(l => scene.add(l));
@@ -834,6 +1211,96 @@ function setupConceptVisualization(concept) {
                     scene.add(scatteringViz.axes);
                     createScatteringParticle();
                     createScatteringWaves();
+                    break;
+                }
+                case 'reflection_transmission': {
+                    reflectionWaveIncident = createSingleWaveObject(0x3498db, 0.7);
+                    reflectionWaveReflected = createSingleWaveObject(0xe67e22, 0.7);
+                    reflectionWaveTransmitted = createSingleWaveObject(0x2ecc71, 1.0);
+                    reflectionWaveTransmitted.position.z = 0.05; // draw on top
+                    waveLine1 = createSingleWaveObject(0xffffff, 0.85); // resultant on left only
+                    scene.add(reflectionWaveIncident);
+                    scene.add(reflectionWaveReflected);
+                    scene.add(reflectionWaveTransmitted);
+                    scene.add(waveLine1);
+                    // Shaded background regions to mark the two media
+                    const halfH = waveParams.extent; // tall enough to fill the visible viewport
+                    const leftMedium = new THREE.Mesh(
+                        new THREE.PlaneGeometry(waveParams.extent / 2, halfH),
+                        new THREE.MeshBasicMaterial({ color: 0x1c3a5e, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+                    );
+                    leftMedium.position.set(-waveParams.extent / 4, 0, -0.1);
+                    scene.add(leftMedium);
+                    const rightMedium = new THREE.Mesh(
+                        new THREE.PlaneGeometry(waveParams.extent / 2, halfH),
+                        new THREE.MeshBasicMaterial({ color: 0x3a1c5e, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+                    );
+                    rightMedium.position.set(waveParams.extent / 4, 0, -0.1);
+                    scene.add(rightMedium);
+                    // Solid vertical interface line at x=0, full height
+                    const interfaceGeom = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(0, -halfH / 2, 0.05), new THREE.Vector3(0, halfH / 2, 0.05)
+                    ]);
+                    const interfaceMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+                    reflectionInterfaceLine = new THREE.Line(interfaceGeom, interfaceMat);
+                    scene.add(reflectionInterfaceLine);
+                    // Stash the background meshes on the interface line for cleanup
+                    reflectionInterfaceLine.userData.bgMeshes = [leftMedium, rightMedium];
+                    break;
+                }
+                case 'beats': {
+                    beatsWave1 = createSingleWaveObject(0x3498db, 0.5);
+                    beatsWave2 = createSingleWaveObject(0x9b59b6, 0.5);
+                    beatsSuperposition = createSingleWaveObject(0xffffff, 0.95);
+                    beatsEnvelopeUpper = createSingleWaveObject(0xe74c3c, 0.8);
+                    beatsEnvelopeLower = createSingleWaveObject(0xe74c3c, 0.8);
+                    [beatsWave1, beatsWave2, beatsSuperposition, beatsEnvelopeUpper, beatsEnvelopeLower].forEach(o => scene.add(o));
+                    break;
+                }
+                case 'snell': {
+                    const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+                    const interfaceGeom = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(-waveParams.extent/2, 0, 0.05),
+                        new THREE.Vector3(waveParams.extent/2, 0, 0.05)
+                    ]);
+                    snellInterfaceLine = new THREE.Line(interfaceGeom, lineMat);
+                    scene.add(snellInterfaceLine);
+                    const normalGeom = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(0, -waveParams.extent/2, 0.05),
+                        new THREE.Vector3(0, waveParams.extent/2, 0.05)
+                    ]);
+                    const normalMat = new THREE.LineDashedMaterial({ color: 0x888888, dashSize: 0.15, gapSize: 0.1 });
+                    snellNormalLine = new THREE.Line(normalGeom, normalMat);
+                    snellNormalLine.computeLineDistances();
+                    scene.add(snellNormalLine);
+                    // Ray placeholders — geometries are rebuilt every frame
+                    const rayGeomI = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+                    const rayGeomR = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+                    const rayGeomT = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+                    snellIncidentRay = new THREE.Line(rayGeomI, new THREE.LineBasicMaterial({ color: 0x3498db, linewidth: 3 }));
+                    snellReflectedRay = new THREE.Line(rayGeomR, new THREE.LineBasicMaterial({ color: 0xe67e22 }));
+                    snellRefractedRay = new THREE.Line(rayGeomT, new THREE.LineBasicMaterial({ color: 0x2ecc71, linewidth: 3 }));
+                    scene.add(snellIncidentRay);
+                    scene.add(snellReflectedRay);
+                    scene.add(snellRefractedRay);
+                    break;
+                }
+                case 'atomic_form_factor': {
+                    // Show phasor (top-right) AND f(Q) graph (below it)
+                    phasorCanvas.style.display = 'block';
+                    aff_graphCanvas.style.display = 'block';
+                    // Hide axes/grid — they're not informative here
+                    axesHelper.visible = false;
+                    if (gridHelper) gridHelper.visible = false;
+                    // Build atom disc(s) — Gaussian density rendered as a radial texture
+                    rebuildAffAtoms();
+                    // Arrows: k_in (blue), k_out (green), Q = k_out - k_in (red)
+                    aff_kInArrow  = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0.1), 1, 0x3498db, 0.3, 0.18);
+                    aff_kOutArrow = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0.1), 1, 0x2ecc71, 0.3, 0.18);
+                    aff_qArrow    = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0.1), 1, 0xe74c3c, 0.3, 0.18);
+                    scene.add(aff_kInArrow);
+                    scene.add(aff_kOutArrow);
+                    scene.add(aff_qArrow);
                     break;
                 }
             }
@@ -872,11 +1339,12 @@ function setupConceptVisualization(concept) {
                     break;
                 }
                 case 'phase': {
-                    A = 1.0;
+                    const A1 = waveParams.phaseAmp1 || 1.0;
+                    const A2 = waveParams.phaseAmp2 || 1.0;
                     L = 2.0;
                     k = (2 * Math.PI) / L;
-                    if (waveLine1) updateWaveGeometry(waveLine1, L, A, phaseOffset);
-                    if (waveLine2) updateWaveGeometry(waveLine2, L, A, waveParams.phaseShift + phaseOffset);
+                    if (waveLine1) updateWaveGeometry(waveLine1, L, A1, phaseOffset);
+                    if (waveLine2) updateWaveGeometry(waveLine2, L, A2, waveParams.phaseShift + phaseOffset);
                     if (phaseShiftIndicatorViz) {
                         const spatialShift = -waveParams.phaseShift / k;
                         if (Math.abs(spatialShift) < 0.01) {
@@ -893,18 +1361,23 @@ function setupConceptVisualization(concept) {
                     drawPhasorDiagram(waveParams.phaseShift, {
                         showResultant: true,
                         color1: '#3498db',
-                        color2: '#e67e22'
+                        color2: '#e67e22',
+                        amp1: A1,
+                        amp2: A2
                     });
 
                     const sumAmpInfo = document.getElementById('sum-amplitude-info');
                     if (sumAmpInfo) {
-                        const sumAmplitude = 2 * Math.abs(Math.cos(waveParams.phaseShift / 2));
+                        // |A1·e^{i·0} + A2·e^{iφ}| = sqrt(A1² + A2² + 2·A1·A2·cos φ)
+                        const sumAmplitude = Math.sqrt(A1*A1 + A2*A2 + 2*A1*A2*Math.cos(waveParams.phaseShift));
                         sumAmpInfo.textContent = `Sum Amplitude: ${sumAmplitude.toFixed(2)}`;
                     }
                     break;
                 }
                 case 'interference': {
                     if (!waveLine1 || !waveLine2 || !interferenceSuperposition) return;
+                    A = waveParams.interferenceAmplitude;
+                    L = waveParams.interferenceWavelength;
                     const sep = waveParams.interferenceSeparation / 2;
                     updateWaveGeometry(waveLine1, L, A, phaseOffset, {
                         x_offset: -sep
@@ -921,12 +1394,22 @@ function setupConceptVisualization(concept) {
                         superPos[i * 3 + 2] = 0;
                     }
                     interferenceSuperposition.geometry.attributes.position.needsUpdate = true;
+                    // Path-difference info: between sources, Δd ≈ separation, and Δd/λ tells (de)constructive
+                    const info = document.getElementById('interf-pathdiff-info');
+                    if (info) {
+                        const ratio = waveParams.interferenceSeparation / L;
+                        let nature = 'mixed';
+                        const fractional = Math.abs(ratio - Math.round(ratio));
+                        if (fractional < 0.05) nature = '≈ constructive (integer λ)';
+                        else if (Math.abs(fractional - 0.5) < 0.05) nature = '≈ destructive (half-integer λ)';
+                        info.innerHTML = `Source separation / λ = <b>${ratio.toFixed(2)}</b><br>${nature}`;
+                    }
                     break;
                 }
                 case 'standing_waves': {
                     if (!standingWaveFwd || !standingWaveBwd || !standingWaveResult) return;
-                    A = 1.0;
-                    L = 4.0;
+                    A = waveParams.standingAmplitude;
+                    L = waveParams.standingWavelength;
                     updateWaveGeometry(standingWaveFwd, L, A, phaseOffset);
                     updateWaveGeometry(standingWaveBwd, L, A, -phaseOffset);
                     const pos1 = standingWaveFwd.geometry.attributes.position.array;
@@ -945,13 +1428,25 @@ function setupConceptVisualization(concept) {
                     updateWaveGeometry(waveLine1, L, A, phaseOffset, {
                         attenuation: waveParams.attenuationFactor
                     });
+                    // Draw the analytic envelope ±A₀ e^{-α|x|} as static smooth curves
+                    if (attenuationEnvelopeUpper && attenuationEnvelopeLower) {
+                        const posU = attenuationEnvelopeUpper.geometry.attributes.position.array;
+                        const posL = attenuationEnvelopeLower.geometry.attributes.position.array;
+                        for (let i = 0; i < waveParams.points; i++) {
+                            const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
+                            const env = A * Math.exp(-waveParams.attenuationFactor * Math.abs(x));
+                            posU[i * 3] = x; posU[i * 3 + 1] = env; posU[i * 3 + 2] = 0;
+                            posL[i * 3] = x; posL[i * 3 + 1] = -env; posL[i * 3 + 2] = 0;
+                        }
+                        attenuationEnvelopeUpper.geometry.attributes.position.needsUpdate = true;
+                        attenuationEnvelopeLower.geometry.attributes.position.needsUpdate = true;
+                    }
                     break;
                 }
                 case 'doppler_effect': {
                     if (!waveLine1 || !dopplerSourceViz) return;
                     const waveSpeed = 3.0;
                     const sourceSpeed = waveParams.sourceVelocity * waveSpeed;
-                    const period = (waveParams.extent * 1.5) / (Math.abs(sourceSpeed) || 1e-5);
                     const sourceX = -waveParams.extent * 0.75 + ((animationTime * sourceSpeed) % (waveParams.extent * 1.5));
                     dopplerSourceViz.position.x = sourceX;
                     const L_behind = L * (waveSpeed + sourceSpeed) / waveSpeed;
@@ -967,6 +1462,18 @@ function setupConceptVisualization(concept) {
                         positions[i * 3 + 1] = y;
                     }
                     waveLine1.geometry.attributes.position.needsUpdate = true;
+                    // Frequency readout: f_obs = c/λ_obs. f_source = c/L.
+                    const info = document.getElementById('doppler-freq-info');
+                    if (info) {
+                        const f_source = waveSpeed / L;
+                        // Left observer sees the "behind" wave (source moving right means sourceSpeed > 0,
+                        // and the observer to the left is "behind" the source).
+                        const f_left  = waveSpeed / (L_behind || 0.001);
+                        const f_right = waveSpeed / (L_ahead  || 0.001);
+                        info.innerHTML = `f₀ = <b>${f_source.toFixed(3)}</b><br>` +
+                                         `<span style="color:#e74c3c">●</span> Left observer: f = <b>${f_left.toFixed(3)}</b> (${((f_left/f_source-1)*100).toFixed(0)}%)<br>` +
+                                         `<span style="color:#2ecc71">●</span> Right observer: f = <b>${f_right.toFixed(3)}</b> (${((f_right/f_source-1)*100).toFixed(0)}%)`;
+                    }
                     break;
                 }
                 case 'polarization': {
@@ -1004,8 +1511,10 @@ function setupConceptVisualization(concept) {
                                 Ez = Az_t * Math.sin(omegaAnimation * animationTime);
                                 break;
                             case 'unpolarized':
-                                if (animatedEVector && (Math.floor(animationTime / 0.1) !== Math.floor((animationTime - 0.015) / 0.1) || animatedEVector.userData.randomAngle === undefined)) {
+                                if (animatedEVector && (animatedEVector.userData.randomAngle === undefined ||
+                                    animationTime - (animatedEVector.userData.lastAngleUpdate || -1) > 0.1)) {
                                     animatedEVector.userData.randomAngle = Math.random() * 2 * Math.PI;
+                                    animatedEVector.userData.lastAngleUpdate = animationTime;
                                 }
                                 const unpolarizedMag = A * Math.cos(omegaAnimation * animationTime * 3);
                                 Ey = unpolarizedMag * Math.cos(animatedEVector ? animatedEVector.userData.randomAngle : 0);
@@ -1098,6 +1607,33 @@ function setupConceptVisualization(concept) {
                             const headW = Math.max(0.025, 0.15 * currentLength);
                             arrow.setLength(currentLength, headL, headW);
                         });
+                        // Update helix path (if active) — analytic continuous curve through arrow tips
+                        if (polarizationHelixPath) {
+                            const N = polarizationHelixPath.userData.points;
+                            const pos = polarizationHelixPath.geometry.attributes.position.array;
+                            for (let i = 0; i < N; i++) {
+                                const x = -waveParams.extent / 2 + (i / (N - 1)) * waveParams.extent;
+                                let Eyh = 0, Ezh = 0;
+                                switch (waveParams.polarizationType) {
+                                    case 'circular_right_expected':
+                                        Eyh = Ay_s_val * Math.cos(k * x);
+                                        Ezh = -Ay_s_val * Math.sin(k * x);
+                                        break;
+                                    case 'circular_left_expected':
+                                        Eyh = Ay_s_val * Math.cos(k * x);
+                                        Ezh = Ay_s_val * Math.sin(k * x);
+                                        break;
+                                    case 'elliptical':
+                                        Eyh = Ay_s_val * Math.cos(k * x);
+                                        Ezh = Az_s_val * Math.sin(k * x);
+                                        break;
+                                }
+                                pos[i * 3] = x;
+                                pos[i * 3 + 1] = Eyh;
+                                pos[i * 3 + 2] = Ezh;
+                            }
+                            polarizationHelixPath.geometry.attributes.position.needsUpdate = true;
+                        }
                     }
                     break;
                 }
@@ -1117,6 +1653,7 @@ function setupConceptVisualization(concept) {
                     const baseLambda = waveParams.wavelength;
                     const k0 = (2 * Math.PI) / baseLambda;
                     const baseOmega = omegaAnimation * 1.2;
+                    const v0_ref_global = baseOmega / k0;
                     if (waveParams.velocityDisplayType === 'phase') {
                         if (waveLine1 && phaseMarkerViz) {
                             const phaseOffset = -baseOmega * animationTime;
@@ -1127,6 +1664,10 @@ function setupConceptVisualization(concept) {
                             if (markerX > waveParams.extent / 2) markerX -= baseLambda;
                             else if (markerX < -waveParams.extent / 2) markerX += baseLambda;
                             phaseMarkerViz.position.set(markerX, baseAmp * Math.sin(k0 * markerX + phaseOffset), 0.01);
+                        }
+                        const readout = document.getElementById('velocity-readout');
+                        if (readout) {
+                            readout.innerHTML = `<span style="color:#f1c40f">●</span> v_phase = ω/k = <b>${v0_ref_global.toFixed(3)}</b>`;
                         }
                     } else {
                         if (!groupWaveSuperposition || !groupWaveEnvelopeUpper || !groupWaveEnvelopeLower || !phaseMarkerViz || !groupMarkerViz) return;
@@ -1175,6 +1716,16 @@ function setupConceptVisualization(concept) {
                         const y_env_at_phase_marker = 2 * A_comp * Math.cos(k_mod * phaseMarkerX_g + phaseOffset_env);
                         const y_carrier_at_marker = y_env_at_phase_marker * Math.sin(k_carr_avg * phaseMarkerX_g - omega_carr_avg * animationTime * time_factor_vg + Math.PI / 2);
                         phaseMarkerViz.position.set(phaseMarkerX_g, y_carrier_at_marker, 0.1);
+                        // Velocity readout
+                        const v_phase = omega_carr_avg / k_carr_avg;
+                        const v_group = (omega2 - omega1) / (k2 - k1);
+                        const readout = document.getElementById('velocity-readout');
+                        if (readout) {
+                            readout.innerHTML =
+                                `<span style="color:#f1c40f">●</span> v_phase = ω̄/k̄ = <b>${v_phase.toFixed(3)}</b><br>` +
+                                `<span style="color:cyan">●</span> v_group = dω/dk ≈ <b>${v_group.toFixed(3)}</b><br>` +
+                                `Ratio v_g / v_φ = <b>${(v_group / v_phase).toFixed(3)}</b>`;
+                        }
                     }
                     break;
                 }
@@ -1276,11 +1827,320 @@ function setupConceptVisualization(concept) {
                     }
                     scatteringViz.lastParticleAngle = particleAngle;
                     if (scatteringViz.particle) scatteringViz.particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * scatteringParams.particleCharge);
-                    emitScatteringPulse(particlePhase, (animationTime - 0.015) * scatteringParams.oscillationFrequency);
+                    emitScatteringPulse(particlePhase);
                     updateRadiatedScatteringWave(effectiveAmplitude);
+                    drawPolarDipole(scatteringParams.polarizationType);
+                    break;
+                }
+                case 'reflection_transmission': {
+                    // 1D plane wave at normal incidence: r = (n1-n2)/(n1+n2), t = 2n1/(n1+n2).
+                    // We display the spatial wave at fixed omega. Use a fixed source wavelength
+                    // in vacuum, then λ in each medium scales as 1/n.
+                    const lambda0 = 2.0;
+                    const A0 = 1.0;
+                    const n1 = waveParams.n1, n2 = waveParams.n2;
+                    const r_amp = (n1 - n2) / (n1 + n2);
+                    const t_amp = 2 * n1 / (n1 + n2);
+                    const lambda1 = lambda0 / n1;
+                    const lambda2 = lambda0 / n2;
+                    const k1 = (2 * Math.PI) / lambda1;
+                    const k2 = (2 * Math.PI) / lambda2;
+                    // Common angular frequency: ω = k1 * v1 = k2 * v2 (v_i = c/n_i). Take ω = k1 / n1 * something:
+                    // Simpler: pick ω so that on-screen motion is reasonable. ω drives time evolution only.
+                    const omega = omegaAnimation;
+                    const phaseT = -omega * animationTime;
+                    const posI = reflectionWaveIncident.geometry.attributes.position.array;
+                    const posR = reflectionWaveReflected.geometry.attributes.position.array;
+                    const posT = reflectionWaveTransmitted.geometry.attributes.position.array;
+                    const posL = waveLine1.geometry.attributes.position.array;
+                    for (let i = 0; i < waveParams.points; i++) {
+                        const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
+                        let yI = 0, yR = 0, yT = 0;
+                        if (x <= 0) {
+                            yI = A0 * Math.sin(k1 * x + phaseT);              // moving right
+                            yR = r_amp * A0 * Math.sin(-k1 * x + phaseT);     // moving left
+                        } else {
+                            yT = t_amp * A0 * Math.sin(k2 * x + phaseT);      // moving right in medium 2
+                        }
+                        posI[i*3] = x; posI[i*3+1] = yI; posI[i*3+2] = 0;
+                        posR[i*3] = x; posR[i*3+1] = yR; posR[i*3+2] = 0;
+                        posT[i*3] = x; posT[i*3+1] = yT; posT[i*3+2] = 0;
+                        // Resultant only on the left side (sum of incident + reflected).
+                        // On the right side the resultant equals the transmitted, so leave it at 0 to avoid hiding the green line.
+                        posL[i*3] = x; posL[i*3+1] = (x <= 0) ? (yI + yR) : 0; posL[i*3+2] = 0;
+                    }
+                    reflectionWaveIncident.geometry.attributes.position.needsUpdate = true;
+                    reflectionWaveReflected.geometry.attributes.position.needsUpdate = true;
+                    reflectionWaveTransmitted.geometry.attributes.position.needsUpdate = true;
+                    waveLine1.geometry.attributes.position.needsUpdate = true;
+                    const info = document.getElementById('rt-coefs');
+                    if (info) {
+                        const R = r_amp * r_amp;
+                        const T = (n2 / n1) * t_amp * t_amp;
+                        info.innerHTML = `r = (n₁−n₂)/(n₁+n₂) = <b>${r_amp.toFixed(3)}</b><br>` +
+                                         `t = 2n₁/(n₁+n₂) = <b>${t_amp.toFixed(3)}</b><br>` +
+                                         `R = r² = <b>${R.toFixed(3)}</b>, &nbsp; T = (n₂/n₁)t² = <b>${T.toFixed(3)}</b><br>` +
+                                         `R + T = <b>${(R + T).toFixed(3)}</b> (should be 1)`;
+                    }
+                    break;
+                }
+                case 'beats': {
+                    if (!beatsWave1 || !beatsWave2 || !beatsSuperposition) break;
+                    const f1 = waveParams.beatFreq1;
+                    const f2 = waveParams.beatFreq2;
+                    const A_b = 0.6;
+                    const v_b = 1.0; // speed: λ = v/f
+                    const k1 = 2 * Math.PI * f1 / v_b;
+                    const k2 = 2 * Math.PI * f2 / v_b;
+                    const omega1 = 2 * Math.PI * f1;
+                    const omega2 = 2 * Math.PI * f2;
+                    updateWaveGeometry(beatsWave1, 2 * Math.PI / k1, A_b, -omega1 * animationTime * 0.3);
+                    updateWaveGeometry(beatsWave2, 2 * Math.PI / k2, A_b, -omega2 * animationTime * 0.3);
+                    const p1 = beatsWave1.geometry.attributes.position.array;
+                    const p2 = beatsWave2.geometry.attributes.position.array;
+                    const ps = beatsSuperposition.geometry.attributes.position.array;
+                    const peU = beatsEnvelopeUpper.geometry.attributes.position.array;
+                    const peL = beatsEnvelopeLower.geometry.attributes.position.array;
+                    const k_mod = (k2 - k1) / 2;
+                    const omega_mod = (omega2 - omega1) / 2;
+                    for (let i = 0; i < waveParams.points; i++) {
+                        const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
+                        ps[i*3] = p1[i*3];
+                        ps[i*3+1] = p1[i*3+1] + p2[i*3+1];
+                        ps[i*3+2] = 0;
+                        const env = 2 * A_b * Math.cos(k_mod * x - omega_mod * animationTime * 0.3);
+                        peU[i*3] = x; peU[i*3+1] = env; peU[i*3+2] = 0;
+                        peL[i*3] = x; peL[i*3+1] = -env; peL[i*3+2] = 0;
+                    }
+                    beatsSuperposition.geometry.attributes.position.needsUpdate = true;
+                    beatsEnvelopeUpper.geometry.attributes.position.needsUpdate = true;
+                    beatsEnvelopeLower.geometry.attributes.position.needsUpdate = true;
+                    const info = document.getElementById('beat-readout');
+                    if (info) {
+                        const fbeat = Math.abs(f1 - f2);
+                        const favg = 0.5 * (f1 + f2);
+                        info.innerHTML = `f̄ = (f₁+f₂)/2 = <b>${favg.toFixed(3)}</b><br>` +
+                                         `f_beat = |f₁ − f₂| = <b>${fbeat.toFixed(3)}</b><br>` +
+                                         `T_beat = <b>${(fbeat > 0 ? (1 / fbeat).toFixed(2) : '∞')}</b>`;
+                    }
+                    break;
+                }
+                case 'snell': {
+                    if (!snellIncidentRay) break;
+                    const theta_i = waveParams.snellTheta_i;
+                    const n1 = waveParams.snellN1, n2 = waveParams.snellN2;
+                    // Snell: sin(θt) = (n1/n2) sin(θi). Total internal reflection if > 1.
+                    const sin_t = (n1 / n2) * Math.sin(theta_i);
+                    const totalInternal = sin_t > 1;
+                    const theta_t = totalInternal ? null : Math.asin(sin_t);
+                    const L = waveParams.extent / 2 * 0.9;
+                    // Geometry:
+                    // Interface is horizontal (y=0); normal is vertical (y-axis).
+                    // Incident ray comes from upper-left, hits origin.
+                    // Reflected goes to upper-right, refracted goes to lower-right (or back up if TIR).
+                    // θ is measured from the normal (y-axis).
+                    const setLinePoints = (line, p0, p1) => {
+                        const arr = line.geometry.attributes.position.array;
+                        arr[0] = p0.x; arr[1] = p0.y; arr[2] = p0.z;
+                        arr[3] = p1.x; arr[4] = p1.y; arr[5] = p1.z;
+                        line.geometry.attributes.position.needsUpdate = true;
+                        line.geometry.computeBoundingSphere();
+                    };
+                    const origin = new THREE.Vector3(0, 0, 0.1);
+                    const inc_start = new THREE.Vector3(-L * Math.sin(theta_i), L * Math.cos(theta_i), 0.1);
+                    setLinePoints(snellIncidentRay, inc_start, origin);
+                    const refl_end = new THREE.Vector3(L * Math.sin(theta_i), L * Math.cos(theta_i), 0.1);
+                    setLinePoints(snellReflectedRay, origin, refl_end);
+                    if (totalInternal) {
+                        setLinePoints(snellRefractedRay, origin, origin);
+                        snellRefractedRay.visible = false;
+                    } else {
+                        snellRefractedRay.visible = true;
+                        const ref_end = new THREE.Vector3(L * Math.sin(theta_t), -L * Math.cos(theta_t), 0.1);
+                        setLinePoints(snellRefractedRay, origin, ref_end);
+                    }
+                    const info = document.getElementById('snell-readout');
+                    if (info) {
+                        const t_deg = totalInternal ? '— (TIR)' : (theta_t * 180 / Math.PI).toFixed(1) + '°';
+                        const critical = (n1 > n2) ? (Math.asin(n2 / n1) * 180 / Math.PI).toFixed(1) + '°' : 'n/a';
+                        info.innerHTML = `θᵢ = <b>${(theta_i * 180 / Math.PI).toFixed(1)}°</b><br>` +
+                                         `θₜ = <b>${t_deg}</b><br>` +
+                                         `Critical angle (n₁→n₂): <b>${critical}</b>` +
+                                         (totalInternal ? '<br><span style="color:#e74c3c">Total internal reflection</span>' : '');
+                    }
+                    break;
+                }
+                case 'atomic_form_factor': {
+                    if (!aff_kInArrow || !aff_kOutArrow || !aff_qArrow) break;
+                    const kmag = waveParams.aff_k_in_mag;
+                    const a = waveParams.aff_atomSize;
+                    const Z = waveParams.aff_Z;
+                    // Build vectors (in screen plane, z=0.1)
+                    const kIn  = new THREE.Vector3(kmag * Math.cos(waveParams.aff_theta_in),  kmag * Math.sin(waveParams.aff_theta_in),  0);
+                    const kOut = new THREE.Vector3(kmag * Math.cos(waveParams.aff_theta_out), kmag * Math.sin(waveParams.aff_theta_out), 0);
+                    const Q = new THREE.Vector3().subVectors(kOut, kIn);
+                    // Arrow scaling: map k-magnitude (max 10) to visual length max ~3
+                    const visScale = 3 / 10;
+                    const visK = kmag * visScale;
+                    const visQ = Q.length() * visScale;
+                    // k_in: drawn ending at the atom (origin). So start = -kIn direction, length |k|.
+                    const kInDir = kIn.clone().normalize();
+                    aff_kInArrow.position.copy(kInDir.clone().multiplyScalar(-visK)).setZ(0.1);
+                    aff_kInArrow.setDirection(kInDir);
+                    aff_kInArrow.setLength(visK, Math.min(0.25, 0.25 * visK), 0.15);
+                    // k_out: starts at atom, points along kOut, length visK
+                    const kOutDir = kOut.clone().normalize();
+                    aff_kOutArrow.position.set(0, 0, 0.1);
+                    aff_kOutArrow.setDirection(kOutDir);
+                    aff_kOutArrow.setLength(visK, Math.min(0.25, 0.25 * visK), 0.15);
+                    // Q: also starts at atom (showing Q = k_out - k_in as a vector from the origin)
+                    aff_qArrow.position.set(0, 0, 0.1);
+                    if (visQ < 1e-3) {
+                        aff_qArrow.setLength(0.001, 0, 0);
+                    } else {
+                        aff_qArrow.setDirection(Q.clone().normalize());
+                        aff_qArrow.setLength(visQ, Math.min(0.25, 0.25 * visQ), 0.15);
+                    }
+                    // f(Q) graph
+                    drawAffGraph();
+                    // --- Phasor diagram ---
+                    // Single mode: Z phasors each with phase Q·r_i where r_i samples the cloud.
+                    //   We deterministically place Z electrons inside the Gaussian to keep the display stable,
+                    //   showing how individual contributions dephase as Q grows.
+                    // Two mode: two phasors of length f(Q), at phases ±(Q·d)/2 (so their sum's magnitude is 2f|cos(Q·d/2)|).
+                    drawAffKVectorPhasor(Q);
+                    // Numeric readout
+                    const readout = document.getElementById('aff-readout');
+                    if (readout) {
+                        const Qmag = Q.length();
+                        const f = aff_singleAtomFormFactor(Qmag, a, Z);
+                        if (waveParams.aff_mode === 'single') {
+                            readout.innerHTML =
+                                `|Q| = <b>${Qmag.toFixed(3)}</b><br>` +
+                                `f(Q) = <b>${f.toFixed(3)}</b>  (out of Z=${Z})<br>` +
+                                `|f|² = <b>${(f*f).toFixed(3)}</b>`;
+                        } else {
+                            const d_vec = new THREE.Vector3(
+                                waveParams.aff_atomDistance * Math.cos(waveParams.aff_atomPairAngle),
+                                waveParams.aff_atomDistance * Math.sin(waveParams.aff_atomPairAngle), 0);
+                            const Qd = Q.dot(d_vec);
+                            const F2 = f * f * 2 * (1 + Math.cos(Qd));
+                            readout.innerHTML =
+                                `|Q| = <b>${Qmag.toFixed(3)}</b>, &nbsp; Q·d = <b>${Qd.toFixed(3)}</b><br>` +
+                                `f(Q) = <b>${f.toFixed(3)}</b><br>` +
+                                `|F(Q)|² = 2 f² (1+cos Q·d) = <b>${F2.toFixed(3)}</b><br>` +
+                                `<span style="font-size:0.9em">Bragg condition: Q·d = 2πn</span>`;
+                        }
+                    }
                     break;
                 }
             }
+        }
+
+        // Phasor diagram for single-atom mode: Z electron phasors at positions sampled from the cloud
+        // Inset showing the scattering geometry as vectors: k_in (blue), k_out (green),
+        // Q = k_out − k_in (red). Drawn tip-to-tail with a thin construction line so the
+        // triangle relation is visually explicit. Used for both single- and two-atom modes.
+        function drawAffKVectorPhasor(Q) {
+            if (!phasorCtx) return;
+            const w = phasorCanvas.width, h = phasorCanvas.height;
+            const cx = w / 2, cy = h / 2 + 4;
+            const maxR = Math.min(w / 2 - 8, h / 2 - 14);
+            phasorCtx.clearRect(0, 0, w, h);
+            // Title
+            phasorCtx.fillStyle = '#cccccc';
+            phasorCtx.font = '11px Arial';
+            phasorCtx.textAlign = 'center';
+            phasorCtx.fillText('Scattering geometry: Q = k_out − k_in', cx, 12);
+            // k vectors in world units
+            const kmag = waveParams.aff_k_in_mag;
+            const kIn  = new THREE.Vector2( kmag * Math.cos(waveParams.aff_theta_in),  kmag * Math.sin(waveParams.aff_theta_in));
+            const kOut = new THREE.Vector2( kmag * Math.cos(waveParams.aff_theta_out), kmag * Math.sin(waveParams.aff_theta_out));
+            // Auto-zoom: scale so the longest of |k_in|, |k_out|, |Q| fits in the inset.
+            // Q's magnitude can reach 2|k| (back-scatter), so account for it.
+            const maxLen = Math.max(kmag, kmag, Q.length()) || 1;
+            const scale = (maxR * 0.85) / maxLen;
+            // Convert world (math) → screen: x stays, y flips (canvas y is down).
+            // For all three vectors we draw from the origin (cx,cy).
+            // Helper to draw an arrow at angle θ with length len (world units).
+            function drawArrow(angle_rad, len_world, color, lineWidth) {
+                const len = len_world * scale;
+                const dx =  Math.cos(angle_rad) * len;
+                const dy = -Math.sin(angle_rad) * len; // screen y-flip → CCW for positive angle
+                phasorCtx.strokeStyle = color;
+                phasorCtx.fillStyle = color;
+                phasorCtx.lineWidth = lineWidth;
+                phasorCtx.beginPath();
+                phasorCtx.moveTo(cx, cy);
+                phasorCtx.lineTo(cx + dx, cy + dy);
+                phasorCtx.stroke();
+                // Arrow head
+                const ang = Math.atan2(dy, dx);
+                const headLen = 9;
+                phasorCtx.beginPath();
+                phasorCtx.moveTo(cx + dx, cy + dy);
+                phasorCtx.lineTo(cx + dx - headLen * Math.cos(ang - 0.35),
+                                 cy + dy - headLen * Math.sin(ang - 0.35));
+                phasorCtx.lineTo(cx + dx - headLen * Math.cos(ang + 0.35),
+                                 cy + dy - headLen * Math.sin(ang + 0.35));
+                phasorCtx.closePath();
+                phasorCtx.fill();
+            }
+            // Construction triangle: draw k_in from origin, then add (−k_in) from k_out's tip,
+            // which closes back to the origin. Equivalently: from the tip of k_in, draw a thin
+            // line to the tip of k_out — that is Q. We'll instead show the cleaner "vectors from origin"
+            // view, with a faint dashed construction line from k_in tip to k_out tip (= Q's geometry).
+            // 1) Faint dashed line from k_in tip to k_out tip (length = |Q|, visualizes the relation)
+            const kIn_dx  =  Math.cos(waveParams.aff_theta_in)  * kmag * scale;
+            const kIn_dy  = -Math.sin(waveParams.aff_theta_in)  * kmag * scale;
+            const kOut_dx =  Math.cos(waveParams.aff_theta_out) * kmag * scale;
+            const kOut_dy = -Math.sin(waveParams.aff_theta_out) * kmag * scale;
+            phasorCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+            phasorCtx.setLineDash([3, 3]);
+            phasorCtx.lineWidth = 1;
+            phasorCtx.beginPath();
+            phasorCtx.moveTo(cx + kIn_dx, cy + kIn_dy);
+            phasorCtx.lineTo(cx + kOut_dx, cy + kOut_dy);
+            phasorCtx.stroke();
+            phasorCtx.setLineDash([]);
+            // 2) |k| reference circle (since |k_in| = |k_out| = kmag, both end on this circle).
+            phasorCtx.strokeStyle = 'rgba(255,255,255,0.18)';
+            phasorCtx.lineWidth = 1;
+            phasorCtx.beginPath();
+            phasorCtx.arc(cx, cy, kmag * scale, 0, 2 * Math.PI);
+            phasorCtx.stroke();
+            // 3) The three vectors from the origin
+            drawArrow(waveParams.aff_theta_in,  kmag, '#3498db', 3);    // k_in (blue)
+            drawArrow(waveParams.aff_theta_out, kmag, '#2ecc71', 3);    // k_out (green)
+            // Q angle = atan2(Q.y, Q.x) but be careful with the screen y-flip in drawArrow
+            // (drawArrow expects a *math* angle, and uses sin/cos directly with the y-flip).
+            const Qang = Math.atan2(Q.y, Q.x);
+            if (Q.length() > 1e-4) {
+                drawArrow(Qang, Q.length(), '#ffffff', 3.5);             // Q (white)
+            }
+            // Origin dot
+            phasorCtx.fillStyle = 'rgba(255,255,255,0.7)';
+            phasorCtx.beginPath();
+            phasorCtx.arc(cx, cy, 3, 0, 2 * Math.PI);
+            phasorCtx.fill();
+            // Labels at the tips
+            phasorCtx.font = 'bold 10px Arial';
+            phasorCtx.textAlign = 'left';
+            phasorCtx.fillStyle = '#3498db';
+            phasorCtx.fillText('k_in',  cx + kIn_dx + 4,  cy + kIn_dy);
+            phasorCtx.fillStyle = '#2ecc71';
+            phasorCtx.fillText('k_out', cx + kOut_dx + 4, cy + kOut_dy);
+            if (Q.length() > 1e-4) {
+                const Qdx =  Math.cos(Qang) * Q.length() * scale;
+                const Qdy = -Math.sin(Qang) * Q.length() * scale;
+                phasorCtx.fillStyle = '#ffffff';
+                phasorCtx.fillText('Q', cx + Qdx + 4, cy + Qdy + 4);
+            }
+            // Readout at bottom
+            phasorCtx.fillStyle = '#dddddd';
+            phasorCtx.font = '10px Arial';
+            phasorCtx.textAlign = 'left';
+            phasorCtx.fillText(`|k| = ${kmag.toFixed(2)}, |Q| = ${Q.length().toFixed(2)}`, 6, h - 6);
         }
 
 
@@ -1413,6 +2273,63 @@ function setupConceptVisualization(concept) {
                 dopplerSourceViz.material.dispose();
                 dopplerSourceViz = null;
             }
+            // NEW cleanups
+            [dopplerObserverLeft, dopplerObserverRight].forEach(o => {
+                if (o) { scene.remove(o); if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }
+            });
+            dopplerObserverLeft = null; dopplerObserverRight = null;
+            standingNodeMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+            standingAntinodeMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+            standingNodeMarkers = []; standingAntinodeMarkers = [];
+            [attenuationEnvelopeUpper, attenuationEnvelopeLower,
+             reflectionWaveIncident, reflectionWaveReflected, reflectionWaveTransmitted,
+             beatsWave1, beatsWave2, beatsSuperposition, beatsEnvelopeUpper, beatsEnvelopeLower,
+             snellIncidentRay, snellRefractedRay, snellReflectedRay, snellInterfaceLine, snellNormalLine,
+             polarizationHelixPath].forEach(o => {
+                if (o) { scene.remove(o); if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }
+            });
+            // The interface line carries shaded background meshes in userData
+            if (reflectionInterfaceLine) {
+                scene.remove(reflectionInterfaceLine);
+                if (reflectionInterfaceLine.geometry) reflectionInterfaceLine.geometry.dispose();
+                if (reflectionInterfaceLine.material) reflectionInterfaceLine.material.dispose();
+                if (reflectionInterfaceLine.userData.bgMeshes) {
+                    reflectionInterfaceLine.userData.bgMeshes.forEach(m => {
+                        scene.remove(m); m.geometry.dispose(); m.material.dispose();
+                    });
+                }
+            }
+            attenuationEnvelopeUpper = null; attenuationEnvelopeLower = null;
+            reflectionWaveIncident = null; reflectionWaveReflected = null; reflectionWaveTransmitted = null;
+            reflectionInterfaceLine = null;
+            beatsWave1 = null; beatsWave2 = null; beatsSuperposition = null;
+            beatsEnvelopeUpper = null; beatsEnvelopeLower = null;
+            snellIncidentRay = null; snellRefractedRay = null; snellReflectedRay = null;
+            snellInterfaceLine = null; snellNormalLine = null;
+            polarizationHelixPath = null;
+            // Hide insets
+            if (polarCanvas) polarCanvas.style.display = 'none';
+            // Atomic form factor cleanup
+            if (aff_graphCanvas) aff_graphCanvas.style.display = 'none';
+            if (conceptToClear === 'atomic_form_factor' && phasorCanvas) phasorCanvas.style.display = 'none';
+            disposeAffAtomSprite(aff_atom1);
+            disposeAffAtomSprite(aff_atom2);
+            aff_atom1 = null; aff_atom2 = null;
+            if (aff_atomPairLine) {
+                scene.remove(aff_atomPairLine);
+                aff_atomPairLine.geometry.dispose();
+                aff_atomPairLine.material.dispose();
+                aff_atomPairLine = null;
+            }
+            [aff_kInArrow, aff_kOutArrow, aff_qArrow].forEach(o => {
+                if (o) { scene.remove(o); }
+            });
+            aff_kInArrow = null; aff_kOutArrow = null; aff_qArrow = null;
+            // Restore axes & grid when leaving atomic_form_factor (it hides them)
+            if (conceptToClear === 'atomic_form_factor') {
+                if (axesHelper) axesHelper.visible = true;
+                if (gridHelper) gridHelper.visible = true;
+            }
 
             // Clear by concept name
             switch (conceptToClear) {
@@ -1440,6 +2357,8 @@ function setupConceptVisualization(concept) {
                     if (scatteringViz.axes) scene.remove(scatteringViz.axes);
                     resetScatteringObjects();
                     switchToOrthographicCamera();
+                    if (gridHelper) gridHelper.visible = true;
+                    if (polarCanvas) polarCanvas.style.display = 'none';
                     break;
                 }
             }
@@ -1488,20 +2407,270 @@ function setupConceptVisualization(concept) {
 
         function calculateWavePoint(x, k_val, omega_val, amplitude_val, time_val, initial_phase = 0) { return amplitude_val * Math.sin(k_val * x - omega_val * time_val + initial_phase); }
         function aspectVerticalFix(cam) { if (!cam || cam.top === cam.bottom || cam.right === cam.left) return 1; return (cam.right - cam.left) / (cam.top - cam.bottom); }
+
+        // Build node/antinode marker spheres for standing waves
+        function rebuildStandingMarkers() {
+            // Remove old markers
+            standingNodeMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+            standingAntinodeMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+            standingNodeMarkers = [];
+            standingAntinodeMarkers = [];
+            const L = waveParams.standingWavelength;
+            // For sin(kx)cos(ωt)+sin(-kx)cos(...) → effectively 2A sin(kx) cos(ωt). Nodes at kx = nπ → x = nL/2.
+            // Antinodes at kx = (n+1/2)π → x = (n+1/2) L/2.
+            const nodeGeom = new THREE.SphereGeometry(0.08, 12, 8);
+            const antinodeGeom = new THREE.SphereGeometry(0.1, 12, 8);
+            const nodeMat = new THREE.MeshBasicMaterial({ color: 0xff5050 });
+            const antinodeMat = new THREE.MeshBasicMaterial({ color: 0x50ff50 });
+            const half = waveParams.extent / 2;
+            for (let n = -20; n < 20; n++) {
+                const xn = n * L / 2;
+                if (xn < -half - 0.1 || xn > half + 0.1) continue;
+                const node = new THREE.Mesh(nodeGeom.clone(), nodeMat.clone());
+                node.position.set(xn, 0, 0.05);
+                scene.add(node);
+                standingNodeMarkers.push(node);
+                const xa = (n + 0.5) * L / 2;
+                if (xa < -half - 0.1 || xa > half + 0.1) continue;
+                const anti = new THREE.Mesh(antinodeGeom.clone(), antinodeMat.clone());
+                anti.position.set(xa, 0, 0.05);
+                scene.add(anti);
+                standingAntinodeMarkers.push(anti);
+            }
+        }
+
+        // ===== Atomic form factor helpers =====
+        // Build a sprite texture for a Gaussian-cloud atom of width a.
+        // Returns a THREE.Sprite of world-size ~ 4a so the 1/e radius is well within the disc.
+        function makeGaussianAtomSprite(a, Z) {
+            const canvas = document.createElement('canvas');
+            const size = 128;
+            canvas.width = canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const c = size / 2;
+            const imgData = ctx.createImageData(size, size);
+            const data = imgData.data;
+            // Peak alpha scales with Z so more electrons → denser-looking cloud.
+            // Z ranges 1..30 in the UI; map to alpha 0.25..1.0 at the center.
+            const peakAlpha = Math.min(1, 0.2 + 0.8 * (Z / 30));
+            // Gaussian falls as exp(-r²/a²) but here r is in "sprite radius" units. We map sprite radius=1 → r = 2a (so density at edge ≈ exp(-4) ≈ 0.018).
+            for (let py = 0; py < size; py++) {
+                for (let px = 0; px < size; px++) {
+                    const dx = (px - c) / c; // -1 .. 1
+                    const dy = (py - c) / c;
+                    const r2 = dx*dx + dy*dy;     // 0..2 across sprite
+                    if (r2 > 1) continue;          // outside disc → transparent
+                    // r_physical / a == 2 * sqrt(r2)  (since edge of sprite == 2a). So exp(-r_phys²/a²) = exp(-4 r2)
+                    const intensity = Math.exp(-4 * r2);
+                    const idx = (py * size + px) * 4;
+                    data[idx + 0] = 100;             // R
+                    data[idx + 1] = 180;             // G
+                    data[idx + 2] = 255;             // B (light blue cloud)
+                    data[idx + 3] = Math.floor(255 * intensity * peakAlpha);
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.needsUpdate = true;
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+            const sprite = new THREE.Sprite(mat);
+            // Sprite world size: 4a (so visible cloud radius ~ 2a, matching where exp drops to ~e^-4)
+            const worldSize = 4 * a;
+            sprite.scale.set(worldSize, worldSize, 1);
+            return sprite;
+        }
+
+        function disposeAffAtomSprite(sprite) {
+            if (!sprite) return;
+            scene.remove(sprite);
+            if (sprite.material) {
+                if (sprite.material.map) sprite.material.map.dispose();
+                sprite.material.dispose();
+            }
+        }
+
+        function rebuildAffAtoms() {
+            disposeAffAtomSprite(aff_atom1);
+            disposeAffAtomSprite(aff_atom2);
+            aff_atom1 = null; aff_atom2 = null;
+            if (aff_atomPairLine) {
+                scene.remove(aff_atomPairLine);
+                aff_atomPairLine.geometry.dispose();
+                aff_atomPairLine.material.dispose();
+                aff_atomPairLine = null;
+            }
+            if (currentConcept !== 'atomic_form_factor') return;
+            const a = waveParams.aff_atomSize;
+            const Z = waveParams.aff_Z;
+            if (waveParams.aff_mode === 'single') {
+                aff_atom1 = makeGaussianAtomSprite(a, Z);
+                aff_atom1.position.set(0, 0, 0);
+                scene.add(aff_atom1);
+            } else {
+                const d = waveParams.aff_atomDistance;
+                const ang = waveParams.aff_atomPairAngle;
+                const dx = (d / 2) * Math.cos(ang);
+                const dy = (d / 2) * Math.sin(ang);
+                aff_atom1 = makeGaussianAtomSprite(a, Z);
+                aff_atom1.position.set(-dx, -dy, 0);
+                scene.add(aff_atom1);
+                aff_atom2 = makeGaussianAtomSprite(a, Z);
+                aff_atom2.position.set( dx,  dy, 0);
+                scene.add(aff_atom2);
+                // Dashed line connecting the atoms
+                const lineGeom = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(-dx, -dy, 0.02),
+                    new THREE.Vector3( dx,  dy, 0.02)
+                ]);
+                const lineMat = new THREE.LineDashedMaterial({ color: 0xaaaaaa, dashSize: 0.12, gapSize: 0.08 });
+                aff_atomPairLine = new THREE.Line(lineGeom, lineMat);
+                aff_atomPairLine.computeLineDistances();
+                scene.add(aff_atomPairLine);
+            }
+        }
+
+        // f(Q) for a Gaussian cloud of width a and Z electrons.
+        function aff_singleAtomFormFactor(Q, a, Z) {
+            return Z * Math.exp(-Q * Q * a * a / 4);
+        }
+
+        // Draw f(Q) (single-atom) or |F(Q)|² (two-atom) inset graph.
+        function drawAffGraph() {
+            if (!aff_graphCtx) return;
+            const w = aff_graphCanvas.width, h = aff_graphCanvas.height;
+            aff_graphCtx.clearRect(0, 0, w, h);
+            const margin = { left: 30, right: 8, top: 18, bottom: 22 };
+            const plotW = w - margin.left - margin.right;
+            const plotH = h - margin.top - margin.bottom;
+            const a = waveParams.aff_atomSize;
+            const Z = waveParams.aff_Z;
+            // Q range: show 0 .. Qmax where Qmax ≈ 2 |k_in| (the geometric max for elastic scattering)
+            const Qmax = Math.max(6, 2 * waveParams.aff_k_in_mag);
+            // Y axis: in single-atom mode, plot f(Q) from 0 to Z. In two-atom mode, plot |F|² from 0 to (2Z)² (max constructive).
+            const isSingle = waveParams.aff_mode === 'single';
+            const yMax = isSingle ? Z : (2 * Z) * (2 * Z);
+            // Current Q value
+            const Q_now = aff_currentQMagnitude();
+            // Axes
+            aff_graphCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+            aff_graphCtx.lineWidth = 1;
+            aff_graphCtx.beginPath();
+            aff_graphCtx.moveTo(margin.left, margin.top);
+            aff_graphCtx.lineTo(margin.left, margin.top + plotH);
+            aff_graphCtx.lineTo(margin.left + plotW, margin.top + plotH);
+            aff_graphCtx.stroke();
+            // X tick labels (0, Qmax/2, Qmax)
+            aff_graphCtx.fillStyle = '#cccccc';
+            aff_graphCtx.font = '10px Arial';
+            aff_graphCtx.textAlign = 'center';
+            for (const frac of [0, 0.5, 1]) {
+                const x = margin.left + frac * plotW;
+                aff_graphCtx.fillText((frac * Qmax).toFixed(1), x, margin.top + plotH + 12);
+                aff_graphCtx.strokeStyle = 'rgba(255,255,255,0.15)';
+                aff_graphCtx.beginPath();
+                aff_graphCtx.moveTo(x, margin.top); aff_graphCtx.lineTo(x, margin.top + plotH);
+                aff_graphCtx.stroke();
+            }
+            // Y tick labels (0, mid, max)
+            aff_graphCtx.textAlign = 'right';
+            for (const frac of [0, 0.5, 1]) {
+                const y = margin.top + plotH - frac * plotH;
+                aff_graphCtx.fillText((frac * yMax).toFixed(isSingle ? 1 : 0), margin.left - 4, y + 3);
+            }
+            // Axis labels
+            aff_graphCtx.textAlign = 'center';
+            aff_graphCtx.fillText('Q', margin.left + plotW / 2, h - 4);
+            aff_graphCtx.save();
+            aff_graphCtx.translate(10, margin.top + plotH / 2);
+            aff_graphCtx.rotate(-Math.PI / 2);
+            aff_graphCtx.fillText(isSingle ? 'f(Q)' : '|F(Q)|²', 0, 0);
+            aff_graphCtx.restore();
+            // Title
+            aff_graphCtx.textAlign = 'center';
+            aff_graphCtx.fillStyle = '#dddddd';
+            aff_graphCtx.font = '11px Arial';
+            aff_graphCtx.fillText(isSingle ? 'f(Q) = Z·exp(−Q²a²/4)' : '|F(Q)|² (atomic × structure)', margin.left + plotW / 2, 12);
+            // Curve
+            aff_graphCtx.strokeStyle = '#f1c40f';
+            aff_graphCtx.lineWidth = 2;
+            aff_graphCtx.beginPath();
+            const N = 200;
+            // For two-atom |F(Q)|² we average over the pair-axis component of Q because
+            // we don't have a fixed orientation in the graph; better: plot |F(Q)|² along the
+            // direction parallel to the pair axis (since that's where d·Q matters). We'll use
+            // Q along the pair axis: |F|² = f(Q)² · 2 (1 + cos(Qd)).
+            const d_dist = waveParams.aff_atomDistance;
+            for (let i = 0; i <= N; i++) {
+                const Q = (i / N) * Qmax;
+                const f = aff_singleAtomFormFactor(Q, a, Z);
+                let y;
+                if (isSingle) {
+                    y = f;
+                } else {
+                    // assume Q parallel to inter-atomic axis for the curve
+                    y = f * f * 2 * (1 + Math.cos(Q * d_dist));
+                }
+                const px = margin.left + (i / N) * plotW;
+                const py = margin.top + plotH - (y / yMax) * plotH;
+                if (i === 0) aff_graphCtx.moveTo(px, py);
+                else aff_graphCtx.lineTo(px, py);
+            }
+            aff_graphCtx.stroke();
+            // Current-Q marker: vertical red line + dot on curve
+            if (Q_now >= 0 && Q_now <= Qmax) {
+                const xQ = margin.left + (Q_now / Qmax) * plotW;
+                aff_graphCtx.strokeStyle = '#e74c3c';
+                aff_graphCtx.lineWidth = 1;
+                aff_graphCtx.beginPath();
+                aff_graphCtx.moveTo(xQ, margin.top);
+                aff_graphCtx.lineTo(xQ, margin.top + plotH);
+                aff_graphCtx.stroke();
+                // Value at this Q (using the SAME curve definition as above for consistency)
+                const f = aff_singleAtomFormFactor(Q_now, a, Z);
+                let yVal;
+                if (isSingle) yVal = f;
+                else yVal = f * f * 2 * (1 + Math.cos(Q_now * d_dist));
+                const yClamped = Math.max(0, Math.min(yMax, yVal));
+                const yQ = margin.top + plotH - (yClamped / yMax) * plotH;
+                aff_graphCtx.fillStyle = '#e74c3c';
+                aff_graphCtx.beginPath();
+                aff_graphCtx.arc(xQ, yQ, 4, 0, 2 * Math.PI);
+                aff_graphCtx.fill();
+            }
+        }
+
+        // |Q| from current params
+        function aff_currentQMagnitude() {
+            const k = waveParams.aff_k_in_mag;
+            const kIn  = new THREE.Vector2(k * Math.cos(waveParams.aff_theta_in),  k * Math.sin(waveParams.aff_theta_in));
+            const kOut = new THREE.Vector2(k * Math.cos(waveParams.aff_theta_out), k * Math.sin(waveParams.aff_theta_out));
+            return kOut.clone().sub(kIn).length();
+        }
+        
         
         function init() {
             scaleContainerElement = document.getElementById('scale-container');
             parameterControlsContainer = document.getElementById('parameter-controls'); 
             phasorCanvas = document.getElementById('phasor-canvas');
             phasorCtx = phasorCanvas.getContext('2d');
+            polarCanvas = document.getElementById('polar-canvas');
+            polarCtx = polarCanvas.getContext('2d');
+            aff_graphCanvas = document.getElementById('aff-graph-canvas');
+            aff_graphCtx = aff_graphCanvas.getContext('2d');
             scene = new THREE.Scene(); scene.background = new THREE.Color(0x111827);
             axesHelper = new THREE.AxesHelper(waveParams.extent / 2); scene.add(axesHelper);
+            // Faint background grid (helps students visually measure wavelengths)
+            gridHelper = new THREE.GridHelper(waveParams.extent, waveParams.extent * 2, 0x2a3a5a, 0x1f2b45);
+            gridHelper.rotation.x = Math.PI / 2; // Lie in XY plane
+            gridHelper.position.z = -0.05;       // Behind the waves
+            scene.add(gridHelper);
             const canvasElement = document.getElementById('webgl-canvas');
             const vizArea = document.getElementById('visualization-area');
             const initialWidth = vizArea.clientWidth; const initialHeight = vizArea.clientHeight;
             camera = new THREE.OrthographicCamera( waveParams.extent / -2, waveParams.extent / 2, (waveParams.extent * initialHeight / initialWidth) / 2, (waveParams.extent * initialHeight / initialWidth) / -2, 0.1, 1000 );
             camera.position.set(0, 0, 10); 
             renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio || 1);
             renderer.setSize(initialWidth, initialHeight);
             renderer.localClippingEnabled = true;
             controls = new THREE.OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = 0.05; controls.screenSpacePanning = true; 
@@ -1509,10 +2678,32 @@ function setupConceptVisualization(concept) {
             conceptSelector = document.getElementById('concept-selector');
             conceptSelector.addEventListener('change', handleConceptChange);
             
-            document.getElementById('footer-date').textContent = "NitaD, Univ Paris-Saclay, August 2, 2025, updated 19 Sept 2025.";
+            document.getElementById('footer-date').textContent = "NitaD, Univ Paris-Saclay, August 2, 2025, updated November 2025.";
 
             raycaster = new THREE.Raycaster();
             mouse = new THREE.Vector2();
+
+            // --- HUD: play/pause, speed, reset view ---
+            const playBtn = document.getElementById('hud-playpause');
+            playBtn.addEventListener('click', () => {
+                isPaused = !isPaused;
+                playBtn.textContent = isPaused ? '▶ Play' : '⏸ Pause';
+            });
+            const speedSlider = document.getElementById('hud-speed');
+            const speedValue = document.getElementById('hud-speed-value');
+            speedSlider.addEventListener('input', e => {
+                timeSpeed = parseFloat(e.target.value);
+                speedValue.textContent = timeSpeed.toFixed(2) + '×';
+            });
+            document.getElementById('hud-reset-view').addEventListener('click', resetCameraView);
+
+            // Spacebar toggles play/pause
+            window.addEventListener('keydown', e => {
+                if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+                    e.preventDefault();
+                    playBtn.click();
+                }
+            });
 
             resetScatteringObjects();
         
@@ -1521,6 +2712,33 @@ function setupConceptVisualization(concept) {
             window.addEventListener('resize', onWindowResize, false); 
             setupResizer();
             animate();
+        }
+
+        function resetCameraView() {
+            if (!camera || !controls) return;
+            if (camera.isOrthographicCamera) {
+                camera.position.set(0, 0, 10);
+                controls.target.set(0, 0, 0);
+                const vizArea = document.getElementById('visualization-area');
+                const aspect = vizArea.clientWidth / vizArea.clientHeight;
+                camera.left = waveParams.extent / -2;
+                camera.right = waveParams.extent / 2;
+                camera.top = (waveParams.extent / aspect) / 2;
+                camera.bottom = (waveParams.extent / aspect) / -2;
+                camera.zoom = 1;
+                camera.updateProjectionMatrix();
+            } else {
+                camera.position.set(8, 6, 15);
+                controls.target.set(0, 0, 0);
+            }
+            controls.update();
+            // Visible feedback so the user sees the button worked even when there was nothing to reset
+            const btn = document.getElementById('hud-reset-view');
+            if (btn) {
+                const original = btn.style.backgroundColor;
+                btn.style.backgroundColor = '#2ecc71';
+                setTimeout(() => { btn.style.backgroundColor = original; }, 200);
+            }
         }
 
         function handleConceptChange(event) {
@@ -1535,10 +2753,10 @@ function setupConceptVisualization(concept) {
 
         function animate() {
             requestAnimationFrame(animate);
-            animationTime += 0.015;
+            if (!isPaused) animationTime += 0.015 * timeSpeed;
             if (controls) controls.update();
             updateConceptVisualization(currentConcept);
-            updateScales(); 
+            updateScales();
             renderer.render(scene, camera); 
         }
 
@@ -1558,7 +2776,7 @@ function setupConceptVisualization(concept) {
 
         function worldToScreen(worldVector, camera, canvas) { const screenVector = worldVector.clone().project(camera); const x = Math.round((screenVector.x * 0.5 + 0.5) * canvas.clientWidth); const y = Math.round((-screenVector.y * 0.5 + 0.5) * canvas.clientHeight); return { x, y }; }
         function updateScales() { 
-            if (!scaleContainerElement || !renderer || currentConcept === 'wave_scattering' || currentConcept === 'atomic_form_factor') { if(scaleContainerElement) scaleContainerElement.innerHTML = ''; return; } 
+            if (!scaleContainerElement || !renderer || currentConcept === 'wave_scattering') { if(scaleContainerElement) scaleContainerElement.innerHTML = ''; return; } 
             while (scaleContainerElement.firstChild) scaleContainerElement.removeChild(scaleContainerElement.firstChild); 
             const canvas = renderer.domElement; 
             if (!canvas || canvas.clientWidth === 0 || canvas.clientHeight === 0) return; 
@@ -1645,60 +2863,14 @@ function setupConceptVisualization(concept) {
         }
 
         function onMouseDown(event) {
-            if (currentConcept !== 'atomic_form_factor') return;
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-            
-            const intersects = raycaster.intersectObjects([atomicFormFactorViz.dragPlane]); 
-            
-            if (intersects.length > 0) { // This check will now work
-                const intersectionPoint = intersects[0].point;
-                const scattererPos = atomicFormFactorViz.scattererMovable.position;
-                
-                // Check distance on the XY plane only, since that's where we click
-                const distance = new THREE.Vector2(intersectionPoint.x, intersectionPoint.y)
-                                    .distanceTo(new THREE.Vector2(scattererPos.x, scattererPos.y));
-
-                // Start dragging if the click is close to the scatterer
-                if (distance < 0.5) { // A larger click radius for usability
-                    draggedObject = atomicFormFactorViz.scattererMovable;
-                    controls.enabled = false;
-                }
-            }
+            // Reserved for future interactive concepts requiring drag interactions.
+            // Currently no concept uses this, but the infrastructure is preserved.
+            return;
         }
 
         function onMouseMove(event) {
-            if (draggedObject) {
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-                raycaster.setFromCamera(mouse, camera);
-                
-                const intersects = raycaster.intersectObjects([atomicFormFactorViz.dragPlane]);
-                if (intersects.length > 0) {
-                    const intersection = intersects[0].point; // This point has z=0
-                    const radius = atomicFormFactorParams.atomRadius;
-                    
-                    // We only care about X and Y from the intersection
-                    const pos_xy = new THREE.Vector2(intersection.x, intersection.y);
-                    
-                    // Check if XY part is outside the radius
-                    const current_z = atomicFormFactorParams.scatterer_z;
-                    const total_vec = new THREE.Vector3(pos_xy.x, pos_xy.y, current_z);
-
-                    if (total_vec.length() > radius) {
-                        // Clamp the 3D vector
-                        total_vec.normalize().multiplyScalar(radius);
-                        draggedObject.position.copy(total_vec);
-                    } else {
-                        // We are inside the radius, so just set X and Y from mouse
-                        // and keep Z from slider.
-                        draggedObject.position.set(pos_xy.x, pos_xy.y, current_z);
-                    }
-                }
-            }
+            // Reserved for future interactive concepts requiring drag interactions.
+            if (!draggedObject) return;
         }
 
 
@@ -1715,7 +2887,9 @@ function setupConceptVisualization(concept) {
             const {
                 showResultant = true,
                 color1 = '#ffaa00',
-                color2 = '#00aaff'
+                color2 = '#00aaff',
+                amp1 = 1.0,
+                amp2 = 1.0
             } = options;
 
             if (!phasorCtx) return;
@@ -1726,11 +2900,19 @@ function setupConceptVisualization(concept) {
             phasorCtx.clearRect(0, 0, w, h);
             
             // --- Define the two base vectors ---
-            const vectorLength = showResultant ? maxRadius / 2.1 : maxRadius * 0.85;
-            const v1x = vectorLength;
+            // Note: HTML canvas y-axis points DOWN. To get the math convention
+            // (positive φ → counter-clockwise rotation as seen on screen),
+            // we draw with y flipped: screen_y = -math_y.
+            // Length scale: the longer of (amp1+amp2) [if showing resultant] or max(amp1,amp2)
+            // is mapped to maxRadius * 0.95 so the diagram fills the canvas.
+            const denom = showResultant ? (amp1 + amp2) : Math.max(amp1, amp2);
+            const unit = (denom > 0 ? (maxRadius * 0.95) / denom : maxRadius);
+            const v1len = amp1 * unit;
+            const v2len = amp2 * unit;
+            const v1x = v1len;
             const v1y = 0;
-            const v2x = vectorLength * Math.cos(phaseDiff);
-            const v2y = vectorLength * Math.sin(phaseDiff);
+            const v2x = v2len * Math.cos(phaseDiff);
+            const v2y = -v2len * Math.sin(phaseDiff);
 
             // --- Draw Vector 1 ---
             phasorCtx.strokeStyle = color1; 
@@ -1761,18 +2943,24 @@ function setupConceptVisualization(concept) {
 
             // --- Draw the phase difference arc and text ---
             if (Math.abs(phaseDiff) > 0.01) {
-                const arcRadius = vectorLength * 0.5;
+                const arcRadius = Math.min(v1len, v2len) * 0.5;
                 phasorCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
                 phasorCtx.lineWidth = 1;
                 phasorCtx.beginPath();
-                const startAngle = Math.min(0, phaseDiff);
-                const endAngle = Math.max(0, phaseDiff);
+                // Arc drawn in screen coords: use the negated angle for the same
+                // counter-clockwise math convention. The HTML canvas arc() uses
+                // anticlockwise=true when the last arg is true; but since we
+                // already flipped y for the vectors, drawing from -phaseDiff
+                // (start at 0, end at -phaseDiff) traces the arc on the correct side.
+                const startAngle = Math.min(0, -phaseDiff);
+                const endAngle = Math.max(0, -phaseDiff);
                 phasorCtx.arc(centerX, centerY, arcRadius, startAngle, endAngle);
                 phasorCtx.stroke();
 
                 // Add text for the angle
                 const angleDeg = (phaseDiff * 180 / Math.PI).toFixed(0);
-                const textAngle = phaseDiff / 2; 
+                // Text positioned in the middle of the arc, on the screen-flipped side
+                const textAngle = -phaseDiff / 2;
                 const textRadius = arcRadius + 15;
                 const textX = centerX + textRadius * Math.cos(textAngle);
                 const textY = centerY + textRadius * Math.sin(textAngle);
@@ -1786,9 +2974,91 @@ function setupConceptVisualization(concept) {
         }
 
 
+        // --- Polar dipole radiation pattern (sin²θ) for wave scattering ---
+        // Drawn in 2D as a textbook-style polar diagram.
+        function drawPolarDipole(polarizationType) {
+            if (!polarCtx) return;
+            const w = polarCanvas.width, h = polarCanvas.height;
+            const cx = w / 2, cy = h / 2;
+            const R = Math.min(w, h) / 2 - 24;
+            polarCtx.clearRect(0, 0, w, h);
+            // Reference circles at r = 0.25, 0.5, 0.75, 1.0 with labels
+            polarCtx.strokeStyle = 'rgba(255,255,255,0.18)';
+            polarCtx.lineWidth = 1;
+            polarCtx.fillStyle = 'rgba(180,180,180,0.7)';
+            polarCtx.font = '9px Arial';
+            polarCtx.textAlign = 'left';
+            polarCtx.textBaseline = 'middle';
+            const ringFractions = [0.25, 0.5, 0.75, 1.0];
+            for (const frac of ringFractions) {
+                polarCtx.beginPath();
+                polarCtx.arc(cx, cy, R * frac, 0, 2 * Math.PI);
+                polarCtx.stroke();
+                // Label on the +x axis side
+                polarCtx.fillText(frac.toFixed(2), cx + R * frac + 2, cy - 5);
+            }
+            // Axes with degree labels
+            polarCtx.beginPath();
+            polarCtx.moveTo(cx - R, cy); polarCtx.lineTo(cx + R, cy);
+            polarCtx.moveTo(cx, cy - R); polarCtx.lineTo(cx, cy + R);
+            polarCtx.stroke();
+            polarCtx.textAlign = 'center';
+            polarCtx.fillStyle = 'rgba(200,200,200,0.85)';
+            polarCtx.font = '10px Arial';
+            polarCtx.fillText('0°',   cx,        cy - R - 6);
+            polarCtx.fillText('180°', cx,        cy + R + 10);
+            polarCtx.textAlign = 'left';   polarCtx.fillText('90°', cx + R + 4, cy + 4);
+            polarCtx.textAlign = 'right';  polarCtx.fillText('90°', cx - R - 4, cy + 4);
+            // Pattern
+            const isLinear = polarizationType.startsWith('linear');
+            const dipoleAxisAngle = (polarizationType === 'linear_horizontal') ? 0 : Math.PI / 2;
+            polarCtx.strokeStyle = '#ff8c00';
+            polarCtx.fillStyle = 'rgba(255, 140, 0, 0.25)';
+            polarCtx.lineWidth = 2;
+            polarCtx.beginPath();
+            const N = 180;
+            for (let i = 0; i <= N; i++) {
+                const phi = (i / N) * 2 * Math.PI;
+                const theta = phi - dipoleAxisAngle;
+                let r;
+                if (isLinear) {
+                    r = Math.sin(theta) * Math.sin(theta);
+                } else {
+                    r = 0.5 * (1 + Math.cos(theta) * Math.cos(theta));
+                }
+                const px = cx + R * r * Math.cos(phi);
+                const py = cy - R * r * Math.sin(phi);
+                if (i === 0) polarCtx.moveTo(px, py);
+                else polarCtx.lineTo(px, py);
+            }
+            polarCtx.closePath();
+            polarCtx.fill();
+            polarCtx.stroke();
+            // Dipole axis indicator (dashed)
+            polarCtx.setLineDash([4, 3]);
+            polarCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+            polarCtx.lineWidth = 1;
+            polarCtx.beginPath();
+            if (isLinear) {
+                if (polarizationType === 'linear_horizontal') {
+                    polarCtx.moveTo(cx - R, cy); polarCtx.lineTo(cx + R, cy);
+                } else {
+                    polarCtx.moveTo(cx, cy - R); polarCtx.lineTo(cx, cy + R);
+                }
+            }
+            polarCtx.stroke();
+            polarCtx.setLineDash([]);
+            // Title
+            polarCtx.fillStyle = '#cccccc';
+            polarCtx.font = '11px Arial';
+            polarCtx.textAlign = 'center';
+            polarCtx.textBaseline = 'middle';
+            const title = isLinear ? 'Pattern: sin²θ  (θ from dipole axis)' : '½(1 + cos²θ)  unpolarized';
+            polarCtx.fillText(title, cx, 10);
+        }
+
+
         document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
-
-
