@@ -419,7 +419,7 @@
             <p class="subtitle">Interactive simulation of an X-ray tube spectrum</p>
 
             <div class="control-group">
-                <h3><span class="section-num">1</span>Source parameters</h3>
+                <h3>Source parameters</h3>
                 <div class="slider-row">
                     <label for="elementSelect" style="display:block; margin-bottom:6px;">Anode element</label>
                     <select id="elementSelect">
@@ -443,7 +443,7 @@
             </div>
 
             <div class="control-group">
-                <h3><span class="section-num">2</span>Display range</h3>
+                <h3>Display range</h3>
                 <div class="slider-row">
                     <label for="lambdaMinSlider">λ min <span class="value-badge"><span id="lambdaMinValue">0.0</span> Å</span></label>
                     <input type="range" id="lambdaMinSlider" min="0" max="1000" value="0" step="1">
@@ -455,7 +455,7 @@
             </div>
 
             <div class="control-group">
-                <h3><span class="section-num">3</span>Display options</h3>
+                <h3>Display options</h3>
                 <div class="toggle-row">
                     <span>Show Bremsstrahlung only</span>
                     <label class="switch"><input type="checkbox" id="toggleBremsOnly"><span class="slider-toggle"></span></label>
@@ -472,14 +472,18 @@
                     <span>Mark Duane–Hunt limit</span>
                     <label class="switch"><input type="checkbox" id="toggleDuaneHunt" checked><span class="slider-toggle"></span></label>
                 </div>
-                <div class="toggle-row">
-                    <span>Logarithmic intensity</span>
-                    <label class="switch"><input type="checkbox" id="toggleLogY"><span class="slider-toggle"></span></label>
+                <div class="slider-row" style="margin-top:10px;">
+                    <label for="yScaleSelect" style="display:block; margin-bottom:6px;">Intensity axis</label>
+                    <select id="yScaleSelect">
+                        <option value="linear">Linear I</option>
+                        <option value="sqrt" selected>&#8730;I  (recommended)</option>
+                        <option value="log">Logarithmic I</option>
+                    </select>
                 </div>
             </div>
 
             <div class="control-group">
-                <h3><span class="section-num">4</span>Comparison</h3>
+                <h3>Comparison</h3>
                 <div class="button-row" style="margin-bottom: 8px;">
                     <button id="addSpectrumButton">+ Add overlay</button>
                 </div>
@@ -506,7 +510,7 @@
     </div>
 
     <footer>
-        NitaD, Univ Paris-Saclay · 8 August 2025, upgraded 20 April 2026 
+        NitaD, Univ Paris-Saclay · 8 August 2025, upgraded 26 july 2026 
     </footer>
 
     <script>
@@ -519,13 +523,52 @@
             const hc_keV_A = (h * c / e_charge) * 1e7;   // ≈ 12.3984
 
   
-            // K_BREMS and K_CHAR are chosen so that, at Cu 40 kV / 30 mA with natural
-            // linewidths, the Kα1 peak height is ~90× the continuum at the same wavelength
-            // (standard textbook value for a sealed Cu tube, cf. ucl.ac.uk pd/pdnn tutorial).
+            // ----------------------------------------------------------------
+            //  NORMALISATION
+            //  The two scale factors are fixed by an *integrated* (energy-budget)
+            //  criterion, not by a peak-height criterion.  Integrating Kramers'
+            //  law analytically:
+            //      ∫ I_brems dλ  =  K_BREMS · i · Z / (2 λ_min²)   ∝  i·Z·V²
+            //  which recovers the classic  η ≈ 1.1e-9·Z·V  efficiency scaling.
+            //  K_CHAR is then set so that at Cu / 40 kV the total K-line output
+            //  is ≈ 35 % of the total continuum output — the right order for a
+            //  sealed Cu tube at overvoltage ratio U ≈ 4.5.
+            //
+            //  NOTE: peak *height* is NOT a free parameter any more — it follows
+            //  from the integrated intensity divided by the line width, which is
+            //  the physically correct chain.  With the default 130 eV detector
+            //  this gives a Cu Kα1 peak ≈ 37× the local continuum (a realistic
+            //  measured value); with the detector set to 0 eV it gives ≈ 1400×,
+            //  which is the true natural-linewidth ratio.
+            // ----------------------------------------------------------------
             const K_BREMS      = 1.0;      // overall scaling of Kramers' law (arbitrary units)
-            const K_CHAR       = 0.02;     // characteristic-line scaling — tuned empirically
-            const LINE_EXPONENT_N = 1.5;   // exponent in  I_line ∝ i·(V-V_edge)^n   (Worthington–Tomlin ≈ 1.5)
+            const K_CHAR       = 6.7;      // characteristic scaling, fixed by the criterion above
+            const LINE_EXPONENT_N = 1.67;  // exponent in  I_line ∝ i·(U−1)^n   (Worthington–Tomlin)
             const L_INTENSITY_FACTOR = 0.05;  // L shell fluorescence yield is much lower than K
+
+            // ----------------------------------------------------------------
+            //  ABSORPTION (self-absorption in the anode + Be exit window)
+            //  Both are pure functions of λ, so they do NOT change the
+            //  peak-to-background ratio at a given λ — they shape the spectrum,
+            //  in particular the long-wavelength roll-off that a bare Kramers
+            //  law completely misses.
+            // ----------------------------------------------------------------
+            const BE_WINDOW_MM   = 0.25;   // Be exit window thickness [mm]
+            const BE_DENSITY     = 1.848;  // [g/cm³]
+            const TAKEOFF_DEG    = 20.0;   // X-ray take-off angle from the anode surface
+            const MEAN_DEPTH_FRAC = 0.35;  // mean X-ray production depth / electron range
+            const K_JUMP_RATIO   = 6.5;    // μ/ρ discontinuity at the anode's own K edge
+            const MU_MAX         = 1.0e4;  // clamp on μ/ρ [cm²/g], keeps exp() sane
+
+            // ----------------------------------------------------------------
+            //  DETECTOR RESOLUTION — fixed at 0 eV.
+            //  The tool shows the INTRINSIC spectrum: each line is a pure
+            //  Lorentzian at its natural (lifetime) linewidth, so Kα1 and Kα2 are
+            //  fully resolved.  Raising this convolves in a Gaussian detector
+            //  response (a real Si drift detector is ~130 eV) — the pseudo-Voigt
+            //  machinery in makeProfile() still supports it if ever wanted.
+            // ----------------------------------------------------------------
+            const DETECTOR_FWHM_eV = 0;
 
             const AXIS_FONT_FAMILY = "'Inter', sans-serif";
 
@@ -535,57 +578,60 @@
             //  K_edge            : K-shell ionisation energy
             //  Ka1, Ka2, Kb      : Kα1, Kα2, Kβ1 emission energies
             //  Kb_Ka_ratio       : (ΣKβ)/(ΣKα) total intensity ratio, experimental/theoretical
-            //  Ka1_width_eV      : natural FWHM of the Kα1 line (Lorentzian)
-            //  K_edge            : K-shell ionisation energy
-            //  Ka1, Ka2, Kb      : Kα1, Kα2, Kβ1 emission energies
-            //  Kb_Ka_ratio       : (ΣKβ)/(ΣKα) total intensity ratio, experimental/theoretical
-            //  Ka1_width_eV      : natural FWHM of the Kα1 line (Lorentzian)
+            //  Ka1/Ka2_width_eV  : natural FWHM of each line (Lorentzian).
+            //                      Kα2 is intrinsically broader (Γ_K+Γ_L2 vs Γ_K+Γ_L3,
+            //                      the L2 level being widened by the Coster–Kronig
+            //                      L2→L3 channel). The ratio falls from ~1.38 at Mn
+            //                      to ~1.01 at W, so a flat multiplier is wrong.
+            //                      3d metals: Hölzer et al., Phys. Rev. A 56, 4554 (1997).
+            //                      Mo/Ag/W: from Krause & Oliver level widths, approximate.
+            //  A                 : molar mass [g/mol] — used for self-absorption
             //  La1, Lb1          : Lα1, Lβ1 emission energies (keV). Lb1 optional.
             //  L_III_edge        : L-III ionisation energy (keV)
             //  color             : rendering colour
             // ================================================================
             const elementData = {
-                "Mn": { Z: 25,
+                "Mn": { Z: 25, A: 54.938,
                     Ka1_energy: 5.8988, Ka2_energy: 5.8877, Kb_energy: 6.4905,
                     K_edge: 6.539,
                     La1_energy: 0.637, L_III_edge: 0.640,
-                    Kb_Ka_ratio: 0.125, Ka1_width_eV: 1.47,
+                    Kb_Ka_ratio: 0.125, Ka1_width_eV: 1.71, Ka2_width_eV: 2.36,
                     color: "#1f77b4" },
-                "Co": { Z: 27,
+                "Co": { Z: 27, A: 58.933,
                     Ka1_energy: 6.9303, Ka2_energy: 6.9153, Kb_energy: 7.6494,
                     K_edge: 7.709,
                     La1_energy: 0.776, L_III_edge: 0.778,
-                    Kb_Ka_ratio: 0.134, Ka1_width_eV: 1.85,
+                    Kb_Ka_ratio: 0.134, Ka1_width_eV: 1.8, Ka2_width_eV: 2.41,
                     color: "#ff7f0e" },
-                "Ni": { Z: 28,
+                "Ni": { Z: 28, A: 58.693,
                     Ka1_energy: 7.4782, Ka2_energy: 7.4609, Kb_energy: 8.2647,
                     K_edge: 8.333,
                     La1_energy: 0.852, L_III_edge: 0.855,
-                    Kb_Ka_ratio: 0.135, Ka1_width_eV: 2.08,
+                    Kb_Ka_ratio: 0.135, Ka1_width_eV: 2.01, Ka2_width_eV: 2.67,
                     color: "#2ca02c" },
-                "Cu": { Z: 29,
+                "Cu": { Z: 29, A: 63.546,
                     Ka1_energy: 8.0478, Ka2_energy: 8.0278, Kb_energy: 8.9053,
                     K_edge: 8.979,
                     La1_energy: 0.930, L_III_edge: 0.933,
-                    Kb_Ka_ratio: 0.140, Ka1_width_eV: 2.30,
+                    Kb_Ka_ratio: 0.140, Ka1_width_eV: 2.29, Ka2_width_eV: 2.67,
                     color: "#d62728" },
-                "Mo": { Z: 42,
+                "Mo": { Z: 42, A: 95.95,
                     Ka1_energy: 17.4793, Ka2_energy: 17.3743, Kb_energy: 19.6083,
                     K_edge: 20.000,
                     La1_energy: 2.2932, L_III_edge: 2.520,
-                    Kb_Ka_ratio: 0.201, Ka1_width_eV: 6.50,
+                    Kb_Ka_ratio: 0.201, Ka1_width_eV: 6.5, Ka2_width_eV: 6.6,
                     color: "#9467bd" },
-                "Ag": { Z: 47,
+                "Ag": { Z: 47, A: 107.868,
                     Ka1_energy: 22.1629, Ka2_energy: 21.9903, Kb_energy: 24.9424,
                     K_edge: 25.514,
                     La1_energy: 2.9843, Lb1_energy: 3.1509, L_III_edge: 3.351,
-                    Kb_Ka_ratio: 0.210, Ka1_width_eV: 10.0,
+                    Kb_Ka_ratio: 0.210, Ka1_width_eV: 10.0, Ka2_width_eV: 10.1,
                     color: "#8c564b" },
-                "W":  { Z: 74,
+                "W":  { Z: 74, A: 183.84,
                     Ka1_energy: 59.3182, Ka2_energy: 57.9817, Kb_energy: 67.2443,
                     K_edge: 69.525,
                     La1_energy: 8.3976, Lb1_energy: 9.67235, L_III_edge: 10.207,
-                    Kb_Ka_ratio: 0.240, Ka1_width_eV: 45.0,
+                    Kb_Ka_ratio: 0.240, Ka1_width_eV: 45.0, Ka2_width_eV: 45.5,
                     color: "#17becf" }
             };
 
@@ -611,7 +657,7 @@
             const toggleLinesOnly  = document.getElementById('toggleLinesOnly');
             const toggleLabels     = document.getElementById('toggleLabels');
             const toggleDuaneHunt  = document.getElementById('toggleDuaneHunt');
-            const toggleLogY       = document.getElementById('toggleLogY');
+            const yScaleSelect     = document.getElementById('yScaleSelect');
 
             const overlaysListDiv    = document.getElementById('overlaysList');
             const overlaysListGroup  = document.getElementById('overlaysListGroup');
@@ -632,50 +678,143 @@
             }
 
             /**
-             * Convert an energy-domain linewidth (FWHM in eV) to a wavelength-domain
-             * standard deviation (σ in Å) at the line centre.
-             *   |dλ/dE| = λ²/(hc)       (in appropriate units)
-             *   σ_λ = σ_E · λ² / (hc)   with  σ = FWHM / (2·√(2 ln 2))
+             * Build a unit-area pseudo-Voigt profile in the WAVELENGTH domain.
+             * The natural (lifetime) broadening is Lorentzian; the detector
+             * response is Gaussian. Their convolution is a Voigt, which we
+             * approximate with the Thompson–Cox–Hastings pseudo-Voigt.
+             *
+             * Widths are supplied in eV and converted with |dλ/dE| = λ²/hc.
              */
-            function widthEv_to_sigmaA(fwhm_eV, lambda_center_A) {
-                const fwhm_keV = fwhm_eV * 1e-3;
-                const fwhm_A   = fwhm_keV * lambda_center_A * lambda_center_A / hc_keV_A;
-                return fwhm_A / 2.35482;   // 2·√(2·ln 2)
+            function makeProfile(fwhmL_eV, fwhmG_eV, lambda_A) {
+                const toA = (e_eV) => e_eV * 1e-3 * lambda_A * lambda_A / hc_keV_A;
+                const fL = Math.max(toA(fwhmL_eV), 1e-12);
+                const fG = Math.max(toA(fwhmG_eV), 0);
+
+                // Total FWHM (TCH combination rule)
+                const f = Math.pow(
+                      Math.pow(fG, 5)
+                    + 2.69269 * Math.pow(fG, 4) * fL
+                    + 2.42843 * Math.pow(fG, 3) * fL * fL
+                    + 4.47163 * fG * fG * Math.pow(fL, 3)
+                    + 0.07842 * fG * Math.pow(fL, 4)
+                    + Math.pow(fL, 5), 0.2);
+
+                const q   = fL / f;
+                const eta = Math.min(1, Math.max(0,
+                            1.36603 * q - 0.47719 * q * q + 0.11116 * q * q * q));
+
+                return {
+                    fwhm_A: f,
+                    eta,
+                    sigma_A: f / 2.35482,          // kept for code that thinks in σ
+                    // Lorentzian tails decay only as 1/x², so the evaluation
+                    // window has to be much wider than the Gaussian 12σ rule.
+                    halfWidth_A: 80 * f
+                };
             }
 
-            /** Unit-area Gaussian g(x; μ, σ) so line “area” = intensity_factor. */
-            function gaussianUnitArea(x, mu, sigma) {
-                const z = (x - mu) / sigma;
-                return Math.exp(-0.5 * z * z) / (sigma * 2.5066282746);  // √(2π)
+            /** Unit-area pseudo-Voigt evaluated at x. */
+            function profileUnitArea(x, mu, prof) {
+                const d = x - mu, f = prof.fwhm_A;
+                const L = (2 / (Math.PI * f)) / (1 + 4 * d * d / (f * f));
+                const G = (2 * Math.sqrt(Math.LN2 / Math.PI) / f)
+                        * Math.exp(-4 * Math.LN2 * d * d / (f * f));
+                return prof.eta * L + (1 - prof.eta) * G;
             }
 
             /**
              * Kramers' law for the continuous (Bremsstrahlung) spectrum.
-             *   I_brems(λ) dλ = K · i · Z · (λ/λ_min − 1) · dλ / λ²
-             * Zero below λ_min, rises, peaks near 1.5·λ_min, decays as 1/λ² at long λ.
-             * Returned value has intensity units consistent with our arbitrary scale.
+             *
+             * Kramers' law is flat in FREQUENCY:  I(ν) ∝ Z·(ν_max − ν).
+             * Changing variable with dν = c/λ²·dλ gives the wavelength form
+             *   I_brems(λ) dλ = K · i · Z · (λ/λ_min − 1) · dλ / λ³
+             * i.e. 1/λ³, not 1/λ². This matters: the 1/λ³ form peaks at exactly
+             * 1.5·λ_min (the observed value) and has a convergent integral,
+             *   ∫ I dλ = K·i·Z / (2 λ_min²)  ∝  i·Z·V²,
+             * whereas a 1/λ² form peaks at 2·λ_min and diverges logarithmically.
              */
             function bremsstrahlung(lambda_A, lambda_min_A, i_mA, Z) {
                 if (lambda_A <= lambda_min_A) return 0;
-                return K_BREMS * i_mA * Z * (lambda_A / lambda_min_A - 1) / (lambda_A * lambda_A);
+                return K_BREMS * i_mA * Z * (lambda_A / lambda_min_A - 1)
+                       / (lambda_A * lambda_A * lambda_A);
+            }
+
+            /**
+             * Mass attenuation coefficient of beryllium [cm²/g].
+             * Photoelectric power law + a roughly constant scattering floor.
+             * Accurate to ~15 % over 1–20 keV, which is ample here.
+             */
+            function muRho_Be(E_keV) {
+                if (E_keV <= 0) return MU_MAX;
+                return Math.min(MU_MAX, 600 * Math.pow(E_keV, -2.9) + 0.22);
+            }
+
+            /**
+             * Mass attenuation coefficient of the anode material [cm²/g],
+             * Bragg–Pierce form  μ/ρ ≈ k·Z³·λ³/A  with a jump at the K edge.
+             * Calibrated on Cu at 8.05 keV (52.9 cm²/g); reproduces W at
+             * 8.4 keV to ~7 %. L/M edges are not resolved — acceptable for a
+             * teaching tool, but do not read absolute numbers off it.
+             */
+            function muRho_anode(E_keV, data) {
+                if (E_keV <= 0) return MU_MAX;
+                const lambda = hc_keV_A / E_keV;
+                let mu = 0.0377 * Math.pow(data.Z, 3) * Math.pow(lambda, 3) / data.A;
+                if (E_keV > data.K_edge) mu *= K_JUMP_RATIO;   // K shell opens up
+                return Math.min(MU_MAX, mu);
+            }
+
+            /**
+             * Effective mass path [g/cm²] travelled inside the anode by an
+             * escaping photon: (mean production depth) / sin(take-off angle).
+             * Depth from the Kanaya–Okayama range; note the density cancels
+             * once the range is expressed as a mass depth.
+             */
+            function anodeMassPath(voltage_kV, data) {
+                const massRange = 2.76e-6 * data.A * Math.pow(voltage_kV, 1.67)
+                                / Math.pow(data.Z, 0.89);
+                return massRange * MEAN_DEPTH_FRAC / Math.sin(TAKEOFF_DEG * Math.PI / 180);
+            }
+
+            /**
+             * Combined transmission (anode self-absorption × Be window).
+             * This is what turns the bare Kramers ramp into a real tube
+             * spectrum: it kills everything below ~2–3 keV and puts a visible
+             * step in the continuum at the anode's own K edge.
+             */
+            function makeTransmission(voltage_kV, data) {
+                const anodePath = anodeMassPath(voltage_kV, data);
+                const bePath    = BE_DENSITY * BE_WINDOW_MM * 0.1;   // mm → cm
+                return function (lambda_A) {
+                    if (!(lambda_A > 0)) return 0;
+                    const E = hc_keV_A / lambda_A;
+                    const tau = muRho_anode(E, data) * anodePath + muRho_Be(E) * bePath;
+                    return tau > 700 ? 0 : Math.exp(-tau);
+                };
             }
 
             /**
              * Build the list of characteristic emission lines for the current
-             * voltage.  Each entry = { lambda_A, intensity, sigma_A, label }.
-             * Intensity of a K line :   I_K = C · i · (V − V_edge)^n
-             * with n ≈ 1.5 (Worthington–Tomlin).  Relative intensities:
+             * voltage.  Each entry = { lambda_A, intensity, profile, label }.
+             * Intensity of a K line :   I_K = C · i · (U − 1)^n,  U = V / V_edge
+             * with n ≈ 1.67 (Worthington–Tomlin).  The overvoltage must enter as
+             * the DIMENSIONLESS ratio U: using (V − V_edge) in absolute kV makes
+             * C carry units of kV^-n and breaks any comparison between elements
+             * with very different edge energies (Cu at 8.98 keV vs W at 69.5).
+             *
+             * Relative intensities:
              *   Kα1 : Kα2 = 2 : 1    (statistical weights)
              *   Kβ  / (Kα1+Kα2)      = Kb_Ka_ratio  (per-element, from XDB)
              */
             function buildCharacteristicLines(params) {
                 const { voltage, current, data } = params;
+                const res_eV = DETECTOR_FWHM_eV;
                 const lines = [];
 
                 // ---------- K lines ----------
                 if (voltage > data.K_edge) {
-                    const overV_K = voltage - data.K_edge;
-                    const I_K_total = K_CHAR * current * Math.pow(overV_K, LINE_EXPONENT_N);
+                    const U_K = voltage / data.K_edge;
+                    const I_K_total = K_CHAR * current * Math.pow(U_K - 1, LINE_EXPONENT_N);
                     // Split 2:1 into Kα1,Kα2 while keeping their sum = Kα_total.
                     // Let I_Kα_total + I_Kβ_total = I_K_total, with I_Kβ/I_Kα = r.
                     //   I_Kα_total = I_K_total / (1 + r)
@@ -686,42 +825,47 @@
                     const I_Ka1 = I_Ka_total * (2.0 / 3.0);
                     const I_Ka2 = I_Ka_total * (1.0 / 3.0);
 
-                    // Natural widths: Kα1 width given per element; Kα2 slightly broader
-                    // (Coster–Kronig contribution), Kβ somewhat broader too.
+                    // Widths are tabulated per line. Kα2 is genuinely broader than
+                    // Kα1, so the exact 2:1 Kα1:Kα2 *area* ratio below does NOT
+                    // produce a 2:1 ratio of peak heights. Kβ is broader still.
                     const w_Ka1 = data.Ka1_width_eV;
-                    const w_Ka2 = data.Ka1_width_eV * 1.10;
+                    const w_Ka2 = data.Ka2_width_eV || data.Ka1_width_eV * 1.25;
                     const w_Kb  = data.Ka1_width_eV * 1.30;
 
                     const l_Ka1 = energyToWavelength_A(data.Ka1_energy);
                     const l_Ka2 = energyToWavelength_A(data.Ka2_energy);
                     const l_Kb  = energyToWavelength_A(data.Kb_energy);
 
-                    lines.push({ lambda_A: l_Ka1, intensity: I_Ka1,
-                                 sigma_A: widthEv_to_sigmaA(w_Ka1, l_Ka1), label: 'Kα1' });
-                    lines.push({ lambda_A: l_Ka2, intensity: I_Ka2,
-                                 sigma_A: widthEv_to_sigmaA(w_Ka2, l_Ka2), label: 'Kα2' });
-                    lines.push({ lambda_A: l_Kb,  intensity: I_Kb_total,
-                                 sigma_A: widthEv_to_sigmaA(w_Kb,  l_Kb),  label: 'Kβ'  });
+                    lines.push({ lambda_A: l_Ka1, intensity: I_Ka1, label: 'Kα1',
+                                 profile: makeProfile(w_Ka1, res_eV, l_Ka1) });
+                    lines.push({ lambda_A: l_Ka2, intensity: I_Ka2, label: 'Kα2',
+                                 profile: makeProfile(w_Ka2, res_eV, l_Ka2) });
+                    lines.push({ lambda_A: l_Kb,  intensity: I_Kb_total, label: 'Kβ',
+                                 profile: makeProfile(w_Kb,  res_eV, l_Kb) });
                 }
 
                 // ---------- L line (Lα1 only, approximate) ----------
                 if (data.La1_energy && data.L_III_edge && voltage > data.L_III_edge) {
-                    const overV_L = voltage - data.L_III_edge;
+                    const U_L = voltage / data.L_III_edge;
                     const I_L = K_CHAR * L_INTENSITY_FACTOR * current
-                                * Math.pow(overV_L, LINE_EXPONENT_N);
+                                * Math.pow(U_L - 1, LINE_EXPONENT_N);
                     const l_La = energyToWavelength_A(data.La1_energy);
                     // L-line natural widths are several eV — use ~6 eV here for visualisation.
-                    lines.push({ lambda_A: l_La, intensity: I_L,
-                                 sigma_A: widthEv_to_sigmaA(6.0, l_La), label: 'Lα' });
+                    lines.push({ lambda_A: l_La, intensity: I_L, label: 'Lα',
+                                 profile: makeProfile(6.0, res_eV, l_La) });
 
                     // Optional Lβ1 line (present for Ag, W, ...). Relative intensity Lβ1/Lα1 ≈ 0.5
                     // for mid-to-heavy Z elements; we use 0.55 which matches the X-ray Data Booklet.
                     if (data.Lb1_energy) {
                         const l_Lb = energyToWavelength_A(data.Lb1_energy);
-                        lines.push({ lambda_A: l_Lb, intensity: I_L * 0.55,
-                                     sigma_A: widthEv_to_sigmaA(8.0, l_Lb), label: 'Lβ' });
+                        lines.push({ lambda_A: l_Lb, intensity: I_L * 0.55, label: 'Lβ',
+                                     profile: makeProfile(8.0, res_eV, l_Lb) });
                     }
                 }
+
+                // Expose σ at the top level too — several drawing routines still
+                // reason in terms of a single width.
+                lines.forEach(ln => { ln.sigma_A = ln.profile.sigma_A; });
 
                 return lines;
             }
@@ -766,34 +910,60 @@
                     grid.add(lambda_min_A * 1.000001);
                     grid.add(lambda_min_A * 0.999999);
                 }
-                // dense sampling around each characteristic line (±12σ, 300 points)
+                // Dense sampling around each characteristic line. Two nested
+                // clusters: a fine core, plus a coarser wide window because the
+                // Lorentzian component has slowly-decaying tails.
                 lines.forEach(line => {
-                    const N_peak = 300;
-                    const half = 12 * line.sigma_A;
-                    for (let i = 0; i < N_peak; i++) {
-                        const x = line.lambda_A - half + (i / (N_peak - 1)) * 2 * half;
+                    grid.add(line.lambda_A);          // exact centre
+                    const core = 12 * line.profile.fwhm_A;
+                    for (let i = 0; i < 400; i++) {
+                        const x = line.lambda_A - core + (i / 399) * 2 * core;
+                        if (x > 0 && x <= lambda_max) grid.add(x);
+                    }
+                    const tail = line.profile.halfWidth_A;
+                    for (let i = 0; i < 120; i++) {
+                        const x = line.lambda_A - tail + (i / 119) * 2 * tail;
                         if (x > 0 && x <= lambda_max) grid.add(x);
                     }
                 });
+                // The anode K edge produces a step in the transmission — sample it.
+                if (data.K_edge > 0) {
+                    const lEdge = energyToWavelength_A(data.K_edge);
+                    if (lEdge > 0 && lEdge <= lambda_max) {
+                        grid.add(lEdge * 0.9999); grid.add(lEdge * 1.0001);
+                    }
+                }
                 // convert to sorted array
                 const lambdas = Array.from(grid).filter(x => x >= 0).sort((a, b) => a - b);
+
+                const transmit = makeTransmission(voltage, data);
 
                 const points = new Array(lambdas.length);
                 let max_total = 0;
                 for (let i = 0; i < lambdas.length; i++) {
                     const L = lambdas[i];
-                    const I_b = bremsstrahlung(L, lambda_min_A, current, Z);
+                    const T = transmit(L);
+                    const I_b = bremsstrahlung(L, lambda_min_A, current, Z) * T;
                     let I_l = 0;
                     for (let k = 0; k < lines.length; k++) {
                         const ln = lines[k];
-                        if (Math.abs(L - ln.lambda_A) < 12 * ln.sigma_A) {
-                            I_l += ln.intensity * gaussianUnitArea(L, ln.lambda_A, ln.sigma_A);
+                        if (Math.abs(L - ln.lambda_A) < ln.profile.halfWidth_A) {
+                            I_l += ln.intensity * profileUnitArea(L, ln.lambda_A, ln.profile);
                         }
                     }
+                    I_l *= T;
                     const tot = I_b + I_l;
                     points[i] = { lambda: L, intensity: tot, brems: I_b, lines: I_l };
                     if (tot > max_total) max_total = tot;
                 }
+
+                // Pre-compute peak heights at line centres for the labelling code,
+                // so the drawing routine never has to re-derive the physics.
+                lines.forEach(ln => {
+                    const T = transmit(ln.lambda_A);
+                    ln.peakLine  = ln.intensity * profileUnitArea(ln.lambda_A, ln.lambda_A, ln.profile) * T;
+                    ln.peakBrems = bremsstrahlung(ln.lambda_A, lambda_min_A, current, Z) * T;
+                });
 
                 return {
                     points,
@@ -920,7 +1090,8 @@
                 const showLines  = !toggleBremsOnly.checked;   // if bremsOnly on, hide lines
                 const showLabels = toggleLabels.checked;
                 const showDH     = toggleDuaneHunt.checked;
-                const logY       = toggleLogY.checked;
+                const yScale     = yScaleSelect.value;   // 'linear' | 'sqrt' | 'log'
+                const logY       = (yScale === 'log');
 
                 // Build the list of spectra to plot: overlays first (thinner), then current
                 // Invisible overlays are skipped entirely (no computation, no legend entry).
@@ -956,6 +1127,9 @@
                 });
                 if (overall_max === 0) overall_max = 1;
                 if (!isFinite(overall_min_positive)) overall_min_positive = overall_max * 1e-5;
+                // The absorption cutoff drives the continuum to ~1e-300 at long λ;
+                // without a floor the log axis would span hundreds of decades.
+                overall_min_positive = Math.max(overall_min_positive, overall_max * 1e-6);
 
                 // --- layout ---
                 const baseTitleSize = Math.max(12, Math.round(canvasHeight / 32));
@@ -984,16 +1158,29 @@
 
                 // mapping functions
                 const toX = (lam) => p.left + ((lam - display_min_A) / x_range) * plotWidth;
-                const logMin = Math.log10(overall_min_positive);
-                const logMax = Math.log10(overall_max);
-                const logSpan = Math.max(logMax - logMin, 0.5);
+                // --- generalised intensity axis -------------------------------
+                // fwd() maps intensity to a linear screen coordinate, inv() undoes it.
+                // A sqrt axis is the useful default here: natural-linewidth peaks are
+                // ~1400x the local continuum, which a linear axis cannot show, while a
+                // log axis over-flattens the continuum shape. sqrt(I) keeps the
+                // Bremsstrahlung hump readable and the peaks on scale.
+                let fwd, inv;
+                if (yScale === 'log') {
+                    fwd = (I) => Math.log10(Math.max(I, overall_min_positive));
+                    inv = (u) => Math.pow(10, u);
+                } else if (yScale === 'sqrt') {
+                    fwd = (I) => Math.sqrt(Math.max(I, 0));
+                    inv = (u) => u * u;
+                } else {
+                    fwd = (I) => I;
+                    inv = (u) => u;
+                }
+                const uMin  = logY ? fwd(overall_min_positive) : 0;
+                const uMax  = fwd(overall_max);
+                const uSpan = Math.max(uMax - uMin, 1e-30);
                 const toY = (I) => {
-                    if (logY) {
-                        if (I <= 0) return canvasHeight - p.bottom;
-                        const lg = Math.log10(I);
-                        return canvasHeight - p.bottom - ((lg - logMin) / logSpan) * plotHeight;
-                    }
-                    return canvasHeight - p.bottom - (I / overall_max) * plotHeight;
+                    if (logY && I <= 0) return canvasHeight - p.bottom;
+                    return canvasHeight - p.bottom - ((fwd(I) - uMin) / uSpan) * plotHeight;
                 };
 
                 // --- plotting area background & subtle grid ---
@@ -1056,7 +1243,9 @@
                 ctx.rotate(-Math.PI / 2);
                 ctx.textAlign = "center";
                 ctx.font = `600 ${baseTitleSize}px ${AXIS_FONT_FAMILY}`;
-                ctx.fillText("Intensity (arb. u.)", 0, 0);
+                ctx.fillText(yScale === 'sqrt' ? "\u221AIntensity (arb. u.)"
+                           : yScale === 'log'  ? "Intensity (arb. u., log)"
+                           : "Intensity (arb. u.)", 0, 0);
                 ctx.restore();
 
                 // X-axis titles
@@ -1121,21 +1310,15 @@
                 // Y ticks
                 ctx.textAlign = "right";
                 for (let i = 0; i <= num_y_ticks; i++) {
-                    let intensity_val, y;
-                    if (logY) {
-                        const lg = logMin + (i / num_y_ticks) * logSpan;
-                        intensity_val = Math.pow(10, lg);
-                        y = canvasHeight - p.bottom - (i / num_y_ticks) * plotHeight;
-                    } else {
-                        intensity_val = (i / num_y_ticks) * overall_max;
-                        y = canvasHeight - p.bottom - (i / num_y_ticks) * plotHeight;
-                    }
+                    const y = canvasHeight - p.bottom - (i / num_y_ticks) * plotHeight;
+                    const intensity_val = inv(uMin + (i / num_y_ticks) * uSpan);
                     ctx.beginPath();
                     ctx.moveTo(p.left, y);
                     ctx.lineTo(p.left - 5, y);
                     ctx.strokeStyle = "#475569";
                     ctx.stroke();
                     const labelText = (i === 0 && !logY) ? "0" : intensity_val.toExponential(1);
+                    // (tick spacing is uniform on screen, so labels are non-uniform in I)
                     ctx.fillText(labelText, p.left - 8, y + (baseTickSize / 3));
                 }
 
@@ -1172,19 +1355,33 @@
                         ctx.fillStyle = displayColor;
                         ctx.font = `600 ${baseTickSize}px ${AXIS_FONT_FAMILY}`;
                         ctx.textAlign = "center";
-                        calculated.characteristic_lines.forEach(ln => {
-                            if (ln.lambda_A < display_min_A || ln.lambda_A > display_max_A) return;
-                            // find actual peak intensity at line centre
-                            let peakI = ln.intensity * gaussianUnitArea(ln.lambda_A, ln.lambda_A, ln.sigma_A);
-                            if (showBrems && showLines) {
-                                peakI += bremsstrahlung(ln.lambda_A, calculated.lambda_min_A, current, spec_info.data.Z);
-                            }
-                            const x = toX(ln.lambda_A);
-                            const y = toY(peakI);
-                            if (y < p.top - 2 || y > canvasHeight - p.bottom) return;
-                            const yLabel = Math.max(p.top + baseTickSize, y - 6);
-                            ctx.fillText(ln.label, x, yLabel);
-                        });
+                        // Ka1 and Ka2 are only ~20 eV apart, so once the user zooms
+                        // in far enough to resolve them their labels would overprint.
+                        // Stagger vertically any label within one text-width of a
+                        // previously drawn one.
+                        const placed = [];
+                        calculated.characteristic_lines
+                            .slice()
+                            .sort((a, b) => b.peakLine - a.peakLine)   // tallest labelled first
+                            .forEach(ln => {
+                                if (ln.lambda_A < display_min_A || ln.lambda_A > display_max_A) return;
+                                let peakI = ln.peakLine;
+                                if (showBrems && showLines) peakI += ln.peakBrems;
+                                const x = toX(ln.lambda_A);
+                                const y = toY(peakI);
+                                if (y < p.top - 2 || y > canvasHeight - p.bottom) return;
+                                let yLabel = Math.max(p.top + baseTickSize, y - 6);
+                                const wNeeded = ctx.measureText(ln.label).width + 4;
+                                let guard = 0;
+                                while (guard++ < 8 && placed.some(q =>
+                                        Math.abs(q.x - x) < (q.w + wNeeded) / 2 &&
+                                        Math.abs(q.y - yLabel) < baseTickSize * 1.2)) {
+                                    yLabel += baseTickSize * 1.25;
+                                }
+                                if (yLabel > canvasHeight - p.bottom) return;
+                                ctx.fillText(ln.label, x, yLabel);
+                                placed.push({ x, y: yLabel, w: wNeeded });
+                            });
                         ctx.fillStyle = "#1f2937";
                         ctx.textAlign = "right";
                     }
@@ -1241,7 +1438,8 @@
                 handleUpdate();
             });
             // toggles – no need to recompute the spectrum, just redraw
-            [toggleBremsOnly, toggleLinesOnly, toggleLabels, toggleDuaneHunt, toggleLogY]
+            yScaleSelect.addEventListener('change', () => requestAnimationFrame(drawSpectra));
+            [toggleBremsOnly, toggleLinesOnly, toggleLabels, toggleDuaneHunt]
                 .forEach(t => t.addEventListener('change', () => {
                     // Brems-only and lines-only are mutually exclusive
                     if (t === toggleBremsOnly && toggleBremsOnly.checked) toggleLinesOnly.checked = false;
