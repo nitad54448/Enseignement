@@ -65,6 +65,16 @@
             height: 100%;
         }
         #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
+        #controls-panel h3 {
+            font-size: 1.05em;
+            font-weight: 600;
+            color: #ffffff;
+            margin: 0 0 12px 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #374151;
+        }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-4 { margin-top: 1rem; }
         #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
         #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
         #controls-panel input[type="number"], #controls-panel select {
@@ -168,10 +178,11 @@
 
     <div id="app-container">
         <div id="controls-panel">
+            <h1>XRR Simulator</h1>
             <p>Wheel or Ctrl+select to zoom, double click to unzoom.</p>
             
             <div class="control-group">
-                <h3 class="text-lg font-semibold text-white mb-3 border-b border-gray-700 pb-2">Plot & X-Ray Parameters</h3>
+                <h3>Plot &amp; X-Ray Parameters</h3>
                 
                 <label for="wavelength" class="mt-4">Wavelength (λ), Å</label>
                 <div class="control-row">
@@ -196,7 +207,7 @@
             </div>
 
             <div class="control-group">
-                <h3 class="text-lg font-semibold text-white mb-3 border-b border-gray-700 pb-2">Substrate</h3>
+                <h3>Substrate</h3>
                 <label for="substrate-density">e⁻ density (δ related), e⁻/Å³</label>
                 <div class="control-row">
                     <input type="range" id="substrate-density" min="0" max="5" value="0.707" step="0.001">
@@ -206,6 +217,11 @@
                 <div class="control-row">
                     <input type="range" id="substrate-beta" min="0" max="100" value="0.00" step="0.01">
                     <input type="number" id="substrate-beta-value" min="0" max="100" value="0.00" step="0.01">
+                </div>
+                <label for="substrate-roughness" class="mt-4">Interface Roughness (σ), Å</label>
+                <div class="control-row">
+                    <input type="range" id="substrate-roughness" min="0" max="20" value="0.0" step="0.1">
+                    <input type="number" id="substrate-roughness-value" min="0" max="20" value="0.0" step="0.1">
                 </div>
             </div>
 
@@ -223,8 +239,8 @@
         </div>
     </div>
 
-    <footer class="text-gray-600">
-        Parratt formalism with Névot-Croce roughness. NitaD & PLC, Univ Paris-Saclay, updated 17 oct 2025.
+    <footer>
+        Parratt formalism with Névot-Croce roughness. NitaD & PLC, Univ Paris-Saclay, updated 26 july 2026.
     </footer>
 
 
@@ -253,12 +269,15 @@
         if (data.length === 0) return;
         
         const xValue = chart.scales.x.getValueForPixel(event.x);
+        // x is descending on the Porod plot (Q^-4), so pick the search direction
+        const ascending = data[data.length - 1].x >= data[0].x;
         let low = 0, high = data.length - 1;
         while (high - low > 1) {
-            let mid = Math.floor((low + high) / 2);
-            if (data[mid].x < xValue) { low = mid; } else { high = mid; }
+            const mid = (low + high) >> 1;
+            const before = ascending ? (data[mid].x < xValue) : (data[mid].x > xValue);
+            if (before) { low = mid; } else { high = mid; }
         }
-        const closestIndex = (Math.abs(xValue - data[low].x) < Math.abs(data[high].x - xValue)) ? low : high;
+        const closestIndex = (Math.abs(xValue - data[low].x) <= Math.abs(data[high].x - xValue)) ? low : high;
         chart.customCursor = { index: closestIndex };
         args.changed = true;
     },
@@ -281,14 +300,13 @@
         ctx.arc(x, y, 4, 0, 2 * Math.PI);
         ctx.fillStyle = 'red';
         ctx.fill();
-        ctx.restore();
         
         // Fixed position coordinates display (top right)
         const textX = `X: ${point.x.toExponential(4)}`;
         const textY = `Y: ${point.y.toExponential(4)}`;
         
         // Set font and measure text
-        ctx.font = 'plain 12px Courier, monospace';
+        ctx.font = '12px Courier, monospace';
         const textXWidth = ctx.measureText(textX).width;
         const textYWidth = ctx.measureText(textY).width;
         const maxTextWidth = Math.max(textXWidth, textYWidth);
@@ -339,8 +357,10 @@
                 });
                 const N = layers.length;
                 let R = Complex.divide(Complex.subtract(kz[N], kz[N + 1]), Complex.add(kz[N], kz[N + 1]));
-                if (N > 0) {
-                    const sigma_sub = layers[N - 1].roughness;
+                // Substrate interface has its own sigma (previously it reused the bottom layer's,
+                // which made that one slider drive two interfaces at once).
+                const sigma_sub = subParams.roughness || 0;
+                if (sigma_sub > 0) {
                     // Névot-Croce: exp(-2 * k_z,above * k_z,below * sigma^2) with complex k_z product
                     const kz_prod_sub = Complex.multiply(kz[N], kz[N + 1]);
                     const rough_arg_sub = Complex.create(-2 * kz_prod_sub.re * sigma_sub * sigma_sub, -2 * kz_prod_sub.im * sigma_sub * sigma_sub);
@@ -480,7 +500,7 @@
             });
         }
         
-        function updateChart() {
+        function updateChart(resetView = false) {
             const layers = [];
             document.querySelectorAll('.layer-container').forEach(layerEl => {
                 layers.push({
@@ -490,7 +510,11 @@
                     beta: +layerEl.querySelector('input[id^="beta-"]').value / 1e7,
                 });
             });
-            const subParams = { density: +document.getElementById('substrate-density').value, beta: +document.getElementById('substrate-beta').value / 1e7 };
+            const subParams = {
+                density: +document.getElementById('substrate-density').value,
+                beta: +document.getElementById('substrate-beta').value / 1e7,
+                roughness: +document.getElementById('substrate-roughness').value
+            };
             const lambda = +document.getElementById('wavelength').value;
             calculatedData = calculateReflectivity(layers, subParams, lambda);
             const plotData = transformDataForPlotting(calculatedData);
@@ -522,11 +546,14 @@
                     break;
             }
             options.scales.y.type = yIsLog ? 'logarithmic' : 'linear';
+            // 1e-10 floor only makes sense on the log axis
+            if (yIsLog) { options.scales.y.min = 1e-10; } else { delete options.scales.y.min; }
+            if (resetView) xrrChart.resetZoom('none');
             xrrChart.update('none');
-            xrrChart.resetZoom('none');
         }
 
         const layersList = document.getElementById('layers-list');
+        let layerIdCounter = 0;
         function updateLayerIndices() { 
             layersList.querySelectorAll('.layer-container').forEach((div, i) => { 
                 const n = div.querySelector('.layer-name-input'); 
@@ -536,7 +563,7 @@
         
         function createLayer(p = {}) { 
             const { name = '', thickness = 100, density = 2.0, roughness = 5.0, beta = 2.5 } = p; 
-            const id = Date.now(), div = document.createElement('div'); 
+            const id = ++layerIdCounter, div = document.createElement('div'); 
             div.className = 'layer-container'; 
             div.innerHTML = `
                 <div class="layer-header">
@@ -603,7 +630,9 @@
             n.addEventListener('change', (e) => { 
                 let v = parseFloat(e.target.value); 
                 if (isNaN(v)) v = parseFloat(s.min); 
-                s.value = Math.min(Math.max(v, s.min), s.max); 
+                // clamp first, then write both widgets, so the box can't show an out-of-range value
+                v = Math.min(Math.max(v, parseFloat(s.min)), parseFloat(s.max)); 
+                s.value = v; 
                 n.value = v.toFixed(p); 
                 updateChart(); 
             }); 
@@ -612,12 +641,13 @@
         function setupGlobalControls() { 
             linkSliderToNumber('substrate-density', 'substrate-density-value'); 
             linkSliderToNumber('substrate-beta', 'substrate-beta-value'); 
+            linkSliderToNumber('substrate-roughness', 'substrate-roughness-value'); 
             linkSliderToNumber('wavelength', 'wavelength-value'); 
             document.getElementById('add-layer-btn').addEventListener('click', () => { 
                 createLayer(); 
                 updateChart(); 
             }); 
-            document.getElementById('plot-type').addEventListener('change', updateChart); 
+            document.getElementById('plot-type').addEventListener('change', () => updateChart(true)); 
             document.getElementById('save-data-button').addEventListener('click', exportDataFile); 
         }
         
@@ -634,10 +664,11 @@
             }); 
             const sub = { 
                 density: +document.getElementById('substrate-density').value, 
-                beta: +document.getElementById('substrate-beta').value 
+                beta: +document.getElementById('substrate-beta').value, 
+                roughness: +document.getElementById('substrate-roughness').value 
             }; 
             const lambda = +document.getElementById('wavelength').value; 
-            let file = `# Multi-Layer XRR Data\n#\n# Wavelength (A): ${lambda}\n# Substrate e- density (e-/A^3): ${sub.density}\n# Substrate beta (x 10^-7): ${sub.beta}\n#\n`; 
+            let file = `# Multi-Layer XRR Data\n#\n# Wavelength (A): ${lambda}\n# Substrate e- density (e-/A^3): ${sub.density}\n# Substrate beta (x 10^-7): ${sub.beta}\n# Substrate interface roughness (A): ${sub.roughness}\n#\n`; 
             layers.forEach(l => { 
                 file += `# Layer: ${l.name}\n#   Thickness (A): ${l.thickness}\n#   e- density (e-/A^3): ${l.density}\n#   beta (x 10^-7): ${l.beta}\n#   Interface Roughness (A): ${l.roughness}\n`; 
             }); 
@@ -680,7 +711,7 @@
         initializeChart();
         setupGlobalControls();
         createLayer({ name: 'Layer 1', thickness: 62.8, density: 4.678, roughness: 0.0, beta: 0.0 }); 
-        updateChart();
+        updateChart(true);
     });
 </script>
 
