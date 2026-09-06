@@ -36,7 +36,7 @@
             cursor: col-resize;
             background-color: #374151;
             flex-shrink: 0;
-            transition: background-color: 0.2s;
+            transition: background-color 0.2s;
         }
         #drag-handle:hover {
             background-color: #3b82f6;
@@ -187,7 +187,7 @@
             </div>
 
             <div id="symmetry-list"></div>
-            <div id="generated-coords-container" class="mt-6"><h2>Coordinates</h2><div id="generated-coordinates-list"></div></div>
+            <div id="generated-coords-container"><h2>Coordinates</h2><div id="generated-coordinates-list"></div></div>
         </div>
 
         <div id="drag-handle"></div>
@@ -201,6 +201,19 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
+        // CDN fallback: show a readable message instead of a blank grey panel.
+        if (typeof THREE === 'undefined') {
+            document.getElementById('visualization-area').innerHTML =
+                '<div style="padding:24px;font-family:Inter,sans-serif;color:#111827;max-width:38em;line-height:1.5">' +
+                '<strong>three.js could not be loaded.</strong><br><br>' +
+                'The library is fetched from cdnjs.cloudflare.com, which some institutional networks block. ' +
+                'To work offline, download <code>three.min.js</code> (r128) next to this file and change the ' +
+                '<code>&lt;script src=…&gt;</code> tag to point at the local copy.</div>';
+        }
+    </script>
+    <script>
+        if (typeof THREE === 'undefined') { throw new Error('three.js unavailable — aborting init.'); }
+
         const identityMatrix = new THREE.Matrix4().identity();
         const hexagonalMatrix = new THREE.Matrix4().set(
             1, -0.5, 0, 0,
@@ -232,6 +245,34 @@
             }
         };
 
+        // Two shared materials instead of one clone per mesh per redraw (was leaking GPU memory).
+        const MOTIF_MATERIAL_RIGHT = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, color: 0x3b82f6 });
+        const MOTIF_MATERIAL_LEFT  = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, color: 0xef4444 });
+
+        // Safety cap on group closure: a numerically ill-conditioned set of generators
+        // used to grow without bound and freeze the tab.
+        const MAX_MOTIFS = 500;
+        const POS_TOL = 1e-3;
+
+        // Fractional coordinate wrapped into [0, 1), with snapping so 0.9999999 and 1e-9
+        // do not end up looking like two distinct sites.
+        function wrapToCell(p) {
+            ['x', 'y', 'z'].forEach(k => {
+                let v = p[k] - Math.floor(p[k]);
+                if (v > 1 - 1e-6 || Math.abs(v) < 1e-6) v = 0;
+                p[k] = v;
+            });
+            return p;
+        }
+
+        // Distance under periodic boundary conditions, so sites on opposite cell faces match.
+        function periodicDistance(a, b) {
+            const dx = a.x - b.x - Math.round(a.x - b.x);
+            const dy = a.y - b.y - Math.round(a.y - b.y);
+            const dz = a.z - b.z - Math.round(a.z - b.z);
+            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
         let scene, camera, renderer, controls;
         let parentMotif, unitCellVisuals;
         const symmetryElements = [];
@@ -256,6 +297,7 @@
             camera.lookAt(0.5, 0.5, 0.5);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
             renderer.setSize(viewport.clientWidth, viewport.clientHeight);
             viewport.appendChild(renderer.domElement);
             
@@ -295,13 +337,23 @@
                     if (mouseButton === 0) { // Left-click: Orbit
                         const azimuth = -deltaX * 0.005;
                         const elevation = -deltaY * 0.005;
-                        this.object.position.sub(this.target);
-                        const R_azimuth = new THREE.Matrix4().makeRotationZ(azimuth);
-                        const axis_elevation = new THREE.Vector3().crossVectors(this.object.position, this.object.up).normalize();
-                        const R_elevation = new THREE.Matrix4().makeRotationAxis(axis_elevation, elevation);
-                        this.object.position.applyMatrix4(R_elevation).applyMatrix4(R_azimuth);
-                        this.object.position.add(this.target);
-                        this.object.lookAt(this.target);
+                        const offset = this.object.position.clone().sub(this.target);
+                        const radius = offset.length();
+                        if (radius > 1e-6) {
+                            const axis_elevation = new THREE.Vector3().crossVectors(offset, this.object.up);
+                            // At the pole the cross product degenerates to zero; skip the tilt
+                            // rather than collapsing the camera into the target.
+                            if (axis_elevation.lengthSq() > 1e-12) {
+                                axis_elevation.normalize();
+                                const R_elevation = new THREE.Matrix4().makeRotationAxis(axis_elevation, elevation);
+                                const candidate = offset.clone().applyMatrix4(R_elevation);
+                                if (Math.abs(candidate.z) < radius * 0.99996) offset.copy(candidate);
+                            }
+                            offset.applyMatrix4(new THREE.Matrix4().makeRotationZ(azimuth));
+                            offset.setLength(radius); // guard against slow radial drift
+                            this.object.position.copy(this.target).add(offset);
+                            this.object.lookAt(this.target);
+                        }
                     } else if (mouseButton === 2) { // Right-click: Pan
                         const panSpeed = frustumSize / (this.domElement.clientHeight * this.object.zoom);
                         const panVector = new THREE.Vector3();
@@ -317,15 +369,18 @@
                 };
                 
                 const onWheel = e => {
-                    this.object.zoom *= (e.deltaY > 0 ? 0.9 : 1.1);
+                    const next = this.object.zoom * (e.deltaY > 0 ? 0.9 : 1.1);
+                    this.object.zoom = THREE.MathUtils.clamp(next, 0.1, 50);
                     this.object.updateProjectionMatrix();
                 };
 
                 const onContextMenu = e => e.preventDefault();
 
                 domElement.addEventListener('mousedown', onMouseDown);
-                domElement.addEventListener('mouseup', onMouseUp);
-                domElement.addEventListener('mousemove', onMouseMove);
+                // Tracked on window so releasing the button outside the canvas
+                // does not leave the model stuck in drag mode.
+                window.addEventListener('mouseup', onMouseUp);
+                window.addEventListener('mousemove', onMouseMove);
                 domElement.addEventListener('wheel', onWheel, { passive: true });
                 domElement.addEventListener('contextmenu', onContextMenu);
 
@@ -372,32 +427,44 @@
             return group;
         }
         
+        // Centre of the whole displayed block of cells, in Cartesian coordinates.
+        function recenterTarget() {
+            const nx = parseInt(document.getElementById('cell-range-x-num').value) || 1;
+            const ny = parseInt(document.getElementById('cell-range-y-num').value) || 1;
+            const nz = parseInt(document.getElementById('cell-range-z-num').value) || 1;
+            const centre = new THREE.Vector3(nx / 2, ny / 2, nz / 2)
+                .applyMatrix4(crystalSystems[currentSystem].transformationMatrix);
+            // Move the camera by the same delta so the view slides rather than jumps.
+            camera.position.add(centre.clone().sub(controls.target));
+            controls.target.copy(centre);
+            camera.lookAt(controls.target);
+        }
+
         function handleSystemChange() {
             currentSystem = document.getElementById('crystal-system-select').value;
             updateSymmetryOptions(currentSystem);
-            
-            if(currentSystem === 'hexagonal'){
-                const n = parseInt(document.getElementById('cell-range-x-num').value) || 1;
-                controls.target.set(0.25 * n, Math.sqrt(3)/4 * n, 0.5);
-            } else {
-                controls.target.set(0.5, 0.5, 0.5);
-            }
-            camera.lookAt(controls.target);
-
+            recenterTarget();
             resetSymmetry();
         }
 
         function updateSymmetryOptions(system) {
             const validElements = crystalSystems[system].validElements;
             const select = document.getElementById('sym-type-select');
+            // Safari ignores display:none on <option>, so hidden + disabled are set too.
             select.querySelectorAll('option').forEach(option => {
-                option.style.display = validElements.includes(option.value) ? '' : 'none';
+                const visible = validElements.includes(option.value);
+                option.style.display = visible ? '' : 'none';
+                option.hidden = !visible;
+                option.disabled = !visible;
             });
             select.querySelectorAll('optgroup').forEach(group => {
                 const hasVisibleOptions = Array.from(group.querySelectorAll('option')).some(o => o.style.display !== 'none');
                 group.style.display = hasVisibleOptions ? '' : 'none';
+                group.hidden = !hasVisibleOptions;
+                group.disabled = !hasVisibleOptions;
             });
-            if(select.options[select.selectedIndex].style.display === 'none') {
+            const current = select.options[select.selectedIndex];
+            if (!current || current.style.display === 'none') {
                 for(let i=0; i < select.options.length; i++) {
                     if(select.options[i].style.display !== 'none') {
                         select.selectedIndex = i;
@@ -449,7 +516,7 @@
         
 		function createAsymmetricObject() {
 			const group = new THREE.Group();
-			const material = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+			const material = MOTIF_MATERIAL_RIGHT;
 			
             const radius = 0.02, height = 0.1;
 
@@ -477,9 +544,10 @@
         function expandSpecialPosition(motif) {
             const expandedList = [];
             const p = motif.position;
-            const isXint = (Math.abs(p.x % 1) < 1e-4 || Math.abs(p.x % 1 - 1) < 1e-4);
-            const isYint = (Math.abs(p.y % 1) < 1e-4 || Math.abs(p.y % 1 - 1) < 1e-4);
-            const isZint = (Math.abs(p.z % 1) < 1e-4 || Math.abs(p.z % 1 - 1) < 1e-4);
+            // Positive fractional part: JS's % keeps the sign of the dividend.
+            const frac = v => v - Math.floor(v);
+            const onEdge = v => (frac(v) < 1e-4 || frac(v) > 1 - 1e-4);
+            const isXint = onEdge(p.x), isYint = onEdge(p.y), isZint = onEdge(p.z);
             const numInts = Number(isXint) + Number(isYint) + Number(isZint);
 
             if (numInts > 0) {
@@ -509,9 +577,14 @@
             unitCellVisuals.clear();
             symmetryElementVisuals.clear();
             
-            const rangeX = parseInt(document.getElementById('cell-range-x-num').value);
-            const rangeY = parseInt(document.getElementById('cell-range-y-num').value);
-            const rangeZ = parseInt(document.getElementById('cell-range-z-num').value);
+            // Blank or invalid input used to yield NaN and silently erase the whole scene.
+            const clampRange = id => {
+                const v = parseInt(document.getElementById(id).value);
+                return Number.isFinite(v) ? Math.min(Math.max(v, 1), 4) : 1;
+            };
+            const rangeX = clampRange('cell-range-x-num');
+            const rangeY = clampRange('cell-range-y-num');
+            const rangeZ = clampRange('cell-range-z-num');
             const transformation = crystalSystems[currentSystem].transformationMatrix;
 
             const cellGenerator = crystalSystems[currentSystem].cellGenerator;
@@ -549,22 +622,23 @@
             });
 
             parentMotif.position.set(parseFloat(document.getElementById('parent-x-num').value), parseFloat(document.getElementById('parent-y-num').value), parseFloat(document.getElementById('parent-z-num').value));
-            parentMotif.traverse(child => { if (child.isMesh) { child.material.color.set(0x3b82f6); }});
+            parentMotif.traverse(child => { if (child.isMesh) { child.material = MOTIF_MATERIAL_RIGHT; }});
             parentMotif.userData.chirality = 'right';
 
             const canonicalParent = parentMotif.clone();
-            canonicalParent.position.x -= Math.floor(canonicalParent.position.x);
-            canonicalParent.position.y -= Math.floor(canonicalParent.position.y);
-            canonicalParent.position.z -= Math.floor(canonicalParent.position.z);
+            wrapToCell(canonicalParent.position);
+            canonicalParent.userData.chirality = 'right';
             const canonicalMotifList = [canonicalParent];
 
             let added = true;
-            while (added) {
+            let overflow = false;
+            while (added && !overflow) {
                 added = false;
                 const currentCount = canonicalMotifList.length;
-                for (let i = 0; i < currentCount; i++) {
+                for (let i = 0; i < currentCount && !overflow; i++) {
                     const source = canonicalMotifList[i];
                     symmetryElements.forEach(element => {
+                        if (overflow) return;
                         const copy = source.clone();
                         copy.userData.chirality = source.userData.chirality;
                         const opType = getOpType(element.type);
@@ -576,21 +650,24 @@
                             case 'inversion': applyInversion(copy, element.position); copy.userData.chirality = (source.userData.chirality === 'right') ? 'left' : 'right'; break;
                         }
 
-                        copy.position.x -= Math.floor(copy.position.x);
-                        copy.position.y -= Math.floor(copy.position.y);
-                        copy.position.z -= Math.floor(copy.position.z);
-                        
-                        const newColor = (copy.userData.chirality === 'right') ? 0x3b82f6 : 0xef4444;
+                        wrapToCell(copy.position);
+
+                        const newMaterial = (copy.userData.chirality === 'right') ? MOTIF_MATERIAL_RIGHT : MOTIF_MATERIAL_LEFT;
                         copy.traverse(function(child) {
-                            if (child.isMesh) {
-                                child.material = child.material.clone();
-                                child.material.color.set(newColor);
-                            }
+                            if (child.isMesh) child.material = newMaterial;
                         });
 
-                        const isDuplicate = canonicalMotifList.some(m => m.position.distanceTo(copy.position) < 1e-4 && m.quaternion.angleTo(copy.quaternion) < 1e-3 && m.userData.chirality === copy.userData.chirality);
-                        
-                        if (!isDuplicate) { canonicalMotifList.push(copy); added = true; }
+                        // Periodic comparison: sites on opposite cell faces are the same site.
+                        const isDuplicate = canonicalMotifList.some(m =>
+                            periodicDistance(m.position, copy.position) < POS_TOL &&
+                            m.quaternion.angleTo(copy.quaternion) < 1e-2 &&
+                            m.userData.chirality === copy.userData.chirality);
+
+                        if (!isDuplicate) {
+                            canonicalMotifList.push(copy);
+                            added = true;
+                            if (canonicalMotifList.length >= MAX_MOTIFS) overflow = true;
+                        }
                     });
                 }
             }
@@ -603,14 +680,21 @@
                 const color = m.userData.chirality === 'right' ? '#3b82f6' : '#ef4444';
                 html += `<div style="color:${color};">(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})</div>`;
             });
+            if (overflow) {
+                html = `<div style="color:#f59e0b; margin-bottom:6px;">Stopped at ${MAX_MOTIFS} positions — this combination of elements does not close into a finite group.</div>` + html;
+            }
             coordsList.innerHTML = html;
             coordsContainer.style.display = 'block';
 
+            // Expand boundary sites in FRACTIONAL coordinates, then transform.
+            // Doing it after the transform broke hexagonal cells, whose Cartesian
+            // coordinates are not integers on the cell edges.
             let visualMotifList = [];
             canonicalMotifList.forEach(motif => {
-                const cartesianMotif = motif.clone();
-                cartesianMotif.position.applyMatrix4(transformation);
-                visualMotifList.push(...expandSpecialPosition(cartesianMotif));
+                expandSpecialPosition(motif).forEach(m => {
+                    m.position.applyMatrix4(transformation);
+                    visualMotifList.push(m);
+                });
             });
             
             const occupiedPositions = new Set();
@@ -688,7 +772,7 @@
             const parentControls = document.getElementById('parent-motif-controls');
             parentControls.addEventListener('input', syncInputs);
             const cellControls = document.getElementById('cell-display-controls');
-            cellControls.addEventListener('input', syncInputs);
+            cellControls.addEventListener('input', e => { syncInputs(e); recenterTarget(); });
             document.getElementById('symmetry-list').addEventListener('input', handleSymElementChange);
         }
         function addSymmetryElement() {
@@ -746,7 +830,10 @@
             } else if (opType === 'mirror' || opType === 'glide') {
                 const axis = type.split('_')[1];
                 contentHtml += createRow(axis);
-                title = `${opType.charAt(0).toUpperCase() + opType.slice(1)} ${type.substring(1)}`;
+                const perp = axis.toUpperCase();
+                if (type.startsWith('m_')) title = `Mirror &perp; ${perp}`;
+                else if (type.startsWith('gn_')) title = `Diagonal Glide (n) &perp; ${perp}`;
+                else title = `Glide &perp; ${perp}`;
                 if (type.startsWith('g_')) {
                     const options = { g_x: ['y', 'z'], g_y: ['x', 'z'], g_z: ['x', 'y'] }[type];
                     contentHtml += `<h4>Glide Direction</h4><select class="glide-dir" data-id="${elementData.id}"><option value="${options[0]}" selected>${options[0].toUpperCase()}</option><option value="${options[1]}">${options[1].toUpperCase()}</option></select>`;
