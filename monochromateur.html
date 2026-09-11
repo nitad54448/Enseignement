@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>X-Ray Monochromator</title>
     <style>
+        #top-panel { overflow-x: auto !important; }
+        .controls-container { min-width: 1020px; }
+        .canvas-container { min-height: 260px; }
+        .model-note { padding: 10px 20px; background: #fff; font-size: 13px; line-height: 1.5; }
+        button { cursor: pointer; padding: 5px 10px; margin: 4px; }
+        @media (max-width: 800px) {
+            #graphs-container { flex-direction: column; overflow-y: auto; }
+            #graphs-container .panel { flex: 0 0 420px; }
+        }
+
         html, body { 
             height: 100%;
             margin: 0;
@@ -185,7 +195,7 @@
                 </div>
                 <div class="control-group">
                     <label for="twoThetaInput">Operating 2θ (°):</label>
-                    <input type="number" id="twoThetaInput" value="28.44" step="0.001">
+                    <input type="number" id="twoThetaInput" value="28.44" step="0.001" min="0.001" max="179.9">
                 </div>
                  <div class="control-group">
                     <label>Selected λ (Å):</label>
@@ -226,6 +236,35 @@
     
     <div id="resize-ghost"></div>
 
+    <div class="model-note">
+        <button id="tuneButton" type="button">Tune to Kα₁</button>
+        <button id="zoomButton" type="button">Zoom Kα doublet</button>
+        <button id="resetButton" type="button">Full spectrum</button>
+        <label for="bandwidthInput">Effective θ FWHM (°):</label>
+        <input id="bandwidthInput" type="number" value="0.005" min="0.0001" max="1" step="0.001" style="width:95px"
+            title="Gaussian effective angular acceptance, including your optical configuration. Illustrative preset; enter a measured width if available.">
+        <span id="metrics" aria-live="polite"></span>
+        <details><summary>Intensity model and limitations</summary>
+        Both plots share a fixed source-based vertical scale. Intensity means spectral energy density
+        (arbitrary units per Å), not photon counts or integrated peak area.
+        The unfiltered Kramers continuum, Gaussian line widths, line strengths, rocking widths and
+        reflectivities are illustrative, not calibrated measurements. The original source coefficients
+        are retained; Kα₁:Kα₂ has area ratio 2:1. Kβ has its original broader width and empirical strength.
+        The editable bandwidth is an effective FWHM in θ (not 2θ). Gaussian reflection is evaluated in θ.
+        Narrow-band illustrative presets are 0.005° for Ge(111) and 0.003° for Si(111);
+        these are not universal material constants or measured Darwin widths. The previous flat-crystal
+        presets (Ge 0.15°, Si 0.1°) represented broad acceptance and passed both Cu Kα lines.
+        At Ge(111), the Cu doublet separation is about 0.035° in θ, so the narrow preset strongly
+        suppresses Kα₂ when tuned to Kα₁. Real rejection depends on divergence, strain, geometry,
+        number of reflections and non-Gaussian tails. Kα₁ isolation does not guarantee zero continuum
+        or harmonic contamination. Changing the crystal restores its bandwidth preset.
+        For Si/Ge(111), the nominally forbidden 222 order is omitted in this simplified model;
+        higher-order weights remain illustrative. Tube absorption, windows, polarization, divergence,
+        dynamical diffraction and detector response are not included. Curved/flat labels alone do not
+        establish real crystal performance. Quantitative comparison needs measured source spectra and
+        crystal rocking curves. Throughput below is energy integrated only over the displayed interval.
+        </details>
+    </div>
     <footer>
         <p>NitaD, Univ Paris-Saclay, version July 16, 2025</p>
     </footer>
@@ -254,11 +293,11 @@
         };
 
         const crystalData = {
-            "Ge(111, curved)":{ d_spacing_A: 3.266, mosaicity_deg: 0.005, peak_reflectivity: 0.4 },
-            "Si(111, flat)":  { d_spacing_A: 3.135, mosaicity_deg: 0.1,   peak_reflectivity: 0.30 },
-            "Ge(111, flat)":  { d_spacing_A: 3.266, mosaicity_deg: 0.15,  peak_reflectivity: 0.35 },
-            "CaF2(200)":      { d_spacing_A: 2.731, mosaicity_deg: 0.2,   peak_reflectivity: 0.18 },
-            "Graphite(002)":  { d_spacing_A: 3.354, mosaicity_deg: 0.5,   peak_reflectivity: 0.15 },
+            "Ge(111, curved)":{ d_spacing_A: 3.266, rocking_fwhm_theta_deg: 0.005, peak_reflectivity: 0.4, order_weights: [1, 0, 0.05] },
+            "Si(111, flat)":  { d_spacing_A: 3.135, rocking_fwhm_theta_deg: 0.003,   peak_reflectivity: 0.30, order_weights: [1, 0, 0.05] },
+            "Ge(111, flat)":  { d_spacing_A: 3.266, rocking_fwhm_theta_deg: 0.005,  peak_reflectivity: 0.35, order_weights: [1, 0, 0.05] },
+            "CaF2(200)":      { d_spacing_A: 2.731, rocking_fwhm_theta_deg: 0.2,   peak_reflectivity: 0.18, order_weights: [1, 0.2, 0.05] },
+            "Graphite(002)":  { d_spacing_A: 3.354, rocking_fwhm_theta_deg: 0.5,   peak_reflectivity: 0.15, order_weights: [1, 0.2, 0.05] },
         };
 
         // --- DOM Element References ---
@@ -287,7 +326,7 @@
             const optionCrystal = new Option(key, key);
             crystalSelect.add(optionCrystal);
         });
-        crystalSelect.value = "Si(111, flat)";
+        crystalSelect.value = "Ge(111, flat)";
 
         // --- Helper Functions ---
         const degreesToRadians = deg => deg * (Math.PI / 180);
@@ -297,108 +336,81 @@
         const gaussian = (x, mean, sigma) => Math.exp(-Math.pow(x - mean, 2) / (2 * Math.pow(sigma, 2)));
 
         // --- Core Calculation Functions ---
-        function calculateEmissionSpectrumData(anodeParams, voltage_kV, current_mA, dataRange) {
-            const Z = anodeParams.Z;
-            const lambda_min_A = energyToWavelength_A(voltage_kV);
-            const num_points_emission = 2000;
-            const spectrumPoints = [];
-            let max_intensity = 0;
+        function lineFeatures(anode) {
+            return [[anode.Ka1_energy, 0.0005, 2], [anode.Ka2_energy, 0.0005, 1],
+                    [anode.Kb_energy, 0.0007, 0.5]].map(([energy, sigma, weight]) =>
+                ({ center: energyToWavelength_A(energy), sigma, weight }));
+        }
 
-            for (let i = 0; i < num_points_emission; i++) {
-                const lambda_A = dataRange.min + (i / (num_points_emission - 1)) * (dataRange.max - dataRange.min);
-                if (lambda_A < 1e-4) { 
-                     spectrumPoints.push({ lambda: lambda_A, intensity: 0}); continue;
-                }
+        function sourceIntensity(lambda, anode, voltage, current) {
+            const cutoff = energyToWavelength_A(voltage);
+            if (!(lambda >= cutoff) || current <= 0) return 0;
+            // Kramers spectral ENERGY density per wavelength, up to a constant.
+            const continuum = current * anode.Z * (1 / cutoff - 1 / lambda) / lambda ** 2;
+            const amplitude = voltage > anode.K_edge
+                ? current / 10 * (voltage - anode.K_edge) ** 1.65 * CHAR_LINE_INTENSITY_SCALAR : 0;
+            return continuum + lineFeatures(anode).reduce((sum, line) =>
+                sum + amplitude * line.weight * gaussian(lambda, line.center, line.sigma), 0);
+        }
 
-                let intensity_brems = 0;
-                if (lambda_A >= lambda_min_A && lambda_min_A !== Infinity && lambda_A !== 0) {
-                    intensity_brems = current_mA * Z * ( (1 / lambda_min_A) - (1 / lambda_A) ) / (lambda_A * lambda_A);
-                    intensity_brems = Math.max(0, intensity_brems);
-                }
+        function calculateIdealBraggAngle(anode, crystal) {
+            const ratio = energyToWavelength_A(anode.Ka1_energy) / (2 * crystal.d_spacing_A);
+            return ratio > 0 && ratio <= 1 ? 2 * radiansToDegrees(Math.asin(ratio)) : null;
+        }
 
-                let intensity_lines = 0;
-                const line_current_factor = current_mA / 10.0;
-
-                if (voltage_kV > anodeParams.K_edge) {
-                    const overvoltage_K_factor = Math.pow(Math.max(0, voltage_kV - anodeParams.K_edge), 1.65);
-                    const base_K_char_peak_intensity = line_current_factor * overvoltage_K_factor * CHAR_LINE_INTENSITY_SCALAR;
-                    intensity_lines += gaussian(lambda_A, energyToWavelength_A(anodeParams.Ka1_energy), 0.0005) * base_K_char_peak_intensity * 2.0;
-                    intensity_lines += gaussian(lambda_A, energyToWavelength_A(anodeParams.Ka2_energy), 0.0005) * base_K_char_peak_intensity * 1.0;
-                    intensity_lines += gaussian(lambda_A, energyToWavelength_A(anodeParams.Kb_energy), 0.0007) * base_K_char_peak_intensity * 0.5;
-                }
-                
-                const total_intensity = intensity_brems + intensity_lines;
-                spectrumPoints.push({ lambda: lambda_A, intensity: total_intensity });
-                if (total_intensity > max_intensity) max_intensity = total_intensity;
+        // A broad baseline plus dense local grids resolves narrow lines and rocking curves.
+        // Include exact centers; never locate physical lines by searching sampled maxima.
+        function wavelengthGrid(range, anode, crystal, angle, voltage, refinement = 1) {
+            const values = new Set([range.min, range.max]);
+            const add = x => { if (x >= range.min && x <= range.max) values.add(x); };
+            for (let i = 0; i <= 4000 * refinement; i++)
+                add(range.min + i / (4000 * refinement) * (range.max - range.min));
+            const cutoff = energyToWavelength_A(voltage);
+            add(cutoff); add(1.5 * cutoff);
+            for (const line of lineFeatures(anode)) {
+                for (let i = -160 * refinement; i <= 160 * refinement; i++)
+                    add(line.center + i * line.sigma / (20 * refinement));
             }
-            return { points: spectrumPoints, max_intensity: max_intensity };
-        }
-
-        function calculateIdealBraggAngle(sourceSpectrum, anodeParams, crystalParams) {
-            const lambda_Ka1_A = energyToWavelength_A(anodeParams.Ka1_energy);
-            const lambda_Ka2_A = energyToWavelength_A(anodeParams.Ka2_energy);
-            
-            const search_min_A = Math.min(lambda_Ka1_A, lambda_Ka2_A) - 0.01;
-            const search_max_A = Math.max(lambda_Ka1_A, lambda_Ka2_A) + 0.01;
-
-            let peak_lambda = lambda_Ka1_A;
-            let max_intensity = -1;
-
-            sourceSpectrum.points.forEach(p => {
-                if (p.lambda >= search_min_A && p.lambda <= search_max_A) {
-                    if (p.intensity > max_intensity) {
-                        max_intensity = p.intensity;
-                        peak_lambda = p.lambda;
-                    }
+            const theta = degreesToRadians(angle / 2);
+            const sigma = degreesToRadians(crystal.rocking_fwhm_theta_deg) * FWHM_TO_SIGMA;
+            crystal.order_weights.forEach((weight, index) => {
+                if (!weight) return;
+                for (let i = -160 * refinement; i <= 160 * refinement; i++) {
+                    const t = theta + i * sigma / (20 * refinement);
+                    if (t >= 0 && t <= Math.PI / 2) add(2 * crystal.d_spacing_A * Math.sin(t) / (index + 1));
                 }
             });
-
-            const d_spacing = crystalParams.d_spacing_A;
-            const sin_theta = peak_lambda / (2 * d_spacing);
-
-            if (Math.abs(sin_theta) > 1) return null;
-            
-            const theta_rad = Math.asin(sin_theta);
-            return radiansToDegrees(2 * theta_rad);
+            return [...values].sort((a, b) => a - b);
         }
-        
-        function calculateMonochromatizedSpectrum(sourceSpectrum, crystalParams, operationalAngle_2theta) {
-            const monochromatizedPoints = [];
-            let max_intensity = 0;
-            const d_spacing = crystalParams.d_spacing_A;
-            const mosaicity_rad = degreesToRadians(crystalParams.mosaicity_deg);
-            const theta_rad = degreesToRadians(operationalAngle_2theta / 2);
-            
-            const orderReflectivity = [1.0, 0.2, 0.05]; 
 
-            sourceSpectrum.points.forEach(p => {
-                let total_reflectivity = 0;
+        function calculateEmissionSpectrumData(anode, voltage, current, wavelengths) {
+            const points = wavelengths.map(lambda => ({lambda,
+                intensity: sourceIntensity(lambda, anode, voltage, current)}));
+            return {points, max_intensity: points.reduce((m, p) => Math.max(m, p.intensity), 0)};
+        }
 
-                for (let n = 1; n <= 3; n++) {
-                    const lambda_center_n = (2 * d_spacing / n) * Math.sin(theta_rad);
-                    const d_lambda_d_theta = (2 * d_spacing / n) * Math.cos(theta_rad);
-                    const fwhm_lambda_n = Math.abs(d_lambda_d_theta * mosaicity_rad);
-                    const sigma_lambda_n = fwhm_lambda_n * FWHM_TO_SIGMA;
-
-                    if (sigma_lambda_n > 1e-6) {
-                        const reflectivity_n = gaussian(p.lambda, lambda_center_n, sigma_lambda_n);
-                        total_reflectivity += reflectivity_n * orderReflectivity[n - 1];
-                    }
-                }
-                
-                const final_intensity = p.intensity * total_reflectivity * crystalParams.peak_reflectivity;
-
-                monochromatizedPoints.push({ lambda: p.lambda, intensity: final_intensity });
-                if (final_intensity > max_intensity) max_intensity = final_intensity;
+        function reflectivity(lambda, crystal, angle) {
+            const theta = degreesToRadians(angle / 2);
+            const sigma = degreesToRadians(crystal.rocking_fwhm_theta_deg) * FWHM_TO_SIGMA;
+            let total = 0;
+            crystal.order_weights.forEach((weight, index) => {
+                const ratio = (index + 1) * lambda / (2 * crystal.d_spacing_A);
+                if (weight && ratio > 0 && ratio <= 1)
+                    total += weight * gaussian(Math.asin(ratio), theta, sigma);
             });
+            return Math.min(1, Math.max(0, total * crystal.peak_reflectivity));
+        }
 
-            const primary_lambda = (2 * d_spacing) * Math.sin(theta_rad);
+        function calculateMonochromatizedSpectrum(source, crystal, angle) {
+            const points = source.points.map(p => ({lambda: p.lambda,
+                intensity: p.intensity * reflectivity(p.lambda, crystal, angle)}));
+            return {points, max_intensity: points.reduce((m, p) => Math.max(m, p.intensity), 0),
+                selected_lambda_A: 2 * crystal.d_spacing_A * Math.sin(degreesToRadians(angle / 2))};
+        }
 
-            return { 
-                points: monochromatizedPoints, 
-                max_intensity: max_intensity,
-                selected_lambda_A: primary_lambda
-            };
+        function integrate(points) {
+            return points.reduce((sum, p, i) => i === 0 ? 0 : sum +
+                (p.lambda - points[i - 1].lambda) * (p.intensity + points[i - 1].intensity) / 2, 0);
         }
 
         // --- Plotting ---
@@ -426,7 +438,8 @@
             ctx.fillStyle = "#333";
             const num_x_ticks = Math.max(2, Math.min(10, Math.floor(plotWidth / 80)));
             ctx.textAlign = "center";
-            
+            const tickStep = x_range_lambda / num_x_ticks;
+            const wavelengthDecimals = Math.max(3, Math.min(8, Math.ceil(-Math.log10(tickStep))));
             ctx.beginPath();
             if (x_range_lambda > 1e-6) {
                 for (let i = 0; i <= num_x_ticks; i++) {
@@ -434,7 +447,7 @@
                     const x = p.left + (i / num_x_ticks) * plotWidth;
                     ctx.moveTo(x, p.top + plotHeight);
                     ctx.lineTo(x, p.top + plotHeight + 5);
-                    ctx.fillText(lambda_val.toFixed(2), x, p.top + plotHeight + 22);
+                    ctx.fillText(lambda_val.toFixed(wavelengthDecimals), x, p.top + plotHeight + 22);
                 }
             }
             ctx.stroke();
@@ -508,39 +521,43 @@
             const voltage = 40;
             const current = 30;
             
-            let lambdaMin = parseFloat(lambdaMinInput.value);
-            let lambdaMax = parseFloat(lambdaMaxInput.value);
-
-            if (isNaN(lambdaMin) || lambdaMin < 0.1) { lambdaMin = 0.1; lambdaMinInput.value = 0.1; }
-            if (isNaN(lambdaMax) || lambdaMax > 4.0) { lambdaMax = 4.0; lambdaMaxInput.value = 4.0; }
-            if (lambdaMin >= lambdaMax) {
-                lambdaMin = lambdaMax - 0.1;
-                lambdaMinInput.value = lambdaMin.toFixed(1);
+            const lambdaMin = Number(lambdaMinInput.value);
+            const lambdaMax = Number(lambdaMaxInput.value);
+            const metrics = document.getElementById('metrics');
+            if (!lambdaMinInput.value || !lambdaMaxInput.value || !Number.isFinite(lambdaMin) ||
+                !Number.isFinite(lambdaMax) || lambdaMin < 0.1 || lambdaMax > 4 || lambdaMin >= lambdaMax) {
+                metrics.textContent = 'Enter 0.1 ≤ λ min < λ max ≤ 4.0 Å. Plots retain the last valid values.';
+                return;
             }
-
-            const displayRange = { min: lambdaMin, max: lambdaMax };
-
+            const displayRange = {min: lambdaMin, max: lambdaMax};
             const anodeParams = elementData[anodeKey];
-            const crystalParams = crystalData[crystalKey];
-            
-            const sourceSpectrum = calculateEmissionSpectrumData(anodeParams, voltage, current, displayRange);
-            const idealAngle = calculateIdealBraggAngle(sourceSpectrum, anodeParams, crystalParams);
-            
-            if (idealAngle !== null) {
-                idealAngleDisplay.textContent = `${idealAngle.toFixed(3)}°`;
-                if (sourceChanged) {
-                    twoThetaInput.value = idealAngle.toFixed(3);
-                }
-            } else {
-                idealAngleDisplay.textContent = "N/A";
+            const bandwidthInput = document.getElementById('bandwidthInput');
+            const bandwidth = Number(bandwidthInput.value);
+            if (!bandwidthInput.value || !Number.isFinite(bandwidth) || bandwidth < 0.0001 || bandwidth > 1) {
+                metrics.textContent = 'Enter 0.0001 ≤ effective θ FWHM ≤ 1°. Plots retain the last valid values.';
+                return;
             }
-            
-            const currentOperationalAngle = parseFloat(twoThetaInput.value);
+            const crystalParams = {...crystalData[crystalKey], rocking_fwhm_theta_deg: bandwidth};
+            const idealAngle = calculateIdealBraggAngle(anodeParams, crystalParams);
+            idealAngleDisplay.textContent = idealAngle === null ? 'N/A' : `${idealAngle.toFixed(6)}°`;
+            if (sourceChanged && idealAngle !== null) twoThetaInput.value = idealAngle.toFixed(9);
+            const currentOperationalAngle = Number(twoThetaInput.value);
+            if (!twoThetaInput.value || !Number.isFinite(currentOperationalAngle) ||
+                currentOperationalAngle < 0.001 || currentOperationalAngle > 179.9) {
+                metrics.textContent = 'Enter 0.001 ≤ 2θ ≤ 179.9°. Plots retain the last valid values.';
+                return;
+            }
+            const grid = wavelengthGrid(displayRange, anodeParams, crystalParams, currentOperationalAngle, voltage);
+            const sourceSpectrum = calculateEmissionSpectrumData(anodeParams, voltage, current, grid);
             const monochromatizedSpectrum = calculateMonochromatizedSpectrum(sourceSpectrum, crystalParams, currentOperationalAngle);
-            selectedLambdaDisplay.textContent = `${monochromatizedSpectrum.selected_lambda_A.toFixed(4)} Å`;
+            selectedLambdaDisplay.textContent = `${monochromatizedSpectrum.selected_lambda_A.toFixed(6)} Å`;
+            // Anchor the shared vertical scale to the full source range, independent of zoom or angle.
+            const scaleGrid = wavelengthGrid({min: 0.1, max: 4}, anodeParams, crystalParams, idealAngle, voltage);
+            const sourceYMax = Math.max(1, calculateEmissionSpectrumData(anodeParams, voltage, current, scaleGrid).max_intensity * 1.05);
+            const sourceArea = integrate(sourceSpectrum.points);
+            const outputArea = integrate(monochromatizedSpectrum.points);
+            metrics.textContent = `Displayed-band energy throughput: ${sourceArea > 0 ? (100 * outputArea / sourceArea).toFixed(4) + '%' : 'N/A (no source energy)'} · Shared vertical scale`;
 
-            const sourceYMax = sourceSpectrum.max_intensity > 0 ? sourceSpectrum.max_intensity * 1.05 : 1;
-            
             plotFunction(canvasSource, ctxSource, {
                 displayRange,
                 drawYAxis: true,
@@ -548,19 +565,19 @@
                 legendItems: [ { label: `Source: ${anodeKey} (40kV, 30mA)`, color: anodeParams.color } ],
                 datasets: [{
                     data: sourceSpectrum, yKey: 'intensity',
-                    yAxisLabel: 'Source Intensity (a.u.)', color: anodeParams.color,
+                    yAxisLabel: 'Energy density (a.u./Å)', color: anodeParams.color,
                     yMax: sourceYMax
                 }]
             });
             
             plotFunction(canvasMonochromatized, ctxMonochromatized, {
                 displayRange,
-                drawYAxis: false,
+                drawYAxis: true,
                 legendDiv: legendMonochromatizedDiv,
-                legendItems: [ { label: `Diffracted Beam (orders 1-3)`, color: MONOCHROMATOR_COLOR } ],
+                legendItems: [ { label: `Diffracted beam (${crystalKey}); illustrative order weights`, color: MONOCHROMATOR_COLOR } ],
                 datasets: [{
                     data: monochromatizedSpectrum, yKey: 'intensity',
-                    yAxisLabel: '', color: MONOCHROMATOR_COLOR,
+                    yAxisLabel: 'Energy density (a.u./Å)', color: MONOCHROMATOR_COLOR,
                     yMax: sourceYMax
                 }]
             });
@@ -568,10 +585,25 @@
 
         // --- Event Listeners ---
         anodeElementSelect.addEventListener('change', () => updateSimulation(true));
-        crystalSelect.addEventListener('change', () => updateSimulation(true));
+        crystalSelect.addEventListener('change', () => {
+            document.getElementById('bandwidthInput').value = crystalData[crystalSelect.value].rocking_fwhm_theta_deg;
+            updateSimulation(true);
+        });
+        document.getElementById('bandwidthInput').addEventListener('input', () => updateSimulation(false));
         twoThetaInput.addEventListener('input', () => updateSimulation(false));
         lambdaMinInput.addEventListener('input', () => updateSimulation(false));
         lambdaMaxInput.addEventListener('input', () => updateSimulation(false));
+
+        document.getElementById('tuneButton').addEventListener('click', () => updateSimulation(true));
+        document.getElementById('zoomButton').addEventListener('click', () => {
+            const lines = lineFeatures(elementData[anodeElementSelect.value]);
+            lambdaMinInput.value = (lines[0].center - 0.01).toFixed(6);
+            lambdaMaxInput.value = (lines[1].center + 0.01).toFixed(6);
+            updateSimulation();
+        });
+        document.getElementById('resetButton').addEventListener('click', () => {
+            lambdaMinInput.value = '0.1'; lambdaMaxInput.value = '4'; updateSimulation();
+        });
 
         // --- Sizing and Resizing Logic ---
         const resizer = document.getElementById('draghandle');
@@ -600,13 +632,15 @@
                 requestAnimationFrame(() => updateSimulation(false));
             }
         });
-        resizeObserver.observe(graphsContainer); 
+        resizeObserver.observe(canvasSource.parentElement);
+        resizeObserver.observe(canvasMonochromatized.parentElement); 
 
         let isResizing = false;
         let finalHeight = 0;
         resizer.addEventListener('mousedown', function(e) {
             e.preventDefault();
             isResizing = true;
+            finalHeight = topPanel.getBoundingClientRect().height;
             ghost.style.top = `${e.clientY}px`;
             ghost.style.display = 'block';
             document.body.style.cursor = 'row-resize';
@@ -635,6 +669,8 @@
         }
 
         // Initialize
+        setCanvasSize(canvasSource);
+        setCanvasSize(canvasMonochromatized);
         updateSimulation(true);
         
     </script>
