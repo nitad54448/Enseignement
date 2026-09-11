@@ -31,6 +31,8 @@
             --drawer-button-size: 40px;
         }
 
+        * { box-sizing: border-box; }
+
         body {
             font-family: 'Inter', sans-serif;
             margin: 0;
@@ -145,10 +147,21 @@
         }
         
         #projection-canvas, #sphere-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; }
-        #projection-canvas { cursor: crosshair; }
+        #projection-canvas { cursor: crosshair; touch-action: none; }
         #sphere-canvas { cursor: grab; }
-        #sphere-canvas:grabbing { cursor: grabbing; }
+        #sphere-canvas:active { cursor: grabbing; }
 
+        #parent-editor { margin-top: 1.5rem; }
+        #parent-editor p { font-size: 0.85rem; line-height: 1.5; }
+        #parent-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+        .coordinate-fields { display: flex; gap: 8px; }
+        .coordinate-fields label { flex: 1; min-width: 0; }
+        .coordinate-fields input { width: 100%; margin-top: 6px; padding: 8px; border: 1px solid #6b7280; border-radius: 4px; background: #1f2937; color: white; }
+        #parent-editor button { margin-top: 12px; padding: 9px 12px; background: #3b82f6; color: white; border: 0; border-radius: 4px; cursor: pointer; }
+        #parent-editor :disabled { opacity: 0.5; cursor: default; }
+        #parent-edit-status { color: #fcd34d; min-height: 1.5em; }
+        #pole-info-table-wrapper { overflow-x: auto; }
+        #symmetry-generators-list { display: grid; gap: 8px; }
         /* --- Control Panel Components --- */
         .info-table { font-family: monospace; font-size: 0.9rem; width: 100%; text-align: left; background-color: #374151; border-radius: 0.25rem; border: 1px solid #4b5563; border-collapse: collapse; color: var(--text-light); }
         .info-table th, .info-table td { padding: 0.5rem 1rem; border-bottom: 1px solid #4b5563; }
@@ -193,6 +206,7 @@
 
             #app-container.panel-collapsed #controls-panel {
                 transform: translateX(-105%);
+                padding: 24px;
             }
 
             #drag-handle-vertical {
@@ -209,6 +223,7 @@
 
             #app-container.panel-collapsed #drawer-toggle-btn {
                  left: 0.75rem;
+                 transform: none;
             }
             #app-container:not(.panel-collapsed) #drawer-toggle-btn {
                 left: calc(min(85%, 350px) + 0.75rem); 
@@ -291,6 +306,20 @@
                 <label><input type="checkbox" value="rotoinv6_z"> 6-fold rotoinversion || [001] (-6)</label>
             </div>
             
+            <form id="parent-editor">
+                <h2>Edit Parent Pole</h2>
+                <p id="parent-edit-description">Select a pole on the projection or in the table to edit its parent.</p>
+                <fieldset id="parent-edit-fields" disabled>
+                    <div class="coordinate-fields">
+                        <label for="parent-x">x<input id="parent-x" type="number" step="any" required></label>
+                        <label for="parent-y">y<input id="parent-y" type="number" step="any" required></label>
+                        <label for="parent-z">z<input id="parent-z" type="number" step="any" required></label>
+                    </div>
+                    <button type="submit">Apply to Parent</button>
+                </fieldset>
+                <p>Enter any nonzero Cartesian direction. Values are normalized to unit length. Negative z selects the lower hemisphere. Applying regenerates the full family using the selected generators.</p>
+                <p id="parent-edit-status" role="status" aria-live="polite"></p>
+            </form>
             <div id="info-panel" style="margin-top: 1.5rem;">
                 <div id="pole-info-table-wrapper">
                     <p class="text-sm" style="color: #9ca3af;">Click on the projection to add a pole.</p>
@@ -303,7 +332,7 @@
         <div id="visualization-container">
             <div id="main-header">
                 <h1>Stereographic Projection</h1>
-                <p>Click on the projection to add a pole. Select a symmetry element to generate all the poles.  If you select a symmetry element and then a pole, you can generate the other poles one by one. Drag the sphere to rotate or select the parent pole to move its family.</p>
+                <p>Click on the projection to add a pole. Select a symmetry element to generate all the poles.  If you select a symmetry element and then a pole, you can generate the other poles one by one. Drag the sphere to rotate. Drag a parent on the projection or edit its coordinates in the side panel to move its family.</p>
             </div>
 
             <div id="top-buttons-container">
@@ -357,6 +386,51 @@
         const showIntersectionsCheckbox = document.getElementById('show-intersections-checkbox');
         const showElementsCheckbox = document.getElementById('show-elements-checkbox');
 
+
+        const parentEditor = document.getElementById('parent-editor');
+        const parentEditFields = document.getElementById('parent-edit-fields');
+        const parentInputs = ['x', 'y', 'z'].map(axis => document.getElementById(`parent-${axis}`));
+        const parentEditDescription = document.getElementById('parent-edit-description');
+        const parentEditStatus = document.getElementById('parent-edit-status');
+
+        function getSelectedParent() {
+            const selected = poles[selectedPoleIndex];
+            return selected ? (selected.parentId === null ? selected : poles.find(p => p.id === selected.parentId)) : null;
+        }
+
+        function formatCoordinate(value) {
+            return (Math.abs(value) < 0.0005 ? 0 : value).toFixed(3);
+        }
+
+        function updateParentEditor() {
+            const parent = getSelectedParent();
+            parentEditFields.disabled = !parent;
+            parentEditStatus.textContent = '';
+            parentEditDescription.textContent = parent
+                ? `Editing parent #${parent.id + 1}${poles[selectedPoleIndex].parentId !== null ? ' of the selected generated pole' : ''}.`
+                : 'Select a pole on the projection or in the table to edit its parent.';
+            parentInputs.forEach((input, i) => {
+                input.value = parent ? formatCoordinate(parent[['h', 'k', 'l'][i]]) : '';
+            });
+        }
+
+        function normalizeDirection(h, k, l) {
+            if (![h, k, l].every(Number.isFinite)) return null;
+            const scale = Math.max(Math.abs(h), Math.abs(k), Math.abs(l));
+            if (scale === 0) return null;
+            const length = Math.hypot(h / scale, k / scale, l / scale);
+            return { h: (h / scale) / length, k: (k / scale) / length, l: (l / scale) / length };
+        }
+
+        function editParentPole(parent, h, k, l) {
+            const direction = normalizeDirection(h, k, l);
+            if (!parent || !direction) return false;
+            Object.assign(parent, direction, millerToSpherical(direction.h, direction.k, direction.l), {
+                isLowerHemisphere: direction.l < -1e-6
+            });
+            regenerateFamily(parent.id);
+            return true;
+        }
 
         // --- Drawer Panel Logic ---
         const updateDrawerIcon = () => {
@@ -460,7 +534,7 @@
             sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
             scene.add(sphere);
             const planeGeometry = new THREE.CircleGeometry(SPHERE_RADIUS, 64);
-            const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xe6e6f6, transparent: false, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false });
+            const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xe6e6f6, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false });
             const equatorialPlane = new THREE.Mesh(planeGeometry, planeMaterial);
             equatorialPlane.rotation.x = -Math.PI / 2;
             scene.add(equatorialPlane);
@@ -488,12 +562,25 @@
             drawSymmetryElementsOnSphere();
         }
 
+        // Dispose transient geometry/materials before rebuilding a visualization.
+        function clearVisualGroup(group) {
+            const geometries = new Set();
+            const materials = new Set();
+            group.traverse(object => {
+                if (object.geometry) geometries.add(object.geometry);
+                if (object.material) {
+                    (Array.isArray(object.material) ? object.material : [object.material]).forEach(material => materials.add(material));
+                }
+            });
+            group.clear();
+            geometries.forEach(geometry => geometry.dispose());
+            materials.forEach(material => material.dispose());
+        }
+
         function drawSymmetryElementsOnSphere() {
             if (!symmetryElementsGroup) return;
             // Always clear existing elements first
-            while (symmetryElementsGroup.children.length > 0) {
-                symmetryElementsGroup.remove(symmetryElementsGroup.children[0]);
-            }
+            clearVisualGroup(symmetryElementsGroup);
 
             // Only draw new elements if the checkbox is checked
             if (!showSymmetryElements) return;
@@ -594,9 +681,7 @@
         
         function drawIntersectionLines() {
             if (!intersectionLinesGroup) return;
-            while(intersectionLinesGroup.children.length > 0){
-                intersectionLinesGroup.remove(intersectionLinesGroup.children[0]);
-            }
+            clearVisualGroup(intersectionLinesGroup);
             if (!showIntersectionLines) return;
             const northPole = new THREE.Vector3(0, SPHERE_RADIUS, 0);
             const southPole = new THREE.Vector3(0, -SPHERE_RADIUS, 0);
@@ -613,9 +698,7 @@
         
         function drawIntersectionMarkers() {
             if (!intersectionMarkersGroup) return;
-            while(intersectionMarkersGroup.children.length > 0){
-                intersectionMarkersGroup.remove(intersectionMarkersGroup.children[0]);
-            }
+            clearVisualGroup(intersectionMarkersGroup);
             if (!showIntersectionLines) return;
             poles.forEach(pole => {
                 const polePosition = new THREE.Vector3(SPHERE_RADIUS * pole.h, SPHERE_RADIUS * pole.l, -SPHERE_RADIUS * pole.k);
@@ -654,7 +737,7 @@
 
         function drawSpherePoleMarkers() {
             if (!poleMarkersGroup) return;
-            while(poleMarkersGroup.children.length > 0){ poleMarkersGroup.remove(poleMarkersGroup.children[0]); }
+            clearVisualGroup(poleMarkersGroup);
             poles.forEach((pole, index) => {
                 const poleRadius = (index === selectedPoleIndex) ? 0.45 : 0.3;
                 const materialColor = pole.isLowerHemisphere ? lowerHemisphereColor : pole.color;
@@ -729,7 +812,7 @@
                 const targetPoleHkl = calculateTargetGroup(parentPole, checkedOps);
                 targetPoleSet = targetPoleHkl.map(p_hkl => { const mag = Math.sqrt(p_hkl.h*p_hkl.h + p_hkl.k*p_hkl.k + p_hkl.l*p_hkl.l); return { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag }; });
             } else {
-                const op = checkedOps[0]; const startPole = poles[selectedPoleIndex]; const potentialNewPoles = applySingleOperation(op, startPole); if (!potentialNewPoles || potentialNewPoles.length === 0) return; const newPoleHkl = potentialNewPoles[0]; const mag = Math.sqrt(newPoleHkl.h**2 + newPoleHkl.k**2 + newPoleHkl.l**2); if (mag > 1e-6) { newPoleHkl.h /= mag; newPoleHkl.k /= mag; newPoleHkl.l /= mag; } const existingPoleIndex = poles.findIndex(p => arePolesEqual(p, newPoleHkl));
+                const op = checkedOps[0]; const startPole = poles[selectedPoleIndex]; const potentialNewPoles = applySingleOperation(op, startPole); if (!potentialNewPoles || potentialNewPoles.length === 0) return; const newPoleHkl = potentialNewPoles[0]; const mag = Math.sqrt(newPoleHkl.h**2 + newPoleHkl.k**2 + newPoleHkl.l**2); if (mag > 1e-6) { newPoleHkl.h /= mag; newPoleHkl.k /= mag; newPoleHkl.l /= mag; } const existingPoleIndex = poles.findIndex(p => (p.id === parentPole.id || p.parentId === parentPole.id) && arePolesEqual(p, newPoleHkl));
                 if (existingPoleIndex !== -1) { selectedPoleIndex = existingPoleIndex; } else { const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l); const newPoleObject = { id: poleIdCounter++, h: newPoleHkl.h, k: newPoleHkl.k, l: newPoleHkl.l, phi: spherical.phi, rho: spherical.rho, color: parentPole.color, parentId: parentPole.id, generatingOp: op, isLowerHemisphere: newPoleHkl.l < -1e-6 }; poles.push(newPoleObject); selectedPoleIndex = poles.length - 1; }
                 updateAllVisuals(); return;
             }
@@ -748,13 +831,13 @@
             updateAllVisuals();
         }
 
-        function updateAllVisuals() { drawProjection(); updateSphereVisuals(); updatePoleInfoTable(); }
+        function updateAllVisuals() { drawProjection(); updateSphereVisuals(); updatePoleInfoTable(); updateParentEditor(); }
         
         function updatePoleInfoTable() {
             if (poles.length === 0) { poleInfoWrapper.innerHTML = `<p style="font-size: 0.875rem; color: #9ca3af;">Click on the projection to add a pole.</p>`; return; }
             let tableHTML = `<table class="info-table"><tr><th></th><th>Pole (x,y,z)</th><th>Type</th></tr>`;
             poles.forEach((p, index) => {
-                const xyz = `(${p.h.toFixed(2)}, ${p.k.toFixed(2)}, ${p.l.toFixed(2)})`;
+                const xyz = `(${formatCoordinate(p.h)}, ${formatCoordinate(p.k)}, ${formatCoordinate(p.l)})`;
                 const rowStyle = (index === selectedPoleIndex) ? `border-left: 4px solid #f59e0b; background-color: rgba(245, 158, 11, 0.2);` : '';
                 const symbolColor = p.isLowerHemisphere ? lowerHemisphereColor : p.color;
                 let symbolHTML = p.isLowerHemisphere ? `<div style="width: 18px; height: 18px; color: ${symbolColor}; font-weight: bold; font-size: 22px; line-height: 18px; text-align: center; display: inline-block; vertical-align: middle;">&times;</div>` : `<div style="width: 16px; height: 16px; background-color: transparent; border: 2px solid ${symbolColor}; border-radius: 50%; box-sizing: border-box; display: inline-block; vertical-align: middle;"></div>`;
@@ -765,6 +848,7 @@
         }
 
         function drawSymmetryElements() {
+            if (!showSymmetryElements) return;
             const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
             if (checkedOps.length === 0) return;
             const symbolSize = 14; const symbolColor = '#e11d48';
@@ -840,6 +924,7 @@
                 window.addEventListener('mouseup', handleDragEnd);
                 window.addEventListener('touchmove', handleDragMove, { passive: false });
                 window.addEventListener('touchend', handleDragEnd);
+                window.addEventListener('touchcancel', handleDragEnd);
             } else if (clickedIndex === -1) {
                 const distFromCenter = Math.sqrt((canvasX - projCenterX)**2 + (canvasY - projCenterY)**2);
                 if (distFromCenter <= projRadius) { 
@@ -866,8 +951,10 @@
             if (spherical.rho > Math.PI / 2) { spherical.rho = Math.PI / 2; }
             const miller = sphericalToMiller(spherical.phi, spherical.rho);
             const parentPole = poles.find(p => p.id === draggedPoleId);
-            if (parentPole) { Object.assign(parentPole, { ...spherical, ...miller, isLowerHemisphere: miller.l < 0 }); }
-            regenerateFamily(draggedPoleId);
+            if (parentPole) {
+                if (parentPole.isLowerHemisphere) miller.l = -Math.abs(miller.l);
+                editParentPole(parentPole, miller.h, miller.k, miller.l);
+            }
             updateAllVisuals();
         }
 
@@ -880,6 +967,7 @@
             window.removeEventListener('mouseup', handleDragEnd);
             window.removeEventListener('touchmove', handleDragMove);
             window.removeEventListener('touchend', handleDragEnd);
+            window.removeEventListener('touchcancel', handleDragEnd);
         }
 
         function regenerateFamily(parentPoleId) {
@@ -893,7 +981,7 @@
                 const mag = Math.sqrt(p_hkl.h**2 + p_hkl.k**2 + p_hkl.l**2);
                 if (mag < 1e-6) return;
                 const newPoleHkl = { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag };
-                if (arePolesEqual(newPoleHkl, parentPole) || findPoleInList(poles, newPoleHkl)) return;
+                if (arePolesEqual(newPoleHkl, parentPole) || findPoleInList(poles.filter(p => p.id === parentPoleId || p.parentId === parentPoleId), newPoleHkl)) return;
                 const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l);
                 if (!spherical) return;
                 const newPoleObject = { id: poleIdCounter++, ...newPoleHkl, ...spherical, color: parentPole.color, parentId: parentPole.id, generatingOp: 'group', isLowerHemisphere: newPoleHkl.l < -1e-6 };
@@ -902,16 +990,28 @@
         }
 
         function setupEventListeners() {
+            parentEditor.addEventListener('submit', event => {
+                event.preventDefault();
+                const parent = getSelectedParent();
+                const values = parentInputs.map((input, i) => {
+                    const original = parent?.[['h', 'k', 'l'][i]];
+                    // Keep unchanged components at full precision despite rounded display.
+                    return parent && input.value === formatCoordinate(original) ? original : input.valueAsNumber;
+                });
+                if (!editParentPole(getSelectedParent(), ...values)) {
+                    parentEditStatus.textContent = 'Enter three finite numbers; the direction cannot be (0, 0, 0).';
+                    return;
+                }
+                updateAllVisuals();
+                parentEditStatus.textContent = 'Parent updated and family regenerated.';
+            });
             generatePolesBtn.addEventListener('click', handleGenerateClick);
             generatorListDiv.addEventListener('change', () => { if (selectedPoleIndex > -1) { const selectedPole = poles[selectedPoleIndex]; const parentId = selectedPole.parentId === null ? selectedPole.id : selectedPole.parentId; if (parentId !== null) { regenerateFamily(parentId); } } updateAllVisuals(); });
             clearBtn.addEventListener('click', () => { poles = []; selectedPoleIndex = -1; generatorListDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; }); updateAllVisuals(); });
             document.addEventListener('selectPole', (e) => {
                 selectedPoleIndex = e.detail; 
                 updateAllVisuals();
-                if (window.innerWidth <= 768 && !appContainer.classList.contains('panel-collapsed')) {
-                    appContainer.classList.add('panel-collapsed');
-                    updateDrawerIcon();
-                }
+
             });
             projectionCanvas.addEventListener('mousedown', handleDragStart);
             projectionCanvas.addEventListener('touchstart', handleDragStart, { passive: true });
@@ -1007,6 +1107,9 @@
 
         // --- INITIALIZATION ---
         initThreeJS();
+        resizeProjectionCanvas();
+        resizeSphereCanvas();
+        updateAllVisuals();
         
         // Add window resize listener for proper responsive behavior
         window.addEventListener('resize', () => {
