@@ -12,7 +12,7 @@
     <style>
         body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f1f5f9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
-        #controls-panel { width: 400px; min-width: 350px; max-width: 550px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
+        #controls-panel { width: 440px; min-width: 390px; max-width: 590px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
         #drag-handle { width: 6px; cursor: col-resize; background-color: #374151; flex-shrink: 0; transition: background-color 0.2s; }
         #drag-handle:hover { background-color: #3b82f6; }
         #results-area { flex-grow: 1; background-color: #f1f5f9; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: #1f2937; overflow-y: auto; }
@@ -32,7 +32,7 @@
         .canvas-wrapper { background-color: #e5e7eb; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05); width: 100%; overflow: hidden; aspect-ratio: 1 / 1; }
         canvas { cursor: crosshair; display: block; width: 100%; height: 100%; }
         
-        .coord-input { width: 60px; text-align: center; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 2px 4px; }
+        .coord-input { width: 72px; text-align: center; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 2px 4px; }
         .coord-input:focus { outline: none; border-color: #3b82f6; }
         
         .plot-grid { display: grid; grid-template-areas: 'y-axis plot' '. x-axis'; grid-template-rows: 1fr auto; grid-template-columns: auto 1fr; gap: 0.25rem; }
@@ -217,17 +217,23 @@
             function drawAxisLabels(yId, xId, centered, isDiffraction, theme) {
                 const yEl = document.getElementById(yId), xEl = document.getElementById(xId);
                 yEl.innerHTML = ''; xEl.innerHTML = '';
+                yEl.style.position = 'relative'; xEl.style.position = 'relative';
+                xEl.style.height = '1.25rem';
                 const textColor = theme === 'dark' ? 'text-gray-400' : 'text-gray-500';
                 yEl.className = `w-8 flex-shrink-0 y-axis-labels flex flex-col justify-between text-right text-xs pr-1 ${textColor}`;
                 xEl.className = `x-axis-labels flex justify-between text-center text-xs pt-1 ${textColor}`;
 
                 if (isDiffraction) {
+                    const size = diffractionCanvas.width;
+                    const { padding, extent } = diffractionPlotMetrics(size);
+                    const tickPercent = index => 100 * (padding + index * extent / diffractionGridSize) / size;
                     // Create a label for every integer from -hk to +hk.
                     
                     // Y-axis labels (top to bottom: from +hk down to -hk)
                     for (let i = diffractionGridSize; i >= -diffractionGridSize; i--) {
                         const ySpan = document.createElement('span');
                         ySpan.textContent = i;
+                        ySpan.style.cssText = `position:absolute;right:4px;top:${tickPercent(diffractionGridSize - i)}%;transform:translateY(-50%);`;
                         yEl.appendChild(ySpan);
                     }
                     
@@ -235,18 +241,21 @@
                     for (let i = -diffractionGridSize; i <= diffractionGridSize; i++) {
                         const xSpan = document.createElement('span');
                         xSpan.textContent = i;
+                        xSpan.style.cssText = `position:absolute;left:${tickPercent(i + diffractionGridSize)}%;transform:translateX(-50%);`;
                         xEl.appendChild(xSpan);
                     }
                 } else {
                     //  real-space plot.
                     for (let i = 0; i <= 4; i++) {
                         const ySpan = document.createElement('span');
-                        ySpan.textContent = (1.0 - (i / 4.0)).toFixed(1);
+                        ySpan.textContent = (1.0 - (i / 4.0)).toFixed(2);
+                        ySpan.style.cssText = `position:absolute;right:4px;top:${i * 25}%;transform:translateY(-50%);`;
                         yEl.appendChild(ySpan);
                     }
                     for (let i = 0; i <= 4; i++) {
                         const xSpan = document.createElement('span');
-                        xSpan.textContent = (i / 4.0).toFixed(1);
+                        xSpan.textContent = (i / 4.0).toFixed(2);
+                        xSpan.style.cssText = `position:absolute;left:${i * 25}%;transform:translateX(${i === 0 ? '0' : i === 4 ? '-100%' : '-50%'});`;
                         xEl.appendChild(xSpan);
                     }
                 }
@@ -263,12 +272,18 @@
                 }
             }
 
+            function diffractionPlotMetrics(size) {
+                const padding = Math.min(32, size / 4);
+                return { center: size / 2, extent: size / 2 - padding, padding };
+            }
+
             function drawDiffractionGrid(ctx) {
-                const size = ctx.canvas.width, center = size / 2;
+                const size = ctx.canvas.width;
+                const { center, extent } = diffractionPlotMetrics(size);
                 ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
                 ctx.strokeStyle = '#374151'; ctx.lineWidth = 0.5;
                 for (let i = 1; i <= diffractionGridSize; i++) {
-                    let p1 = center + (i / diffractionGridSize) * center, p2 = center - (i / diffractionGridSize) * center;
+                    let p1 = center + (i / diffractionGridSize) * extent, p2 = center - (i / diffractionGridSize) * extent;
                     ctx.beginPath(); ctx.moveTo(p1, 0); ctx.lineTo(p1, size); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, p1); ctx.lineTo(size, p1); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(p2, 0); ctx.lineTo(p2, size); ctx.stroke();
@@ -301,7 +316,8 @@
 
             function drawDiffractionPattern() {
                 drawDiffractionGrid(diffractionCtx);
-                const size = diffractionCanvas.width, center = size / 2;
+                const size = diffractionCanvas.width;
+                const { center, extent } = diffractionPlotMetrics(size);
                 let maxI = Math.max(1e-9, ...diffractionIntensities.filter(s => s.h || s.k).map(s => s.intensity));
                 const maxLogI = Math.log(1 + maxI);
 
@@ -310,7 +326,7 @@
                     const normI = Math.log(1 + spot.intensity) / maxLogI;
                     if (normI < 0.01) return;
                     const radius = 1 + diffractionSpotSizeFactor * normI;
-                    const x = center + (spot.h / diffractionGridSize) * center, y = center - (spot.k / diffractionGridSize) * center;
+                    const x = center + (spot.h / diffractionGridSize) * extent, y = center - (spot.k / diffractionGridSize) * extent;
                     const colorVal = Math.floor(200 * normI) + 55;
                     diffractionCtx.fillStyle = `rgb(${colorVal},${colorVal},${colorVal})`;
                     diffractionCtx.beginPath(); diffractionCtx.arc(x, y, radius, 0, 7); diffractionCtx.fill();
@@ -321,21 +337,25 @@
                         diffractionCtx.fillText(`${spot.h},${spot.k}`, x, y - 12);
                     }
                 });
-                diffractionCtx.fillStyle = '#ef4444'; diffractionCtx.font = '10px Inter';
-                diffractionCtx.fillText('0,0', center, center - 10);
+                if (showHkLabels) {
+                    diffractionCtx.fillStyle = '#ef4444'; diffractionCtx.font = '10px Inter';
+                    diffractionCtx.textAlign = 'center'; diffractionCtx.textBaseline = 'middle';
+                    diffractionCtx.fillText('0,0', center, center - 10);
+                }
             }
             
             function updateAtomList() {
                 const activeId = document.activeElement ? document.activeElement.id : null;
                 atomList.innerHTML = '';
+                atomList.appendChild(noAtomsMsg);
                 noAtomsMsg.style.display = atoms.length === 0 ? 'block' : 'none';
                 atoms.forEach((atom, index) => {
                     const li = document.createElement('li');
                     li.className = 'flex justify-between items-center bg-gray-700 p-2 rounded-md border border-gray-600';
                     li.innerHTML = `<div class="flex items-center gap-2 font-mono text-sm text-gray-300">
                         <span>${index + 1}(${atom.type}):</span><span>(</span>
-                        <input type="number" step="0.01" value="${atom.x.toFixed(2)}" id="atom-${index}-x" data-index="${index}" data-coord="x" class="coord-input">,
-                        <input type="number" step="0.01" value="${atom.y.toFixed(2)}" id="atom-${index}-y" data-index="${index}" data-coord="y" class="coord-input">
+                        <input type="number" min="0" max="1" step="0.001" value="${atom.x.toFixed(3)}" id="atom-${index}-x" data-index="${index}" data-coord="x" class="coord-input">,
+                        <input type="number" min="0" max="1" step="0.001" value="${atom.y.toFixed(3)}" id="atom-${index}-y" data-index="${index}" data-coord="y" class="coord-input">
                         <span>)</span></div>
                         <button data-index="${index}" class="remove-atom-btn text-red-500 hover:text-red-400 text-xs font-semibold">REMOVE</button>`;
                     atomList.appendChild(li);
@@ -355,7 +375,7 @@
             function handleAddAtom(event) {
                 const rect = realCanvas.getBoundingClientRect();
                 const x = (event.clientX - rect.left) / rect.width, y = 1 - ((event.clientY - rect.top) / rect.height);
-                if (x >= 0 && x <= 1 && y >= 0 && y <= 1) { atoms.push({ x, y, type: currentAtomType }); redrawAll(); }
+                if (x >= 0 && x <= 1 && y >= 0 && y <= 1) { atoms.push({ x: Number(x.toFixed(3)), y: Number(y.toFixed(3)), type: currentAtomType }); redrawAll(); }
             }
             function handleAtomListInteraction(event) {
                 if (event.target.classList.contains('remove-atom-btn')) {
@@ -365,8 +385,19 @@
             function handleCoordinateChange(event) {
                 if (event.target.classList.contains('coord-input')) {
                     const index = parseInt(event.target.dataset.index, 10), coord = event.target.dataset.coord;
-                    let val = Math.max(0, Math.min(1, parseFloat(event.target.value) || 0));
-                    if (atoms[index]) { atoms[index][coord] = val; redrawAll(); }
+                    const input = event.target;
+                    const raw = input.value.trim();
+                    const val = Number(raw);
+                    if (raw === '' || !Number.isFinite(val) || val < 0 || val > 1) {
+                        input.setCustomValidity('Enter a coordinate between 0 and 1.');
+                        input.reportValidity();
+                        return;
+                    }
+                    input.setCustomValidity('');
+                    if (atoms[index]) {
+                        atoms[index][coord] = Number(val.toFixed(3));
+                        redrawAll();
+                    }
                 }
             }
             function handleScatteringFactorChange(event) {
@@ -388,7 +419,7 @@
             const leftPanel = document.getElementById('controls-panel'), resizer = document.getElementById('drag-handle');
             resizer.addEventListener('mousedown', (e) => {
                 e.preventDefault(); document.body.classList.add('resizing');
-                const moveHandler = (e) => { if (e.clientX > 350 && e.clientX < 550) leftPanel.style.width = `${e.clientX}px`; };
+                const moveHandler = (e) => { if (e.clientX > 390 && e.clientX < 590) leftPanel.style.width = `${e.clientX}px`; };
                 const upHandler = () => {
                     document.body.classList.remove('resizing');
                     window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler);
@@ -403,6 +434,9 @@
             clearBtn.addEventListener('click', () => { atoms = []; redrawAll(); });
             atomList.addEventListener('click', handleAtomListInteraction);
             atomList.addEventListener('change', handleCoordinateChange);
+            atomList.addEventListener('input', (event) => {
+                if (event.target.classList.contains('coord-input')) event.target.setCustomValidity('');
+            });
             toggleHkLabels.addEventListener('change', (e) => { showHkLabels = e.target.checked; redrawAll(); });
             faSlider.addEventListener('input', handleScatteringFactorChange);
             fbSlider.addEventListener('input', handleScatteringFactorChange);
