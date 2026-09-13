@@ -6,10 +6,12 @@
     <title>XRR Simulator</title>
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom/dist/chartjs-plugin-zoom.min.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
         body {
             font-family: 'Inter', sans-serif;
             margin: 0;
@@ -59,6 +61,7 @@
             padding: 1.5rem;
             color: #1f2937;
         }
+        #xrrChart { touch-action: none; }
         #chart-container {
             position: relative;
             width: 100%;
@@ -179,7 +182,7 @@
     <div id="app-container">
         <div id="controls-panel">
             <h1>XRR Simulator</h1>
-            <p>Wheel or Ctrl+select to zoom, double click to unzoom.</p>
+            <p>Wheel to zoom, left-drag to pan, right-click to reset. Pinch to zoom on touchscreens.</p>
             
             <div class="control-group">
                 <h3>Plot &amp; X-Ray Parameters</h3>
@@ -249,51 +252,119 @@
         //  Constants & Complex Math Library ---
         const Complex={create:(re=0,im=0)=>({re,im}),add:(a,b)=>({re:a.re+b.re,im:a.im+b.im}),subtract:(a,b)=>({re:a.re-b.re,im:a.im-b.im}),multiply:(a,b)=>({re:a.re*b.re-a.im*b.im,im:a.re*b.im+a.im*b.re}),divide:(a,b)=>{const d=b.re*b.re+b.im*b.im;return d===0?{re:Infinity,im:Infinity}:{re:(a.re*b.re+a.im*b.im)/d,im:(a.im*b.re-a.re*b.im)/d}},exp:c=>{const e=Math.exp(c.re);return{re:e*Math.cos(c.im),im:e*Math.sin(c.im)}},sqrt:c=>{const r=Math.sqrt(c.re*c.re+c.im*c.im),p=Math.atan2(c.im,c.re),s=Math.sqrt(r);return{re:s*Math.cos(p/2),im:s*Math.sin(p/2)}},magnitudeSq:c=>c.re*c.re+c.im*c.im};
         const CLASSICAL_ELECTRON_RADIUS=2.81794e-5,PI=Math.PI;
+        // Lowest allowed AUTO bound, not a fixed axis minimum.
+        const INTENSITY_FLOOR = 1e-10;
+        const isDecade = value => value > 0 &&
+            Math.abs(Math.log10(value) - Math.round(Math.log10(value))) < 1e-9;
+        const logTickLabel = value => isDecade(value) ? Number(value).toExponential(0) : '';
+        const linearTickLabel = value => value === 0 ? '0' : Number(value).toExponential(1);
+        const logGridColor = ctx => isDecade(ctx.tick?.value) ? 'rgba(0, 0, 0, 0.1)' : 'transparent';
+
+        function automaticIntensityMinimum(data) {
+            let smallest = Infinity;
+            for (const point of data) {
+                if (Number.isFinite(point.r_sq) && point.r_sq > 0) {
+                    smallest = Math.min(smallest, point.r_sq);
+                }
+            }
+            // Log axes cannot show zero. Empty/all-zero data use the fallback.
+            if (!Number.isFinite(smallest)) return INTENSITY_FLOOR;
+            return Math.max(INTENSITY_FLOOR, 10 ** Math.floor(Math.log10(smallest)));
+        }
 
         let xrrChart;
         let calculatedData = [];
         
-      const customTooltipPlugin = {
-    id: 'customTooltip',
-    afterEvent: (chart, args) => {
-        if (args.event.type === 'mouseout') {
-            chart.customCursor = null;
-            args.changed = true;
-            return;
-        }
-        
-        if (!args.event.type.includes('mouse')) return;
-        
-        const event = args.event;
-        const data = chart.data.datasets[0].data;
-        if (data.length === 0) return;
-        
-        const xValue = chart.scales.x.getValueForPixel(event.x);
-        // x is descending on the Porod plot (Q^-4), so pick the search direction
-        const ascending = data[data.length - 1].x >= data[0].x;
-        let low = 0, high = data.length - 1;
-        while (high - low > 1) {
-            const mid = (low + high) >> 1;
-            const before = ascending ? (data[mid].x < xValue) : (data[mid].x > xValue);
-            if (before) { low = mid; } else { high = mid; }
-        }
-        const closestIndex = (Math.abs(xValue - data[low].x) <= Math.abs(data[high].x - xValue)) ? low : high;
-        chart.customCursor = { index: closestIndex };
-        args.changed = true;
-    },
-    afterDraw: (chart) => {
-        if (!chart.customCursor) return;
-        
-        const { ctx } = chart;
-        const { index } = chart.customCursor;
-        const point = chart.data.datasets[0].data[index];
-        if (!point) return;
+        // Observe native pointer events without consuming them. The zoom plugin
+        // can suppress Chart.js hover events during a gesture; these listeners
+        // keep the readout independent and never prevent zoom or pan events.
+        const customTooltipPlugin = {
+            id: 'customTooltip',
+            afterInit(chart) {
+                const canvas = chart.canvas;
+                chart.customPointer = null;
+                chart.customCursor = null;
+                chart.customCursorFrame = null;
+                const scheduleDraw = () => {
+                    if (chart.customCursorFrame !== null) return;
+                    chart.customCursorFrame = requestAnimationFrame(() => {
+                        chart.customCursorFrame = null;
+                        chart.draw();
+                    });
+                };
+                const rememberPointer = event => {
+                    chart.customPointer = { clientX: event.clientX, clientY: event.clientY };
+                    scheduleDraw();
+                };
+                const clearPointer = () => {
+                    chart.customPointer = null;
+                    chart.customCursor = null;
+                    scheduleDraw();
+                };
+                const releaseTouch = event => {
+                    if (event.pointerType === 'touch') clearPointer();
+                };
+                const listeners = [
+                    ['pointermove', rememberPointer],
+                    ['pointerdown', rememberPointer],
+                    ['wheel', rememberPointer],
+                    ['contextmenu', rememberPointer],
+                    ['pointerleave', clearPointer],
+                    ['pointercancel', clearPointer],
+                    ['pointerup', releaseTouch]
+                ];
+                const listenerOptions = { passive: true, capture: true };
+                listeners.forEach(([type, listener]) => {
+                    canvas.addEventListener(type, listener, listenerOptions);
+                });
+                chart.customCursorCleanup = () => {
+                    listeners.forEach(([type, listener]) => {
+                        canvas.removeEventListener(type, listener, listenerOptions);
+                    });
+                    if (chart.customCursorFrame !== null) {
+                        cancelAnimationFrame(chart.customCursorFrame);
+                        chart.customCursorFrame = null;
+                    }
+                };
+            },
+            afterDestroy(chart) {
+                chart.customCursorCleanup?.();
+            },
+            afterDraw(chart) {
+                chart.customCursor = null;
+                const pointer = chart.customPointer;
+                const data = chart.data.datasets[0]?.data;
+                const area = chart.chartArea;
+                if (!pointer || !data?.length || !area) return;
+                const pixel = Chart.helpers.getRelativePosition(pointer, chart);
+                if (!Number.isFinite(pixel.x) || !Number.isFinite(pixel.y) ||
+                    pixel.x < area.left || pixel.x > area.right ||
+                    pixel.y < area.top || pixel.y > area.bottom) return;
+
+                // Re-evaluate against the CURRENT scales on every draw, including
+                // wheel, pan and reset redraws when the pointer has not moved.
+                const xValue = chart.scales.x.getValueForPixel(pixel.x);
+                const ascending = data[data.length - 1].x >= data[0].x;
+                let low = 0, high = data.length - 1;
+                while (high - low > 1) {
+                    const mid = (low + high) >> 1;
+                    const before = ascending ? data[mid].x < xValue : data[mid].x > xValue;
+                    if (before) low = mid;
+                    else high = mid;
+                }
+                const index = Math.abs(xValue - data[low].x) <= Math.abs(data[high].x - xValue) ? low : high;
+                const point = data[index];
+                if (!Number.isFinite(point.x) || !Number.isFinite(point.y) ||
+                    (chart.scales.y.type === 'logarithmic' && point.y <= 0)) return;
+                chart.customCursor = { index };
+                const { ctx } = chart;
 
         // point rouge, PLC
         const x = chart.scales.x.getPixelForValue(point.x);
         const y = chart.scales.y.getPixelForValue(point.y);
         const chartArea = chart.chartArea;
-        if (x < chartArea.left || x > chartArea.right || y < chartArea.top || y > chartArea.bottom) return;
+        if (!Number.isFinite(x) || !Number.isFinite(y) ||
+            x < chartArea.left || x > chartArea.right || y < chartArea.top || y > chartArea.bottom) return;
         
         ctx.save();
         ctx.beginPath();
@@ -439,23 +510,9 @@
                         y: {
                             type: 'logarithmic',
                             title: { display: true, text: 'Reflectivity |R|²', font: { size: 16 } },
-                            min: 1e-10,
-                            grid: { 
-                                color: (ctx) => {
-                                    if (ctx.tick && Math.abs(Math.log10(ctx.tick.value) % 1) < 1e-9) {
-                                        return 'rgba(0, 0, 0, 0.1)';
-                                    }
-                                    return 'transparent';
-                                }
-                            },
-                            ticks: { 
-                                callback: (value) => {
-                                    if (Math.abs(Math.log10(value) % 1) < 1e-9) {
-                                        return value.toExponential(0);
-                                    }
-                                    return '';
-                                }
-                            }
+                            min: INTENSITY_FLOOR,
+                            grid: { color: logGridColor },
+                            ticks: { callback: logTickLabel }
                         }
                     },
                     plugins: {
@@ -467,6 +524,18 @@
                             pan: {
                                 enabled: true,
                                 mode: 'xy',
+                                threshold: 3,
+                                onPanStart: ({ chart, event, point }) => {
+                                    const area = chart.chartArea;
+                                    if ((event.pointerType === 'mouse' && event.srcEvent?.button > 0) ||
+                                        !point || point.x < area.left || point.x > area.right ||
+                                        point.y < area.top || point.y > area.bottom) return false;
+                                    chart.customManualView = true;
+                                    chart.canvas.style.cursor = 'grabbing';
+                                },
+                                onPanComplete: ({ chart }) => {
+                                    chart.canvas.style.cursor = 'default';
+                                }
                             },
                             zoom: {
                                 wheel: { 
@@ -477,10 +546,8 @@
                                     enabled: true
                                 },
                                 mode: 'xy',
-                                drag: {
-                                    enabled: true,
-                                    modifierKey: 'ctrl'
-                                }
+                                drag: { enabled: false },
+                                onZoom: ({ chart }) => { chart.customManualView = true; }
                             },
                         }
                     },
@@ -493,14 +560,23 @@
                 }
             });
 
-            // Double-click to reset zoom
-            xrrChart.canvas.addEventListener('dblclick', (e) => {
-                e.preventDefault();
-                if (xrrChart) xrrChart.resetZoom();
+            // Restrict context-menu suppression to this canvas. Redraw from the
+            // current plot settings so reset always restores the correct floor.
+            xrrChart.canvas.addEventListener('contextmenu', event => {
+                event.preventDefault();
+                xrrChart.canvas.style.cursor = 'default';
+                updateChart(true);
             });
         }
         
         function updateChart(resetView = false) {
+            // resetZoom() calls chart.update(), replacing Chart.js option
+            // resolvers. Finish it BEFORE obtaining or editing chart.options;
+            // otherwise writes below target stale scale options and are lost.
+            if (resetView) {
+                xrrChart.resetZoom('none');
+                xrrChart.customManualView = false;
+            }
             const layers = [];
             document.querySelectorAll('.layer-container').forEach(layerEl => {
                 layers.push({
@@ -536,7 +612,7 @@
                     options.scales.y.title.text = "Reflectivity |R|"; 
                     break;
                 case 'porod': 
-                    options.scales.x.title.text = "Q⁻⁴ [Å⁻⁴]"; 
+                    options.scales.x.title.text = "Q⁻⁴ [Å⁴]"; 
                     options.scales.y.title.text = "Reflectivity |R|²"; 
                     yIsLog = false; 
                     break;
@@ -546,9 +622,31 @@
                     break;
             }
             options.scales.y.type = yIsLog ? 'logarithmic' : 'linear';
-            // 1e-10 floor only makes sense on the log axis
-            if (yIsLog) { options.scales.y.min = 1e-10; } else { delete options.scales.y.min; }
-            if (resetView) xrrChart.resetZoom('none');
+            // Apply new bounds through the current options after the reset.
+            if (resetView) {
+                delete options.scales.x.min;
+                delete options.scales.x.max;
+                delete options.scales.y.max;
+            }
+            const isAmplitude = ['r_vs_q', 'r_vs_theta', 'r_vs_2theta'].includes(plotType);
+            // Autoscale in intensity units first so amplitude views cover the
+            // same physical range. Keep explicit zoom/pan bounds until reset.
+            if (!xrrChart.customManualView) {
+                if (yIsLog) {
+                    const intensityMinimum = automaticIntensityMinimum(calculatedData);
+                    const minimum = isAmplitude ? Math.sqrt(intensityMinimum) : intensityMinimum;
+                    options.scales.y.min = minimum;
+                    // Keep a valid range even when all values are zero/below the floor.
+                    options.scales.y.suggestedMax = minimum * 10;
+                } else {
+                    options.scales.y.min = 0;
+                    delete options.scales.y.suggestedMax;
+                }
+                delete options.scales.y.max;
+            }
+            options.scales.y.ticks.callback = yIsLog ? logTickLabel : linearTickLabel;
+            options.scales.y.grid.color = yIsLog ? logGridColor : 'rgba(0, 0, 0, 0.1)';
+            xrrChart.customCursor = null;
             xrrChart.update('none');
         }
 
@@ -557,7 +655,7 @@
         function updateLayerIndices() { 
             layersList.querySelectorAll('.layer-container').forEach((div, i) => { 
                 const n = div.querySelector('.layer-name-input'); 
-                if (n.value.startsWith('Layer ')||n.value==='') n.value = `Layer ${i+1}`; 
+                if (n.dataset.autoName === 'true') n.value = `Layer ${i+1}`; 
             }); 
         }
         
@@ -567,7 +665,7 @@
             div.className = 'layer-container'; 
             div.innerHTML = `
                 <div class="layer-header">
-                    <input type="text" class="layer-name-input" placeholder="Enter layer name" value="${name}">
+                    <input type="text" class="layer-name-input" placeholder="Enter layer name">
                     <button class="remove-layer-btn" title="Remove Layer">&times;</button>
                 </div>
                 <div>
@@ -599,6 +697,13 @@
                     </div>
                 </div>
             `; 
+            const nameInput = div.querySelector('.layer-name-input');
+            nameInput.dataset.autoName = String(name === '');
+            nameInput.value = name;
+            nameInput.addEventListener('input', () => {
+                nameInput.dataset.autoName = String(nameInput.value.trim() === '');
+            });
+            nameInput.addEventListener('change', updateLayerIndices);
             layersList.appendChild(div); 
             setupLayerControls(div, id); 
             updateLayerIndices(); 
@@ -633,7 +738,7 @@
                 // clamp first, then write both widgets, so the box can't show an out-of-range value
                 v = Math.min(Math.max(v, parseFloat(s.min)), parseFloat(s.max)); 
                 s.value = v; 
-                n.value = v.toFixed(p); 
+                n.value = Number(s.value).toFixed(p); 
                 updateChart(); 
             }); 
         }
@@ -681,7 +786,9 @@
             link.style.visibility='hidden'; 
             document.body.appendChild(link); 
             link.click(); 
-            document.body.removeChild(link); 
+            document.body.removeChild(link);
+            // Allow the download to start before releasing its backing URL.
+            setTimeout(() => URL.revokeObjectURL(url), 1000); 
         }
         
         const resizer=document.getElementById('drag-handle'),leftPanel=document.getElementById('controls-panel'); 
@@ -710,7 +817,7 @@
         // init
         initializeChart();
         setupGlobalControls();
-        createLayer({ name: 'Layer 1', thickness: 62.8, density: 4.678, roughness: 0.0, beta: 0.0 }); 
+        createLayer({ thickness: 62.8, density: 4.678, roughness: 0.0, beta: 0.0 }); 
         updateChart(true);
     });
 </script>
