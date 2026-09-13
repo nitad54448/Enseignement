@@ -107,9 +107,9 @@
                 <div class="info-section">
                     <span class="block-label">Range (h, k, l)</span>
                      <div class="grid-container" style="grid-template-columns: auto 1fr 1fr;">
-                        <label for="h_min">h</label> <input type="number" id="h_min" value="-3" step="1" oninput="this.value = parseInt(this.value) || 0"> <input type="number" id="h_max" value="3" step="1" oninput="this.value = parseInt(this.value) || 0">
-                        <label for="k_min">k</label> <input type="number" id="k_min" value="-3" step="1" oninput="this.value = parseInt(this.value) || 0"> <input type="number" id="k_max" value="3" step="1" oninput="this.value = parseInt(this.value) || 0">
-                        <label for="l_min">l</label> <input type="number" id="l_min" value="-3" step="1" oninput="this.value = parseInt(this.value) || 0"> <input type="number" id="l_max" value="3" step="1" oninput="this.value = parseInt(this.value) || 0">
+                        <label for="h_min">h</label> <input type="number" id="h_min" value="-3" step="1"> <input type="number" id="h_max" value="3" step="1">
+                        <label for="k_min">k</label> <input type="number" id="k_min" value="-3" step="1"> <input type="number" id="k_max" value="3" step="1">
+                        <label for="l_min">l</label> <input type="number" id="l_min" value="-3" step="1"> <input type="number" id="l_max" value="3" step="1">
                     </div>
                 </div>
 
@@ -161,6 +161,7 @@
         let scene, camera, renderer, labelRenderer, controls;
         const mainGroup = new THREE.Group(); // Master group for all reciprocal space objects
         let diffractionVectorsGroup;
+        const MAX_HKL_COMBINATIONS = 10000;
         let reciprocalMatrix = new THREE.Matrix3();
 
         const raycaster = new THREE.Raycaster();
@@ -265,27 +266,6 @@
                 });
             });
 
-            const validationRules = {
-                'a': { min: 1 }, 'b': { min: 1 }, 'c': { min: 1 }, 'lambda': { min: 0.1 },
-                'alpha': { min: 1, max: 179 }, 'beta': { min: 1, max: 179 }, 'gamma': { min: 1, max: 179 }
-            };
-
-            for (const id in validationRules) {
-                const input = document.getElementById(id);
-                if (input) {
-                    const rules = validationRules[id];
-                    input.addEventListener('input', () => {
-                        if (input.value !== '') {
-                            let value = parseFloat(input.value);
-                            let corrected = false;
-                            if (rules.min !== undefined && value < rules.min) { input.value = rules.min; corrected = true; }
-                            if (rules.max !== undefined && value > rules.max) { input.value = rules.max; corrected = true; }
-                            if (corrected) { updateVisualization(); }
-                        }
-                    });
-                }
-            }
-
             renderer.domElement.addEventListener('click', onCanvasClick, false);
             window.addEventListener('resize', onWindowResize, false);
         }
@@ -313,22 +293,63 @@
             updateVisualization();
         }
         
-        function updateVisualization() {
-            clearSceneObjects();
-            document.getElementById('lambdaControls').style.display = 'grid';
-            document.getElementById('singleCrystalControls').style.display = 'block';
-
+        function validateInputs() {
             const params = getLatticeParameters();
-            if (Object.values(params).some(isNaN) || [params.a,params.b,params.c].some(len => len <= 0)) return;
-            if (!updateReciprocalMatrix(params)) {
-                hklInfoDiv.textContent = "Invalid cell (zero volume or collinear axes)";
+            if (!Object.values(params).every(Number.isFinite)) {
+                throw new Error('Enter complete, finite lattice parameters.');
+            }
+            if ([params.a, params.b, params.c].some(value => value < 1)) {
+                throw new Error('Lattice lengths must be at least 1 Å.');
+            }
+            if ([params.alpha, params.beta, params.gamma].some(value => value < 1 || value > 179)) {
+                throw new Error('Cell angles must be between 1° and 179°.');
+            }
+            const lambda = Number(document.getElementById('lambda').value);
+            if (!Number.isFinite(lambda) || lambda < 0.1) {
+                throw new Error('Wavelength must be at least 0.1 Å.');
+            }
+
+            const range = {};
+            let combinations = 1;
+            for (const axis of ['h', 'k', 'l']) {
+                for (const bound of ['min', 'max']) {
+                    const id = `${axis}_${bound}`;
+                    const raw = document.getElementById(id).value.trim();
+                    const value = Number(raw);
+                    if (raw === '' || !Number.isSafeInteger(value)) {
+                        throw new Error('Enter complete, safe integer bounds for h, k and l.');
+                    }
+                    range[id] = value;
+                }
+                if (range[`${axis}_min`] > range[`${axis}_max`]) {
+                    throw new Error(`${axis}: minimum must not exceed maximum.`);
+                }
+                combinations *= range[`${axis}_max`] - range[`${axis}_min`] + 1;
+                if (!Number.isSafeInteger(combinations) || combinations > MAX_HKL_COMBINATIONS) {
+                    throw new Error(`Reduce the ranges to at most ${MAX_HKL_COMBINATIONS.toLocaleString()} (h, k, l) combinations.`);
+                }
+            }
+            return { params, range };
+        }
+
+        function updateVisualization() {
+            let validated;
+            try {
+                validated = validateInputs();
+            } catch (error) {
+                hklInfoDiv.textContent = `${error.message} Display unchanged.`;
+                return;
+            }
+            // Keep the previous matrix and visible scene until validation succeeds.
+            const previousMatrix = reciprocalMatrix.clone();
+            if (!updateReciprocalMatrix(validated.params)) {
+                reciprocalMatrix.copy(previousMatrix);
+                hklInfoDiv.textContent = 'Invalid cell (zero volume or collinear axes). Display unchanged.';
                 return;
             }
 
             const bravaisType = document.getElementById('bravaisLattice').value;
-            const hkl_range = ['h','k','l'].reduce((acc, v) => ({...acc, [v+'_min']:parseInt(document.getElementById(v+'_min').value), [v+'_max']:parseInt(document.getElementById(v+'_max').value)}), {});
-            if (Object.values(hkl_range).some(isNaN)) return;
-            
+            const hkl_range = validated.range;
             const allPoints = [];
             for (let h=hkl_range.h_min; h<=hkl_range.h_max; h++) {
                 for (let k=hkl_range.k_min; k<=hkl_range.k_max; k++) {
@@ -336,11 +357,14 @@
                         if (h===0&&k===0&&l===0) continue;
                         if (isReflectionAllowed(h,k,l,bravaisType)) {
                             const pos = new THREE.Vector3(h,k,l).applyMatrix3(reciprocalMatrix);
-                            if (pos) allPoints.push({ h,k,l,pos });
+                            allPoints.push({ h,k,l,pos });
                         }
                     }
                 }
             }
+            clearSceneObjects();
+            document.getElementById('lambdaControls').style.display = 'grid';
+            document.getElementById('singleCrystalControls').style.display = 'block';
             runSingleCrystal(allPoints);
         }
 
@@ -383,9 +407,11 @@
         function isReflectionAllowed(h, k, l, bravaisType) {
             switch(bravaisType) {
                 case 'P': return true; case 'I': return (h + k + l) % 2 === 0;
-                case 'F': return (h % 2 === k % 2) && (k % 2 === l % 2);
+                case 'F': return (Math.abs(h % 2) === Math.abs(k % 2)) && (Math.abs(k % 2) === Math.abs(l % 2));
                 case 'A': return (k + l) % 2 === 0; case 'B': return (h + l) % 2 === 0;
-                case 'C': return (h + k) % 2 === 0; case 'R': return (-h + k + l) % 3 === 0;
+                case 'C': return (h + k) % 2 === 0;
+                // Trigonal inputs use primitive rhombohedral axes, not hexagonal axes.
+                case 'R': return true;
                 default: return true;
             }
         }
@@ -504,17 +530,31 @@
         }
         
         function clearSceneObjects() {
-            [mainGroup, diffractionVectorsGroup].forEach(group => { 
-                while(group.children.length > 0) {
-                    const object = group.children[0];
-                    if (object.isGroup) { while(object.children.length > 0) { const child = object.children[0]; if(child.geometry) child.geometry.dispose(); if(child.material) child.material.dispose(); object.remove(child); } }
-                    if (object.geometry) object.geometry.dispose(); if (object.material) object.material.dispose();
-                    group.remove(object);
-                }
-            });
-            const sceneObjectsToRemove = [];
-            scene.children.forEach(child => { if ((child.isMesh && child.geometry instanceof THREE.SphereGeometry) || child.type === 'ArrowHelper') { sceneObjectsToRemove.push(child); } });
-            sceneObjectsToRemove.forEach(obj => { if (obj.geometry) obj.geometry.dispose(); if (obj.material) obj.material.dispose(); scene.remove(obj); });
+            const roots = [
+                ...mainGroup.children,
+                ...diffractionVectorsGroup.children,
+                ...scene.children.filter(child =>
+                    (child.isMesh && child.geometry instanceof THREE.SphereGeometry) ||
+                    child.type === 'ArrowHelper'
+                )
+            ];
+            // ArrowHelpers contain line/cone descendants and share geometry.
+            // Dispose each resource once after detaching all obsolete objects.
+            const geometries = new Set();
+            const materials = new Set();
+            for (const root of roots) {
+                root.traverse(object => {
+                    if (object.geometry) geometries.add(object.geometry);
+                    if (object.material) {
+                        const list = Array.isArray(object.material) ? object.material : [object.material];
+                        list.forEach(material => materials.add(material));
+                    }
+                    if (object.isCSS2DObject && object.element) object.element.remove();
+                });
+                if (root.parent) root.parent.remove(root);
+            }
+            geometries.forEach(geometry => geometry.dispose());
+            materials.forEach(material => material.dispose());
         }
 
         function onWindowResize() {
