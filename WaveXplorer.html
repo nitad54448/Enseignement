@@ -238,6 +238,7 @@
         let scaleContainerElement;
         let parameterControlsContainer; 
         let animationTime = 0;
+        let lastFrameTimestamp = null;
         let isPaused = false;
         let timeSpeed = 1.0;
         let polarCanvas, polarCtx;
@@ -390,9 +391,9 @@
                 shell.isActive = true; shell.birthTime = animationTime;
                 shell.orientationAngle = scatteringViz.lastParticleAngle || 0;
                 const isPeakEmission = currentCycle % 2 === 0;
-                const targetColor = isPeakEmission ? 0xFFFF00 : 0xE74C3C;
-                shell.torus.material.color.set(targetColor); shell.torus.material.emissive.set(targetColor);
-                shell.sphere.material.color.set(targetColor); shell.sphere.material.emissive.set(targetColor);
+                const targetColor = isPeakEmission ? 0xE74C3C : 0xFFFF00;
+                shell.torus.material.color.set(targetColor);
+                shell.sphere.material.color.set(targetColor);
                 scatteringViz.nextShellIndex = (scatteringViz.nextShellIndex + 1) % scatteringParams.numRadiatedShells;
             }
         }
@@ -435,26 +436,32 @@
             const slider = document.getElementById(sliderId);
             const numberInput = document.getElementById(numberId);
             if (!slider || !numberInput) return;
-
-            const updateValue = (newValue) => {
-                const value = isFloat ? parseFloat(newValue) : parseInt(newValue, 10);
-                const min = parseFloat(slider.min); const max = parseFloat(slider.max);
-                if (isNaN(value)) return;
-                let clampedValue = Math.max(min, Math.min(max, value));
-                paramObject[paramName] = clampedValue;
-                if(document.activeElement !== slider) slider.value = clampedValue;
-                if(document.activeElement !== numberInput) numberInput.value = isFloat ? clampedValue.toFixed(2) : clampedValue;
-                if (paramName === 'phaseShift') {
-                    const phaseDeg = (clampedValue * 180 / Math.PI).toFixed(0);
-                     if(document.getElementById('phase-deg-value')) document.getElementById('phase-deg-value').textContent = ` (${phaseDeg}°)`;
+            const angleParams = ['snellTheta_i', 'aff_theta_in', 'aff_theta_out', 'aff_atomPairAngle'];
+            const conversion = angleParams.includes(paramName) ? Math.PI / 180 : 1;
+            const sync = value => {
+                slider.value = value;
+                numberInput.value = isFloat ? value.toFixed(2) : String(value);
+            };
+            const updateValue = raw => {
+                const value = Number(raw);
+                if (String(raw).trim() === '' || !Number.isFinite(value)) {
+                    sync(paramObject[paramName] / conversion);
+                    return;
                 }
-                if (paramName === 'scatteringAngle') {
-                     const angleDeg = (clampedValue * 180 / Math.PI).toFixed(0);
-                     if(document.getElementById('angle-deg-value')) document.getElementById('angle-deg-value').textContent = ` (${angleDeg}°)`;
+                const min = Number(slider.min), max = Number(slider.max);
+                const clamped = Math.max(min, Math.min(max, isFloat ? value : Math.round(value)));
+                paramObject[paramName] = clamped * conversion;
+                sync(clamped);
+                if (paramName === 'phaseShift') {
+                    const el = document.getElementById('phase-deg-value');
+                    if (el) el.textContent = ` (${(clamped * 180 / Math.PI).toFixed(0)}°)`;
                 }
                 if (updateFn) updateFn(currentConcept);
             };
-
+            // Reconcile persisted/shared values with this control's bounds on entry.
+            const initial = Math.max(Number(slider.min), Math.min(Number(slider.max), paramObject[paramName] / conversion));
+            paramObject[paramName] = initial * conversion;
+            sync(initial);
             slider.addEventListener('input', e => updateValue(e.target.value));
             numberInput.addEventListener('change', e => updateValue(e.target.value));
         }
@@ -464,7 +471,7 @@
 
             switch (concept) {
                 case 'wavelength_amplitude': {
-                    const wlMin = 0.2, wlMax = 3.0, wlStep = 0.01;
+                    const wlMin = 0.2, wlMax = 8.0, wlStep = 0.01;
                     const ampMin = 0.1, ampMax = 3.0, ampStep = 0.05;
                     parameterControlsContainer.innerHTML = `
                         <div class="control-group">
@@ -626,7 +633,7 @@
                             </div>
                             <input type="number" class="value-input" id="velocity-value" min="-0.9" max="0.9" step="0.05" value="${waveParams.sourceVelocity.toFixed(2)}" style="margin-top: 8px;">
                         </div>
-                        <div class="param-info">Shows change in λ due to source motion. The source resets its position periodically.</div>
+                        <div class="param-info">Classical Doppler effect in a medium. The source moves between the observers and periodically resets; the steady-motion wave pattern restarts at each reset.</div>
                         <div class="param-info" style="margin-top: 8px;">A=${waveParams.amplitude.toFixed(1)}, λ₀=${waveParams.wavelength.toFixed(1)} (source rest λ)</div>
                         <div id="doppler-freq-info" class="param-info" style="margin-top: 8px;"></div>`;
                     connectSliderAndNumberInput('velocity-slider', 'velocity-value', 'sourceVelocity', true);
@@ -682,7 +689,7 @@
                             <div class="slider-group"> <input type="range" id="poynting_E_slider" min="0.1" max="2.5" step="0.1" value="${waveParams.amplitude}"> </div>
                             <input type="number" class="value-input" id="poynting_E_value" min="0.1" max="2.5" step="0.1" value="${waveParams.amplitude.toFixed(2)}" style="margin-top: 8px;">
                         </div>
-                        <div class="param-info">Poynting Vector (red) ∝ E₀²</div> <div class="param-info" style="margin-top: 8px;">Guide wave (blueish) shows E₀. λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div> `;
+                        <div class="param-info">Time-averaged Poynting Vector (yellow) ∝ E₀²</div> <div class="param-info" style="margin-top: 8px;">Guide wave (blueish) shows E₀. λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div> `;
                     connectSliderAndNumberInput('poynting_E_slider', 'poynting_E_value', 'amplitude', true, updateConceptVisualization);
                     break;
                 }
@@ -707,7 +714,7 @@
                             <span style="color:#ffffff">―</span> Superposition (the packet)<br>
                             <span style="color:#e74c3c">┄</span> <b>Envelope</b> ±2A·cos((Δk)x − (Δω)t):<br>
                             &nbsp;&nbsp;&nbsp;the slowly-varying modulation. It travels at the <b>group velocity</b>.<br>
-                            <span style="color:#f1c40f">●</span> Phase marker — rides a single carrier zero-crossing<br>
+                            <span style="color:#f1c40f">●</span> Phase marker — follows a carrier crest phase<br>
                             <span style="color:cyan">●</span> Group marker — rides an envelope peak
                         </div>
                         <div id="velocity-readout" class="param-info" style="margin-top: 8px;"></div>`;
@@ -782,8 +789,8 @@
                         </div>
                         <div class="param-info" style="text-align:left;">
                             <b>Legend:</b><br>
-                            <span style="color:#3498db">■</span> Incident (left-going on left side)<br>
-                            <span style="color:#e67e22">■</span> Reflected (right-going on left side)<br>
+                            <span style="color:#3498db">■</span> Incident (right-going on left side)<br>
+                            <span style="color:#e67e22">■</span> Reflected (left-going on left side)<br>
                             <span style="color:#ffffff; background:#555; padding:0 2px;">■</span> Resultant on left (sum)<br>
                             <span style="color:#2ecc71">■</span> Transmitted on right
                         </div>
@@ -817,8 +824,8 @@
                         <div class="param-info">A plane wave hits an interface between media. Snell's law: n₁ sin θᵢ = n₂ sin θₜ.</div>
                         <div class="control-group" style="margin-top: 12px;">
                             <label for="snell-theta-slider">Incident angle θᵢ (deg) <span id="snell-theta-deg"></span></label>
-                            <div class="slider-group"><input type="range" id="snell-theta-slider" min="0" max="1.5" step="0.01" value="${waveParams.snellTheta_i}"></div>
-                            <input type="number" class="value-input" id="snell-theta-value" min="0" max="1.5" step="0.01" value="${waveParams.snellTheta_i.toFixed(2)}" style="margin-top: 8px;">
+                            <div class="slider-group"><input type="range" id="snell-theta-slider" min="0" max="85.94" step="0.01" value="${(waveParams.snellTheta_i * 180 / Math.PI).toFixed(2)}"></div>
+                            <input type="number" class="value-input" id="snell-theta-value" min="0" max="85.94" step="0.01" value="${(waveParams.snellTheta_i * 180 / Math.PI).toFixed(2)}" style="margin-top: 8px;">
                         </div>
                         <div class="control-group">
                             <label for="snell-n1-slider">Index n₁ (top)</label>
@@ -868,13 +875,13 @@
                         </div>
                         <div class="control-group">
                             <label for="aff-thin-slider">Incident direction θ_in (deg) <span id="aff-thin-deg"></span></label>
-                            <div class="slider-group"><input type="range" id="aff-thin-slider" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_in}"></div>
-                            <input type="number" class="value-input" id="aff-thin-value" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_in.toFixed(2)}" style="margin-top: 8px;">
+                            <div class="slider-group"><input type="range" id="aff-thin-slider" min="-180" max="180" step="0.01" value="${(waveParams.aff_theta_in * 180 / Math.PI).toFixed(2)}"></div>
+                            <input type="number" class="value-input" id="aff-thin-value" min="-180" max="180" step="0.01" value="${(waveParams.aff_theta_in * 180 / Math.PI).toFixed(2)}" style="margin-top: 8px;">
                         </div>
                         <div class="control-group">
                             <label for="aff-thout-slider">Scattered direction θ_out (deg) <span id="aff-thout-deg"></span></label>
-                            <div class="slider-group"><input type="range" id="aff-thout-slider" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_out}"></div>
-                            <input type="number" class="value-input" id="aff-thout-value" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_theta_out.toFixed(2)}" style="margin-top: 8px;">
+                            <div class="slider-group"><input type="range" id="aff-thout-slider" min="-180" max="180" step="0.01" value="${(waveParams.aff_theta_out * 180 / Math.PI).toFixed(2)}"></div>
+                            <input type="number" class="value-input" id="aff-thout-value" min="-180" max="180" step="0.01" value="${(waveParams.aff_theta_out * 180 / Math.PI).toFixed(2)}" style="margin-top: 8px;">
                         </div>
                         <div id="aff-two-controls" style="display:${isSingle ? 'none' : 'block'};">
                             <div class="control-group">
@@ -884,8 +891,8 @@
                             </div>
                             <div class="control-group">
                                 <label for="aff-pair-angle-slider">Pair orientation (deg) <span id="aff-pair-deg"></span></label>
-                                <div class="slider-group"><input type="range" id="aff-pair-angle-slider" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_atomPairAngle}"></div>
-                                <input type="number" class="value-input" id="aff-pair-angle-value" min="-3.1416" max="3.1416" step="0.01" value="${waveParams.aff_atomPairAngle.toFixed(2)}" style="margin-top: 8px;">
+                                <div class="slider-group"><input type="range" id="aff-pair-angle-slider" min="-180" max="180" step="0.01" value="${(waveParams.aff_atomPairAngle * 180 / Math.PI).toFixed(2)}"></div>
+                                <input type="number" class="value-input" id="aff-pair-angle-value" min="-180" max="180" step="0.01" value="${(waveParams.aff_atomPairAngle * 180 / Math.PI).toFixed(2)}" style="margin-top: 8px;">
                             </div>
                         </div>
                         <div class="param-info" style="text-align:left; margin-top:8px;">
@@ -911,7 +918,7 @@
                     const updateThOutLabel = () => { const el = document.getElementById('aff-thout-deg'); if (el) el.textContent = `(${(waveParams.aff_theta_out*180/Math.PI).toFixed(0)}°)`; };
                     const updatePairLabel = () => { const el = document.getElementById('aff-pair-deg'); if (el) el.textContent = `(${(waveParams.aff_atomPairAngle*180/Math.PI).toFixed(0)}°)`; };
                     connectSliderAndNumberInput('aff-a-slider',           'aff-a-value',           'aff_atomSize',     true, () => rebuildAffAtoms());
-                    connectSliderAndNumberInput('aff-z-slider',           'aff-z-value',           'aff_Z',            true, () => rebuildAffAtoms());
+                    connectSliderAndNumberInput('aff-z-slider',           'aff-z-value',           'aff_Z',            false, () => rebuildAffAtoms());
                     connectSliderAndNumberInput('aff-kin-slider',         'aff-kin-value',         'aff_k_in_mag',     true);
                     connectSliderAndNumberInput('aff-thin-slider',        'aff-thin-value',        'aff_theta_in',     true, updateThInLabel);
                     connectSliderAndNumberInput('aff-thout-slider',       'aff-thout-value',       'aff_theta_out',    true, updateThOutLabel);
@@ -1004,11 +1011,12 @@ function setupConceptVisualization(concept) {
                     dopplerObserverRight = new THREE.Mesh(obsGeom.clone(), new THREE.MeshBasicMaterial({ color: 0x2ecc71 }));
                     dopplerObserverRight.position.set(waveParams.extent / 2 - 0.4, -0.6, 0);
                     scene.add(dopplerObserverRight);
-                    animationTime = -5;
+                    animationTime = 0;
                     break;
                 }
                 case 'polarization': {
                     animationTime = 0;
+                    if (controls) { camera.position.set(8, 4, 10); controls.target.set(0, 0, 0); controls.update(); }
                     if (waveParams.polarizationViewMode === 'temporal') {
                         waveLine1 = createSingleWaveObject(0xaaaaaa, 0.4);
                         scene.add(waveLine1);
@@ -1055,9 +1063,9 @@ function setupConceptVisualization(concept) {
                                 initialEz = 0;
                         }
                         for (let i = 0; i < tracePointsCount; ++i) {
-                            tracePositions[i * 3] = initialEy;
-                            tracePositions[i * 3 + 1] = initialEz;
-                            tracePositions[i * 3 + 2] = 0;
+                            tracePositions[i * 3] = 0;
+                            tracePositions[i * 3 + 1] = initialEy;
+                            tracePositions[i * 3 + 2] = initialEz;
                         }
                         const traceGeometry = new THREE.BufferGeometry();
                         traceGeometry.setAttribute('position', new THREE.BufferAttribute(tracePositions, 3));
@@ -1445,34 +1453,22 @@ function setupConceptVisualization(concept) {
                 }
                 case 'doppler_effect': {
                     if (!waveLine1 || !dopplerSourceViz) return;
-                    const waveSpeed = 3.0;
-                    const sourceSpeed = waveParams.sourceVelocity * waveSpeed;
-                    const sourceX = -waveParams.extent * 0.75 + ((animationTime * sourceSpeed) % (waveParams.extent * 1.5));
-                    dopplerSourceViz.position.x = sourceX;
-                    const L_behind = L * (waveSpeed + sourceSpeed) / waveSpeed;
-                    const L_ahead = L * (waveSpeed - sourceSpeed) / waveSpeed;
-                    const k_behind = (2 * Math.PI) / (L_behind || 0.001);
-                    const k_ahead = (2 * Math.PI) / (L_ahead || 0.001);
+                    const state = dopplerState(animationTime);
+                    dopplerSourceViz.position.x = state.sourceX;
                     const positions = waveLine1.geometry.attributes.position.array;
-                    const omega_source = k * waveSpeed;
                     for (let i = 0; i < waveParams.points; i++) {
-                        const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
-                        let y = (x < sourceX) ? A * Math.sin(k_behind * (x - sourceX) - omega_source * animationTime) : A * Math.sin(k_ahead * (x - sourceX) - omega_source * animationTime);
+                        const x = i / (waveParams.points - 1) * waveParams.extent - waveParams.extent / 2;
                         positions[i * 3] = x;
-                        positions[i * 3 + 1] = y;
+                        positions[i * 3 + 1] = dopplerDisplacement(x, animationTime, state);
+                        positions[i * 3 + 2] = 0;
                     }
                     waveLine1.geometry.attributes.position.needsUpdate = true;
-                    // Frequency readout: f_obs = c/λ_obs. f_source = c/L.
+                    waveLine1.geometry.computeBoundingSphere();
                     const info = document.getElementById('doppler-freq-info');
                     if (info) {
-                        const f_source = waveSpeed / L;
-                        // Left observer sees the "behind" wave (source moving right means sourceSpeed > 0,
-                        // and the observer to the left is "behind" the source).
-                        const f_left  = waveSpeed / (L_behind || 0.001);
-                        const f_right = waveSpeed / (L_ahead  || 0.001);
-                        info.innerHTML = `f₀ = <b>${f_source.toFixed(3)}</b><br>` +
-                                         `<span style="color:#e74c3c">●</span> Left observer: f = <b>${f_left.toFixed(3)}</b> (${((f_left/f_source-1)*100).toFixed(0)}%)<br>` +
-                                         `<span style="color:#2ecc71">●</span> Right observer: f = <b>${f_right.toFixed(3)}</b> (${((f_right/f_source-1)*100).toFixed(0)}%)`;
+                        info.innerHTML = `f₀ = <b>${state.f0.toFixed(3)}</b><br>` +
+                            `<span style="color:#e74c3c">●</span> Left observer: f = <b>${state.fLeft.toFixed(3)}</b> (${((state.fLeft/state.f0-1)*100).toFixed(0)}%)<br>` +
+                            `<span style="color:#2ecc71">●</span> Right observer: f = <b>${state.fRight.toFixed(3)}</b> (${((state.fRight/state.f0-1)*100).toFixed(0)}%)`;
                     }
                     break;
                 }
@@ -1500,19 +1496,19 @@ function setupConceptVisualization(concept) {
                                 break;
                             case 'circular_right_expected':
                                 Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = -Ay_t * Math.sin(omegaAnimation * animationTime);
+                                Ez = Ay_t * Math.sin(omegaAnimation * animationTime);
                                 break;
                             case 'circular_left_expected':
                                 Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = Ay_t * Math.sin(omegaAnimation * animationTime);
+                                Ez = -Ay_t * Math.sin(omegaAnimation * animationTime);
                                 break;
                             case 'elliptical':
                                 Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = Az_t * Math.sin(omegaAnimation * animationTime);
+                                Ez = -Az_t * Math.sin(omegaAnimation * animationTime);
                                 break;
                             case 'unpolarized':
                                 if (animatedEVector && (animatedEVector.userData.randomAngle === undefined ||
-                                    animationTime - (animatedEVector.userData.lastAngleUpdate || -1) > 0.1)) {
+                                    animationTime - (animatedEVector.userData.lastAngleUpdate ?? -1) > 0.1)) {
                                     animatedEVector.userData.randomAngle = Math.random() * 2 * Math.PI;
                                     animatedEVector.userData.lastAngleUpdate = animationTime;
                                 }
@@ -1538,6 +1534,8 @@ function setupConceptVisualization(concept) {
                         const headL = Math.max(0.05, 0.25 * currentLength);
                         const headW = Math.max(0.025, 0.15 * currentLength);
                         animatedEVector.setLength(currentLength, headL, headW);
+                        if (eVectorTracePath.userData.lastSampleTime === animationTime) break;
+                        eVectorTracePath.userData.lastSampleTime = animationTime;
                         const tracePositions = eVectorTracePath.geometry.attributes.position.array;
                         const pathLength = eVectorTracePath.userData.pathLength;
                         for (let i = pathLength - 1; i > 0; i--) {
@@ -1545,9 +1543,9 @@ function setupConceptVisualization(concept) {
                             tracePositions[i * 3 + 1] = tracePositions[(i - 1) * 3 + 1];
                             tracePositions[i * 3 + 2] = tracePositions[(i - 1) * 3 + 2];
                         }
-                        tracePositions[0] = Ey;
-                        tracePositions[1] = Ez;
-                        tracePositions[2] = 0;
+                        tracePositions[0] = 0;
+                        tracePositions[1] = Ey;
+                        tracePositions[2] = Ez;
                         if (eVectorTracePath.userData.drawnPoints < pathLength) eVectorTracePath.userData.drawnPoints++;
                         eVectorTracePath.geometry.setDrawRange(0, eVectorTracePath.userData.drawnPoints);
                         eVectorTracePath.geometry.attributes.position.needsUpdate = true;
@@ -1641,9 +1639,9 @@ function setupConceptVisualization(concept) {
                     const E0 = waveParams.amplitude;
                     if (waveLine1) updateWaveGeometry(waveLine1, waveParams.wavelength, E0, 0);
                     if (poyntingArrowViz) {
-                        const poyntingMagnitude = 0.3 + Math.min(2.5, E0 * E0 * 0.4);
-                        const headLength = Math.max(0.1, 0.25 * poyntingMagnitude);
-                        const headWidth = Math.max(0.05, 0.12 * poyntingMagnitude);
+                        const poyntingMagnitude = 0.4 * E0 * E0;
+                        const headLength = 0.25 * poyntingMagnitude;
+                        const headWidth = 0.12 * poyntingMagnitude;
                         poyntingArrowViz.setLength(poyntingMagnitude, headLength, headWidth);
                     }
                     break;
@@ -1695,7 +1693,9 @@ function setupConceptVisualization(concept) {
                             const x_pos = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
                             const y1 = calculateWavePoint(x_pos, k1, omega1, A_comp, animationTime * time_factor_vg, 0);
                             const y2 = calculateWavePoint(x_pos, k2, omega2, A_comp, animationTime * time_factor_vg, 0);
+                            positions[i * 3] = x_pos;
                             positions[i * 3 + 1] = y1 + y2;
+                            positions[i * 3 + 2] = 0;
                         }
                         groupWaveSuperposition.geometry.attributes.position.needsUpdate = true;
                         if (groupWaveComp1) updateWaveGeometry(groupWaveComp1, (2 * Math.PI) / k1, A_comp, -omega1 * animationTime * time_factor_vg);
@@ -1713,8 +1713,10 @@ function setupConceptVisualization(concept) {
                         const lambda_carr_vis = (k_carr_avg === 0) ? waveParams.extent * 2 : Math.abs(2 * Math.PI / k_carr_avg);
                         while (phaseMarkerX_g > waveParams.extent / 2 + lambda_carr_vis) phaseMarkerX_g -= lambda_carr_vis;
                         while (phaseMarkerX_g < -waveParams.extent / 2 - lambda_carr_vis) phaseMarkerX_g += lambda_carr_vis;
+                        if (phaseMarkerX_g > waveParams.extent / 2) phaseMarkerX_g -= lambda_carr_vis;
+                        else if (phaseMarkerX_g < -waveParams.extent / 2) phaseMarkerX_g += lambda_carr_vis;
                         const y_env_at_phase_marker = 2 * A_comp * Math.cos(k_mod * phaseMarkerX_g + phaseOffset_env);
-                        const y_carrier_at_marker = y_env_at_phase_marker * Math.sin(k_carr_avg * phaseMarkerX_g - omega_carr_avg * animationTime * time_factor_vg + Math.PI / 2);
+                        const y_carrier_at_marker = y_env_at_phase_marker * Math.sin(k_carr_avg * phaseMarkerX_g - omega_carr_avg * animationTime * time_factor_vg);
                         phaseMarkerViz.position.set(phaseMarkerX_g, y_carrier_at_marker, 0.1);
                         // Velocity readout
                         const v_phase = omega_carr_avg / k_carr_avg;
@@ -1745,21 +1747,16 @@ function setupConceptVisualization(concept) {
                     break;
                 }
                 case 'wavefront': {
-                    const wavefrontSpeed = 0.02;
                     wavefrontObjects.forEach(wf => {
                         if (waveParams.wavefrontType === 'plane') {
-                            wf.position.x += wavefrontSpeed;
-                            if (wf.geometry.parameters && wf.position.x > waveParams.extent / 2 + wf.geometry.parameters.width / 2 + 1.0) {
-                                wf.position.x = -waveParams.extent / 2 - wf.geometry.parameters.width / 2 - (Math.random() * 0.5);
-                            }
+                            const width = wf.geometry.parameters.width;
+                            const minX = -waveParams.extent / 2 - width / 2 - 1;
+                            const maxX = waveParams.extent / 2 + width / 2 + 1;
+                            wf.position.x = minX + positiveModulo(wf.userData.initialX - minX + 1.2 * animationTime, maxX - minX);
                         } else {
-                            if (wf.geometry.parameters && typeof wf.geometry.parameters.radius !== 'undefined') {
-                                let newScale = wf.scale.x + wavefrontSpeed * 0.3;
-                                if (newScale * wf.geometry.parameters.radius > waveParams.extent / 1.8) {
-                                    newScale = 0.1 + (Math.random() * 0.2);
-                                }
-                                wf.scale.setScalar(newScale);
-                            }
+                            const maxRadius = waveParams.extent / 1.8;
+                            const radius = 0.1 + positiveModulo(wf.userData.currentRadius - 0.1 + 0.36 * animationTime, maxRadius - 0.1);
+                            wf.scale.setScalar(radius);
                         }
                     });
                     break;
@@ -1812,17 +1809,17 @@ function setupConceptVisualization(concept) {
                         const i_particle = Math.floor((scatteringParams.sceneExtent + firstPeakOffset) / scatteringParams.wavelength);
                         particleAngle = scatteringViz.incomingWave.polarizationAngles[Math.max(0, Math.min(i_particle, scatteringParams.numPlanes - 1))];
                     }
-                    const effectiveAmplitude = scatteringParams.baseAmplitude / scatteringParams.particleMass;
+                    const effectiveAmplitude = scatteringParams.baseAmplitude / scatteringParams.particleMass; // normalized visual displacement amplitude
                     let displacement = new THREE.Vector3();
                     switch (scatteringParams.polarizationType) {
                         case 'linear_vertical':
-                            displacement.y = -Math.sin(particlePhase);
+                            displacement.y = Math.sin(particlePhase);
                             break;
                         case 'linear_horizontal':
-                            displacement.z = -Math.sin(particlePhase);
+                            displacement.z = Math.sin(particlePhase);
                             break;
                         case 'non_polarized':
-                            displacement.set(0, -Math.sin(particlePhase) * Math.cos(particleAngle), -Math.sin(particlePhase) * Math.sin(particleAngle));
+                            displacement.set(0, Math.sin(particlePhase) * Math.cos(particleAngle), Math.sin(particlePhase) * Math.sin(particleAngle));
                             break;
                     }
                     scatteringViz.lastParticleAngle = particleAngle;
@@ -1854,21 +1851,18 @@ function setupConceptVisualization(concept) {
                     const posT = reflectionWaveTransmitted.geometry.attributes.position.array;
                     const posL = waveLine1.geometry.attributes.position.array;
                     for (let i = 0; i < waveParams.points; i++) {
-                        const x = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2);
-                        let yI = 0, yR = 0, yT = 0;
-                        if (x <= 0) {
-                            yI = A0 * Math.sin(k1 * x + phaseT);              // moving right
-                            yR = r_amp * A0 * Math.sin(-k1 * x + phaseT);     // moving left
-                        } else {
-                            yT = t_amp * A0 * Math.sin(k2 * x + phaseT);      // moving right in medium 2
-                        }
-                        posI[i*3] = x; posI[i*3+1] = yI; posI[i*3+2] = 0;
-                        posR[i*3] = x; posR[i*3+1] = yR; posR[i*3+2] = 0;
-                        posT[i*3] = x; posT[i*3+1] = yT; posT[i*3+2] = 0;
-                        // Resultant only on the left side (sum of incident + reflected).
-                        // On the right side the resultant equals the transmitted, so leave it at 0 to avoid hiding the green line.
-                        posL[i*3] = x; posL[i*3+1] = (x <= 0) ? (yI + yR) : 0; posL[i*3+2] = 0;
+                        const fraction = i / (waveParams.points - 1);
+                        const xLeft = (fraction - 1) * waveParams.extent / 2;
+                        const xRight = fraction * waveParams.extent / 2;
+                        const yI = A0 * Math.sin(k1 * xLeft + phaseT);
+                        const yR = r_amp * A0 * Math.sin(-k1 * xLeft + phaseT);
+                        const yT = t_amp * A0 * Math.sin(k2 * xRight + phaseT);
+                        posI.set([xLeft, yI, 0], i * 3);
+                        posR.set([xLeft, yR, 0], i * 3);
+                        posT.set([xRight, yT, 0], i * 3);
+                        posL.set([xLeft, yI + yR, 0], i * 3);
                     }
+                    [reflectionWaveIncident, reflectionWaveReflected, reflectionWaveTransmitted, waveLine1].forEach(line => line.geometry.computeBoundingSphere());
                     reflectionWaveIncident.geometry.attributes.position.needsUpdate = true;
                     reflectionWaveReflected.geometry.attributes.position.needsUpdate = true;
                     reflectionWaveTransmitted.geometry.attributes.position.needsUpdate = true;
@@ -2003,11 +1997,7 @@ function setupConceptVisualization(concept) {
                     }
                     // f(Q) graph
                     drawAffGraph();
-                    // --- Phasor diagram ---
-                    // Single mode: Z phasors each with phase Q·r_i where r_i samples the cloud.
-                    //   We deterministically place Z electrons inside the Gaussian to keep the display stable,
-                    //   showing how individual contributions dephase as Q grows.
-                    // Two mode: two phasors of length f(Q), at phases ±(Q·d)/2 (so their sum's magnitude is 2f|cos(Q·d/2)|).
+                    // Scattering-vector construction inset.
                     drawAffKVectorPhasor(Q);
                     // Numeric readout
                     const readout = document.getElementById('aff-readout');
@@ -2144,6 +2134,48 @@ function setupConceptVisualization(concept) {
         }
 
 
+        function disposeSceneObject(object) {
+            if (!object) return;
+            const materials = new Set(), geometries = new Set();
+            object.traverse(child => {
+                const sharedArrowPart = child.parent && child.parent.type === 'ArrowHelper';
+                if (child.geometry && !sharedArrowPart) geometries.add(child.geometry);
+                if (child.material) (Array.isArray(child.material) ? child.material : [child.material]).forEach(m => materials.add(m));
+            });
+            if (object.parent) object.parent.remove(object);
+            geometries.forEach(g => g.dispose());
+            materials.forEach(m => m.dispose());
+        }
+
+        function positiveModulo(value, period) { return ((value % period) + period) % period; }
+
+        function dopplerState(time) {
+            const c = 3, velocity = waveParams.sourceVelocity * c;
+            const span = waveParams.extent * 0.8;
+            const sourceX = positiveModulo(velocity * time + span / 2, span) - span / 2;
+            const f0 = c / waveParams.wavelength;
+            return { sourceX, omega: 2 * Math.PI * f0,
+                kLeft: 2 * Math.PI / (waveParams.wavelength * (1 + velocity / c)),
+                kRight: 2 * Math.PI / (waveParams.wavelength * (1 - velocity / c)),
+                f0, fLeft: f0 / (1 + velocity / c), fRight: f0 / (1 - velocity / c) };
+        }
+
+        function dopplerDisplacement(x, time, state = dopplerState(time)) {
+            const dx = x - state.sourceX;
+            const phase = (dx < 0 ? -state.kLeft : state.kRight) * dx - state.omega * time;
+            return waveParams.amplitude * Math.sin(phase);
+        }
+
+        function affPairProjection() {
+            const qx = Math.cos(waveParams.aff_theta_out) - Math.cos(waveParams.aff_theta_in);
+            const qy = Math.sin(waveParams.aff_theta_out) - Math.sin(waveParams.aff_theta_in);
+            const length = Math.hypot(qx, qy);
+            // At Q=0 choose the limiting direction of an outgoing-angle scan.
+            const ux = length > 1e-10 ? qx / length : -Math.sin(waveParams.aff_theta_in);
+            const uy = length > 1e-10 ? qy / length : Math.cos(waveParams.aff_theta_in);
+            return waveParams.aff_atomDistance * (ux * Math.cos(waveParams.aff_atomPairAngle) + uy * Math.sin(waveParams.aff_atomPairAngle));
+        }
+
         function clearConceptVisualization(conceptToClear) {
             if (conceptToClear === 'phase') {
                 if (phasorCanvas) phasorCanvas.style.display = 'none';
@@ -2170,11 +2202,11 @@ function setupConceptVisualization(concept) {
                 wavelengthIndicatorViz = null;
             }
             if (phaseShiftIndicatorViz) {
-                scene.remove(phaseShiftIndicatorViz);
+                disposeSceneObject(phaseShiftIndicatorViz);
                 phaseShiftIndicatorViz = null;
             }
             if (animatedEVector) {
-                scene.remove(animatedEVector);
+                disposeSceneObject(animatedEVector);
                 animatedEVector = null;
             }
             if (eVectorTracePath) {
@@ -2184,7 +2216,7 @@ function setupConceptVisualization(concept) {
                 eVectorTracePath = null;
             }
             if (poyntingArrowViz) {
-                scene.remove(poyntingArrowViz);
+                disposeSceneObject(poyntingArrowViz);
                 poyntingArrowViz = null;
             }
             if (phaseMarkerViz) {
@@ -2229,7 +2261,7 @@ function setupConceptVisualization(concept) {
                 groupWaveEnvelopeLower.material.dispose();
                 groupWaveEnvelopeLower = null;
             }
-            spatialPolarizationEVectors.forEach(arrow => scene.remove(arrow));
+            spatialPolarizationEVectors.forEach(disposeSceneObject);
             spatialPolarizationEVectors = [];
             particleSystemViz.forEach(p => {
                 scene.remove(p);
@@ -2322,7 +2354,7 @@ function setupConceptVisualization(concept) {
                 aff_atomPairLine = null;
             }
             [aff_kInArrow, aff_kOutArrow, aff_qArrow].forEach(o => {
-                if (o) { scene.remove(o); }
+                if (o) { disposeSceneObject(o); }
             });
             aff_kInArrow = null; aff_kOutArrow = null; aff_qArrow = null;
             // Restore axes & grid when leaving atomic_form_factor (it hides them)
@@ -2344,7 +2376,7 @@ function setupConceptVisualization(concept) {
                         p.geometry.dispose();
                         p.material.dispose();
                     });
-                    scatteringViz.incomingWave.vectors.forEach(planeVectors => planeVectors.forEach(v => scene.remove(v)));
+                    scatteringViz.incomingWave.vectors.forEach(planeVectors => planeVectors.forEach(disposeSceneObject));
                     scatteringViz.radiatedWave.shells.forEach(s => {
                         scene.remove(s.sphere);
                         s.sphere.geometry.dispose();
@@ -2354,7 +2386,7 @@ function setupConceptVisualization(concept) {
                         s.torus.material.dispose();
                     });
                     scatteringViz.lights.forEach(l => scene.remove(l));
-                    if (scatteringViz.axes) scene.remove(scatteringViz.axes);
+                    if (scatteringViz.axes) disposeSceneObject(scatteringViz.axes);
                     resetScatteringObjects();
                     switchToOrthographicCamera();
                     if (gridHelper) gridHelper.visible = true;
@@ -2372,7 +2404,7 @@ function setupConceptVisualization(concept) {
 
         // --- CORE APP LOGIC ---
         function createSingleWaveObject(color, opacity = 1) { const material = new THREE.LineBasicMaterial({ color: color, transparent: opacity < 1, opacity: opacity }); const geometry = new THREE.BufferGeometry(); const positions = new Float32Array(waveParams.points * 3); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); return new THREE.Line(geometry, material); }
-        function updateWaveGeometry(lineObject, wavelength, amplitude, phase, options = {}) { if (!lineObject) { return; } const positions = lineObject.geometry.attributes.position.array; if (wavelength <= 0.001) wavelength = 0.001; const k = (2 * Math.PI) / wavelength; for (let i = 0; i < waveParams.points; i++) { const x_base = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const x = x_base - (options.x_offset || 0); let currentAmplitude = amplitude; if(options.attenuation) { currentAmplitude *= Math.exp(-options.attenuation * Math.abs(x_base)); } let y = (options.isEnvelope) ? currentAmplitude * Math.cos(k * x + phase) : currentAmplitude * Math.sin(k * x + phase); positions[i * 3] = x_base; positions[i * 3 + 1] = y; positions[i * 3 + 2] = 0; } lineObject.geometry.attributes.position.needsUpdate = true; }
+        function updateWaveGeometry(lineObject, wavelength, amplitude, phase, options = {}) { if (!lineObject) { return; } const positions = lineObject.geometry.attributes.position.array; if (wavelength <= 0.001) wavelength = 0.001; const k = (2 * Math.PI) / wavelength; for (let i = 0; i < waveParams.points; i++) { const x_base = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const x = x_base - (options.x_offset || 0); let currentAmplitude = amplitude; if(options.attenuation) { currentAmplitude *= Math.exp(-options.attenuation * Math.abs(x_base)); } let y = (options.isEnvelope) ? currentAmplitude * Math.cos(k * x + phase) : currentAmplitude * Math.sin(k * x + phase); positions[i * 3] = x_base; positions[i * 3 + 1] = y; positions[i * 3 + 2] = 0; } lineObject.geometry.attributes.position.needsUpdate = true; lineObject.geometry.computeBoundingSphere(); }
         
         function update3DWaveGeometry(lineObject, origin, direction, magnitude, wavelength, phase, numPoints = 100) {
             if (!lineObject) return;
@@ -2410,38 +2442,25 @@ function setupConceptVisualization(concept) {
 
         // Build node/antinode marker spheres for standing waves
         function rebuildStandingMarkers() {
-            // Remove old markers
-            standingNodeMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
-            standingAntinodeMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
-            standingNodeMarkers = [];
-            standingAntinodeMarkers = [];
-            const L = waveParams.standingWavelength;
-            // For sin(kx)cos(ωt)+sin(-kx)cos(...) → effectively 2A sin(kx) cos(ωt). Nodes at kx = nπ → x = nL/2.
-            // Antinodes at kx = (n+1/2)π → x = (n+1/2) L/2.
-            const nodeGeom = new THREE.SphereGeometry(0.08, 12, 8);
-            const antinodeGeom = new THREE.SphereGeometry(0.1, 12, 8);
-            const nodeMat = new THREE.MeshBasicMaterial({ color: 0xff5050 });
-            const antinodeMat = new THREE.MeshBasicMaterial({ color: 0x50ff50 });
-            const half = waveParams.extent / 2;
-            for (let n = -20; n < 20; n++) {
-                const xn = n * L / 2;
-                if (xn < -half - 0.1 || xn > half + 0.1) continue;
-                const node = new THREE.Mesh(nodeGeom.clone(), nodeMat.clone());
-                node.position.set(xn, 0, 0.05);
-                scene.add(node);
-                standingNodeMarkers.push(node);
-                const xa = (n + 0.5) * L / 2;
-                if (xa < -half - 0.1 || xa > half + 0.1) continue;
-                const anti = new THREE.Mesh(antinodeGeom.clone(), antinodeMat.clone());
-                anti.position.set(xa, 0, 0.05);
-                scene.add(anti);
-                standingAntinodeMarkers.push(anti);
+            standingNodeMarkers.forEach(disposeSceneObject);
+            standingAntinodeMarkers.forEach(disposeSceneObject);
+            standingNodeMarkers = []; standingAntinodeMarkers = [];
+            const L = waveParams.standingWavelength, half = waveParams.extent / 2;
+            const toggle = document.getElementById('standing-markers-toggle');
+            const visible = toggle ? toggle.checked : true;
+            const addMarker = (x, radius, color, list) => {
+                if (x < -half || x > half) return;
+                const marker = new THREE.Mesh(new THREE.SphereGeometry(radius, 12, 8), new THREE.MeshBasicMaterial({ color }));
+                marker.position.set(x, 0, 0.05); marker.visible = visible;
+                scene.add(marker); list.push(marker);
+            };
+            const limit = Math.ceil(2 * half / L) + 1;
+            for (let n = -limit; n <= limit; n++) {
+                addMarker(n * L / 2, 0.08, 0xff5050, standingNodeMarkers);
+                addMarker((n + 0.5) * L / 2, 0.1, 0x50ff50, standingAntinodeMarkers);
             }
         }
 
-        // ===== Atomic form factor helpers =====
-        // Build a sprite texture for a Gaussian-cloud atom of width a.
-        // Returns a THREE.Sprite of world-size ~ 4a so the 1/e radius is well within the disc.
         function makeGaussianAtomSprite(a, Z) {
             const canvas = document.createElement('canvas');
             const size = 128;
@@ -2589,17 +2608,14 @@ function setupConceptVisualization(concept) {
             aff_graphCtx.textAlign = 'center';
             aff_graphCtx.fillStyle = '#dddddd';
             aff_graphCtx.font = '11px Arial';
-            aff_graphCtx.fillText(isSingle ? 'f(Q) = Z·exp(−Q²a²/4)' : '|F(Q)|² (atomic × structure)', margin.left + plotW / 2, 12);
+            aff_graphCtx.fillText(isSingle ? 'f(Q) = Z·exp(−Q²a²/4)' : '|F(Q)|² — current Q direction', margin.left + plotW / 2, 12);
             // Curve
             aff_graphCtx.strokeStyle = '#f1c40f';
             aff_graphCtx.lineWidth = 2;
             aff_graphCtx.beginPath();
             const N = 200;
-            // For two-atom |F(Q)|² we average over the pair-axis component of Q because
-            // we don't have a fixed orientation in the graph; better: plot |F(Q)|² along the
-            // direction parallel to the pair axis (since that's where d·Q matters). We'll use
-            // Q along the pair axis: |F|² = f(Q)² · 2 (1 + cos(Qd)).
-            const d_dist = waveParams.aff_atomDistance;
+            // A radial cut in reciprocal space along the current Q direction.
+            // The current-value marker uses the same orientation as the readout.
             for (let i = 0; i <= N; i++) {
                 const Q = (i / N) * Qmax;
                 const f = aff_singleAtomFormFactor(Q, a, Z);
@@ -2607,8 +2623,8 @@ function setupConceptVisualization(concept) {
                 if (isSingle) {
                     y = f;
                 } else {
-                    // assume Q parallel to inter-atomic axis for the curve
-                    y = f * f * 2 * (1 + Math.cos(Q * d_dist));
+                    // Include the projection of the pair vector onto the current Q direction.
+                    y = f * f * 2 * (1 + Math.cos(Q * affPairProjection()));
                 }
                 const px = margin.left + (i / N) * plotW;
                 const py = margin.top + plotH - (y / yMax) * plotH;
@@ -2629,7 +2645,7 @@ function setupConceptVisualization(concept) {
                 const f = aff_singleAtomFormFactor(Q_now, a, Z);
                 let yVal;
                 if (isSingle) yVal = f;
-                else yVal = f * f * 2 * (1 + Math.cos(Q_now * d_dist));
+                else yVal = f * f * 2 * (1 + Math.cos(Q_now * affPairProjection()));
                 const yClamped = Math.max(0, Math.min(yMax, yVal));
                 const yQ = margin.top + plotH - (yClamped / yMax) * plotH;
                 aff_graphCtx.fillStyle = '#e74c3c';
@@ -2684,6 +2700,7 @@ function setupConceptVisualization(concept) {
             mouse = new THREE.Vector2();
 
             // --- HUD: play/pause, speed, reset view ---
+            document.addEventListener('visibilitychange', () => { lastFrameTimestamp = null; });
             const playBtn = document.getElementById('hud-playpause');
             playBtn.addEventListener('click', () => {
                 isPaused = !isPaused;
@@ -2751,13 +2768,19 @@ function setupConceptVisualization(concept) {
             setupConceptVisualization(currentConcept);
         }
 
-        function animate() {
+        function advanceAnimationClock(timestamp) {
+            const dt = lastFrameTimestamp === null ? 0 : Math.max(0, (timestamp - lastFrameTimestamp) / 1000);
+            lastFrameTimestamp = timestamp;
+            if (!isPaused && !document.hidden) animationTime += dt * timeSpeed;
+        }
+
+        function animate(timestamp = performance.now()) {
             requestAnimationFrame(animate);
-            if (!isPaused) animationTime += 0.015 * timeSpeed;
+            advanceAnimationClock(timestamp);
             if (controls) controls.update();
             updateConceptVisualization(currentConcept);
             updateScales();
-            renderer.render(scene, camera); 
+            renderer.render(scene, camera);
         }
 
         function onWindowResize() {
@@ -3005,10 +3028,11 @@ function setupConceptVisualization(concept) {
             polarCtx.textAlign = 'center';
             polarCtx.fillStyle = 'rgba(200,200,200,0.85)';
             polarCtx.font = '10px Arial';
-            polarCtx.fillText('0°',   cx,        cy - R - 6);
-            polarCtx.fillText('180°', cx,        cy + R + 10);
-            polarCtx.textAlign = 'left';   polarCtx.fillText('90°', cx + R + 4, cy + 4);
-            polarCtx.textAlign = 'right';  polarCtx.fillText('90°', cx - R - 4, cy + 4);
+            const horizontalDipole = polarizationType === 'linear_horizontal';
+            polarCtx.fillText(horizontalDipole ? '90°' : '0°', cx, cy - R - 6);
+            polarCtx.fillText(horizontalDipole ? '90°' : '180°', cx, cy + R + 10);
+            polarCtx.textAlign = 'left';   polarCtx.fillText(horizontalDipole ? '0°' : '90°', cx + R + 4, cy + 4);
+            polarCtx.textAlign = 'right';  polarCtx.fillText(horizontalDipole ? '180°' : '90°', cx - R - 4, cy + 4);
             // Pattern
             const isLinear = polarizationType.startsWith('linear');
             const dipoleAxisAngle = (polarizationType === 'linear_horizontal') ? 0 : Math.PI / 2;
