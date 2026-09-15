@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>X-Ray Emission — Teaching Tool</title>
-    <link href="./dist/output.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        *, *::before, *::after { box-sizing: border-box; }
         :root {
             --panel-bg: #111827;
             --panel-bg-soft: #1a2233;
@@ -328,12 +328,22 @@
             opacity: 0.45;
             background: rgba(255, 255, 255, 0.015);
         }
-        .overlay-row .swatch {
-            width: 14px; height: 14px;
-            border-radius: 3px;
+        .overlay-row .overlay-color {
+            width: 28px; height: 26px;
+            padding: 2px;
+            background: transparent;
+            border: 1px solid var(--panel-border-light);
+            border-radius: 4px;
             flex-shrink: 0;
-            border: 1px solid rgba(0,0,0,0.15);
+            cursor: pointer;
         }
+        .overlay-row .overlay-color:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .overlay-color::-webkit-color-swatch-wrapper { padding: 0; }
+        .overlay-color::-webkit-color-swatch { border: 0; border-radius: 2px; }
+        .overlay-color::-moz-color-swatch { border: 0; border-radius: 2px; }
         .overlay-row .overlay-label {
             flex: 1;
             color: var(--text-primary);
@@ -1033,8 +1043,10 @@
                 let userMax = readLambdaMax();
                 if (userMin >= userMax) {
                     // user tried to cross the two sliders — push min back down
-                    userMin = Math.max(0, userMax - 0.1);
-                    lambdaMinSlider.value = lambdaMinToPos(userMin);
+                    // Clamp in slider-position space so quantization and the
+                    // special zero position cannot disagree with the plot.
+                    lambdaMinSlider.value = Math.max(0, Number(lambdaMaxSlider.value) - 1);
+                    userMin = readLambdaMin();
                     lambdaMinValueSpan.textContent = formatLambda(userMin);
                 }
                 return { userMin, userMax };
@@ -1093,7 +1105,7 @@
                 const yScale     = yScaleSelect.value;   // 'linear' | 'sqrt' | 'log'
                 const logY       = (yScale === 'log');
 
-                // Build the list of spectra to plot: overlays first (thinner), then current
+                // Draw current first, then dashed overlays so identical snapshots remain visible.
                 // Invisible overlays are skipped entirely (no computation, no legend entry).
                 const spectraToPlot = [];
                 const max_lambda_needed = display_max_A;
@@ -1106,7 +1118,7 @@
                     });
                 });
                 const currentCalc = calculateSpectrumData(currentSpectrumParams, max_lambda_needed);
-                spectraToPlot.push({
+                spectraToPlot.unshift({
                     ...currentSpectrumParams,
                     calculated: currentCalc,
                     isTrulySuperposed: false
@@ -1243,7 +1255,7 @@
                 ctx.rotate(-Math.PI / 2);
                 ctx.textAlign = "center";
                 ctx.font = `600 ${baseTitleSize}px ${AXIS_FONT_FAMILY}`;
-                ctx.fillText(yScale === 'sqrt' ? "\u221AIntensity (arb. u.)"
+                ctx.fillText(yScale === 'sqrt' ? "Intensity (arb. u., sqrt scale)"
                            : yScale === 'log'  ? "Intensity (arb. u., log)"
                            : "Intensity (arb. u.)", 0, 0);
                 ctx.restore();
@@ -1333,6 +1345,7 @@
                     const lineWidth = isCurrent ? 2.2 : 1.5;
 
                     ctx.beginPath();
+                    ctx.setLineDash(isCurrent ? [] : [7, 4]);
                     ctx.strokeStyle = displayColor;
                     ctx.lineWidth   = lineWidth;
                     ctx.lineJoin    = "round";
@@ -1349,6 +1362,8 @@
                         else            { ctx.lineTo(x, y_clipped); }
                     });
                     ctx.stroke();
+
+                    ctx.setLineDash([]);
 
                     // --- line labels (only for current spectrum) ---
                     if (showLabels && isCurrent && showLines) {
@@ -1392,7 +1407,8 @@
                     if (isCurrent) item.classList.add('curr');
                     const cbox = document.createElement('div');
                     cbox.classList.add('legend-color');
-                    cbox.style.backgroundColor = displayColor;
+                    cbox.style.background = isCurrent ? displayColor
+                        : `repeating-linear-gradient(to right, ${displayColor} 0 7px, transparent 7px 11px)`;
                     item.appendChild(cbox);
                     const txt = document.createElement('span');
                     txt.textContent = `${element} · ${voltage.toFixed(1)} kV · ${current} mA`;
@@ -1402,10 +1418,22 @@
                 });
             }
 
+            // Coalesce rapid slider/color events into one redraw per frame.
+            let drawPending = false;
+            function scheduleDraw() {
+                if (drawPending) return;
+                drawPending = true;
+                requestAnimationFrame(() => {
+                    drawPending = false;
+                    drawSpectra();
+                });
+            }
+
             function handleUpdate() {
+                getDisplayLambdaRange();
                 updateCurrentSpectrumParams();
                 updateInfoBar();
-                requestAnimationFrame(drawSpectra);
+                scheduleDraw();
             }
 
             function setCanvasSize() {
@@ -1438,13 +1466,13 @@
                 handleUpdate();
             });
             // toggles – no need to recompute the spectrum, just redraw
-            yScaleSelect.addEventListener('change', () => requestAnimationFrame(drawSpectra));
+            yScaleSelect.addEventListener('change', () => scheduleDraw());
             [toggleBremsOnly, toggleLinesOnly, toggleLabels, toggleDuaneHunt]
                 .forEach(t => t.addEventListener('change', () => {
                     // Brems-only and lines-only are mutually exclusive
                     if (t === toggleBremsOnly && toggleBremsOnly.checked) toggleLinesOnly.checked = false;
                     if (t === toggleLinesOnly && toggleLinesOnly.checked) toggleBremsOnly.checked = false;
-                    requestAnimationFrame(drawSpectra);
+                    scheduleDraw();
                 }));
 
 //listes "overlay"
@@ -1458,10 +1486,20 @@
                     const row = document.createElement('div');
                     row.className = 'overlay-row' + (sp.visible === false ? ' hidden-overlay' : '');
 
-                    // colour swatch
-                    const swatch = document.createElement('div');
-                    swatch.className = 'swatch';
-                    swatch.style.backgroundColor = sp.superposedColor;
+                    // Keep this input mounted during editing: rebuilding the
+                    // list on input can close the native color picker.
+                    const swatch = document.createElement('input');
+                    swatch.type = 'color';
+                    swatch.className = 'overlay-color';
+                    swatch.value = sp.superposedColor;
+                    swatch.title = `Edit color of overlay ${sp.overlayId} (${sp.element})`;
+                    swatch.setAttribute('aria-label', swatch.title);
+                    const updateColor = () => {
+                        sp.superposedColor = swatch.value;
+                        scheduleDraw();
+                    };
+                    swatch.addEventListener('input', updateColor);
+                    swatch.addEventListener('change', updateColor);
 
                     // label
                     const label = document.createElement('div');
@@ -1474,13 +1512,15 @@
                     eyeBtn.className = 'icon-btn';
                     eyeBtn.type = 'button';
                     eyeBtn.title = (sp.visible === false) ? 'Show this overlay' : 'Hide this overlay';
+                    eyeBtn.setAttribute('aria-label', eyeBtn.title);
+                    eyeBtn.setAttribute('aria-pressed', String(sp.visible !== false));
                     eyeBtn.innerHTML = (sp.visible === false)
                         ? '<svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
                         : '<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
                     eyeBtn.addEventListener('click', () => {
                         sp.visible = sp.visible === false ? true : false;
                         renderOverlaysList();
-                        requestAnimationFrame(drawSpectra);
+                        scheduleDraw();
                     });
 
                     // delete button (trash icon)
@@ -1488,12 +1528,13 @@
                     delBtn.className = 'icon-btn delete';
                     delBtn.type = 'button';
                     delBtn.title = 'Remove this overlay';
+                    delBtn.setAttribute('aria-label', delBtn.title);
                     delBtn.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
                     delBtn.addEventListener('click', () => {
                         const idx = superposedSpectra.indexOf(sp);
                         if (idx >= 0) superposedSpectra.splice(idx, 1);
                         renderOverlaysList();
-                        requestAnimationFrame(drawSpectra);
+                        scheduleDraw();
                     });
 
                     row.appendChild(swatch);
@@ -1509,10 +1550,15 @@
                 newSuperposed.isSuperposed = true;
                 newSuperposed.visible = true;
                 newSuperposed.overlayId = ++overlayIdCounter;
-                newSuperposed.superposedColor = superposedColors[superposedSpectra.length % superposedColors.length];
+                const usedColors = new Set([
+                    currentSpectrumParams.color.toLowerCase(),
+                    ...superposedSpectra.map(sp => sp.superposedColor.toLowerCase())
+                ]);
+                newSuperposed.superposedColor = superposedColors.find(color => !usedColors.has(color))
+                    || superposedColors[(newSuperposed.overlayId - 1) % superposedColors.length];
                 superposedSpectra.push(newSuperposed);
                 renderOverlaysList();
-                requestAnimationFrame(drawSpectra);
+                scheduleDraw();
             });
             clearSuperposedButton.addEventListener('click', () => {
                 superposedSpectra = [];
@@ -1526,7 +1572,7 @@
 
             const ro = new ResizeObserver(() => {
                 setCanvasSize();
-                requestAnimationFrame(drawSpectra);
+                scheduleDraw();
             });
             ro.observe(canvas.parentElement);
 
