@@ -179,6 +179,19 @@
             display: none;
         }
 
+        #acceleration-panel {
+            position: absolute; right: 15px; bottom: 15px; z-index: 5;
+            width: min(200px, calc(100% - 30px)); height: 200px; max-height: calc(100% - 30px);
+            background: rgba(20, 30, 50, 0.8); border: 1px solid var(--border-color);
+            border-radius: 8px; overflow: hidden; display: none;
+        }
+        #acceleration-title { margin: 0; padding: 8px 10px; color: #f1f5f9;
+            font-size: 12px; cursor: move; touch-action: none; }
+        #acceleration-canvas { display: block; width: 100%; height: calc(100% - 32px); }
+        #scene-annotations { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+        .scene-annotation { position: absolute; display: none; transform: translate(-50%, -50%);
+            padding: 3px 5px; background: rgba(17,24,39,.8); border-radius: 4px;
+            font: 12px system-ui; color: #fff; white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -204,6 +217,7 @@
                     <option value="wavefront">Wavefront</option>
                     <option value="wave_scattering">Wave Scattering</option>
                     <option value="atomic_form_factor">Atomic Form Factor (Diffraction)</option>
+                    <option value="form_factor_2_centers">Form factor 2 centers</option>
                 </select>
             </div>
             <div id="parameter-controls">
@@ -215,6 +229,10 @@
             <canvas id="phasor-canvas" width="240" height="180"></canvas> <!-- Phasor diagram (phase concept, atomic form factor) -->
             <canvas id="polar-canvas" width="200" height="200"></canvas> <!-- Dipole polar pattern (scattering) -->
             <canvas id="aff-graph-canvas" width="240" height="180"></canvas> <!-- f(Q) plot for atomic form factor -->
+            <section id="acceleration-panel" aria-label="Particle acceleration history">
+                <h2 id="acceleration-title" title="a* = d²(x/L₀)/d(t/T₀)² = −ω*²(A*q*/m*) sin(ω*t*). Units: L₀/T₀²; no SI length or time calibration is specified.">Acceleration a* · last 3 s</h2>
+                <canvas id="acceleration-canvas" role="img" aria-label="Signed acceleration versus simulation time"></canvas>
+            </section>
             <div id="hud-bar">
                 <button id="hud-playpause" title="Play/Pause (Space)">⏸ Pause</button>
                 <span class="hud-sep"></span>
@@ -225,6 +243,16 @@
                 <button id="hud-reset-view" title="Reset camera zoom/pan">⟳ Reset zoom</button>
             </div>
             <div id="scale-container"></div>
+            <div id="scene-annotations">
+                <span id="psi-axis-label" class="scene-annotation"></span>
+                <span id="psi-ray-label" class="scene-annotation"></span>
+                <span id="psi-angle-label" class="scene-annotation"></span>
+                <span id="psi-scattered-label" class="scene-annotation"></span>
+                <span id="psi-propagation-label" class="scene-annotation"></span>
+                <span id="center-1-label" class="scene-annotation"></span>
+                <span id="center-2-label" class="scene-annotation"></span>
+                <span id="center-distance-label" class="scene-annotation"></span>
+            </div>
         </div>
     </div>
 
@@ -260,7 +288,8 @@
         let phaseMarkerViz, groupMarkerViz; 
         let groupWaveComp1, groupWaveComp2, groupWaveSuperposition, groupWaveEnvelopeUpper, groupWaveEnvelopeLower; 
         let particleSystemViz = []; 
-        let wavefrontObjects = []; 
+        let wavefrontObjects = [];
+        const wavefrontCutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0); 
         let interferenceSuperposition, standingWaveFwd, standingWaveBwd, standingWaveResult, dopplerSourceViz;
         // NEW: extra visualization objects for new features
         let standingNodeMarkers = [], standingAntinodeMarkers = [];
@@ -274,6 +303,9 @@
         let aff_atom1, aff_atom2;
         let aff_kInArrow, aff_kOutArrow, aff_qArrow;
         let aff_atomPairLine;
+        let aff_centerMarkers = [];
+        let psiIllustration = null;
+        let scatteringFrame = null;
         let aff_graphCanvas, aff_graphCtx; // f(Q) inset
 
         // --- Parameters for all concepts ---
@@ -281,7 +313,7 @@
             wavelength: 2.0, amplitude: 1.0, points: 500, extent: 10,  phaseShift: 0,
             polarizationType: 'linear_vertical', polarizationViewMode: 'temporal', Ey_amplitude: 1.0, Ez_amplitude: 0.5, 
             packet_delta_k_factor: 0.15, dispersionFactor: 0.1, poyntingShow: true, velocityDisplayType: 'phase', 
-            waveComparisonType: 'transverse', wavefrontType: 'plane', particleCount: 30,
+            waveComparisonType: 'transverse', wavefrontType: 'plane', wavefrontHalf: false, wavefrontShowE: false, particleCount: 30,
             interferenceSeparation: 2.0, interferenceWavelength: 2.5, interferenceAmplitude: 1.0,
             standingWavelength: 4.0, standingAmplitude: 1.0,
             attenuationFactor: 0.2, sourceVelocity: 0.5,
@@ -292,7 +324,7 @@
             // Snell
             snellTheta_i: Math.PI / 6, snellN1: 1.0, snellN2: 1.5,
             // Atomic form factor (diffraction)
-            aff_mode: 'single',         // 'single' or 'two'
+            aff_quantity: 'amplitude', // Signed two-center amplitude or intensity
             aff_atomSize: 0.5,          // Gaussian width a (electron cloud)
             aff_Z: 12,                   // electrons per atom
             aff_k_in_mag: 4.0,           // |k_in|
@@ -305,6 +337,10 @@
         // --- Wave Scattering ---
         let scatteringViz = {};
         let scatteringParams = {};
+        const accelerationHistory = [];
+        let accelerationSignature = '';
+        let accelerationDrag = null;
+        const thickLines = new Map();
         
 
 
@@ -318,8 +354,8 @@
             };
             scatteringParams = {
                 numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
-                polarizationType: 'linear_vertical', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0,
-                vectorsPerCycle: 12, wavelength: 0, showSection: false, showWavefront: true,
+                polarizationType: 'linear_vertical', polarQuantity: 'field', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0,
+                vectorsPerCycle: 12, wavelength: 0, showSection: false, showWavefront: true, showPsi: true, psiDegrees: 55, historyQuantity: 'acceleration',
             };
             scatteringParams.wavelength = scatteringParams.waveSpeed / scatteringParams.oscillationFrequency * (2 * Math.PI);
         }
@@ -336,7 +372,7 @@
 
         function createScatteringWaves() {
             const planeGeom = new THREE.PlaneGeometry(scatteringParams.sceneExtent * 1.5, scatteringParams.sceneExtent * 1.5);
-            const planeMat = new THREE.MeshBasicMaterial({ color: 0x3498DB, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+            const planeMat = new THREE.MeshBasicMaterial({ color: 0x3498DB, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
             for (let i = 0; i < scatteringParams.numPlanes; i++) {
                 const plane = new THREE.Mesh(planeGeom, planeMat.clone());
                 plane.rotation.y = Math.PI / 2;
@@ -354,25 +390,26 @@
             }
             // Wireframe material for radiated shells — clearer view of the dipole pattern shape
             // than a solid filled torus, especially when shells overlap.
-            const radiatedMat = new THREE.MeshBasicMaterial({
+            const radiatedMat = new THREE.LineBasicMaterial({
                 color: 0xff8c00,
-                wireframe: true,
                 transparent: true,
-                opacity: 0.85
+                opacity: 0.85, depthWrite: false
             });
             const sphereGeom = new THREE.SphereGeometry(1, 24, 16);
             const points = [];
             const profileSegments = 32;
             for (let i = 0; i <= profileSegments; i++) {
                 const theta = (i / profileSegments) * Math.PI;
+                // Cylindrical coordinates: rho=r*sin(theta), y=r*cos(theta),
+                // with r=sin(theta). This is the FIELD-amplitude surface, not sin² intensity.
                 points.push(new THREE.Vector2(Math.pow(Math.sin(theta), 2), Math.sin(theta) * Math.cos(theta)));
             }
             // Reduce lathe segments slightly for cleaner wireframe lines
             const dipoleGeom = new THREE.LatheGeometry(points, 24);
             for (let i = 0; i < scatteringParams.numRadiatedShells; i++) {
                 const shell = {
-                    sphere: new THREE.Mesh(sphereGeom.clone(), radiatedMat.clone()),
-                    torus: new THREE.Mesh(dipoleGeom.clone(), radiatedMat.clone()),
+                    sphere: new THREE.LineSegments(new THREE.WireframeGeometry(sphereGeom), radiatedMat.clone()),
+                    torus: new THREE.LineSegments(new THREE.WireframeGeometry(dipoleGeom), radiatedMat.clone()),
                     isActive: false, birthTime: 0,
                     orientationAngle: 0,
                     clippingPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
@@ -381,6 +418,7 @@
                 scene.add(shell.sphere); scene.add(shell.torus);
                 scatteringViz.radiatedWave.shells.push(shell);
             }
+            planeMat.dispose(); radiatedMat.dispose(); sphereGeom.dispose(); dipoleGeom.dispose();
         }
 
         function emitScatteringPulse(currentPhase) {
@@ -389,7 +427,8 @@
                 scatteringViz.lastEmittedCycle = currentCycle;
                 const shell = scatteringViz.radiatedWave.shells[scatteringViz.nextShellIndex];
                 shell.isActive = true; shell.birthTime = animationTime;
-                shell.orientationAngle = scatteringViz.lastParticleAngle || 0;
+                shell.orientationAngle = scatteringParams.polarizationType === 'linear_horizontal'
+                    ? Math.PI / 2 : (scatteringViz.lastParticleAngle || 0);
                 const isPeakEmission = currentCycle % 2 === 0;
                 const targetColor = isPeakEmission ? 0xE74C3C : 0xFFFF00;
                 shell.torus.material.color.set(targetColor);
@@ -406,22 +445,21 @@
                 if (!shell.isActive || !show) { shell.sphere.visible = false; shell.torus.visible = false; return; }
                 shell.sphere.visible = !isLinear; shell.torus.visible = isLinear;
                 const age = animationTime - shell.birthTime;
-                if (age > scatteringParams.shellMaxAge) { shell.isActive = false; return; }
+                if (age > scatteringParams.shellMaxAge) { shell.isActive = false; shell.sphere.visible = false; shell.torus.visible = false; return; }
                 const scale = age * scatteringParams.waveSpeed;
-                const opacity = (2.0 * amplitudeScale) / (1 + scale * scale);
+                // Visibility floor is a display aid, not a radiation-intensity measurement.
+                const opacity = Math.min(0.95, (0.4 + 0.55 * amplitudeScale) *
+                    Math.min(1, (scatteringParams.shellMaxAge - age) / 0.6));
                 if (isLinear) {
-                    if (scatteringParams.polarizationType === 'non_polarized') {
-                        shell.torus.rotation.set(shell.orientationAngle, 0, 0);
-                    } else {
-                        shell.torus.rotation.set(scatteringParams.polarizationType === 'linear_vertical' ? 0 : Math.PI / 2, 0, 0);
-                    }
+                    shell.torus.rotation.set(shell.orientationAngle, 0, 0);
                     const torusMat = shell.torus.material;
                     if (scatteringParams.showSection) {
-                        torusMat.wireframe = true;
-                        const plane = shell.clippingPlane; plane.normal.set(-1, 0, 0); plane.constant = 0;
+                        const plane = shell.clippingPlane; // Cut in the ε–R plane, matching the reference figure.
+                        plane.normal.set(scatteringParams.polarizationType === 'linear_horizontal' ? 1 : 0,
+                            scatteringParams.polarizationType === 'linear_horizontal' ? 0 : 1, 0); plane.constant = 0;
                         torusMat.clippingPlanes = [plane];
                     } else {
-                        torusMat.wireframe = false; torusMat.clippingPlanes = null;
+                        torusMat.clippingPlanes = null;
                     }
                     shell.torus.scale.setScalar(scale); shell.torus.material.opacity = opacity;
                 } else {
@@ -743,15 +781,28 @@
                             <div class="radio-options-container">
                                 <div><label><input type="radio" name="wf_type" value="plane" ${waveParams.wavefrontType === 'plane' ? 'checked' : ''}> Plane</label></div>
                                 <div><label><input type="radio" name="wf_type" value="spherical" ${waveParams.wavefrontType === 'spherical' ? 'checked' : ''}> Spherical</label></div>
-                            </div></div>`;
+                            </div></div>
+                        <div class="control-group"><label><input type="checkbox" id="wf-half" ${waveParams.wavefrontHalf ? 'checked' : ''}> Hide front half (spherical)</label>
+                        <label><input type="checkbox" id="wf-show-e" ${waveParams.wavefrontShowE ? 'checked' : ''}> Show E vectors</label>
+                        <p class="param-info">For EM waves, E is transverse to propagation. On spheres it is tangent to the surface. Shown here: far-field radiation of a vertical electric dipole; E ∝ sin ψ/r, with zero field on its axis. Spheres mark equal phase, not equal intensity. Arrow lengths are enlarged for visibility; the near field is not modeled.</p></div>`;
                     parameterControlsContainer.innerHTML = frontContent;
                     document.getElementsByName('wf_type').forEach(r => r.addEventListener('change', e => { waveParams.wavefrontType = e.target.value; animationTime = 0; clearConceptVisualization(currentConcept); setupConceptVisualization(currentConcept); }));
+                    document.getElementById('wf-half').addEventListener('change', e => { waveParams.wavefrontHalf = e.target.checked; updateConceptVisualization(currentConcept); });
+                    document.getElementById('wf-show-e').addEventListener('change', e => { waveParams.wavefrontShowE = e.target.checked; updateConceptVisualization(currentConcept); });
                     break;
                 }
                 
                 case 'wave_scattering': {
                     parameterControlsContainer.innerHTML = `
                         <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">A new wavefront is emitted when the particle's <b>acceleration is maximum</b>. The color of the radiated wave matches the corresponding polarization vector (yellow for peak, red for trough) to show that the resulting wave has the same frequency as the incoming wave.</p> </div>
+                        <div class="control-group">
+                            <label for="history-quantity">Bottom plot:</label>
+                            <select id="history-quantity">
+                                <option value="acceleration" ${scatteringParams.historyQuantity === 'acceleration' ? 'selected' : ''}>Acceleration a(t)</option>
+                                <option value="speed" ${scatteringParams.historyQuantity === 'speed' ? 'selected' : ''}>Speed |v(t)|</option>
+                            </select>
+                            <p class="param-info">Speed is nonnegative and zero at turning points. Both plots use simulation units.</p>
+                        </div>
                         <div class="control-group"> <label for="mass-slider">Particle Mass, in e-</label>
                             <div class="slider-group"> <input type="range" id="mass-slider" min="0" max="3.265" step="0.01" value="0"> <span id="mass-display" class="param-info" style="min-width: 40px; padding: 5px 10px; margin-left:10px;">1</span> </div>
                         </div>
@@ -759,14 +810,27 @@
                             <div class="radio-options-container">
                                 <div><label><input type="radio" name="charge" value="1" checked> Positive</label></div> <div><label><input type="radio" name="charge" value="-1"> Negative</label></div> <div><label><input type="radio" name="charge" value="0"> Neutral</label></div>
                             </div></div>
-                        <div class="control-group"> <label for="polarization-selector-scatter">Incoming Wave Polarization:</label> <select id="polarization-selector-scatter" class="control-group select"> <option value="linear_vertical">Linear Vertical</option> <option value="linear_horizontal">Linear Horizontal</option> <option value="non_polarized">Non-Polarized</option> </select> </div>
+                        <div class="control-group"> <label for="polarization-selector-scatter">Incoming Wave Polarization:</label> <select id="polarization-selector-scatter" class="control-group select"> <option value="linear_vertical">Linear: E along x (figure)</option> <option value="linear_horizontal">Linear: E along y</option> <option value="non_polarized">Non-Polarized</option> </select> </div>
                         <div class="control-group"> <label>Show Radiated Wave:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="radiated-wave-toggle" checked> <span class="slider"></span> </label> </div>
+                        <div class="control-group"><label for="polar-quantity">Polar plot:</label><select id="polar-quantity"><option value="field">E amplitude: |sin ψ|</option><option value="intensity">Intensity: sin²ψ</option></select></div>
                         <div class="control-group"> <label>Show Incoming Wavefront:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="wavefront-toggle" checked> <span class="slider"></span> </label> </div>
+                        <div class="control-group"><label><input type="checkbox" id="psi-show" checked> Illustrate ψ</label>
+                            <label for="psi-slider">ψ: angle between ε̂ and R̂ (degrees)</label>
+                            <div class="slider-group"><input type="range" id="psi-slider" min="0" max="180" step="1" value="55"></div>
+                            <input type="number" class="value-input" id="psi-value" min="0" max="180" step="1" value="55">
+                            <p id="psi-readout" class="param-info"></p></div>
                         <div class="control-group"> <label>Show Section (Radiated Wave):</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="section-toggle"> <span class="slider"></span> </label> </div>`;
+                    document.getElementById('history-quantity').addEventListener('change', e => {
+                        scatteringParams.historyQuantity = e.target.value;
+                        updateAccelerationPlot(); // Redraw immediately, including while paused.
+                    });
+                    document.getElementById('psi-show').addEventListener('change', e => scatteringParams.showPsi = e.target.checked);
+                    connectSliderAndNumberInput('psi-slider','psi-value','psiDegrees',false,null,scatteringParams);
                     const massSlider = document.getElementById('mass-slider');
                     const massDisplay = document.getElementById('mass-display');
                     massSlider.addEventListener('input', (e) => { const linearMass = Math.pow(10, parseFloat(e.target.value)); scatteringParams.particleMass = linearMass; massDisplay.textContent = Math.round(linearMass); });
                     document.querySelectorAll('input[name="charge"]').forEach(r => r.addEventListener('change', (e) => scatteringParams.particleCharge = parseInt(e.target.value)));
+                    document.getElementById('polar-quantity').addEventListener('change', e => scatteringParams.polarQuantity = e.target.value);
                     document.getElementById('polarization-selector-scatter').addEventListener('change', (e) => scatteringParams.polarizationType = e.target.value);
                     document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => scatteringParams.showRadiatedWave = e.target.checked);
                     document.getElementById('wavefront-toggle').addEventListener('change', (e) => scatteringParams.showWavefront = e.target.checked);
@@ -849,22 +913,18 @@
                     break;
                 }
 
-                case 'atomic_form_factor': {
-                    const isSingle = (waveParams.aff_mode === 'single');
+                case 'atomic_form_factor':
+                case 'form_factor_2_centers': {
+                    const isSingle = concept === 'atomic_form_factor';
                     parameterControlsContainer.innerHTML = `
-                        <div class="control-group radio-group"><label>Mode:</label>
-                            <div class="radio-options-container">
-                                <div><label><input type="radio" name="aff_mode" value="single" ${isSingle ? 'checked' : ''}> Single atom — f(Q)</label></div>
-                                <div><label><input type="radio" name="aff_mode" value="two" ${!isSingle ? 'checked' : ''}> Two atoms — |F(Q)|²</label></div>
-                            </div>
-                        </div>
+                        <div class="param-info">${isSingle ? 'Single Gaussian electron density centered at the origin.' : 'Two identical scattering centers at r₁ = −d/2 and r₂ = +d/2.'}</div>
                         <div class="control-group">
-                            <label for="aff-a-slider">Atom size a (Gaussian width)</label>
+                            <label for="aff-a-slider">${isSingle ? 'Atom' : 'Center'} size a (Gaussian width)</label>
                             <div class="slider-group"><input type="range" id="aff-a-slider" min="0.1" max="1.5" step="0.02" value="${waveParams.aff_atomSize}"></div>
                             <input type="number" class="value-input" id="aff-a-value" min="0.1" max="1.5" step="0.02" value="${waveParams.aff_atomSize.toFixed(2)}" style="margin-top: 8px;">
                         </div>
                         <div class="control-group">
-                            <label for="aff-z-slider">Electrons per atom Z</label>
+                            <label for="aff-z-slider">Electrons per ${isSingle ? 'atom' : 'center'} Z</label>
                             <div class="slider-group"><input type="range" id="aff-z-slider" min="1" max="30" step="1" value="${waveParams.aff_Z}"></div>
                             <input type="number" class="value-input" id="aff-z-value" min="1" max="30" step="1" value="${waveParams.aff_Z}" style="margin-top: 8px;">
                         </div>
@@ -883,9 +943,9 @@
                             <div class="slider-group"><input type="range" id="aff-thout-slider" min="-180" max="180" step="0.01" value="${(waveParams.aff_theta_out * 180 / Math.PI).toFixed(2)}"></div>
                             <input type="number" class="value-input" id="aff-thout-value" min="-180" max="180" step="0.01" value="${(waveParams.aff_theta_out * 180 / Math.PI).toFixed(2)}" style="margin-top: 8px;">
                         </div>
-                        <div id="aff-two-controls" style="display:${isSingle ? 'none' : 'block'};">
+                        ${!isSingle ? `<div id="aff-two-controls">
                             <div class="control-group">
-                                <label for="aff-d-slider">Inter-atomic distance d</label>
+                                <label for="aff-d-slider">Center-to-center distance d</label>
                                 <div class="slider-group"><input type="range" id="aff-d-slider" min="0.5" max="6" step="0.05" value="${waveParams.aff_atomDistance}"></div>
                                 <input type="number" class="value-input" id="aff-d-value" min="0.5" max="6" step="0.05" value="${waveParams.aff_atomDistance.toFixed(2)}" style="margin-top: 8px;">
                             </div>
@@ -895,12 +955,14 @@
                                 <input type="number" class="value-input" id="aff-pair-angle-value" min="-180" max="180" step="0.01" value="${(waveParams.aff_atomPairAngle * 180 / Math.PI).toFixed(2)}" style="margin-top: 8px;">
                             </div>
                         </div>
+                        <div class="control-group"><label for="aff-quantity">Plot quantity</label>
+                            <select id="aff-quantity"><option value="amplitude" ${waveParams.aff_quantity === 'amplitude' ? 'selected' : ''}>Form factor F(Q) — signed amplitude</option><option value="intensity" ${waveParams.aff_quantity === 'intensity' ? 'selected' : ''}>Intensity |F(Q)|²</option></select></div>` : ''}
                         <div class="param-info" style="text-align:left; margin-top:8px;">
                             <b>Elastic scattering:</b> |k_out| = |k_in|.<br>
                             <span style="color:#3498db">→</span> k_in &nbsp;
                             <span style="color:#2ecc71">→</span> k_out &nbsp;
                             <span style="color:#e74c3c">→</span> Q = k_out − k_in<br>
-                            <span style="font-size:0.9em;">In 2-atom mode the arrows are drawn at the pair midpoint (origin). The incident plane wave illuminates both atoms; phase differences come from the path difference Q·d.</span><br>
+                            ${!isSingle ? '<span>Both centers receive the incident plane wave. Arrows meet at the midpoint. The relative phase is Δφ = Q·d.</span><br><b>F(Q) = f(Q)[e<sup>−iQ·d/2</sup> + e<sup>+iQ·d/2</sup>] = 2f(Q) cos(Q·d/2)</b><br>Intensity = |F|² = 4f² cos²(Q·d/2). Negative F means a π phase shift, not negative intensity.<br>' : ''}
                             <b>Form factor</b> = Fourier transform of the electron density:<br>
                             f(Q) = ∫ρ(r) e<sup>iQ·r</sup> d³r<br>
                             For ρ(r) ∝ exp(−r²/a²) ⟹ <b>f(Q) = Z · exp(−Q²a²/4)</b><br>
@@ -908,12 +970,7 @@
                         </div>
                         <div id="aff-readout" class="param-info" style="margin-top: 8px;"></div>`;
                     // Wire controls
-                    document.getElementsByName('aff_mode').forEach(el => el.addEventListener('change', e => {
-                        waveParams.aff_mode = e.target.value;
-                        document.getElementById('aff-two-controls').style.display =
-                            (waveParams.aff_mode === 'single') ? 'none' : 'block';
-                        rebuildAffAtoms();
-                    }));
+                    if (!isSingle) document.getElementById('aff-quantity').addEventListener('change', e => { waveParams.aff_quantity = e.target.value; updateConceptVisualization(currentConcept); });
                     const updateThInLabel = () => { const el = document.getElementById('aff-thin-deg'); if (el) el.textContent = `(${(waveParams.aff_theta_in*180/Math.PI).toFixed(0)}°)`; };
                     const updateThOutLabel = () => { const el = document.getElementById('aff-thout-deg'); if (el) el.textContent = `(${(waveParams.aff_theta_out*180/Math.PI).toFixed(0)}°)`; };
                     const updatePairLabel = () => { const el = document.getElementById('aff-pair-deg'); if (el) el.textContent = `(${(waveParams.aff_atomPairAngle*180/Math.PI).toFixed(0)}°)`; };
@@ -1018,7 +1075,8 @@ function setupConceptVisualization(concept) {
                     animationTime = 0;
                     if (controls) { camera.position.set(8, 4, 10); controls.target.set(0, 0, 0); controls.update(); }
                     if (waveParams.polarizationViewMode === 'temporal') {
-                        waveLine1 = createSingleWaveObject(0xaaaaaa, 0.4);
+                        waveLine1 = createSingleWaveObject(0x67e8f9, 0.85);
+                        waveLine1.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(501 * 3), 3));
                         scene.add(waveLine1);
                         const E_amp_temp = waveParams.amplitude;
                         animatedEVector = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), E_amp_temp, 0xffff00, 0.25 * E_amp_temp, 0.15 * E_amp_temp);
@@ -1033,35 +1091,8 @@ function setupConceptVisualization(concept) {
                         let initialEy, initialEz;
                         const temp_A_trace = (waveParams.polarizationType === 'elliptical' && waveParams.Ey_amplitude !== undefined) ? waveParams.Ey_amplitude : E_amp_temp;
                         const temp_B_trace = (waveParams.polarizationType === 'elliptical' && waveParams.Ez_amplitude !== undefined) ? waveParams.Ez_amplitude : E_amp_temp;
-                        switch (waveParams.polarizationType) {
-                            case 'linear_vertical':
-                                initialEy = temp_A_trace * Math.cos(0);
-                                initialEz = 0;
-                                break;
-                            case 'linear_horizontal':
-                                initialEy = 0;
-                                initialEz = temp_A_trace * Math.cos(0);
-                                break;
-                            case 'circular_right_expected':
-                                initialEy = temp_A_trace * Math.cos(0);
-                                initialEz = -temp_A_trace * Math.sin(0);
-                                break;
-                            case 'circular_left_expected':
-                                initialEy = temp_A_trace * Math.cos(0);
-                                initialEz = temp_A_trace * Math.sin(0);
-                                break;
-                            case 'elliptical':
-                                initialEy = temp_A_trace * Math.cos(0);
-                                initialEz = temp_B_trace * Math.sin(0);
-                                break;
-                            case 'unpolarized':
-                                initialEy = temp_A_trace;
-                                initialEz = 0;
-                                break;
-                            default:
-                                initialEy = temp_A_trace;
-                                initialEz = 0;
-                        }
+                        const initialField = polarizationField(0, 0);
+                        initialEy = initialField.y; initialEz = initialField.z;
                         for (let i = 0; i < tracePointsCount; ++i) {
                             tracePositions[i * 3] = 0;
                             tracePositions[i * 3 + 1] = initialEy;
@@ -1089,10 +1120,10 @@ function setupConceptVisualization(concept) {
                             scene.add(arrow);
                         }
                         // Helix path: connects arrow tips, shown for circular/elliptical.
-                        const helixPolarizationTypes = ['circular_right_expected', 'circular_left_expected', 'elliptical'];
+                        const helixPolarizationTypes = ['linear_vertical', 'linear_horizontal', 'circular_right_expected', 'circular_left_expected', 'elliptical', 'unpolarized'];
                         if (helixPolarizationTypes.includes(waveParams.polarizationType)) {
                             const helixGeom = new THREE.BufferGeometry();
-                            const helixPoints = 200;
+                            const helixPoints = 241;
                             helixGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(helixPoints * 3), 3));
                             const helixMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
                             polarizationHelixPath = new THREE.Line(helixGeom, helixMat);
@@ -1173,7 +1204,7 @@ function setupConceptVisualization(concept) {
                     const wfMat = new THREE.MeshBasicMaterial({
                         color: 0x1abc9c,
                         transparent: true,
-                        opacity: 0.4,
+                        opacity: 0.24, depthWrite: false,
                         side: THREE.DoubleSide
                     });
                     const numFronts = 7;
@@ -1185,6 +1216,7 @@ function setupConceptVisualization(concept) {
                             plane.rotation.y = Math.PI / 2;
                             plane.userData.initialX = -waveParams.extent / 2 - i * 1.5;
                             plane.position.x = plane.userData.initialX;
+                            addWavefrontFieldProbes(plane, false);
                             wavefrontObjects.push(plane);
                             scene.add(plane);
                         }
@@ -1195,11 +1227,13 @@ function setupConceptVisualization(concept) {
                             sphere.material.wireframe = false;
                             sphere.userData.currentRadius = 0.1 + i * 1.2;
                             sphere.scale.setScalar(sphere.userData.currentRadius);
+                            addWavefrontFieldProbes(sphere, true);
                             wavefrontObjects.push(sphere);
                             scene.add(sphere);
                         }
                     }
                     animationTime = 0;
+                    updateConceptVisualization(concept);
                     if (controls) {
                         camera.position.set(4, 3, 8);
                         controls.target.set(-2, 0, 0);
@@ -1219,6 +1253,17 @@ function setupConceptVisualization(concept) {
                     scene.add(scatteringViz.axes);
                     createScatteringParticle();
                     createScatteringWaves();
+                    // Internal wave coordinates (propagation x, polarization y) map to
+                    // the reference figure's world coordinates (propagation z, polarization x).
+                    scatteringFrame = new THREE.Group();
+                    scatteringFrame.setRotationFromMatrix(new THREE.Matrix4().makeBasis(
+                        new THREE.Vector3(0,0,1),new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0)));
+                    scatteringFrame.add(scatteringViz.particle);
+                    scatteringViz.incomingWave.planes.forEach(o=>scatteringFrame.add(o));
+                    scatteringViz.incomingWave.vectors.forEach(row=>row.forEach(o=>scatteringFrame.add(o)));
+                    scatteringViz.radiatedWave.shells.forEach(shell=>scatteringFrame.add(shell.sphere,shell.torus));
+                    scene.add(scatteringFrame);
+                    createPsiIllustration();
                     break;
                 }
                 case 'reflection_transmission': {
@@ -1293,7 +1338,8 @@ function setupConceptVisualization(concept) {
                     scene.add(snellRefractedRay);
                     break;
                 }
-                case 'atomic_form_factor': {
+                case 'atomic_form_factor':
+                case 'form_factor_2_centers': {
                     // Show phasor (top-right) AND f(Q) graph (below it)
                     phasorCanvas.style.display = 'block';
                     aff_graphCanvas.style.display = 'block';
@@ -1473,166 +1519,33 @@ function setupConceptVisualization(concept) {
                     break;
                 }
                 case 'polarization': {
-                    A = waveParams.amplitude;
-                    L = waveParams.wavelength;
-                    k = (2 * Math.PI) / L;
-                    if (waveParams.polarizationViewMode === 'temporal') {
-                        if (!animatedEVector || !eVectorTracePath || !waveLine1) return;
-                        const guideWavePhase = -omegaAnimation * animationTime * 0.5;
-                        updateWaveGeometry(waveLine1, L, A, guideWavePhase);
-                        let Ey, Ez;
-                        let Ay_t = (waveParams.polarizationType === 'elliptical' && waveParams.Ey_amplitude !== undefined) ? waveParams.Ey_amplitude : A;
-                        let Az_t = (waveParams.polarizationType === 'elliptical' && waveParams.Ez_amplitude !== undefined) ? waveParams.Ez_amplitude : A;
-                        if (waveParams.polarizationType === 'linear_horizontal') Ay_t = 0;
-                        if (waveParams.polarizationType === 'linear_vertical') Az_t = 0;
-                        switch (waveParams.polarizationType) {
-                            case 'linear_vertical':
-                                Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = 0;
-                                break;
-                            case 'linear_horizontal':
-                                Ey = 0;
-                                Ez = Az_t * Math.cos(omegaAnimation * animationTime);
-                                break;
-                            case 'circular_right_expected':
-                                Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = Ay_t * Math.sin(omegaAnimation * animationTime);
-                                break;
-                            case 'circular_left_expected':
-                                Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = -Ay_t * Math.sin(omegaAnimation * animationTime);
-                                break;
-                            case 'elliptical':
-                                Ey = Ay_t * Math.cos(omegaAnimation * animationTime);
-                                Ez = -Az_t * Math.sin(omegaAnimation * animationTime);
-                                break;
-                            case 'unpolarized':
-                                if (animatedEVector && (animatedEVector.userData.randomAngle === undefined ||
-                                    animationTime - (animatedEVector.userData.lastAngleUpdate ?? -1) > 0.1)) {
-                                    animatedEVector.userData.randomAngle = Math.random() * 2 * Math.PI;
-                                    animatedEVector.userData.lastAngleUpdate = animationTime;
-                                }
-                                const unpolarizedMag = A * Math.cos(omegaAnimation * animationTime * 3);
-                                Ey = unpolarizedMag * Math.cos(animatedEVector ? animatedEVector.userData.randomAngle : 0);
-                                Ez = unpolarizedMag * Math.sin(animatedEVector ? animatedEVector.userData.randomAngle : 0);
-                                break;
-                            default:
-                                Ey = Ay_t;
-                                Ez = 0;
+                    const temporal = waveParams.polarizationViewMode === 'temporal';
+                    const t = temporal ? animationTime : 0;
+                    const curve = temporal ? waveLine1 : polarizationHelixPath;
+                    if (curve) {
+                        const pos = curve.geometry.attributes.position;
+                        for (let i = 0; i < pos.count; i++) {
+                            const x = -waveParams.extent / 2 + i / (pos.count - 1) * waveParams.extent;
+                            const e = polarizationField(x, t);
+                            pos.setXYZ(i, x, e.y, e.z);
                         }
-                        const direction = new THREE.Vector3(0, Ey, Ez);
-                        const currentLength = direction.length();
-                        animatedEVector.position.set(0, 0, 0);
-                        if (currentLength < 0.001) {
-                            direction.set(0, 1, 0);
-                            animatedEVector.visible = false;
-                        } else {
-                            animatedEVector.visible = true;
-                            if (currentLength > 0.001) direction.normalize();
-                        }
-                        animatedEVector.setDirection(direction);
-                        const headL = Math.max(0.05, 0.25 * currentLength);
-                        const headW = Math.max(0.025, 0.15 * currentLength);
-                        animatedEVector.setLength(currentLength, headL, headW);
-                        if (eVectorTracePath.userData.lastSampleTime === animationTime) break;
-                        eVectorTracePath.userData.lastSampleTime = animationTime;
-                        const tracePositions = eVectorTracePath.geometry.attributes.position.array;
-                        const pathLength = eVectorTracePath.userData.pathLength;
-                        for (let i = pathLength - 1; i > 0; i--) {
-                            tracePositions[i * 3] = tracePositions[(i - 1) * 3];
-                            tracePositions[i * 3 + 1] = tracePositions[(i - 1) * 3 + 1];
-                            tracePositions[i * 3 + 2] = tracePositions[(i - 1) * 3 + 2];
-                        }
-                        tracePositions[0] = 0;
-                        tracePositions[1] = Ey;
-                        tracePositions[2] = Ez;
-                        if (eVectorTracePath.userData.drawnPoints < pathLength) eVectorTracePath.userData.drawnPoints++;
-                        eVectorTracePath.geometry.setDrawRange(0, eVectorTracePath.userData.drawnPoints);
-                        eVectorTracePath.geometry.attributes.position.needsUpdate = true;
-                    } else {
-                        if (spatialPolarizationEVectors.length === 0) return;
-                        const t_snapshot = 0;
-                        let Ay_s_val = (waveParams.polarizationType === 'elliptical' && waveParams.Ey_amplitude !== undefined) ? waveParams.Ey_amplitude : A;
-                        let Az_s_val = (waveParams.polarizationType === 'elliptical' && waveParams.Ez_amplitude !== undefined) ? waveParams.Ez_amplitude : A;
-                        if (waveParams.polarizationType === 'linear_horizontal') Ay_s_val = 0;
-                        if (waveParams.polarizationType === 'linear_vertical') Az_s_val = 0;
-                        spatialPolarizationEVectors.forEach(arrow => {
-                            const x_arrow = arrow.position.x;
-                            let Ey, Ez;
-                            switch (waveParams.polarizationType) {
-                                case 'linear_vertical':
-                                    Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot);
-                                    Ez = 0;
-                                    break;
-                                case 'linear_horizontal':
-                                    Ey = 0;
-                                    Ez = Az_s_val * Math.cos(k * x_arrow - t_snapshot);
-                                    break;
-                                case 'circular_right_expected':
-                                    Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot);
-                                    Ez = -Ay_s_val * Math.sin(k * x_arrow - t_snapshot);
-                                    break;
-                                case 'circular_left_expected':
-                                    Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot);
-                                    Ez = Ay_s_val * Math.sin(k * x_arrow - t_snapshot);
-                                    break;
-                                case 'elliptical':
-                                    Ey = Ay_s_val * Math.cos(k * x_arrow - t_snapshot);
-                                    Ez = Az_s_val * Math.sin(k * x_arrow - t_snapshot);
-                                    break;
-                                case 'unpolarized':
-                                    if (arrow.userData.randomAngleSpatial === undefined) arrow.userData.randomAngleSpatial = Math.random() * 2 * Math.PI;
-                                    const waveModulation = A * Math.cos(k * x_arrow - t_snapshot);
-                                    Ey = waveModulation * Math.cos(arrow.userData.randomAngleSpatial);
-                                    Ez = waveModulation * Math.sin(arrow.userData.randomAngleSpatial);
-                                    break;
-                                default:
-                                    Ey = Ay_s_val;
-                                    Ez = 0;
-                            }
-                            const direction = new THREE.Vector3(0, Ey, Ez);
-                            let currentLength = direction.length();
-                            if (currentLength < 0.001) {
-                                direction.set(0, 1, 0);
-                                arrow.visible = false;
-                                currentLength = 0;
-                            } else {
-                                arrow.visible = true;
-                                direction.normalize();
-                            }
-                            arrow.setDirection(direction);
-                            const headL = Math.max(0.05, 0.25 * currentLength);
-                            const headW = Math.max(0.025, 0.15 * currentLength);
-                            arrow.setLength(currentLength, headL, headW);
-                        });
-                        // Update helix path (if active) — analytic continuous curve through arrow tips
-                        if (polarizationHelixPath) {
-                            const N = polarizationHelixPath.userData.points;
-                            const pos = polarizationHelixPath.geometry.attributes.position.array;
-                            for (let i = 0; i < N; i++) {
-                                const x = -waveParams.extent / 2 + (i / (N - 1)) * waveParams.extent;
-                                let Eyh = 0, Ezh = 0;
-                                switch (waveParams.polarizationType) {
-                                    case 'circular_right_expected':
-                                        Eyh = Ay_s_val * Math.cos(k * x);
-                                        Ezh = -Ay_s_val * Math.sin(k * x);
-                                        break;
-                                    case 'circular_left_expected':
-                                        Eyh = Ay_s_val * Math.cos(k * x);
-                                        Ezh = Ay_s_val * Math.sin(k * x);
-                                        break;
-                                    case 'elliptical':
-                                        Eyh = Ay_s_val * Math.cos(k * x);
-                                        Ezh = Az_s_val * Math.sin(k * x);
-                                        break;
-                                }
-                                pos[i * 3] = x;
-                                pos[i * 3 + 1] = Eyh;
-                                pos[i * 3 + 2] = Ezh;
-                            }
-                            polarizationHelixPath.geometry.attributes.position.needsUpdate = true;
-                        }
+                        pos.needsUpdate = true; curve.geometry.computeBoundingSphere();
                     }
+                    if (temporal && animatedEVector && eVectorTracePath) {
+                        const e = polarizationField(0, t);
+                        setFieldArrow(animatedEVector, e);
+                        if (eVectorTracePath.userData.lastSampleTime !== animationTime) {
+                            eVectorTracePath.userData.lastSampleTime = animationTime;
+                            const positions = eVectorTracePath.geometry.attributes.position;
+                            positions.array.copyWithin(3, 0, positions.array.length - 3);
+                            positions.setXYZ(0, 0, e.y, e.z);
+                            const data = eVectorTracePath.userData;
+                            data.drawnPoints = Math.min(data.pathLength, data.drawnPoints + 1);
+                            eVectorTracePath.geometry.setDrawRange(0, data.drawnPoints);
+                            positions.needsUpdate = true;
+                            eVectorTracePath.geometry.computeBoundingSphere();
+                        }
+                    } else spatialPolarizationEVectors.forEach(arrow => setFieldArrow(arrow, polarizationField(arrow.position.x, t)));
                     break;
                 }
                 case 'poynting_vector': {
@@ -1757,7 +1670,9 @@ function setupConceptVisualization(concept) {
                             const maxRadius = waveParams.extent / 1.8;
                             const radius = 0.1 + positiveModulo(wf.userData.currentRadius - 0.1 + 0.36 * animationTime, maxRadius - 0.1);
                             wf.scale.setScalar(radius);
+                            wf.material.clippingPlanes = waveParams.wavefrontHalf ? [wavefrontCutPlane] : null;
                         }
+                        updateWavefrontFieldProbes(wf);
                     });
                     break;
                 }
@@ -1825,7 +1740,9 @@ function setupConceptVisualization(concept) {
                     scatteringViz.lastParticleAngle = particleAngle;
                     if (scatteringViz.particle) scatteringViz.particle.position.copy(displacement).multiplyScalar(effectiveAmplitude * scatteringParams.particleCharge);
                     emitScatteringPulse(particlePhase);
+                    updateAccelerationPlot();
                     updateRadiatedScatteringWave(effectiveAmplitude);
+                    updatePsiIllustration();
                     drawPolarDipole(scatteringParams.polarizationType);
                     break;
                 }
@@ -1964,7 +1881,8 @@ function setupConceptVisualization(concept) {
                     }
                     break;
                 }
-                case 'atomic_form_factor': {
+                case 'atomic_form_factor':
+                case 'form_factor_2_centers': {
                     if (!aff_kInArrow || !aff_kOutArrow || !aff_qArrow) break;
                     const kmag = waveParams.aff_k_in_mag;
                     const a = waveParams.aff_atomSize;
@@ -1995,6 +1913,7 @@ function setupConceptVisualization(concept) {
                         aff_qArrow.setDirection(Q.clone().normalize());
                         aff_qArrow.setLength(visQ, Math.min(0.25, 0.25 * visQ), 0.15);
                     }
+                    updateCenterAnnotations();
                     // f(Q) graph
                     drawAffGraph();
                     // Scattering-vector construction inset.
@@ -2004,7 +1923,7 @@ function setupConceptVisualization(concept) {
                     if (readout) {
                         const Qmag = Q.length();
                         const f = aff_singleAtomFormFactor(Qmag, a, Z);
-                        if (waveParams.aff_mode === 'single') {
+                        if (currentConcept === 'atomic_form_factor') {
                             readout.innerHTML =
                                 `|Q| = <b>${Qmag.toFixed(3)}</b><br>` +
                                 `f(Q) = <b>${f.toFixed(3)}</b>  (out of Z=${Z})<br>` +
@@ -2014,12 +1933,14 @@ function setupConceptVisualization(concept) {
                                 waveParams.aff_atomDistance * Math.cos(waveParams.aff_atomPairAngle),
                                 waveParams.aff_atomDistance * Math.sin(waveParams.aff_atomPairAngle), 0);
                             const Qd = Q.dot(d_vec);
-                            const F2 = f * f * 2 * (1 + Math.cos(Qd));
+                            const {F, intensity} = twoCenterFormFactor(Qmag, Qd);
                             readout.innerHTML =
-                                `|Q| = <b>${Qmag.toFixed(3)}</b>, &nbsp; Q·d = <b>${Qd.toFixed(3)}</b><br>` +
-                                `f(Q) = <b>${f.toFixed(3)}</b><br>` +
-                                `|F(Q)|² = 2 f² (1+cos Q·d) = <b>${F2.toFixed(3)}</b><br>` +
-                                `<span style="font-size:0.9em">Bragg condition: Q·d = 2πn</span>`;
+                                `d = <b>${waveParams.aff_atomDistance.toFixed(2)}</b>, |Q| = <b>${Qmag.toFixed(3)}</b><br>` +
+                                `Δφ = Q·d = <b>${Qd.toFixed(3)} rad</b><br>` +
+                                `f per center = <b>${f.toFixed(3)}</b><br>` +
+                                `F = 2f cos(Δφ/2) = <b>${F.toFixed(3)}</b><br>` +
+                                `Intensity |F|² = <b>${intensity.toFixed(3)}</b><br>` +
+                                `<span>Constructive: Δφ = 2πn; destructive: Δφ = (2n+1)π.<br>Graph: radial Q scan along the current Q direction, not a detector-angle scan.</span>`;
                         }
                     }
                     break;
@@ -2087,7 +2008,7 @@ function setupConceptVisualization(concept) {
             const kOut_dy = -Math.sin(waveParams.aff_theta_out) * kmag * scale;
             phasorCtx.strokeStyle = 'rgba(255,255,255,0.35)';
             phasorCtx.setLineDash([3, 3]);
-            phasorCtx.lineWidth = 1;
+            phasorCtx.lineWidth = 1.6;
             phasorCtx.beginPath();
             phasorCtx.moveTo(cx + kIn_dx, cy + kIn_dy);
             phasorCtx.lineTo(cx + kOut_dx, cy + kOut_dy);
@@ -2095,7 +2016,7 @@ function setupConceptVisualization(concept) {
             phasorCtx.setLineDash([]);
             // 2) |k| reference circle (since |k_in| = |k_out| = kmag, both end on this circle).
             phasorCtx.strokeStyle = 'rgba(255,255,255,0.18)';
-            phasorCtx.lineWidth = 1;
+            phasorCtx.lineWidth = 1.6;
             phasorCtx.beginPath();
             phasorCtx.arc(cx, cy, kmag * scale, 0, 2 * Math.PI);
             phasorCtx.stroke();
@@ -2177,6 +2098,8 @@ function setupConceptVisualization(concept) {
         }
 
         function clearConceptVisualization(conceptToClear) {
+            document.querySelectorAll('.scene-annotation').forEach(el => el.style.display = 'none');
+            if (psiIllustration) { disposeSceneObject(psiIllustration); psiIllustration = null; }
             if (conceptToClear === 'phase') {
                 if (phasorCanvas) phasorCanvas.style.display = 'none';
             }
@@ -2269,11 +2192,7 @@ function setupConceptVisualization(concept) {
                 p.material.dispose();
             });
             particleSystemViz = [];
-            wavefrontObjects.forEach(wf => {
-                scene.remove(wf);
-                wf.geometry.dispose();
-                wf.material.dispose();
-            });
+            wavefrontObjects.forEach(disposeSceneObject);
             wavefrontObjects = [];
             if (interferenceSuperposition) {
                 scene.remove(interferenceSuperposition);
@@ -2343,7 +2262,8 @@ function setupConceptVisualization(concept) {
             if (polarCanvas) polarCanvas.style.display = 'none';
             // Atomic form factor cleanup
             if (aff_graphCanvas) aff_graphCanvas.style.display = 'none';
-            if (conceptToClear === 'atomic_form_factor' && phasorCanvas) phasorCanvas.style.display = 'none';
+            if (isFormFactorConcept(conceptToClear) && phasorCanvas) phasorCanvas.style.display = 'none';
+            aff_centerMarkers.forEach(disposeSceneObject); aff_centerMarkers = [];
             disposeAffAtomSprite(aff_atom1);
             disposeAffAtomSprite(aff_atom2);
             aff_atom1 = null; aff_atom2 = null;
@@ -2358,7 +2278,7 @@ function setupConceptVisualization(concept) {
             });
             aff_kInArrow = null; aff_kOutArrow = null; aff_qArrow = null;
             // Restore axes & grid when leaving atomic_form_factor (it hides them)
-            if (conceptToClear === 'atomic_form_factor') {
+            if (isFormFactorConcept(conceptToClear)) {
                 if (axesHelper) axesHelper.visible = true;
                 if (gridHelper) gridHelper.visible = true;
             }
@@ -2387,6 +2307,7 @@ function setupConceptVisualization(concept) {
                     });
                     scatteringViz.lights.forEach(l => scene.remove(l));
                     if (scatteringViz.axes) disposeSceneObject(scatteringViz.axes);
+                    if (scatteringFrame) { scene.remove(scatteringFrame); scatteringFrame = null; }
                     resetScatteringObjects();
                     switchToOrthographicCamera();
                     if (gridHelper) gridHelper.visible = true;
@@ -2509,6 +2430,7 @@ function setupConceptVisualization(concept) {
         }
 
         function rebuildAffAtoms() {
+            aff_centerMarkers.forEach(disposeSceneObject); aff_centerMarkers = [];
             disposeAffAtomSprite(aff_atom1);
             disposeAffAtomSprite(aff_atom2);
             aff_atom1 = null; aff_atom2 = null;
@@ -2518,10 +2440,10 @@ function setupConceptVisualization(concept) {
                 aff_atomPairLine.material.dispose();
                 aff_atomPairLine = null;
             }
-            if (currentConcept !== 'atomic_form_factor') return;
+            if (!isFormFactorConcept(currentConcept)) return;
             const a = waveParams.aff_atomSize;
             const Z = waveParams.aff_Z;
-            if (waveParams.aff_mode === 'single') {
+            if (currentConcept === 'atomic_form_factor') {
                 aff_atom1 = makeGaussianAtomSprite(a, Z);
                 aff_atom1.position.set(0, 0, 0);
                 scene.add(aff_atom1);
@@ -2545,6 +2467,10 @@ function setupConceptVisualization(concept) {
                 aff_atomPairLine = new THREE.Line(lineGeom, lineMat);
                 aff_atomPairLine.computeLineDistances();
                 scene.add(aff_atomPairLine);
+                for (const [x,y,color] of [[-dx,-dy,0x67e8f9],[dx,dy,0xffc857]]) {
+                    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.07,12,8),new THREE.MeshBasicMaterial({color}));
+                    marker.position.set(x,y,0.06); scene.add(marker); aff_centerMarkers.push(marker);
+                }
             }
         }
 
@@ -2554,105 +2480,51 @@ function setupConceptVisualization(concept) {
         }
 
         // Draw f(Q) (single-atom) or |F(Q)|² (two-atom) inset graph.
+        function isFormFactorConcept(concept) {
+            return concept === 'atomic_form_factor' || concept === 'form_factor_2_centers';
+        }
+        function twoCenterFormFactor(Q, Qd) {
+            const f = aff_singleAtomFormFactor(Q, waveParams.aff_atomSize, waveParams.aff_Z);
+            const F = 2 * f * Math.cos(Qd / 2);
+            return {f, F, intensity: F * F};
+        }
+        function affPlotValue(Q) {
+            if (currentConcept === 'atomic_form_factor') return aff_singleAtomFormFactor(Q, waveParams.aff_atomSize, waveParams.aff_Z);
+            const result = twoCenterFormFactor(Q, Q * affPairProjection());
+            return waveParams.aff_quantity === 'intensity' ? result.intensity : result.F;
+        }
         function drawAffGraph() {
             if (!aff_graphCtx) return;
-            const w = aff_graphCanvas.width, h = aff_graphCanvas.height;
-            aff_graphCtx.clearRect(0, 0, w, h);
-            const margin = { left: 30, right: 8, top: 18, bottom: 22 };
-            const plotW = w - margin.left - margin.right;
-            const plotH = h - margin.top - margin.bottom;
-            const a = waveParams.aff_atomSize;
-            const Z = waveParams.aff_Z;
-            // Q range: show 0 .. Qmax where Qmax ≈ 2 |k_in| (the geometric max for elastic scattering)
-            const Qmax = Math.max(6, 2 * waveParams.aff_k_in_mag);
-            // Y axis: in single-atom mode, plot f(Q) from 0 to Z. In two-atom mode, plot |F|² from 0 to (2Z)² (max constructive).
-            const isSingle = waveParams.aff_mode === 'single';
-            const yMax = isSingle ? Z : (2 * Z) * (2 * Z);
-            // Current Q value
-            const Q_now = aff_currentQMagnitude();
-            // Axes
-            aff_graphCtx.strokeStyle = 'rgba(255,255,255,0.5)';
-            aff_graphCtx.lineWidth = 1;
-            aff_graphCtx.beginPath();
-            aff_graphCtx.moveTo(margin.left, margin.top);
-            aff_graphCtx.lineTo(margin.left, margin.top + plotH);
-            aff_graphCtx.lineTo(margin.left + plotW, margin.top + plotH);
-            aff_graphCtx.stroke();
-            // X tick labels (0, Qmax/2, Qmax)
-            aff_graphCtx.fillStyle = '#cccccc';
-            aff_graphCtx.font = '10px Arial';
-            aff_graphCtx.textAlign = 'center';
-            for (const frac of [0, 0.5, 1]) {
-                const x = margin.left + frac * plotW;
-                aff_graphCtx.fillText((frac * Qmax).toFixed(1), x, margin.top + plotH + 12);
-                aff_graphCtx.strokeStyle = 'rgba(255,255,255,0.15)';
-                aff_graphCtx.beginPath();
-                aff_graphCtx.moveTo(x, margin.top); aff_graphCtx.lineTo(x, margin.top + plotH);
-                aff_graphCtx.stroke();
+            const ctx=aff_graphCtx, w=aff_graphCanvas.width, h=aff_graphCanvas.height;
+            ctx.clearRect(0,0,w,h);
+            const single=currentConcept==='atomic_form_factor';
+            const intensity=!single && waveParams.aff_quantity==='intensity';
+            const maxQ=2*waveParams.aff_k_in_mag;
+            const yMax=single ? waveParams.aff_Z : intensity ? (2*waveParams.aff_Z)**2 : 2*waveParams.aff_Z;
+            const yMin=!single && !intensity ? -yMax : 0;
+            const left=43,right=w-10,top=32,bottom=h-28;
+            const X=q=>left+q/maxQ*(right-left), Y=y=>bottom-(y-yMin)/(yMax-yMin)*(bottom-top);
+            ctx.font='10px Arial';ctx.fillStyle='#e2e8f0';ctx.textAlign='center';
+            ctx.fillText(single ? 'Atomic form factor f(Q)' : intensity ? 'Two centers: intensity |F|²' : 'Two centers: signed F(Q)', w/2,11);
+            ctx.font='9px Arial';ctx.fillText(single ? 'Gaussian density' : 'Fixed Q direction; center spacing d',w/2,23);
+            ctx.lineWidth=1;ctx.strokeStyle='#60718b';
+            for(const value of [yMin,(yMin+yMax)/2,yMax]) {
+                ctx.beginPath();ctx.moveTo(left,Y(value));ctx.lineTo(right,Y(value));ctx.stroke();
+                ctx.textAlign='right';ctx.fillText(value.toFixed(0),left-5,Y(value)+3);
             }
-            // Y tick labels (0, mid, max)
-            aff_graphCtx.textAlign = 'right';
-            for (const frac of [0, 0.5, 1]) {
-                const y = margin.top + plotH - frac * plotH;
-                aff_graphCtx.fillText((frac * yMax).toFixed(isSingle ? 1 : 0), margin.left - 4, y + 3);
+            ctx.textAlign='center';
+            for(const q of [0,maxQ/2,maxQ])ctx.fillText(q.toFixed(1),X(q),bottom+12);
+            ctx.fillText('|Q| (inverse length)',(left+right)/2,h-3);
+            ctx.save();ctx.beginPath();ctx.rect(left,top,right-left,bottom-top);ctx.clip();
+            ctx.strokeStyle='#facc15';ctx.lineWidth=2.5;ctx.beginPath();
+            for(let i=0;i<=400;i++) {
+                const q=maxQ*i/400,value=affPlotValue(q);
+                if(i)ctx.lineTo(X(q),Y(value));else ctx.moveTo(X(q),Y(value));
             }
-            // Axis labels
-            aff_graphCtx.textAlign = 'center';
-            aff_graphCtx.fillText('Q', margin.left + plotW / 2, h - 4);
-            aff_graphCtx.save();
-            aff_graphCtx.translate(10, margin.top + plotH / 2);
-            aff_graphCtx.rotate(-Math.PI / 2);
-            aff_graphCtx.fillText(isSingle ? 'f(Q)' : '|F(Q)|²', 0, 0);
-            aff_graphCtx.restore();
-            // Title
-            aff_graphCtx.textAlign = 'center';
-            aff_graphCtx.fillStyle = '#dddddd';
-            aff_graphCtx.font = '11px Arial';
-            aff_graphCtx.fillText(isSingle ? 'f(Q) = Z·exp(−Q²a²/4)' : '|F(Q)|² — current Q direction', margin.left + plotW / 2, 12);
-            // Curve
-            aff_graphCtx.strokeStyle = '#f1c40f';
-            aff_graphCtx.lineWidth = 2;
-            aff_graphCtx.beginPath();
-            const N = 200;
-            // A radial cut in reciprocal space along the current Q direction.
-            // The current-value marker uses the same orientation as the readout.
-            for (let i = 0; i <= N; i++) {
-                const Q = (i / N) * Qmax;
-                const f = aff_singleAtomFormFactor(Q, a, Z);
-                let y;
-                if (isSingle) {
-                    y = f;
-                } else {
-                    // Include the projection of the pair vector onto the current Q direction.
-                    y = f * f * 2 * (1 + Math.cos(Q * affPairProjection()));
-                }
-                const px = margin.left + (i / N) * plotW;
-                const py = margin.top + plotH - (y / yMax) * plotH;
-                if (i === 0) aff_graphCtx.moveTo(px, py);
-                else aff_graphCtx.lineTo(px, py);
-            }
-            aff_graphCtx.stroke();
-            // Current-Q marker: vertical red line + dot on curve
-            if (Q_now >= 0 && Q_now <= Qmax) {
-                const xQ = margin.left + (Q_now / Qmax) * plotW;
-                aff_graphCtx.strokeStyle = '#e74c3c';
-                aff_graphCtx.lineWidth = 1;
-                aff_graphCtx.beginPath();
-                aff_graphCtx.moveTo(xQ, margin.top);
-                aff_graphCtx.lineTo(xQ, margin.top + plotH);
-                aff_graphCtx.stroke();
-                // Value at this Q (using the SAME curve definition as above for consistency)
-                const f = aff_singleAtomFormFactor(Q_now, a, Z);
-                let yVal;
-                if (isSingle) yVal = f;
-                else yVal = f * f * 2 * (1 + Math.cos(Q_now * affPairProjection()));
-                const yClamped = Math.max(0, Math.min(yMax, yVal));
-                const yQ = margin.top + plotH - (yClamped / yMax) * plotH;
-                aff_graphCtx.fillStyle = '#e74c3c';
-                aff_graphCtx.beginPath();
-                aff_graphCtx.arc(xQ, yQ, 4, 0, 2 * Math.PI);
-                aff_graphCtx.fill();
-            }
+            ctx.stroke();
+            const q=aff_currentQMagnitude(),value=affPlotValue(q);
+            ctx.strokeStyle='#fb7185';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(X(q),top);ctx.lineTo(X(q),bottom);ctx.stroke();
+            ctx.fillStyle='#fb7185';ctx.beginPath();ctx.arc(X(q),Y(value),3.5,0,2*Math.PI);ctx.fill();ctx.restore();
         }
 
         // |Q| from current params
@@ -2664,6 +2536,314 @@ function setupConceptVisualization(concept) {
         }
         
         
+
+        // Screen-space triangle strips keep line widths reliable on WebGL platforms.
+        // Original lines retain their geometry, animation, transforms and raycasting.
+        function updateThickLines() {
+            const active = new Set();
+            const lines = [];
+            scene.traverse(o => { if (o.isLine && o.geometry.attributes.position) lines.push(o); });
+            for (const line of lines) {
+                active.add(line);
+                const source = line.geometry, pos = source.attributes.position, mat = line.material;
+                if (Array.isArray(mat)) continue;
+                let entry = thickLines.get(line);
+                if (!entry) {
+                    const material = new THREE.MeshBasicMaterial({color: mat.color, transparent: true,
+                        depthWrite: false, side: THREE.DoubleSide, vertexColors: !!source.attributes.color});
+                    const uniforms = { viewport: {value: new THREE.Vector2()}, thickness: {value: 3},
+                        dashSize: {value: 0}, gapSize: {value: 0} };
+                    material.onBeforeCompile = shader => {
+                        Object.assign(shader.uniforms, uniforms);
+                        shader.vertexShader = 'attribute vec3 other; attribute float side; attribute float distanceAlong; uniform vec2 viewport; uniform float thickness; varying float vDistance;\n' + shader.vertexShader;
+                        shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `
+                            vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+                            gl_Position = projectionMatrix * mvPosition;
+                            vec4 otherClip = projectionMatrix * modelViewMatrix * vec4(other, 1.0);
+                            vec2 direction = (otherClip.xy / max(otherClip.w, 0.0001) - gl_Position.xy / max(gl_Position.w, 0.0001)) * viewport;
+                            float d = length(direction);
+                            vec2 normal = d > 0.0001 ? vec2(-direction.y, direction.x) / d : vec2(0.0);
+                            gl_Position.xy += normal * side * thickness / viewport * gl_Position.w;
+                            vDistance = distanceAlong;
+                        `);
+                        shader.fragmentShader = 'uniform float dashSize; uniform float gapSize; varying float vDistance;\n' + shader.fragmentShader;
+                        shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (dashSize > 0.0 && mod(vDistance, dashSize + gapSize) > dashSize) discard;');
+                    };
+                    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+                    mesh.frustumCulled = false;
+                    line.add(mesh);
+                    entry = {mesh, uniforms, source: null, version: -1};
+                    thickLines.set(line, entry);
+                }
+                const {mesh, uniforms} = entry;
+                uniforms.viewport.value.set(renderer.domElement.clientWidth || 1, renderer.domElement.clientHeight || 1);
+                uniforms.thickness.value = line === gridHelper ? 1.3 : line.isLineSegments ? 2 : 3.2;
+                uniforms.dashSize.value = mat.isLineDashedMaterial ? mat.dashSize : 0;
+                uniforms.gapSize.value = mat.isLineDashedMaterial ? mat.gapSize : 0;
+                mesh.material.color.copy(mat.color);
+                mesh.material.opacity = Math.min(1, mat.opacity * 1.3);
+                mesh.material.depthTest = mat.depthTest;
+                mesh.material.clippingPlanes = mat.clippingPlanes;
+                mesh.material.visible = mat.visible;
+                if (entry.source !== source || entry.version !== pos.version) {
+                    const index = source.index;
+                    const count = index ? index.count : pos.count;
+                    const step = line.isLineSegments ? 2 : 1;
+                    const start = source.drawRange.start;
+                    const end = Math.min(count, start + source.drawRange.count);
+                    const positions = [], others = [], sides = [], colors = [], distances = [];
+                    const c = source.attributes.color, ld = source.attributes.lineDistance;
+                    for (let i = start; i + 1 < end; i += step) {
+                        const a = index ? index.getX(i) : i, b = index ? index.getX(i + 1) : i + 1;
+                        for (const [j,k,side] of [[a,b,1],[a,b,-1],[b,a,-1],[b,a,-1],[a,b,-1],[b,a,1]]) {
+                            positions.push(pos.getX(j),pos.getY(j),pos.getZ(j));
+                            others.push(pos.getX(k),pos.getY(k),pos.getZ(k)); sides.push(side);
+                            distances.push(ld ? ld.getX(j) * (mat.scale || 1) : 0);
+                            if(c) colors.push(c.getX(j),c.getY(j),c.getZ(j));
+                        }
+                    }
+                    const g = mesh.geometry;
+                    for(const [name,array,size] of [['position',positions,3],['other',others,3],['side',sides,1],['distanceAlong',distances,1],...(c ? [['color',colors,3]] : [])]) {
+                        const existing = g.getAttribute(name);
+                        if(existing && existing.array.length === array.length) { existing.array.set(array); existing.needsUpdate = true; }
+                        else g.setAttribute(name,new THREE.Float32BufferAttribute(array,size));
+                    }
+                    entry.source = source; entry.version = pos.version;
+                }
+            }
+            for (const [line,entry] of thickLines) if (!active.has(line)) {
+                line.remove(entry.mesh); entry.mesh.geometry.dispose(); entry.mesh.material.dispose(); thickLines.delete(line);
+            }
+        }
+
+        function clampAccelerationPanel() {
+            const panel = document.getElementById('acceleration-panel');
+            if (!panel.style.left) return; // Default anchor follows the bottom-right corner.
+            const area = panel.parentElement;
+            panel.style.left = Math.max(0, Math.min(parseFloat(panel.style.left), area.clientWidth - panel.offsetWidth)) + 'px';
+            panel.style.top = Math.max(0, Math.min(parseFloat(panel.style.top), area.clientHeight - panel.offsetHeight)) + 'px';
+        }
+        function setupAccelerationPanel() {
+            const panel = document.getElementById('acceleration-panel');
+            const title = document.getElementById('acceleration-title');
+            title.title = 'Drag to move; double-click to return to the bottom right';
+            title.addEventListener('pointerdown', e => {
+                if (e.button !== 0) return;
+                const r = panel.getBoundingClientRect();
+                accelerationDrag = {x: e.clientX-r.left, y: e.clientY-r.top};
+                title.setPointerCapture(e.pointerId); e.preventDefault();
+            });
+            title.addEventListener('pointermove', e => {
+                if (!accelerationDrag) return;
+                const r = panel.parentElement.getBoundingClientRect();
+                panel.style.right = 'auto'; panel.style.bottom = 'auto';
+                panel.style.left = (e.clientX-r.left-accelerationDrag.x)+'px';
+                panel.style.top = (e.clientY-r.top-accelerationDrag.y)+'px';
+                clampAccelerationPanel();
+            });
+            for (const event of ['pointerup','pointercancel','lostpointercapture']) title.addEventListener(event, () => accelerationDrag = null);
+            title.addEventListener('dblclick', () => {
+                panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = '';
+            });
+        }
+        function updateAccelerationPlot() {
+            const p = scatteringParams;
+            // Along the instantaneous polarization axis: x = (Aq/m) sin(omega*t).
+            // Idealized non-polarized direction changes are not modeled as impulses.
+            const signature = [p.particleMass,p.particleCharge,p.polarizationType,p.oscillationFrequency,p.baseAmplitude].join('|');
+            if (signature !== accelerationSignature) { accelerationHistory.length = 0; accelerationSignature = signature; }
+            const value = -(p.oscillationFrequency ** 2) * p.baseAmplitude * p.particleCharge / p.particleMass * Math.sin(p.oscillationFrequency * animationTime);
+            const speed = Math.abs(p.oscillationFrequency * p.baseAmplitude * p.particleCharge / p.particleMass * Math.cos(p.oscillationFrequency * animationTime));
+            const last = accelerationHistory[accelerationHistory.length-1];
+            // Retain both quantities so changing the selector preserves the full history.
+            if (!last || animationTime > last.t) accelerationHistory.push({t: animationTime, a: value, speed});
+            while (accelerationHistory.length && accelerationHistory[0].t < animationTime - 3) accelerationHistory.shift();
+            const showSpeed = p.historyQuantity === 'speed';
+            const label = showSpeed ? 'Speed |v*|' : 'Acceleration a*';
+            const title = document.getElementById('acceleration-title');
+            title.textContent = label + ' · last 3 s';
+            title.title = (showSpeed
+                ? '|v*| = |ω*(A*q*/m*) cos(ω*t*)|. Units: L₀/T₀.'
+                : 'a* = −ω*²(A*q*/m*) sin(ω*t*). Units: L₀/T₀².') +
+                ' Drag to move; double-click to return to the bottom right.';
+            document.getElementById('acceleration-panel').setAttribute('aria-label', label + ' history');
+            const canvas = document.getElementById('acceleration-canvas'), ctx = canvas.getContext('2d');
+            canvas.setAttribute('aria-label', (showSpeed ? 'Speed magnitude' : 'Signed acceleration') + ' versus simulation time, last three seconds');
+            const w = canvas.clientWidth, h = canvas.clientHeight;
+            if (w < 100 || h < 60) return;
+            const dpr = window.devicePixelRatio || 1;
+            if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) { canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr); }
+            ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+            const left=43, right=w-12, top=24, bottom=h-30;
+            const peak = (showSpeed ? Math.abs(p.oscillationFrequency) : p.oscillationFrequency ** 2) * Math.abs(p.baseAmplitude * p.particleCharge / p.particleMass);
+            const range = Math.max(0.001, peak) * 1.1;
+            const lower = showSpeed ? 0 : -range;
+            const x=t=>left+(t-(animationTime-3))/3*(right-left), y=a=>bottom-(a-lower)/(range-lower)*(bottom-top);
+            ctx.font='11px system-ui'; ctx.fillStyle='#e2e8f0'; ctx.textAlign='left';
+            ctx.fillText((showSpeed ? '|v*| = ' : 'a* = ') + (showSpeed ? speed : value).toPrecision(3),left,12);
+            ctx.lineWidth=1; ctx.strokeStyle='#526580';
+            for(const a of (showSpeed ? [0, range/2, range] : [-range,0,range])) {
+                ctx.beginPath(); ctx.moveTo(left,y(a)); ctx.lineTo(right,y(a)); ctx.stroke();
+                ctx.textAlign='right'; ctx.fillText(a===0?'0':a.toFixed(2),left-5,y(a)+4);
+            }
+            ctx.textAlign='center';
+            for(let i=0;i<=3;i++) {
+                const px=left+i/3*(right-left); ctx.fillText(String(i-3)+' s',px,bottom+15);
+            }
+            ctx.textAlign='right'; ctx.fillText('Time (s ago)',right,h-2);
+            ctx.save(); ctx.beginPath(); ctx.rect(left,top,right-left,bottom-top); ctx.clip();
+            ctx.strokeStyle=showSpeed ? '#facc15' : '#67e8f9'; ctx.lineWidth=2.8; ctx.lineJoin='round'; ctx.beginPath();
+            accelerationHistory.forEach((v,i)=>{
+                const sample = showSpeed ? v.speed : v.a;
+                if(i) ctx.lineTo(x(v.t),y(sample)); else ctx.moveTo(x(v.t),y(sample));
+            });
+            ctx.stroke(); ctx.restore();
+        }
+
+        // All polarization curves and arrows sample the same traveling field.
+        function polarizationField(x, t) {
+            const phase = 2 * Math.PI / waveParams.wavelength * x - omegaAnimation * t;
+            const A = waveParams.amplitude;
+            switch (waveParams.polarizationType) {
+                case 'linear_horizontal': return new THREE.Vector3(0, 0, A * Math.cos(phase));
+                case 'circular_right_expected': return new THREE.Vector3(0, A * Math.cos(phase), -A * Math.sin(phase));
+                case 'circular_left_expected': return new THREE.Vector3(0, A * Math.cos(phase), A * Math.sin(phase));
+                case 'elliptical': return new THREE.Vector3(0, waveParams.Ey_amplitude * Math.cos(phase), waveParams.Ez_amplitude * Math.sin(phase));
+                case 'unpolarized': {
+                    // Smooth illustrative broadband mixture, propagated at the same speed.
+                    let y = 0, z = 0;
+                    for (let j = 0; j < 8; j++) {
+                        y += Math.cos((0.65 + 0.19*j)*phase + j*j*1.71);
+                        z += Math.cos((0.65 + 0.19*j)*phase + j*j*2.39 + 0.73);
+                    }
+                    return new THREE.Vector3(0, A*y/4, A*z/4);
+                }
+                default: return new THREE.Vector3(0, A * Math.cos(phase), 0);
+            }
+        }
+        function setFieldArrow(arrow, field) {
+            const length = field.length();
+            arrow.visible = length > 0.001;
+            arrow.setDirection(length > 0.001 ? field.clone().multiplyScalar(1/length) : new THREE.Vector3(0,1,0));
+            arrow.setLength(length, 0.25*length, 0.15*length);
+        }
+        function addWavefrontFieldProbes(front, spherical) {
+            front.userData.fieldProbes = [];
+            const directions = [];
+            if (spherical) {
+                for (let latitude = 1; latitude < 5; latitude++) {
+                    const theta = latitude*Math.PI/5;
+                    for (let j = 0; j < 8; j++) {
+                        const phi = j*Math.PI/4;
+                        directions.push(new THREE.Vector3(Math.sin(theta)*Math.cos(phi),Math.cos(theta),Math.sin(theta)*Math.sin(phi)));
+                    }
+                }
+            } else directions.push(new THREE.Vector3(0,0,0));
+            for (const n of directions) {
+                const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,1,0),n.clone(),1,0xffff00,0.2,0.1);
+                arrow.userData.radial = n;
+                arrow.visible = false;
+                front.add(arrow); front.userData.fieldProbes.push(arrow);
+            }
+        }
+        function updateWavefrontFieldProbes(front) {
+            const spherical = waveParams.wavefrontType === 'spherical';
+            const r = spherical ? front.scale.x : 1;
+            for (const arrow of front.userData.fieldProbes || []) {
+                const n = arrow.userData.radial;
+                if (spherical) {
+                    // n(n·p)-p: transverse far-field electric dipole pattern, p along y.
+                    // Each expanding surface follows fixed phase, so the sign travels with it.
+                    const field = n.clone().multiplyScalar(n.y).sub(new THREE.Vector3(0,1,0));
+                    const phase = 2*Math.PI/1.2*front.userData.currentRadius;
+                    field.multiplyScalar(Math.cos(phase)*0.85/Math.max(r,0.5)/r);
+                    setFieldArrow(arrow, field);
+                    arrow.visible = arrow.visible && waveParams.wavefrontShowE && !(waveParams.wavefrontHalf && n.z>1e-6);
+                } else {
+                    // PlaneGeometry is rotated about y; its local y remains world y.
+                    setFieldArrow(arrow, new THREE.Vector3(0,0.9,0));
+                    arrow.visible = waveParams.wavefrontShowE;
+                }
+            }
+        }
+
+        function positionAnnotation(id, point, text, color='#fff') {
+            const el=document.getElementById(id);
+            const projected=point.clone().project(camera);
+            if (projected.z < -1 || projected.z > 1) {el.style.display='none';return;}
+            const canvas=renderer.domElement;
+            el.textContent=text;el.style.color=color;el.style.display='block';
+            el.style.left=((projected.x+1)*canvas.clientWidth/2)+'px';
+            el.style.top=((1-projected.y)*canvas.clientHeight/2)+'px';
+        }
+        function updateCenterAnnotations() {
+            if(currentConcept!=='form_factor_2_centers')return;
+            const offset=new THREE.Vector3(0,0.25,0);
+            positionAnnotation('center-1-label',aff_atom1.position.clone().add(offset),'Center 1','#67e8f9');
+            positionAnnotation('center-2-label',aff_atom2.position.clone().add(offset),'Center 2','#ffc857');
+            positionAnnotation('center-distance-label',new THREE.Vector3(0,-0.3,0),'d = '+waveParams.aff_atomDistance.toFixed(2));
+        }
+        function scatteringObservationGeometry(psi, horizontal=false) {
+            const epsilon=horizontal ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+            const propagation=new THREE.Vector3(0,0,1);
+            const R=epsilon.clone().multiplyScalar(Math.cos(psi)).add(propagation.clone().multiplyScalar(Math.sin(psi)));
+            // R x (R x epsilon): radiation field direction for positive incident E.
+            // Its magnitude is sin(psi); normalized epsilon' obeys
+            // epsilon dot epsilon' = -sin(psi), as in the supplied figure.
+            const scattered=R.clone().multiplyScalar(Math.cos(psi)).sub(epsilon);
+            return {epsilon,propagation,R,scattered};
+        }
+        function createPsiIllustration() {
+            psiIllustration=new THREE.Group();
+            const axis=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(),3.8,0x9aff6a,0.25,0.15);
+            const propagation=new THREE.ArrowHelper(new THREE.Vector3(0,0,1),new THREE.Vector3(),5.2,0xffffff,0.25,0.15);
+            const scattered=new THREE.ArrowHelper(new THREE.Vector3(0,1,0),new THREE.Vector3(),1,0x67e8f9,0.25,0.15);
+            const observation=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(1,0,0)]),
+                new THREE.LineDashedMaterial({color:0xff6577,dashSize:0.2,gapSize:0.12}));
+            const point=new THREE.Mesh(new THREE.SphereGeometry(0.09,16,10),new THREE.MeshBasicMaterial({color:0xff65cd}));
+            const geometry=new THREE.BufferGeometry();
+            geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(65*3),3));
+            const arc=new THREE.Line(geometry,new THREE.LineDashedMaterial({color:0xf0abfc,depthTest:false,dashSize:0.06,gapSize:0.055}));
+            psiIllustration.add(axis,propagation,scattered,observation,point,arc);
+            psiIllustration.userData={axis,propagation,scattered,observation,point,arc};scene.add(psiIllustration);
+        }
+        function updatePsiIllustration() {
+            if(!psiIllustration)return;
+            const linear=scatteringParams.polarizationType!=='non_polarized';
+            const show=scatteringParams.showPsi && linear;
+            psiIllustration.visible=show;
+            for(const id of ['psi-axis-label','psi-ray-label','psi-angle-label','psi-scattered-label','psi-propagation-label'])document.getElementById(id).style.display='none';
+            document.getElementById('psi-slider').disabled=!linear;
+            document.getElementById('psi-value').disabled=!linear;
+            const psi=scatteringParams.psiDegrees*Math.PI/180;
+            const info=document.getElementById('psi-readout');
+            info.textContent=linear ? 'k along z. ψ = ∠(ε̂, R̂), not the scattering angle ∠(k, R̂). At X, ε̂′ is perpendicular to R̂. |E′| ∝ sin ψ = '+Math.sin(psi).toFixed(3)+
+                '; intensity ∝ sin²ψ = '+(Math.sin(psi)**2).toFixed(3)+'. Arrows show polarization geometry; lengths are illustrative.' : 'Choose linear polarization for this diagram. Unpolarized light has no fixed ε̂ axis.';
+            if(!show)return;
+            const horizontal=scatteringParams.polarizationType==='linear_horizontal';
+            const {epsilon,propagation,R,scattered:field}=scatteringObservationGeometry(psi,horizontal);
+            const {axis,scattered,observation,point,arc}=psiIllustration.userData;
+            axis.setDirection(epsilon);
+            const X=R.clone().multiplyScalar(4.2);
+            point.position.copy(X);scattered.position.copy(X);
+            setFieldArrow(scattered,field.clone().multiplyScalar(1.3));
+            const ray=observation.geometry.attributes.position;
+            ray.setXYZ(0,0,0,0);ray.setXYZ(1,X.x,X.y,X.z);ray.needsUpdate=true;
+            observation.computeLineDistances();observation.geometry.computeBoundingSphere();
+            const positions=arc.geometry.attributes.position;
+            for(let i=0;i<65;i++){
+                const v=scatteringObservationGeometry(psi*i/64,horizontal).R.multiplyScalar(2.9);
+                positions.setXYZ(i,v.x,v.y,v.z);
+            }
+            positions.needsUpdate=true;arc.computeLineDistances();arc.geometry.computeBoundingSphere();
+            positionAnnotation('psi-axis-label',epsilon.clone().multiplyScalar(4.05),(horizontal?'y':'x')+' · ε̂','#9aff6a');
+            positionAnnotation('psi-propagation-label',propagation.clone().multiplyScalar(5.5),'z · k (incident)');
+            positionAnnotation('psi-ray-label',X.clone().multiplyScalar(1.09),'X · R̂','#ff6577');
+            positionAnnotation('psi-angle-label',scatteringObservationGeometry(psi/2,horizontal).R.multiplyScalar(3.2),'ψ = '+scatteringParams.psiDegrees+'°','#f0abfc');
+            const labelPoint=X.clone().add(field.clone().multiplyScalar(1.5)).add(new THREE.Vector3(0,0.25,0));
+            positionAnnotation('psi-scattered-label',labelPoint,field.length()>1e-6 ? 'ε̂′ ⟂ R̂' : 'E′ = 0 (ε̂′ undefined)','#67e8f9');
+        }
+
         function init() {
             scaleContainerElement = document.getElementById('scale-container');
             parameterControlsContainer = document.getElementById('parameter-controls'); 
@@ -2676,7 +2856,7 @@ function setupConceptVisualization(concept) {
             scene = new THREE.Scene(); scene.background = new THREE.Color(0x111827);
             axesHelper = new THREE.AxesHelper(waveParams.extent / 2); scene.add(axesHelper);
             // Faint background grid (helps students visually measure wavelengths)
-            gridHelper = new THREE.GridHelper(waveParams.extent, waveParams.extent * 2, 0x2a3a5a, 0x1f2b45);
+            gridHelper = new THREE.GridHelper(waveParams.extent, waveParams.extent * 2, 0x526580, 0x34445e);
             gridHelper.rotation.x = Math.PI / 2; // Lie in XY plane
             gridHelper.position.z = -0.05;       // Behind the waves
             scene.add(gridHelper);
@@ -2728,6 +2908,8 @@ function setupConceptVisualization(concept) {
             setupConceptVisualization(currentConcept); 
             window.addEventListener('resize', onWindowResize, false); 
             setupResizer();
+            setupAccelerationPanel();
+            new ResizeObserver(() => { onWindowResize(); clampAccelerationPanel(); }).observe(vizArea);
             animate();
         }
 
@@ -2764,6 +2946,10 @@ function setupConceptVisualization(concept) {
             clearConceptVisualization(currentConcept);
             animationTime = 0;
             currentConcept = newConcept;
+            accelerationHistory.length = 0;
+            accelerationSignature = '';
+            document.getElementById('acceleration-panel').style.display =
+                currentConcept === 'wave_scattering' ? 'block' : 'none';
             setupConceptUI(currentConcept);
             setupConceptVisualization(currentConcept);
         }
@@ -2780,6 +2966,7 @@ function setupConceptVisualization(concept) {
             if (controls) controls.update();
             updateConceptVisualization(currentConcept);
             updateScales();
+            updateThickLines();
             renderer.render(scene, camera);
         }
 
@@ -2968,7 +3155,7 @@ function setupConceptVisualization(concept) {
             if (Math.abs(phaseDiff) > 0.01) {
                 const arcRadius = Math.min(v1len, v2len) * 0.5;
                 phasorCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                phasorCtx.lineWidth = 1;
+                phasorCtx.lineWidth = 1.6;
                 phasorCtx.beginPath();
                 // Arc drawn in screen coords: use the negated angle for the same
                 // counter-clockwise math convention. The HTML canvas arc() uses
@@ -3007,7 +3194,7 @@ function setupConceptVisualization(concept) {
             polarCtx.clearRect(0, 0, w, h);
             // Reference circles at r = 0.25, 0.5, 0.75, 1.0 with labels
             polarCtx.strokeStyle = 'rgba(255,255,255,0.18)';
-            polarCtx.lineWidth = 1;
+            polarCtx.lineWidth = 1.6;
             polarCtx.fillStyle = 'rgba(180,180,180,0.7)';
             polarCtx.font = '9px Arial';
             polarCtx.textAlign = 'left';
@@ -3050,6 +3237,7 @@ function setupConceptVisualization(concept) {
                 } else {
                     r = 0.5 * (1 + Math.cos(theta) * Math.cos(theta));
                 }
+                if (scatteringParams.polarQuantity === 'field') r = Math.sqrt(r);
                 const px = cx + R * r * Math.cos(phi);
                 const py = cy - R * r * Math.sin(phi);
                 if (i === 0) polarCtx.moveTo(px, py);
@@ -3061,7 +3249,7 @@ function setupConceptVisualization(concept) {
             // Dipole axis indicator (dashed)
             polarCtx.setLineDash([4, 3]);
             polarCtx.strokeStyle = 'rgba(255,255,255,0.5)';
-            polarCtx.lineWidth = 1;
+            polarCtx.lineWidth = 1.6;
             polarCtx.beginPath();
             if (isLinear) {
                 if (polarizationType === 'linear_horizontal') {
@@ -3072,13 +3260,27 @@ function setupConceptVisualization(concept) {
             }
             polarCtx.stroke();
             polarCtx.setLineDash([]);
+            if (isLinear && scatteringParams.showPsi) {
+                const psi = scatteringParams.psiDegrees * Math.PI / 180;
+                // Horizontal: +z axis mapped right; vertical: +y mapped up. +x is perpendicular.
+                const phi = horizontalDipole ? psi : dipoleAxisAngle - psi;
+                polarCtx.strokeStyle='#67e8f9';polarCtx.lineWidth=2;
+                polarCtx.beginPath();polarCtx.moveTo(cx,cy);polarCtx.lineTo(cx+R*Math.cos(phi),cy-R*Math.sin(phi));polarCtx.stroke();
+                polarCtx.strokeStyle='#f0abfc';polarCtx.beginPath();
+                polarCtx.arc(cx,cy,24,-dipoleAxisAngle,-phi,horizontalDipole);polarCtx.stroke();
+                polarCtx.font='11px Arial';polarCtx.fillStyle='#f0abfc';polarCtx.textAlign='center';
+                polarCtx.fillText('ψ='+scatteringParams.psiDegrees+'°',cx+38,cy+18);
+            }
             // Title
             polarCtx.fillStyle = '#cccccc';
             polarCtx.font = '11px Arial';
             polarCtx.textAlign = 'center';
             polarCtx.textBaseline = 'middle';
-            const title = isLinear ? 'Pattern: sin²θ  (θ from dipole axis)' : '½(1 + cos²θ)  unpolarized';
+            const fieldPlot = scatteringParams.polarQuantity === 'field';
+            const title = isLinear ? (fieldPlot ? 'E amplitude: |sin ψ|' : 'Intensity: sin²ψ') : (fieldPlot ? 'RMS E: √[½(1 + cos²ψ)]' : 'Intensity: ½(1 + cos²ψ)');
             polarCtx.fillText(title, cx, 10);
+            polarCtx.font = '9px Arial';
+            polarCtx.fillText(isLinear ? 'ψ = ∠(ε̂, R̂)' : 'ψ from propagation axis (average)', cx, h - 6);
         }
 
 
