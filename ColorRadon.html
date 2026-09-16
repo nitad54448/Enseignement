@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Color Radon</title>
-   <link href="./dist/output.css" rel="stylesheet">
+   <link href="./dist/output.css" rel="stylesheet" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.tailwindcss.com';document.head.appendChild(s);})()">
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -44,7 +44,8 @@
                     <label for="function-presets" class="text-sm font-medium text-gray-700">or Preset:</label>
                     <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
                         <!-- MODIFICATION: "Off-Center Point" is now the first (default) option -->
-                        <option value="single-point">Off-Center Point</option>
+                        <option value="custom" id="custom-option" disabled hidden>Upload / Webcam</option>
+                        <option value="single-point" selected>Off-Center Point</option>
                         <option value="venn-diagram">Venn Diagram (Color)</option>
                         <option value="two-circles">Two Circles (Color)</option>
                         <option value="embedded-squares">Embedded Squares (Color)</option>
@@ -119,589 +120,524 @@
 
     <script>
         // --- DOM Elements ---
-        const useUploadBtn = document.getElementById('use-upload-btn'),
-            useWebcamBtn = document.getElementById('use-webcam-btn'),
-            imageUpload = document.getElementById('image-upload'),
-            statusEl = document.getElementById('status'),
-            webcamVideo = document.getElementById('webcam-video'),
-            sourceCanvas = document.getElementById('sourceCanvas'),
+        const $ = id => document.getElementById(id);
+        const useUploadBtn = $('use-upload-btn'),
+            useWebcamBtn = $('use-webcam-btn'),
+            imageUpload = $('image-upload'),
+            statusEl = $('status'),
+            webcamVideo = $('webcam-video'),
+            sourceCanvas = $('sourceCanvas'),
             sourceCtx = sourceCanvas.getContext('2d'),
-            radonCanvasR = document.getElementById('radonCanvasR'),
-            radonCtxR = radonCanvasR.getContext('2d'),
-            radonCanvasG = document.getElementById('radonCanvasG'),
-            radonCtxG = radonCanvasG.getContext('2d'),
-            radonCanvasB = document.getElementById('radonCanvasB'),
-            radonCtxB = radonCanvasB.getContext('2d'),
-            radonCanvasGray = document.getElementById('radonCanvasGray'),
-            radonCtxGray = radonCanvasGray.getContext('2d'),
-            functionPresets = document.getElementById('function-presets'),
-            filterCheckbox = document.getElementById('filter-checkbox'),
-            reconstructedCanvasR = document.getElementById('reconstructedCanvasR'),
-            reconstructedCtxR = reconstructedCanvasR.getContext('2d'),
-            reconstructedCanvasG = document.getElementById('reconstructedCanvasG'),
-            reconstructedCtxG = reconstructedCanvasG.getContext('2d'),
-            reconstructedCanvasB = document.getElementById('reconstructedCanvasB'),
-            reconstructedCtxB = reconstructedCanvasB.getContext('2d'),
-            reconstructedCanvasFinal = document.getElementById('reconstructedCanvasFinal'),
-            reconstructedCtxFinal = reconstructedCanvasFinal.getContext('2d');
+            radonCtxR = $('radonCanvasR').getContext('2d'),
+            radonCtxG = $('radonCanvasG').getContext('2d'),
+            radonCtxB = $('radonCanvasB').getContext('2d'),
+            radonCtxGray = $('radonCanvasGray').getContext('2d'),
+            functionPresets = $('function-presets'),
+            filterCheckbox = $('filter-checkbox'),
+            reconstructedCtxR = $('reconstructedCanvasR').getContext('2d'),
+            reconstructedCtxG = $('reconstructedCanvasG').getContext('2d'),
+            reconstructedCtxB = $('reconstructedCanvasB').getContext('2d'),
+            reconstructedCtxFinal = $('reconstructedCanvasFinal').getContext('2d');
 
         // --- Constants & State ---
         const IMG_SIZE = 256;
-        let currentMode = null, webcamStream = null, sourceImage = new Image(), animationFrameId = null;
+        const NUM_ANGLES = IMG_SIZE;
+        const NUM_RHO = 2 * Math.ceil(Math.hypot(IMG_SIZE, IMG_SIZE) / 2) + 2;   // +2 margin for interpolation
+        const TRANSPARENT_PRESETS = ['venn-diagram', 'two-circles'];
 
-        // --- Initial Setup ---
-        [sourceCanvas, reconstructedCanvasFinal, reconstructedCanvasR, reconstructedCanvasG, reconstructedCanvasB].forEach(c => { c.width = c.height = IMG_SIZE; });
-        useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
-        useWebcamBtn.addEventListener('click', () => setupMode('webcam'));
+        let currentMode = null;
+        let webcamStream = null, animationFrameId = null;
+        let sourceImage = null, currentObjectURL = null;
+        let pointPreset = null;          // generated once per selection, not per run
+        let sourceVersion = 0;           // bumps whenever the source changes
+        let busy = false, wantRun = false, jobId = 0;
+        const jobs = new Map();
+
+        // One reusable offscreen canvas for sampling images/video/presets
+        const sampleCtx = Object.assign(document.createElement('canvas'), { width: IMG_SIZE, height: IMG_SIZE })
+            .getContext('2d', { willReadFrequently: true });
+
+        [sourceCanvas, reconstructedCtxFinal.canvas, reconstructedCtxR.canvas, reconstructedCtxG.canvas, reconstructedCtxB.canvas]
+            .forEach(c => { c.width = c.height = IMG_SIZE; });
+
+        // =====================================================================
+        // Core math — self-contained functions (also shipped to the Worker).
+        // Coordinates: pixel centers, y axis up, origin at image center.
+        // Sinograms are flat Float32Arrays indexed [angle * numRho + rhoBin].
+        // =====================================================================
+        function radonTransform(ch, size, numAngles, numRho) {
+            const out = new Float32Array(numAngles * numRho);
+            const off = numRho / 2, c = size / 2;
+            for (let t = 0; t < numAngles; t++) {
+                const a = t * Math.PI / numAngles, cosA = Math.cos(a), sinA = Math.sin(a);
+                const base = t * numRho;
+                for (let y = 0; y < size; y++) {
+                    const yTerm = (c - (y + 0.5)) * sinA + off;
+                    const rowOff = y * size;
+                    for (let x = 0; x < size; x++) {
+                        const v = ch[rowOff + x];
+                        if (v <= 0) continue;
+                        const f = (x + 0.5 - c) * cosA + yTerm;
+                        const i0 = Math.floor(f), w = f - i0;
+                        if (i0 >= 0 && i0 + 1 < numRho) {
+                            out[base + i0] += v * (1 - w);
+                            out[base + i0 + 1] += v * w;
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // Ram-Lak (spatial, scaled x4): h[0]=1, h[odd n]=-4/(pi^2 n^2), h[even n]=0
+        function filterSinogram(sino, numAngles, numRho) {
+            const out = new Float32Array(sino.length);
+            const k = new Float64Array(numRho);
+            for (let n = 1; n < numRho; n += 2) k[n] = -4 / (Math.PI * Math.PI * n * n);
+            for (let t = 0; t < numAngles; t++) {
+                const base = t * numRho;
+                for (let i = 0; i < numRho; i++) {
+                    let sum = sino[base + i];
+                    for (let n = 1; n < numRho; n += 2) {
+                        const lo = i - n, hi = i + n;
+                        if (lo >= 0) sum += sino[base + lo] * k[n];
+                        if (hi < numRho) sum += sino[base + hi] * k[n];
+                        else if (lo < 0) break;
+                    }
+                    out[base + i] = sum;
+                }
+            }
+            return out;
+        }
+
+        function inverseRadonTransform(sino, size, numAngles, numRho) {
+            const out = new Float32Array(size * size);
+            const off = numRho / 2, c = size / 2;
+            for (let t = 0; t < numAngles; t++) {
+                const a = t * Math.PI / numAngles, cosA = Math.cos(a), sinA = Math.sin(a);
+                const base = t * numRho;
+                for (let y = 0; y < size; y++) {
+                    const yTerm = (c - (y + 0.5)) * sinA + off;
+                    const rowOff = y * size;
+                    for (let x = 0; x < size; x++) {
+                        const f = (x + 0.5 - c) * cosA + yTerm;
+                        const i0 = Math.floor(f), w = f - i0;
+                        if (i0 >= 0 && i0 + 1 < numRho) {
+                            out[rowOff + x] += sino[base + i0] * (1 - w) + sino[base + i0 + 1] * w;
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        function computeAll(job) {
+            const t0 = performance.now();
+            const { size, numAngles, numRho, useFilter, channels } = job;
+            const sinos = channels.map(ch => radonTransform(ch, size, numAngles, numRho));
+            const recons = sinos.map(s =>
+                inverseRadonTransform(useFilter ? filterSinogram(s, numAngles, numRho) : s, size, numAngles, numRho));
+            return { id: job.id, sinos, recons, ms: performance.now() - t0 };
+        }
+
+        // --- Worker (keeps the UI responsive); falls back to main thread if unavailable ---
+        let worker = null;
+        try {
+            const workerSrc = [radonTransform, filterSinogram, inverseRadonTransform, computeAll].map(String).join('\n') +
+                '\nself.onmessage = e => { const r = computeAll(e.data);' +
+                ' self.postMessage(r, [...r.sinos, ...r.recons].map(a => a.buffer)); };';
+            const workerURL = URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' }));
+            worker = new Worker(workerURL);
+            worker.onmessage = e => handleResult(e.data);
+            worker.onerror = err => {
+                console.error('Worker error, falling back to main thread:', err);
+                worker = null;
+                busy = false; wantRun = true; pump();
+            };
+        } catch (err) {
+            console.warn('Web Worker unavailable, computing on main thread.', err);
+            worker = null;
+        }
+
+        // --- Job scheduling: at most one job at a time; newer requests coalesce ---
+        function requestProcess() { wantRun = true; pump(); }
+
+        function pump() {
+            if (busy || !wantRun) return;
+            wantRun = false;
+
+            const src = getChannels();
+            if (!src) return;   // nothing to process yet (e.g. video not ready)
+            drawSourceToCanvas(src);
+
+            const id = ++jobId;
+            jobs.set(id, { version: sourceVersion, isTransparent: src.isTransparent });
+            busy = true;
+            if (currentMode !== 'webcam') statusEl.textContent = 'Processing...';
+
+            const job = { id, size: IMG_SIZE, numAngles: NUM_ANGLES, numRho: NUM_RHO,
+                          useFilter: filterCheckbox.checked, channels: [src.r, src.g, src.b] };
+            if (worker) {
+                worker.postMessage(job, job.channels.map(a => a.buffer));
+            } else {
+                setTimeout(() => handleResult(computeAll(job)), 0);   // yield so status renders
+            }
+        }
+
+        function handleResult(res) {
+            busy = false;
+            const job = jobs.get(res.id);
+            jobs.delete(res.id);
+
+            if (job && job.version === sourceVersion) {
+                const [sR, sG, sB] = res.sinos, [rR, rG, rB] = res.recons;
+                drawSingleChannelSinogram(radonCtxR, sR, 0);
+                drawSingleChannelSinogram(radonCtxG, sG, 1);
+                drawSingleChannelSinogram(radonCtxB, sB, 2);
+                drawGrayscaleSinogram(sR, sG, sB);
+                drawReconstructedChannel(reconstructedCtxR, rR, 0, job.isTransparent);
+                drawReconstructedChannel(reconstructedCtxG, rG, 1, job.isTransparent);
+                drawReconstructedChannel(reconstructedCtxB, rB, 2, job.isTransparent);
+                drawFinalReconstructed(reconstructedCtxFinal, rR, rG, rB, job.isTransparent);
+                statusEl.textContent = currentMode === 'webcam'
+                    ? `Live transform (${Math.round(res.ms)} ms/frame).`
+                    : `Transform complete (${Math.round(res.ms)} ms).`;
+            }
+            pump();
+        }
+
+        // --- Event wiring ---
+        useUploadBtn.addEventListener('click', () => imageUpload.click());   // mode changes only on successful load
+        useWebcamBtn.addEventListener('click', () => { if (!(currentMode === 'webcam' && webcamStream)) setupMode('webcam'); });
         imageUpload.addEventListener('change', handleImageUpload);
-        functionPresets.addEventListener('change', () => { setupMode('function'); processSource(); });
-        filterCheckbox.addEventListener('change', () => processSource());
+        functionPresets.addEventListener('change', () => {
+            if (functionPresets.value === 'single-point') pointPreset = makePointPreset();
+            setupMode('function');
+        });
+        filterCheckbox.addEventListener('change', () => requestProcess());
+        window.addEventListener('pagehide', stopWebcam);
+
+        pointPreset = makePointPreset();
         setupMode('function');
-        processSource();
 
         // --- Mode & Source Handling ---
         function setupMode(mode) {
             stopWebcam();
             currentMode = mode;
-            [useUploadBtn, useWebcamBtn].forEach(btn => btn.classList.remove('active-btn'));
-            if (mode === 'upload') {
-                webcamVideo.classList.add('hidden');
-                sourceCanvas.classList.remove('hidden');
-                useUploadBtn.classList.add('active-btn');
-                statusEl.textContent = 'Select an image file to begin.';
-            } else if (mode === 'webcam') {
-                useWebcamBtn.classList.add('active-btn');
-                startWebcam();
-            } else if (mode === 'function') {
-                webcamVideo.classList.add('hidden');
-                sourceCanvas.classList.remove('hidden');
-                statusEl.textContent = 'Choose a preset to generate a pattern.';
-            }
+            sourceVersion++;
+            useUploadBtn.classList.toggle('active-btn', mode === 'upload');
+            useWebcamBtn.classList.toggle('active-btn', mode === 'webcam');
+            webcamVideo.classList.add('hidden');
+            sourceCanvas.classList.remove('hidden');
+            if (mode !== 'function') functionPresets.value = 'custom';   // any later preset pick fires 'change'
+
+            if (mode === 'webcam') startWebcam();
+            else requestProcess();
         }
-        
+
         async function startWebcam() {
+            const version = sourceVersion;
+            statusEl.textContent = 'Requesting webcam access...';
+            let stream;
             try {
-                if (webcamStream) return;
-                statusEl.textContent = 'Requesting webcam access...';
-                webcamStream = await navigator.mediaDevices.getUserMedia({ video: { width: IMG_SIZE, height: IMG_SIZE }, audio: false });
-                webcamVideo.srcObject = webcamStream;
-                webcamVideo.classList.remove('hidden');
-                sourceCanvas.classList.add('hidden');
-                webcamLoop();
-                statusEl.textContent = 'Live transform running...';
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
             } catch (err) {
-                console.error("Webcam error:", err);
-                statusEl.textContent = 'Could not access webcam.';
-                setupMode('function');
+                console.error('Webcam error:', err);
+                if (version === sourceVersion) {
+                    statusEl.textContent = 'Could not access webcam.';
+                    functionPresets.value = 'single-point';
+                    setupMode('function');
+                }
+                return;
             }
+            // User switched away while the permission prompt was open
+            if (version !== sourceVersion || currentMode !== 'webcam') {
+                stream.getTracks().forEach(t => t.stop());
+                return;
+            }
+            webcamStream = stream;
+            webcamVideo.srcObject = stream;
+            if (webcamVideo.readyState < 1) {
+                await new Promise(r => webcamVideo.addEventListener('loadedmetadata', r, { once: true }));
+            }
+            try { await webcamVideo.play(); } catch (e) { /* autoplay attribute covers most cases */ }
+            if (version !== sourceVersion || webcamStream !== stream) return;
+
+            webcamVideo.classList.remove('hidden');
+            sourceCanvas.classList.add('hidden');
+            statusEl.textContent = 'Live transform running...';
+            webcamLoop();
         }
 
         function stopWebcam() {
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
             if (webcamStream) {
-                webcamStream.getTracks().forEach(track => track.stop());
+                webcamStream.getTracks().forEach(t => t.stop());
                 webcamStream = null;
+                webcamVideo.srcObject = null;
             }
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
-            }
+        }
+
+        // Only submits a new frame when the previous one has finished (drops frames instead of queuing)
+        function webcamLoop() {
+            if (!webcamStream) return;
+            if (!busy && webcamVideo.videoWidth > 0) requestProcess();
+            animationFrameId = requestAnimationFrame(webcamLoop);
         }
 
         function handleImageUpload(event) {
             const file = event.target.files[0];
-            if (file) {
-                sourceImage.src = URL.createObjectURL(file);
-                sourceImage.onload = () => {
-                    setupMode('upload');
-                    processSource();
-                };
-            }
-        }
-
-        function webcamLoop() {
-            if (!webcamStream) return;
-            processSource();
-            animationFrameId = requestAnimationFrame(webcamLoop);
-        }
-        
-        // --- Main  ---
-        function processSource() {
-            if (currentMode === 'webcam' && !webcamStream) return;
-            const startTime = performance.now();
-            statusEl.textContent = 'Processing...';
-
-            const { rChannel, gChannel, bChannel, isTransparent } = getIndependentChannels();
-            drawSourceToCanvas(rChannel, gChannel, bChannel, isTransparent);
-            
-            const sinogramR = radonTransform(rChannel, IMG_SIZE, IMG_SIZE);
-            const sinogramG = radonTransform(gChannel, IMG_SIZE, IMG_SIZE);
-            const sinogramB = radonTransform(bChannel, IMG_SIZE, IMG_SIZE);
-            
-            const useFilter = filterCheckbox.checked;
-            const finalSinoR = useFilter ? filterSinogram(sinogramR) : sinogramR;
-            const finalSinoG = useFilter ? filterSinogram(sinogramG) : sinogramG;
-            const finalSinoB = useFilter ? filterSinogram(sinogramB) : sinogramB;
-            
-            const reconR = inverseRadonTransform(finalSinoR, IMG_SIZE, IMG_SIZE);
-            const reconG = inverseRadonTransform(finalSinoG, IMG_SIZE, IMG_SIZE);
-            const reconB = inverseRadonTransform(finalSinoB, IMG_SIZE, IMG_SIZE);
-
-            drawSingleChannelSinogram(radonCtxR, sinogramR, 0);
-            drawSingleChannelSinogram(radonCtxG, sinogramG, 1);
-            drawSingleChannelSinogram(radonCtxB, sinogramB, 2);
-            drawGrayscaleSinogram(sinogramR, sinogramG, sinogramB);
-            
-            drawReconstructedChannel(reconstructedCtxR, reconR, 0, isTransparent);
-            drawReconstructedChannel(reconstructedCtxG, reconG, 1, isTransparent);
-            drawReconstructedChannel(reconstructedCtxB, reconB, 2, isTransparent);
-            drawFinalReconstructed(reconstructedCtxFinal, reconR, reconG, reconB, isTransparent);
-
-            const endTime = performance.now();
-            statusEl.textContent = `Transform complete (${Math.round(endTime - startTime)} ms).`;
+            imageUpload.value = '';   // allow re-uploading the same file
+            if (!file) return;
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+                currentObjectURL = url;
+                sourceImage = img;
+                setupMode('upload');
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                statusEl.textContent = 'Could not load that image.';
+            };
+            img.src = url;
         }
 
         // --- Data Generation ---
-        function getIndependentChannels() {
-            let rChannel = new Uint8ClampedArray(IMG_SIZE * IMG_SIZE);
-            let gChannel = new Uint8ClampedArray(IMG_SIZE * IMG_SIZE);
-            let bChannel = new Uint8ClampedArray(IMG_SIZE * IMG_SIZE);
+        function getChannels() {
+            const n = IMG_SIZE * IMG_SIZE;
+            const r = new Float32Array(n), g = new Float32Array(n), b = new Float32Array(n);
             let isTransparent = false;
 
             if (currentMode === 'function') {
                 const type = functionPresets.value;
-                const presetsWithTransparentBg = ['venn-diagram', 'two-circles'];
-                if (presetsWithTransparentBg.includes(type)) {
-                    isTransparent = true;
-                }
-                generatePresetChannels(type, rChannel, gChannel, bChannel);
+                isTransparent = TRANSPARENT_PRESETS.includes(type);
+                generatePresetChannels(type, r, g, b);
             } else {
-                let currentSource = null;
-                if (currentMode === 'webcam' && webcamStream) currentSource = webcamVideo;
-                else if (currentMode === 'upload' && sourceImage.src) currentSource = sourceImage;
-                
-                if (currentSource) {
-                    const tempCtx = document.createElement('canvas').getContext('2d');
-                    tempCtx.canvas.width = IMG_SIZE;
-                    tempCtx.canvas.height = IMG_SIZE;
-                    const sourceW = currentSource.videoWidth || currentSource.width;
-                    const sourceH = currentSource.videoHeight || currentSource.height;
-                    const ratio = Math.min(IMG_SIZE / sourceW, IMG_SIZE / sourceH);
-                    const centerShift_x = (IMG_SIZE - sourceW * ratio) / 2;
-                    const centerShift_y = (IMG_SIZE - sourceH * ratio) / 2;
-                    tempCtx.drawImage(currentSource, 0, 0, sourceW, sourceH, centerShift_x, centerShift_y, sourceW * ratio, sourceH * ratio);
-                    const imageData = tempCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE).data;
-                    for (let i = 0; i < rChannel.length; i++) {
-                        rChannel[i] = imageData[i * 4];
-                        gChannel[i] = imageData[i * 4 + 1];
-                        bChannel[i] = imageData[i * 4 + 2];
-                    }
+                let source = null, sw = 0, sh = 0;
+                if (currentMode === 'webcam' && webcamStream && webcamVideo.videoWidth > 0) {
+                    source = webcamVideo; sw = webcamVideo.videoWidth; sh = webcamVideo.videoHeight;
+                } else if (currentMode === 'upload' && sourceImage && sourceImage.naturalWidth > 0) {
+                    source = sourceImage; sw = sourceImage.naturalWidth; sh = sourceImage.naturalHeight;
+                }
+                if (!source) return null;
+
+                const ratio = Math.min(IMG_SIZE / sw, IMG_SIZE / sh);
+                sampleCtx.globalCompositeOperation = 'source-over';
+                sampleCtx.fillStyle = 'black';
+                sampleCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+                sampleCtx.drawImage(source, 0, 0, sw, sh,
+                    (IMG_SIZE - sw * ratio) / 2, (IMG_SIZE - sh * ratio) / 2, sw * ratio, sh * ratio);
+                const d = sampleCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE).data;
+                for (let i = 0; i < n; i++) {
+                    r[i] = d[i * 4]; g[i] = d[i * 4 + 1]; b[i] = d[i * 4 + 2];
                 }
             }
-            return { rChannel, gChannel, bChannel, isTransparent };
+            return { r, g, b, isTransparent };
         }
 
-        // --- Radon, Filter, Inverse Radon ---
-        function radonTransform(channelData, width, height) {
-            const centerX = width / 2, centerY = height / 2;
-            const numAngles = width;
-            const rhoMax = Math.ceil(Math.hypot(width, height) / 2);
-            const numRho = 2 * rhoMax;
-            const sinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho));
-            const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
-            
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const intensity = channelData[y * width + x];
-                    if (intensity > 0) {
-                        for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                            const rho = Math.round((x - centerX) * Math.cos(angles[i_theta]) + (y - centerY) * Math.sin(angles[i_theta]));
-                            const i_rho = rho + rhoMax;
-                            if (i_rho >= 0 && i_rho < numRho) {
-                                sinogram[i_theta][i_rho] += intensity;
-                            }
-                        }
-                    }
-                }
-            }
-            return sinogram;
+        function makePointPreset() {
+            const size = 4, minDist = IMG_SIZE * 0.15;
+            let x, y;
+            do {   // guarantee the point is actually off-center
+                x = Math.floor(Math.random() * (IMG_SIZE - size));
+                y = Math.floor(Math.random() * (IMG_SIZE - size));
+            } while (Math.hypot(x + size / 2 - IMG_SIZE / 2, y + size / 2 - IMG_SIZE / 2) < minDist);
+
+            const rgb = [0, 0, 0];
+            const exclude = Math.floor(Math.random() * 3);
+            for (let i = 0; i < 3; i++) if (i !== exclude) rgb[i] = 128 + Math.floor(Math.random() * 128);
+            return { x, y, size, rgb };
         }
 
-        function filterSinogram(sinogram) {
-            const numAngles = sinogram.length;
-            if (numAngles === 0) return sinogram;
-            const numRho = sinogram[0].length;
-            const filteredSinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho));
-            const filter = new Float32Array(numRho * 2 - 1);
-            const center = numRho -1;
-            filter[center] = 1;
-            for(let i=1; i < numRho; i++) {
-                const val = (i % 2 === 0) ? 0 : (-4 / (Math.PI**2)) / (i**2);
-                filter[center + i] = val;
-                filter[center - i] = val;
-            }
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    let sum = 0;
-                    for(let k=0; k < filter.length; k++) {
-                        const rho_k = i_rho - (k-center);
-                        if(rho_k >= 0 && rho_k < numRho) {
-                            sum += sinogram[i_theta][rho_k] * filter[k];
-                        }
-                    }
-                    filteredSinogram[i_theta][i_rho] = sum;
-                }
-            }
-            return filteredSinogram;
-        }
-
-        function inverseRadonTransform(sinogram, width, height) {
-            const numAngles = sinogram.length;
-            if (numAngles === 0) return new Float32Array(width * height);
-            const numRho = sinogram[0].length;
-            const rhoMax = numRho / 2;
-            const reconstructedData = new Float32Array(width * height);
-            const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
-            const centerX = width / 2, centerY = height / 2;
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                const angle = angles[i_theta];
-                const cosA = Math.cos(angle), sinA = Math.sin(angle);
-                for (let y = 0; y < height; y++) {
-                    for (let x = 0; x < width; x++) {
-                        const rho = Math.round((x - centerX) * cosA + (y - centerY) * sinA);
-                        const i_rho = rho + rhoMax;
-                        if (i_rho >= 0 && i_rho < numRho) {
-                           reconstructedData[y * width + x] += sinogram[i_theta][i_rho];
-                        }
-                    }
-                }
-            }
-             return reconstructedData;
-        }
-
-        // --- Visualization ---
-        function drawSourceToCanvas(rChannel, gChannel, bChannel, isTransparent) {
-            sourceCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
-            const imageData = sourceCtx.createImageData(IMG_SIZE, IMG_SIZE);
-            for (let i = 0; i < rChannel.length; i++) {
-                const r = rChannel[i], g = gChannel[i], b = bChannel[i];
-                imageData.data[i * 4] = r;
-                imageData.data[i * 4 + 1] = g;
-                imageData.data[i * 4 + 2] = b;
-                if (isTransparent) {
-                    imageData.data[i * 4 + 3] = (r > 0 || g > 0 || b > 0) ? 255 : 0;
-                } else {
-                    imageData.data[i * 4 + 3] = 255;
-                }
-            }
-            sourceCtx.putImageData(imageData, 0, 0);
-        }
-
-        function drawReconstructedChannel(ctx, data, channelIndex, isTransparent) {
-            const width = ctx.canvas.width, height = ctx.canvas.height;
-            if (data.length !== width * height) return;
-            ctx.clearRect(0, 0, width, height);
-            const outputImageData = ctx.createImageData(width, height);
-            let maxVal = -Infinity, minVal = Infinity;
-            for(const val of data) {
-                if (val > maxVal) maxVal = val;
-                if (val < minVal) minVal = val;
-            }
-            const range = maxVal - minVal;
-            if (range < 1e-9) return;
-            
-            const backgroundThreshold = minVal + (range * 0.05);
-
-            for (let i = 0; i < data.length; i++) {
-                const normVal = ((data[i] - minVal) / range) * 255;
-                const idx = i * 4;
-                outputImageData.data[idx + channelIndex] = normVal;
-                
-                if (isTransparent) {
-                    if (data[i] > backgroundThreshold) outputImageData.data[idx + 3] = 255;
-                } else {
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            ctx.putImageData(outputImageData, 0, 0);
-        }
-
-        function drawFinalReconstructed(ctx, rData, gData, bData, isTransparent) {
-            const width = ctx.canvas.width, height = ctx.canvas.height;
-            ctx.clearRect(0, 0, width, height);
-            const outputImageData = ctx.createImageData(width, height);
-
-            let maxVal = -Infinity, minVal = Infinity;
-            for (let i = 0; i < rData.length; i++) {
-                if (rData[i] > maxVal) maxVal = rData[i];
-                if (gData[i] > maxVal) maxVal = gData[i];
-                if (bData[i] > maxVal) maxVal = bData[i];
-                if (rData[i] < minVal) minVal = rData[i];
-                if (gData[i] < minVal) minVal = gData[i];
-                if (bData[i] < minVal) minVal = bData[i];
-            }
-
-            const range = maxVal - minVal;
-            if (range < 1e-9) return;
-
-            const backgroundThreshold = minVal + (range * 0.05);
-
-            for (let i = 0; i < rData.length; i++) {
-                const idx = i * 4;
-                const r = ((rData[i] - minVal) / range) * 255;
-                const g = ((gData[i] - minVal) / range) * 255;
-                const b = ((bData[i] - minVal) / range) * 255;
-                outputImageData.data[idx]     = r;
-                outputImageData.data[idx + 1] = g;
-                outputImageData.data[idx + 2] = b;
-                
-                if (isTransparent) {
-                    if (rData[i] < backgroundThreshold && gData[i] < backgroundThreshold && bData[i] < backgroundThreshold) {
-                        outputImageData.data[idx + 3] = 0;
-                    } else {
-                        outputImageData.data[idx + 3] = 255;
-                    }
-                } else {
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            ctx.putImageData(outputImageData, 0, 0);
-        }
-
-        function drawSingleChannelSinogram(ctx, sinogramData, channelIndex) {
-            const numAngles = sinogramData.length;
-            if (numAngles === 0) return;
-            const numRho = sinogramData[0].length;
-            ctx.canvas.width = numAngles;
-            ctx.canvas.height = numRho;
-            
-            let maxVal = -Infinity, minVal = Infinity;
-            for (let i = 0; i < numAngles; i++) {
-                for (let j = 0; j < numRho; j++) {
-                    const val = sinogramData[i][j];
-                    if (val > maxVal) maxVal = val;
-                    if (val < minVal) minVal = val;
-                }
-            }
-            const range = maxVal - minVal;
-
-            if (range < 1e-9) {
-                ctx.fillStyle = 'black';
-                ctx.fillRect(0, 0, numAngles, numRho);
-                return;
-            }
-
-            const outputImageData = ctx.createImageData(numAngles, numRho);
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    const val = ((sinogramData[i_theta][i_rho] - minVal) / range) * 255;
-                    // CORRECTED: Flip the y-axis for drawing
-                    const idx = ((numRho - 1 - i_rho) * numAngles + i_theta) * 4;
-                    outputImageData.data[idx + channelIndex] = val;
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            ctx.putImageData(outputImageData, 0, 0);
-        }
-
-        function drawGrayscaleSinogram(sinogramR, sinogramG, sinogramB) {
-            const numAngles = sinogramR.length;
-            if (numAngles === 0) return;
-            const numRho = sinogramR[0].length;
-            radonCanvasGray.width = numAngles;
-            radonCanvasGray.height = numRho;
-            const ctx = radonCtxGray;
-            
-            const sinogramGray = Array.from({ length: numAngles }, () => new Float32Array(numRho));
-            let maxGray = -Infinity, minGray = Infinity;
-            for (let i = 0; i < numAngles; i++) {
-                for (let j = 0; j < numRho; j++) {
-                    const grayVal = (sinogramR[i][j] + sinogramG[i][j] + sinogramB[i][j]) / 3;
-                    sinogramGray[i][j] = grayVal;
-                    if (grayVal > maxGray) maxGray = grayVal;
-                    if (grayVal < minGray) minGray = grayVal;
-                }
-            }
-            const range = maxGray - minGray;
-             if (range < 1e-9) {
-                ctx.fillStyle = 'black';
-                ctx.fillRect(0, 0, numAngles, numRho);
-                return;
-             }
-
-            const outputImageData = ctx.createImageData(numAngles, numRho);
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    const val = ((sinogramGray[i_theta][i_rho] - minGray) / range) * 255;
-                    // CORRECTED: Flip the y-axis for drawing
-                    const idx = ((numRho - 1 - i_rho) * numAngles + i_theta) * 4;
-                    outputImageData.data[idx] = val;
-                    outputImageData.data[idx + 1] = val;
-                    outputImageData.data[idx + 2] = val;
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            ctx.putImageData(outputImageData, 0, 0);
-        }
-        
-        // --- Preset Function Generation ---
-        function generatePresetChannels(type, rChannel, gChannel, bChannel) {
-            const tempCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-            tempCtx.canvas.width = IMG_SIZE;
-            tempCtx.canvas.height = IMG_SIZE;
-
+        function generatePresetChannels(type, rCh, gCh, bCh) {
+            const S = IMG_SIZE;
             const drawShapeAndApply = (channel, drawFn) => {
-                tempCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
-                drawFn(tempCtx);
-                const imageData = tempCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE).data;
-                for (let i = 0; i < channel.length; i++) {
-                    channel[i] = Math.max(channel[i], imageData[i * 4]);
-                }
+                sampleCtx.save();
+                sampleCtx.globalCompositeOperation = 'source-over';
+                sampleCtx.clearRect(0, 0, S, S);
+                drawFn(sampleCtx);
+                sampleCtx.restore();
+                const d = sampleCtx.getImageData(0, 0, S, S).data;
+                for (let i = 0; i < channel.length; i++) channel[i] = Math.max(channel[i], d[i * 4]);
             };
+            const disc = (cx, cy, rad) => ctx => { ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 2 * Math.PI); ctx.fill(); };
 
             if (type === 'venn-diagram') {
-                const radius = IMG_SIZE * 0.28;
-                const offset = IMG_SIZE * 0.15;
-                drawShapeAndApply(rChannel, (ctx) => {
-                    ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE/2, IMG_SIZE/2 - offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
-                });
-                drawShapeAndApply(gChannel, (ctx) => {
-                    ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE/2 - offset, IMG_SIZE/2 + offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
-                });
-                drawShapeAndApply(bChannel, (ctx) => {
-                    ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE/2 + offset, IMG_SIZE/2 + offset*0.8, radius, 0, 2*Math.PI); ctx.fill();
-                });
+                const rad = S * 0.28, off = S * 0.15;
+                drawShapeAndApply(rCh, disc(S / 2, S / 2 - off * 0.8, rad));
+                drawShapeAndApply(gCh, disc(S / 2 - off, S / 2 + off * 0.8, rad));
+                drawShapeAndApply(bCh, disc(S / 2 + off, S / 2 + off * 0.8, rad));
             } else if (type === 'two-circles') {
-                const radius = IMG_SIZE * 0.25;
-                drawShapeAndApply(rChannel, (ctx) => {
-                    ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE*0.3, IMG_SIZE*0.4, radius, 0, 2*Math.PI); ctx.fill();
-                });
-                drawShapeAndApply(bChannel, (ctx) => {
-                    ctx.fillStyle = 'white'; ctx.beginPath();
-                    ctx.arc(IMG_SIZE*0.7, IMG_SIZE*0.6, radius, 0, 2*Math.PI); ctx.fill();
-                });
+                drawShapeAndApply(rCh, disc(S * 0.3, S * 0.4, S * 0.25));
+                drawShapeAndApply(bCh, disc(S * 0.7, S * 0.6, S * 0.25));
             } else if (type === 'embedded-squares') {
-                 drawShapeAndApply(rChannel, (ctx) => {
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(IMG_SIZE*0.1, IMG_SIZE*0.1, IMG_SIZE*0.8, IMG_SIZE*0.8);
-                });
-                 drawShapeAndApply(gChannel, (ctx) => {
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(IMG_SIZE*0.3, IMG_SIZE*0.3, IMG_SIZE*0.4, IMG_SIZE*0.4);
-                });
-            // MODIFICATION: Add specific logic for the single-point preset
+                drawShapeAndApply(rCh, ctx => { ctx.fillStyle = 'white'; ctx.fillRect(S * 0.1, S * 0.1, S * 0.8, S * 0.8); });
+                drawShapeAndApply(gCh, ctx => { ctx.fillStyle = 'white'; ctx.fillRect(S * 0.3, S * 0.3, S * 0.4, S * 0.4); });
             } else if (type === 'single-point') {
-                const pointSize = 4;
-                // Generate a random position, keeping the point fully within the canvas
-                const x = Math.floor(Math.random() * (IMG_SIZE - pointSize));
-                const y = Math.floor(Math.random() * (IMG_SIZE - pointSize));
-
-                // Determine which two of the three (R,G,B) channels to use
-                const intensities = [0, 0, 0];
-                const channelToExclude = Math.floor(Math.random() * 3); // 0 for R, 1 for G, 2 for B
-
-                // Assign a random intensity to the two chosen channels
-                for (let i = 0; i < 3; i++) {
-                    if (i !== channelToExclude) {
-                        // Random intensity from 128 to 255 for a bright color
-                        intensities[i] = Math.floor(Math.random() * 128) + 128;
+                const { x, y, size, rgb } = pointPreset;
+                for (let row = 0; row < size; row++) {
+                    for (let col = 0; col < size; col++) {
+                        const idx = (y + row) * S + (x + col);
+                        rCh[idx] = rgb[0]; gCh[idx] = rgb[1]; bCh[idx] = rgb[2];
                     }
                 }
-                const [r, g, b] = intensities;
-
-                // Directly write the point's color data into the channel arrays
-                for (let row = 0; row < pointSize; row++) {
-                    for (let col = 0; col < pointSize; col++) {
-                        const idx = (y + row) * IMG_SIZE + (x + col);
-                        rChannel[idx] = r;
-                        gChannel[idx] = g;
-                        bChannel[idx] = b;
-                    }
-                }
+            } else if (type === 'shepp-logan') {
+                rCh.set(createSheppLoganData(S));
+                gCh.set(rCh); bCh.set(rCh);
             } else {
-                // Fallback for all other grayscale presets
-                drawShapeAndApply(rChannel, (ctx) => drawGrayscalePreset(type, ctx));
-                rChannel.forEach((val, i) => {
-                    gChannel[i] = val;
-                    bChannel[i] = val;
-                });
+                drawShapeAndApply(rCh, ctx => drawGrayscalePreset(type, ctx));
+                gCh.set(rCh); bCh.set(rCh);
             }
         }
 
         function drawGrayscalePreset(type, ctx) {
+            const S = IMG_SIZE;
             ctx.fillStyle = 'white';
-            if (type !== 'shepp-logan') {
-                ctx.save();
-                ctx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
-            }
-            
-            if (type === 'shepp-logan') {
-                const phantomData = createSheppLoganData(IMG_SIZE);
-                const imageData = ctx.createImageData(IMG_SIZE, IMG_SIZE);
-                 for(let i=0; i < imageData.data.length; i += 4) {
-                    const val = phantomData[i/4];
-                    imageData.data[i] = val;
-                    imageData.data[i+1] = val;
-                    imageData.data[i+2] = val;
-                    imageData.data[i+3] = 255;
-                }
-                ctx.putImageData(imageData, 0, 0);
-            } else if (type === 'circle') {
-                ctx.beginPath(); ctx.arc(0, 0, IMG_SIZE * 0.4, 0, 2 * Math.PI); ctx.fill();
+            ctx.translate(S / 2, S / 2);
+            if (type === 'circle') {
+                ctx.beginPath(); ctx.arc(0, 0, S * 0.4, 0, 2 * Math.PI); ctx.fill();
             } else if (type === 'square') {
-                ctx.fillRect(-IMG_SIZE * 0.3, -IMG_SIZE * 0.3, IMG_SIZE * 0.6, IMG_SIZE * 0.6);
+                ctx.fillRect(-S * 0.3, -S * 0.3, S * 0.6, S * 0.6);
             } else if (type === 'concentric-circles') {
-                ctx.beginPath(); ctx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI); ctx.fill();
+                ctx.beginPath(); ctx.arc(0, 0, S * 0.45, 0, 2 * Math.PI); ctx.fill();
                 ctx.globalCompositeOperation = 'destination-out';
-                ctx.beginPath(); ctx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); ctx.fill();
-            // MODIFICATION: Removed the 'single-point' case from here as it's now handled above with color.
+                ctx.beginPath(); ctx.arc(0, 0, S * 0.25, 0, 2 * Math.PI); ctx.fill();
             } else if (type === 'center-point') {
                 ctx.fillRect(-2, -2, 4, 4);
             }
-            
-            if (type !== 'shepp-logan') {
-                ctx.restore();
-            }
         }
 
-       function createSheppLoganData(size) {
-            const data = new Array(size * size).fill(0);
+        // Modified (Toft) Shepp-Logan phantom, standard geometry.
+        // [x0, y0, a (semi-axis along x), b (along y), angle (deg, CCW), gray]
+        function createSheppLoganData(size) {
+            const data = new Float32Array(size * size);
             const ellipses = [
-                [0,    0,      .69,   .92,   90,  1],
-                [0,   -0.0184, .6624, .874,  90, -0.8],
-                [.22,  0,      .11,   .31,   72, -0.2],
-                [-.22, 0,      .16,   .41,   108, -0.2],
-                [0,    .35,    .21,   .25,   90,  0.1],
-                [0,    .1,     .046,  .046,  0,   0.1],
-                [0,   -0.1,    .046,  .046,  0,   0.1],
-                [-.08, -.605,  .023,  .046,  0,   0.1],
-                [0,    -.605,  .023,  .023,  0,   0.1],
-                [.06,  -.605,  .023,  .046,  90,  0.1]
-            ];
+                [ 0,     0,      0.69,   0.92,    0,   1.0],
+                [ 0,    -0.0184, 0.6624, 0.874,   0,  -0.8],
+                [ 0.22,  0,      0.11,   0.31,  -18,  -0.2],
+                [-0.22,  0,      0.16,   0.41,   18,  -0.2],
+                [ 0,     0.35,   0.21,   0.25,    0,   0.1],
+                [ 0,     0.1,    0.046,  0.046,   0,   0.1],
+                [ 0,    -0.1,    0.046,  0.046,   0,   0.1],
+                [-0.08, -0.605,  0.046,  0.023,   0,   0.1],
+                [ 0,    -0.606,  0.023,  0.023,   0,   0.1],
+                [ 0.06, -0.605,  0.023,  0.046,   0,   0.1]
+            ].map(([x0, y0, a, b, angle, gray]) => {
+                const rad = angle * Math.PI / 180;
+                return { x0, y0, a, b, cosA: Math.cos(rad), sinA: Math.sin(rad), gray };
+            });
+            const half = size / 2;
             for (let j = 0; j < size; j++) {
+                const y = (half - (j + 0.5)) / half;   // y axis points up
                 for (let i = 0; i < size; i++) {
-                    const x = (i - size / 2) / (size / 2);
-                    const y = (j - size / 2) / (size / 2);
-                    let intensitySum = 0;
-                    for (const ell of ellipses) {
-                        const [x0, y0, a, b, angle, gray] = ell;
-                        const angRad = -angle * Math.PI / 180;
-                        const cosA = Math.cos(angRad), sinA = Math.sin(angRad);
-                        const term1 = (((x - x0) * cosA + (y - y0) * sinA) / a) ** 2;
-                        const term2 = (((x - x0) * sinA - (y - y0) * cosA) / b) ** 2;
-                        if (term1 + term2 <= 1) {
-                            intensitySum += gray;
-                        }
+                    const x = ((i + 0.5) - half) / half;
+                    let sum = 0;
+                    for (const e of ellipses) {
+                        const dx = x - e.x0, dy = y - e.y0;
+                        const u = ( dx * e.cosA + dy * e.sinA) / e.a;
+                        const v = (-dx * e.sinA + dy * e.cosA) / e.b;
+                        if (u * u + v * v <= 1) sum += e.gray;
                     }
-                    data[j * size + i] = Math.max(0, Math.min(255, intensitySum * 255));
+                    data[j * size + i] = Math.max(0, Math.min(255, sum * 255));
                 }
             }
             return data;
         }
 
+        // --- Visualization ---
+        function minMax(...arrays) {
+            let min = Infinity, max = -Infinity;
+            for (const a of arrays) for (let i = 0; i < a.length; i++) {
+                const v = a[i];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            return { min, range: max - min };
+        }
+
+        function fillBlack(ctx) {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        }
+
+        function drawSourceToCanvas({ r, g, b, isTransparent }) {
+            const img = sourceCtx.createImageData(IMG_SIZE, IMG_SIZE);
+            for (let i = 0; i < r.length; i++) {
+                const idx = i * 4;
+                img.data[idx] = r[i]; img.data[idx + 1] = g[i]; img.data[idx + 2] = b[i];
+                img.data[idx + 3] = (!isTransparent || r[i] > 0 || g[i] > 0 || b[i] > 0) ? 255 : 0;
+            }
+            sourceCtx.putImageData(img, 0, 0);
+        }
+
+        // Sinogram image: column = angle, row 0 = +rho max (rho axis points up)
+        function sinogramToImage(ctx, sino, writePixel) {
+            ctx.canvas.width = NUM_ANGLES;
+            ctx.canvas.height = NUM_RHO;
+            const img = ctx.createImageData(NUM_ANGLES, NUM_RHO);
+            for (let t = 0; t < NUM_ANGLES; t++) {
+                for (let r = 0; r < NUM_RHO; r++) {
+                    const idx = ((NUM_RHO - 1 - r) * NUM_ANGLES + t) * 4;
+                    writePixel(img.data, idx, t * NUM_RHO + r);
+                    img.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+        }
+
+        function drawSingleChannelSinogram(ctx, sino, channelIndex) {
+            const { min, range } = minMax(sino);
+            if (!(range > 1e-9)) { ctx.canvas.width = NUM_ANGLES; ctx.canvas.height = NUM_RHO; fillBlack(ctx); return; }
+            const scale = 255 / range;
+            sinogramToImage(ctx, sino, (d, idx, k) => { d[idx + channelIndex] = (sino[k] - min) * scale; });
+        }
+
+        function drawGrayscaleSinogram(sR, sG, sB) {
+            const gray = new Float32Array(sR.length);
+            for (let i = 0; i < gray.length; i++) gray[i] = (sR[i] + sG[i] + sB[i]) / 3;
+            const { min, range } = minMax(gray);
+            const ctx = radonCtxGray;
+            if (!(range > 1e-9)) { ctx.canvas.width = NUM_ANGLES; ctx.canvas.height = NUM_RHO; fillBlack(ctx); return; }
+            const scale = 255 / range;
+            sinogramToImage(ctx, gray, (d, idx, k) => { d[idx] = d[idx + 1] = d[idx + 2] = (gray[k] - min) * scale; });
+        }
+
+        function drawReconstructedChannel(ctx, data, channelIndex, isTransparent) {
+            const { width, height } = ctx.canvas;
+            ctx.clearRect(0, 0, width, height);   // never leave a stale image behind
+            const { min, range } = minMax(data);
+            if (!(range > 1e-9)) { if (!isTransparent) fillBlack(ctx); return; }
+
+            const threshold = min + range * 0.05, scale = 255 / range;
+            const img = ctx.createImageData(width, height);
+            for (let i = 0; i < data.length; i++) {
+                const idx = i * 4;
+                img.data[idx + channelIndex] = (data[i] - min) * scale;
+                img.data[idx + 3] = (!isTransparent || data[i] > threshold) ? 255 : 0;
+            }
+            ctx.putImageData(img, 0, 0);
+        }
+
+        function drawFinalReconstructed(ctx, rData, gData, bData, isTransparent) {
+            const { width, height } = ctx.canvas;
+            ctx.clearRect(0, 0, width, height);
+            const { min, range } = minMax(rData, gData, bData);   // joint scale keeps color balance
+            if (!(range > 1e-9)) { if (!isTransparent) fillBlack(ctx); return; }
+
+            const threshold = min + range * 0.05, scale = 255 / range;
+            const img = ctx.createImageData(width, height);
+            for (let i = 0; i < rData.length; i++) {
+                const idx = i * 4;
+                img.data[idx]     = (rData[i] - min) * scale;
+                img.data[idx + 1] = (gData[i] - min) * scale;
+                img.data[idx + 2] = (bData[i] - min) * scale;
+                const background = rData[i] < threshold && gData[i] < threshold && bData[i] < threshold;
+                img.data[idx + 3] = (isTransparent && background) ? 0 : 255;
+            }
+            ctx.putImageData(img, 0, 0);
+        }
     </script>
 </body>
 </html>
