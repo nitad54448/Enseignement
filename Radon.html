@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>2D Radon Explorer</title>
-    <link href="./dist/output.css" rel="stylesheet">
+    <link href="./dist/output.css" rel="stylesheet" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.tailwindcss.com';document.head.appendChild(s);})()">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
@@ -85,6 +85,7 @@
                     <div class="flex items-center gap-2">
                         <label for="function-presets" class="text-sm font-medium text-gray-700">or select a Preset:</label>
                         <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
+                            <option value="upload" id="upload-option" disabled hidden>Uploaded image</option>
                             <option value="point" selected>Point</option>
                             <option value="two-points">Two Points</option>
                             <option value="line-segment">Line Segment</option>
@@ -120,7 +121,7 @@
             <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source</h3>
             <div class="relative w-full max-w-[512px]">
                 <p class="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-sm text-gray-600 bg-gray-100 px-2">y</p>
-                <div id="source-wrapper" class="canvas-wrapper">
+                <div id="source-wrapper" class="canvas-wrapper relative">
                     <canvas id="sourceCanvas"></canvas>
                     <canvas id="sourceOverlayCanvas" class="overlay-canvas"></canvas>
                 </div>
@@ -182,56 +183,57 @@
 
     <script>
         // --- Elements ---
-        const useUploadBtn = document.getElementById('use-upload-btn'),
-            imageUpload = document.getElementById('image-upload'),
-            statusEl = document.getElementById('status'),
-            sourceCanvas = document.getElementById('sourceCanvas'),
+        const $ = id => document.getElementById(id);
+        const useUploadBtn = $('use-upload-btn'),
+            imageUpload = $('image-upload'),
+            statusEl = $('status'),
+            sourceCanvas = $('sourceCanvas'),
             sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true }),
-            radonCanvas = document.getElementById('radonCanvas'),
+            radonCanvas = $('radonCanvas'),
             radonCtx = radonCanvas.getContext('2d'),
-            reconstructionCanvas = document.getElementById('reconstructionCanvas'),
+            reconstructionCanvas = $('reconstructionCanvas'),
             reconstructionCtx = reconstructionCanvas.getContext('2d'),
-            projectionCanvas = document.getElementById('projectionCanvas'),
+            projectionCanvas = $('projectionCanvas'),
             projectionCtx = projectionCanvas.getContext('2d'),
-            functionPresets = document.getElementById('function-presets'),
-            filterCheckbox = document.getElementById('filter-checkbox'),
-            rhoMaxLabel = document.getElementById('rho-max-label'),
-            rhoMinLabel = document.getElementById('rho-min-label'),
-            sourceWrapper = document.getElementById('source-wrapper'),
-            sourceOverlayCanvas = document.getElementById('sourceOverlayCanvas'),
+            functionPresets = $('function-presets'),
+            uploadOption = $('upload-option'),
+            filterCheckbox = $('filter-checkbox'),
+            sourceWrapper = $('source-wrapper'),
+            sourceOverlayCanvas = $('sourceOverlayCanvas'),
             sourceOverlayCtx = sourceOverlayCanvas.getContext('2d'),
-            radonOverlayCanvas = document.getElementById('radonOverlayCanvas'),
+            radonOverlayCanvas = $('radonOverlayCanvas'),
             radonOverlayCtx = radonOverlayCanvas.getContext('2d'),
-            sweepContainer = document.getElementById('sweep-container'),
-            sweepSlider = document.getElementById('sweep-slider'),
-            sweepValue = document.getElementById('sweep-value'),
-            sweepValue2 = document.getElementById('sweep-value-2');
-
+            sweepSlider = $('sweep-slider'),
+            sweepValue = $('sweep-value'),
+            sweepValue2 = $('sweep-value-2');
 
         // --- Constants & State ---
         const IMG_SIZE = 256;
         const INTERACTIVE_MODES = ['point', 'two-points'];
         const PIXEL_GENERATORS = ['shepp-logan', 'gaussian-blob', 'sine-wave'];
 
-        let NUM_ANGLES, NUM_RHO, RHO_MAX;
-        let currentMode = null, sourceImage = new Image();
+        let NUM_ANGLES, NUM_RHO, RHO_OFFSET;   // RHO_OFFSET: bin index of rho = 0
+        let currentMode = null, sourceImage = new Image(), currentObjectURL = null;
         let randomPoints = [];
-        let cosAngles, sinAngles; // Precomputed trig values
+        let cosAngles, sinAngles;
         let currentSinogram = null;
-        
+        let runToken = 0;
+
+        // Angle of sinogram column i (shared by transform, slider and overlays)
+        const angleOf = i => i * Math.PI / NUM_ANGLES;
+
         // --- Initial Setup ---
         function initializeParameters() {
-            RHO_MAX = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
-            NUM_RHO = 2 * Math.ceil(RHO_MAX);
+            const rhoMax = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
+            NUM_RHO = 2 * Math.ceil(rhoMax) + 2;   // +2 margin for interpolation
+            RHO_OFFSET = NUM_RHO / 2;
             NUM_ANGLES = Math.round(IMG_SIZE * 1.5);
-            
-            // Precompute trig values
-            cosAngles = new Float32Array(NUM_ANGLES);
-            sinAngles = new Float32Array(NUM_ANGLES);
+
+            cosAngles = new Float64Array(NUM_ANGLES);
+            sinAngles = new Float64Array(NUM_ANGLES);
             for (let i = 0; i < NUM_ANGLES; i++) {
-                const angle = i * Math.PI / NUM_ANGLES;
-                cosAngles[i] = Math.cos(angle);
-                sinAngles[i] = Math.sin(angle);
+                cosAngles[i] = Math.cos(angleOf(i));
+                sinAngles[i] = Math.sin(angleOf(i));
             }
 
             [sourceCanvas, reconstructionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
@@ -239,27 +241,24 @@
             projectionCanvas.width = NUM_RHO;
             projectionCanvas.height = 80;
 
-
             const halfSize = IMG_SIZE / 2;
             const labels = {
                 'source-y-pos': halfSize, 'source-y-neg': -halfSize,
                 'source-x-neg': -halfSize, 'source-x-pos': halfSize,
                 'recon-y-pos': halfSize, 'recon-y-neg': -halfSize,
                 'recon-x-neg': -halfSize, 'recon-x-pos': halfSize,
-                'rho-max-label': `+${Math.round(RHO_MAX)}`, 'rho-min-label': `-${Math.round(RHO_MAX)}`
+                'rho-max-label': `+${RHO_OFFSET}`, 'rho-min-label': `-${RHO_OFFSET}`
             };
-            for (const [id, value] of Object.entries(labels)) {
-                document.getElementById(id).textContent = value;
-            }
+            for (const [id, value] of Object.entries(labels)) $(id).textContent = value;
         }
 
         initializeParameters();
 
-        useUploadBtn.addEventListener('click', () => { imageUpload.click(); });
+        useUploadBtn.addEventListener('click', () => imageUpload.click());
         imageUpload.addEventListener('change', handleImageUpload);
         functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
         filterCheckbox.addEventListener('change', () => performTransform());
-        sweepSlider.addEventListener('input', e => handleSliderChange(parseInt(e.target.value)));
+        sweepSlider.addEventListener('input', e => handleSliderChange(parseInt(e.target.value, 10)));
 
         setupMode('function');
         performTransform();
@@ -267,437 +266,349 @@
         // --- Mode Setup ---
         function setupMode(mode) {
             currentMode = mode;
-            useUploadBtn.classList.remove('active-btn');
+            useUploadBtn.classList.toggle('active-btn', mode === 'upload');
             sourceWrapper.style.cursor = 'default';
-            
             if (mode === 'upload') {
-                useUploadBtn.classList.add('active-btn');
-                statusEl.textContent = 'Select an image file to begin.';
-            } else if (mode === 'function') {
-                statusEl.textContent = 'Choose a preset to generate a pattern.';
+                functionPresets.value = 'upload';   // any later preset pick fires 'change'
             }
         }
 
         function handleImageUpload(event) {
             const file = event.target.files[0];
-            if (file) {
-                sourceImage.src = URL.createObjectURL(file);
-                sourceImage.onload = () => {
-                    setupMode('upload');
-                    performTransform();
-                };
-            }
+            imageUpload.value = '';   // allow re-uploading the same file
+            if (!file) return;
+
+            const url = URL.createObjectURL(file);
+            sourceImage = new Image();
+            sourceImage.onload = () => {
+                if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+                currentObjectURL = url;
+                setupMode('upload');
+                performTransform();
+            };
+            sourceImage.onerror = () => {
+                URL.revokeObjectURL(url);
+                statusEl.textContent = 'Could not load that image.';
+            };
+            sourceImage.src = url;
         }
 
-        // --- Main Execution ---
-        function performTransform() {
-            const startTime = performance.now();
+        // --- Main Execution (yields so the status actually renders) ---
+        async function performTransform() {
+            const token = ++runToken;
             statusEl.textContent = 'Processing...';
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+            if (token !== runToken) return;   // superseded by a newer request
 
+            if (currentMode === 'function' && functionPresets.value === 'text' && document.fonts) {
+                try { await document.fonts.load('24px Inter'); } catch (e) { /* fall back */ }
+                if (token !== runToken) return;
+            }
+
+            const startTime = performance.now();
             generateSource();
-            
+
             const imageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
             currentSinogram = radonTransform(imageData);
             drawSinogram(currentSinogram);
 
-            const useFilter = filterCheckbox.checked;
-            const finalSinogram = useFilter ? filterSinogram(currentSinogram) : currentSinogram;
-            const reconstructedData = inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE);
-            drawReconstruction(reconstructedData);
-            
+            const finalSinogram = filterCheckbox.checked ? filterSinogram(currentSinogram) : currentSinogram;
+            drawReconstruction(inverseRadonTransform(finalSinogram, IMG_SIZE, IMG_SIZE));
+
             sweepSlider.value = 0;
             handleSliderChange(0);
 
-            const endTime = performance.now();
-            statusEl.textContent = `Transform complete (${Math.round(endTime-startTime)}ms).`;
+            statusEl.textContent = `Transform complete (${Math.round(performance.now() - startTime)}ms).`;
         }
 
-        // --- Data Generation & Separation ---
         function generateSource() {
             if (currentMode === 'function') {
                 generateFromFunction();
-            } else if (currentMode === 'upload' && sourceImage.src) {
+            } else if (currentMode === 'upload' && sourceImage.complete && sourceImage.naturalWidth) {
                 drawSourceToCanvas(sourceImage);
             }
         }
 
-        // --- Optimized Core Logic ---
+        // --- Core Logic ---
+        // Pixel (x, y) center in math coordinates (y up, origin at image center)
+        // x_m = x + 0.5 - W/2,  y_m = H/2 - (y + 0.5)
+
         function radonTransform(imageData) {
             const width = imageData.width, height = imageData.height, data = imageData.data;
-            const centerX = width / 2, centerY = height / 2;
+            const cx = width / 2, cy = height / 2;
             const sinogram = Array.from({ length: NUM_ANGLES }, () => new Float32Array(NUM_RHO));
-            
-            // Precompute pixel intensities
-            const intensities = new Uint8Array(width * height);
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const idx = (y * width + x) * 4;
-                    if (data[idx + 3] > 0) {
-                        intensities[y * width + x] = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
-                    }
-                }
+
+            const intensities = new Float32Array(width * height);
+            for (let p = 0; p < width * height; p++) {
+                const idx = p * 4;
+                if (data[idx + 3] > 0) intensities[p] = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
             }
 
-            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                const cosA = cosAngles[i_theta];
-                const sinA = sinAngles[i_theta];
-                const row = sinogram[i_theta];
-                
+            for (let t = 0; t < NUM_ANGLES; t++) {
+                const cosA = cosAngles[t], sinA = sinAngles[t], row = sinogram[t];
                 for (let y = 0; y < height; y++) {
-                    const y_math = -(y - centerY);
+                    const yTerm = (cy - (y + 0.5)) * sinA;
                     const rowOffset = y * width;
-                    
                     for (let x = 0; x < width; x++) {
                         const intensity = intensities[rowOffset + x];
-                        if (intensity > 5) {
-                            const rho = (x - centerX) * cosA + y_math * sinA;
-                            const i_rho = Math.round(rho) + (NUM_RHO / 2);
-                            if (i_rho >= 0 && i_rho < NUM_RHO) {
-                                row[i_rho] += intensity;
-                            }
-                        }
+                        if (intensity <= 0) continue;
+                        // Linear split between the two nearest rho bins
+                        const f = (x + 0.5 - cx) * cosA + yTerm + RHO_OFFSET;
+                        const i0 = Math.floor(f), w = f - i0;
+                        if (i0 >= 0 && i0 < NUM_RHO) row[i0] += intensity * (1 - w);
+                        if (i0 + 1 >= 0 && i0 + 1 < NUM_RHO) row[i0 + 1] += intensity * w;
                     }
                 }
             }
             return sinogram;
         }
 
+        // Ram-Lak filter (spatial form, scaled by 4): h[0] = 1, h[odd n] = -4/(π²n²), h[even n] = 0
         function filterSinogram(sinogram) {
             const numAngles = sinogram.length;
             if (numAngles === 0) return sinogram;
             const numRho = sinogram[0].length;
-            const filteredSinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho));
-            const filter = new Float32Array(numRho * 2 - 1);
-            const center = numRho -1;
-            filter[center] = 1;
-            for(let i=1; i < numRho; i++) {
-                const val = (i % 2 === 0) ? 0 : (-4 / (Math.PI**2)) / (i**2);
-                filter[center + i] = val;
-                filter[center - i] = val;
-            }
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    let sum = 0;
-                    for(let k=0; k < filter.length; k++) {
-                        const rho_k = i_rho - (k-center);
-                        if(rho_k >= 0 && rho_k < numRho) {
-                            sum += sinogram[i_theta][rho_k] * filter[k];
-                        }
+            const kernel = new Float64Array(numRho);   // kernel[n] for n >= 1 (odd only nonzero)
+            for (let n = 1; n < numRho; n += 2) kernel[n] = -4 / (Math.PI * Math.PI * n * n);
+
+            return sinogram.map(src => {
+                const out = new Float32Array(numRho);
+                for (let i = 0; i < numRho; i++) {
+                    let sum = src[i];
+                    for (let n = 1; n < numRho; n += 2) {
+                        const k = kernel[n];
+                        if (i - n >= 0) sum += src[i - n] * k;
+                        if (i + n < numRho) sum += src[i + n] * k;
                     }
-                    filteredSinogram[i_theta][i_rho] = sum;
+                    out[i] = sum;
                 }
-            }
-            return filteredSinogram;
+                return out;
+            });
         }
 
         function inverseRadonTransform(sinogram, width, height) {
             const numAngles = sinogram.length;
-            if (numAngles === 0) return new Float32Array(width * height);
+            const reconstructed = new Float32Array(width * height);
+            if (numAngles === 0) return reconstructed;
             const numRho = sinogram[0].length;
-            const reconstructedData = new Float32Array(width * height);
-            const centerX = width / 2, centerY = height / 2;
-            
-            const cosAngles = new Float32Array(numAngles);
-            const sinAngles = new Float32Array(numAngles);
-            for (let i = 0; i < numAngles; i++) {
-                const angle = i * Math.PI / numAngles;
-                cosAngles[i] = Math.cos(angle);
-                sinAngles[i] = Math.sin(angle);
-            }
+            const offset = numRho / 2;
+            const cx = width / 2, cy = height / 2;
 
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                const cosA = cosAngles[i_theta];
-                const sinA = sinAngles[i_theta];
-                const sinogramRow = sinogram[i_theta];
-                
+            for (let t = 0; t < numAngles; t++) {
+                const angle = t * Math.PI / numAngles;
+                const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                const row = sinogram[t];
                 for (let y = 0; y < height; y++) {
-                    const y_math = -(y - centerY);
+                    const yTerm = (cy - (y + 0.5)) * sinA;
                     const rowOffset = y * width;
-                    
                     for (let x = 0; x < width; x++) {
-                        const rho = (x - centerX) * cosA + y_math * sinA;
-                        const i_rho = Math.round(rho) + (NUM_RHO / 2);
-                        if (i_rho >= 0 && i_rho < numRho) {
-                           reconstructedData[rowOffset + x] += sinogramRow[i_rho];
+                        const f = (x + 0.5 - cx) * cosA + yTerm + offset;
+                        const i0 = Math.floor(f), w = f - i0;
+                        if (i0 >= 0 && i0 + 1 < numRho) {
+                            reconstructed[rowOffset + x] += row[i0] * (1 - w) + row[i0 + 1] * w;
                         }
                     }
                 }
             }
-             return reconstructedData;
+            return reconstructed;
         }
 
-        // --- Visualization Functions ---
+        // --- Visualization ---
         function drawSinogram(sinogram) {
             const numAngles = sinogram.length;
-            if (numAngles === 0) { 
-                radonOverlayCanvas.width = 0; radonOverlayCanvas.height = 0;
-                return;
-            }
+            if (numAngles === 0) { radonOverlayCanvas.width = radonOverlayCanvas.height = 0; return; }
             const numRho = sinogram[0].length;
-            radonCanvas.width = numAngles;
-            radonCanvas.height = numRho;
-            radonOverlayCanvas.width = numAngles;
-            radonOverlayCanvas.height = numRho;
+            radonCanvas.width = radonOverlayCanvas.width = numAngles;
+            radonCanvas.height = radonOverlayCanvas.height = numRho;
 
-            radonCtx.fillStyle = 'black';
-            radonCtx.fillRect(0, 0, numAngles, numRho);
-            const outputImageData = radonCtx.createImageData(numAngles, numRho);
-            
+            const out = radonCtx.createImageData(numAngles, numRho);
             let maxVal = 0;
-            for (let i = 0; i < numAngles; i++) {
-                const row = sinogram[i];
-                for (let j = 0; j < numRho; j++) {
-                    if (row[j] > maxVal) maxVal = row[j];
+            for (const row of sinogram) for (let j = 0; j < numRho; j++) if (row[j] > maxVal) maxVal = row[j];
+            const scale = maxVal > 0 ? 255 / maxVal : 0;
+
+            for (let t = 0; t < numAngles; t++) {
+                const row = sinogram[t];
+                for (let r = 0; r < numRho; r++) {
+                    const val = row[r] * scale;
+                    const idx = ((numRho - 1 - r) * numAngles + t) * 4;   // +rho at top
+                    out.data[idx] = out.data[idx + 1] = out.data[idx + 2] = val;
+                    out.data[idx + 3] = 255;
                 }
             }
-            
-            if (maxVal === 0) {
-                radonCtx.putImageData(outputImageData, 0, 0);
-                return;
-            };
-            
-            const scale = 255 / maxVal;
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                const row = sinogram[i_theta];
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    const val = row[i_rho] * scale;
-                    const idx = ((numRho - 1 - i_rho) * numAngles + i_theta) * 4;
-                    outputImageData.data[idx] = val;
-                    outputImageData.data[idx + 1] = val;
-                    outputImageData.data[idx + 2] = val;
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            radonCtx.putImageData(outputImageData, 0, 0);
+            radonCtx.putImageData(out, 0, 0);
         }
 
         function drawReconstruction(data) {
-            reconstructionCtx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
-            const outputImageData = reconstructionCtx.createImageData(IMG_SIZE, IMG_SIZE);
-            
+            const out = reconstructionCtx.createImageData(IMG_SIZE, IMG_SIZE);
             let maxVal = -Infinity, minVal = Infinity;
             for (let i = 0; i < data.length; i++) {
-                const val = data[i];
-                if (val > maxVal) maxVal = val;
-                if (val < minVal) minVal = val;
+                if (data[i] > maxVal) maxVal = data[i];
+                if (data[i] < minVal) minVal = data[i];
             }
-            
             const range = maxVal - minVal;
-            if (range < 1e-9) return;
-            
-            const scale = 255 / range;
+            const scale = range > 1e-9 ? 255 / range : 0;
             for (let i = 0; i < data.length; i++) {
-                const val = (data[i] - minVal) * scale;
                 const idx = i * 4;
-                outputImageData.data[idx] = val;
-                outputImageData.data[idx + 1] = val;
-                outputImageData.data[idx + 2] = val;
-                outputImageData.data[idx + 3] = 255;
+                out.data[idx] = out.data[idx + 1] = out.data[idx + 2] = (data[i] - minVal) * scale;
+                out.data[idx + 3] = 255;
             }
-            reconstructionCtx.putImageData(outputImageData, 0, 0);
+            reconstructionCtx.putImageData(out, 0, 0);
         }
 
-        function drawProjectionProfile(i_theta) {
+        function drawProjectionProfile(t) {
             if (!currentSinogram) return;
-
-            const projectionData = currentSinogram[i_theta];
-            const w = projectionCanvas.width;
-            const h = projectionCanvas.height;
+            const proj = currentSinogram[t];
+            const w = projectionCanvas.width, h = projectionCanvas.height;
             projectionCtx.clearRect(0, 0, w, h);
 
             let maxVal = 0;
-            for(let i=0; i < projectionData.length; i++) {
-                if(projectionData[i] > maxVal) maxVal = projectionData[i];
-            }
+            for (let i = 0; i < proj.length; i++) if (proj[i] > maxVal) maxVal = proj[i];
+            if (maxVal === 0) return;
 
-            if(maxVal === 0) return;
-
+            const scaleY = (h - 2) / maxVal;
             projectionCtx.beginPath();
             projectionCtx.moveTo(0, h);
-            
-            const scaleY = h / maxVal;
-
-            for (let i = 0; i < projectionData.length; i++) {
-                const x = (i / projectionData.length) * w;
-                const y = h - (projectionData[i] * scaleY);
-                projectionCtx.lineTo(x, y);
+            for (let i = 0; i < proj.length; i++) {
+                projectionCtx.lineTo(((i + 0.5) / proj.length) * w, h - proj[i] * scaleY);
             }
-            
             projectionCtx.lineTo(w, h);
             projectionCtx.closePath();
-            
-            projectionCtx.fillStyle = 'rgba(59, 130, 246, 0.5)'; // blue-500 with opacity
-            projectionCtx.strokeStyle = 'rgba(59, 130, 246, 1)'; // blue-500
+            projectionCtx.fillStyle = 'rgba(59, 130, 246, 0.5)';
+            projectionCtx.strokeStyle = 'rgba(59, 130, 246, 1)';
             projectionCtx.lineWidth = 2;
             projectionCtx.fill();
             projectionCtx.stroke();
         }
 
-        // --- Preset Generation & Drawing ---
+        // --- Preset Generation ---
         function generateFromFunction() {
             const type = functionPresets.value;
             sourceCtx.fillStyle = 'black';
             sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
-            
             randomPoints = [];
 
-            // Handle pixel-based generators first
             if (PIXEL_GENERATORS.includes(type)) {
-                let phantomData;
-                if (type === 'shepp-logan') {
-                   phantomData = createSheppLoganData(IMG_SIZE);
-                } else if (type === 'gaussian-blob') {
-                   phantomData = createGaussianData(IMG_SIZE);
-                } else if (type === 'sine-wave') {
-                   phantomData = createSineWaveData(IMG_SIZE);
-                }
-                
+                const phantomData = type === 'shepp-logan' ? createSheppLoganData(IMG_SIZE)
+                                  : type === 'gaussian-blob' ? createGaussianData(IMG_SIZE)
+                                  : createSineWaveData(IMG_SIZE);
                 const imageData = sourceCtx.createImageData(IMG_SIZE, IMG_SIZE);
-                 for(let i=0; i < imageData.data.length; i += 4) {
-                    const val = phantomData[i/4];
-                    imageData.data[i] = val;
-                    imageData.data[i+1] = val;
-                    imageData.data[i+2] = val;
-                    imageData.data[i+3] = 255;
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const val = phantomData[i / 4];
+                    imageData.data[i] = imageData.data[i + 1] = imageData.data[i + 2] = val;
+                    imageData.data[i + 3] = 255;
                 }
                 sourceCtx.putImageData(imageData, 0, 0);
-            } else {
-                // Handle vector-based drawing generators
-                sourceCtx.save();
-                sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
-                sourceCtx.fillStyle = 'white';
-                
-                if (type === 'circle') {
-                    sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.4, 0, 2 * Math.PI); sourceCtx.fill();
-                } else if (type === 'square') {
-                    sourceCtx.fillRect(-IMG_SIZE * 0.3, -IMG_SIZE * 0.3, IMG_SIZE * 0.6, IMG_SIZE * 0.6);
-                } else if (type === 'embedded-squares') {
-                    sourceCtx.fillRect(-IMG_SIZE * 0.4, -IMG_SIZE * 0.4, IMG_SIZE * 0.8, IMG_SIZE * 0.8);
-                    sourceCtx.fillStyle = 'gray';
-                    sourceCtx.fillRect(-IMG_SIZE * 0.2, -IMG_SIZE * 0.2, IMG_SIZE * 0.4, IMG_SIZE * 0.4);
-                } else if (type === 'concentric-circles') {
-                    sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.45, 0, 2 * Math.PI); sourceCtx.fill();
-                    sourceCtx.fillStyle = 'gray';
-                    sourceCtx.beginPath(); sourceCtx.arc(0, 0, IMG_SIZE * 0.25, 0, 2 * Math.PI); sourceCtx.fill();
-                } else if (type === 'point') {
-                    const x = 60; const y = 40;
-                    randomPoints.push({ x, y });
-                    sourceCtx.fillRect(x - 2, -y - 2, 4, 4);
-                } else if (type === 'two-points') {
-                    const x1 = 60, y1 = 40;
-                    randomPoints.push({ x: x1, y: y1 });
-                    sourceCtx.fillRect(x1 - 2, -y1 - 2, 4, 4);
-                    
-                    const x2 = -30, y2 = -70;
-                    randomPoints.push({ x: x2, y: y2 });
-                    sourceCtx.fillStyle = 'gray';
-                    sourceCtx.fillRect(x2 - 2, -y2 - 2, 4, 4);
-                } else if (type === 'text') {
-                    sourceCtx.font = '24px Inter';
-                    sourceCtx.textAlign = 'center';
-                    sourceCtx.textBaseline = 'middle';
-                    sourceCtx.fillText('nitad54448.github.io', 0, -IMG_SIZE / 4);
-                } else if (type === 'line-segment') {
-                    sourceCtx.strokeStyle = 'white';
-                    sourceCtx.lineWidth = 3;
-                    sourceCtx.beginPath();
-                    sourceCtx.moveTo(-IMG_SIZE * 0.4, -IMG_SIZE * 0.3);
-                    sourceCtx.lineTo(IMG_SIZE * 0.4, IMG_SIZE * 0.3);
-                    sourceCtx.stroke();
-                } else if (type === 'spokes') {
-                    sourceCtx.strokeStyle = 'white';
-                    sourceCtx.lineWidth = 1.5;
-                    const numSpokes = 12;
-                    for (let i = 0; i < numSpokes; i++) {
-                        sourceCtx.rotate(Math.PI * 2 / numSpokes);
-                        sourceCtx.beginPath();
-                        sourceCtx.moveTo(0, 0);
-                        sourceCtx.lineTo(IMG_SIZE * 0.45, 0);
-                        sourceCtx.stroke();
-                    }
-                } else if (type === 'checkerboard') {
-                    const numSquares = 8;
-                    const squareSize = IMG_SIZE / numSquares;
-                    for (let i = 0; i < numSquares; i++) {
-                        for (let j = 0; j < numSquares; j++) {
-                            if ((i + j) % 2 === 0) {
-                                sourceCtx.fillRect(i * squareSize - IMG_SIZE / 2, j * squareSize - IMG_SIZE / 2, squareSize, squareSize);
-                            }
-                        }
-                    }
-                } else if (type === 'simple-phantom') {
-                    sourceCtx.fillStyle = '#666666'; // Dark gray
-                    sourceCtx.beginPath();
-                    sourceCtx.ellipse(0, 0, IMG_SIZE * 0.45, IMG_SIZE * 0.35, 0, 0, 2 * Math.PI);
-                    sourceCtx.fill();
-                    sourceCtx.fillStyle = '#FFFFFF'; // White
-                    sourceCtx.beginPath();
-                    sourceCtx.arc(IMG_SIZE * 0.15, -IMG_SIZE * 0.1, IMG_SIZE * 0.1, 0, 2 * Math.PI);
-                    sourceCtx.fill();
-                    sourceCtx.fillStyle = '#B3B3B3'; // Light gray
-                    sourceCtx.beginPath();
-                    sourceCtx.arc(-IMG_SIZE * 0.2, IMG_SIZE * 0.1, IMG_SIZE * 0.12, 0, 2 * Math.PI);
-                    sourceCtx.fill();
-                }
-                sourceCtx.restore();
+                return;
             }
+
+            const S = IMG_SIZE;
+            sourceCtx.save();
+            sourceCtx.translate(S / 2, S / 2);
+            sourceCtx.fillStyle = 'white';
+
+            if (type === 'circle') {
+                sourceCtx.beginPath(); sourceCtx.arc(0, 0, S * 0.4, 0, 2 * Math.PI); sourceCtx.fill();
+            } else if (type === 'square') {
+                sourceCtx.fillRect(-S * 0.3, -S * 0.3, S * 0.6, S * 0.6);
+            } else if (type === 'embedded-squares') {
+                sourceCtx.fillRect(-S * 0.4, -S * 0.4, S * 0.8, S * 0.8);
+                sourceCtx.fillStyle = 'gray';
+                sourceCtx.fillRect(-S * 0.2, -S * 0.2, S * 0.4, S * 0.4);
+            } else if (type === 'concentric-circles') {
+                sourceCtx.beginPath(); sourceCtx.arc(0, 0, S * 0.45, 0, 2 * Math.PI); sourceCtx.fill();
+                sourceCtx.fillStyle = 'gray';
+                sourceCtx.beginPath(); sourceCtx.arc(0, 0, S * 0.25, 0, 2 * Math.PI); sourceCtx.fill();
+            } else if (type === 'point') {
+                const x = 60, y = 40;
+                randomPoints.push({ x, y });
+                sourceCtx.fillRect(x - 2, -y - 2, 4, 4);
+            } else if (type === 'two-points') {
+                const x1 = 60, y1 = 40, x2 = -30, y2 = -70;
+                randomPoints.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+                sourceCtx.fillRect(x1 - 2, -y1 - 2, 4, 4);
+                sourceCtx.fillStyle = 'gray';
+                sourceCtx.fillRect(x2 - 2, -y2 - 2, 4, 4);
+            } else if (type === 'text') {
+                sourceCtx.font = '24px Inter, sans-serif';
+                sourceCtx.textAlign = 'center';
+                sourceCtx.textBaseline = 'middle';
+                sourceCtx.fillText('nitad54448.github.io', 0, -S / 4);
+            } else if (type === 'line-segment') {
+                sourceCtx.strokeStyle = 'white';
+                sourceCtx.lineWidth = 3;
+                sourceCtx.beginPath();
+                sourceCtx.moveTo(-S * 0.4, -S * 0.3);
+                sourceCtx.lineTo(S * 0.4, S * 0.3);
+                sourceCtx.stroke();
+            } else if (type === 'spokes') {
+                sourceCtx.strokeStyle = 'white';
+                sourceCtx.lineWidth = 1.5;
+                const numSpokes = 12;
+                for (let i = 0; i < numSpokes; i++) {
+                    sourceCtx.rotate(Math.PI * 2 / numSpokes);
+                    sourceCtx.beginPath();
+                    sourceCtx.moveTo(0, 0);
+                    sourceCtx.lineTo(S * 0.45, 0);
+                    sourceCtx.stroke();
+                }
+            } else if (type === 'checkerboard') {
+                const n = 8, sq = S / n;
+                for (let i = 0; i < n; i++)
+                    for (let j = 0; j < n; j++)
+                        if ((i + j) % 2 === 0) sourceCtx.fillRect(i * sq - S / 2, j * sq - S / 2, sq, sq);
+            } else if (type === 'simple-phantom') {
+                sourceCtx.fillStyle = '#666666';
+                sourceCtx.beginPath(); sourceCtx.ellipse(0, 0, S * 0.45, S * 0.35, 0, 0, 2 * Math.PI); sourceCtx.fill();
+                sourceCtx.fillStyle = '#FFFFFF';
+                sourceCtx.beginPath(); sourceCtx.arc(S * 0.15, -S * 0.1, S * 0.1, 0, 2 * Math.PI); sourceCtx.fill();
+                sourceCtx.fillStyle = '#B3B3B3';
+                sourceCtx.beginPath(); sourceCtx.arc(-S * 0.2, S * 0.1, S * 0.12, 0, 2 * Math.PI); sourceCtx.fill();
+            }
+            sourceCtx.restore();
         }
-        
+
         function drawSourceToCanvas(source) {
             sourceCtx.fillStyle = 'black';
             sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
-            const sourceW = source.width;
-            const sourceH = source.height;
-            const ratio = Math.min(IMG_SIZE / sourceW, IMG_SIZE / sourceH);
-            const centerShift_x = (IMG_SIZE - sourceW * ratio) / 2;
-            const centerShift_y = (IMG_SIZE - sourceH * ratio) / 2;
-            sourceCtx.drawImage(source, 0, 0, sourceW, sourceH, centerShift_x, centerShift_y, sourceW * ratio, sourceH * ratio);
+            const sw = source.naturalWidth, sh = source.naturalHeight;
+            const ratio = Math.min(IMG_SIZE / sw, IMG_SIZE / sh);
+            sourceCtx.drawImage(source, 0, 0, sw, sh,
+                (IMG_SIZE - sw * ratio) / 2, (IMG_SIZE - sh * ratio) / 2, sw * ratio, sh * ratio);
         }
 
-       function createSheppLoganData(size) {
-            const data = new Float32Array(size * size).fill(0);
+        // Modified (Toft) Shepp-Logan phantom, standard geometry.
+        // [x0, y0, a (semi-axis along x), b (along y), angle (deg, CCW), gray]
+        function createSheppLoganData(size) {
+            const data = new Float32Array(size * size);
             const ellipses = [
-                [0,    0,      .69,   .92,   90,  1],
-                [0,   -0.0184, .6624, .874,  90, -0.8],
-                [.22,  0,      .11,   .31,   72, -0.2],
-                [-.22, 0,      .16,   .41,   108, -0.2],
-                [0,    .35,    .21,   .25,   90,  0.1],
-                [0,    .1,     .046,  .046,  0,   0.1],
-                [0,   -0.1,    .046,  .046,  0,   0.1],
-                [-.08, -.605,  .023,  .046,  0,   0.1],
-                [0,    -.605,  .023,  .023,  0,   0.1],
-                [.06,  -.605,  .023,  .046,  90,  0.1]
-            ];
-            
-            const halfSize = size / 2;
-            const ellipseParams = ellipses.map(ell => {
-                const [x0, y0, a, b, angle, gray] = ell;
-                const angRad = -angle * Math.PI / 180;
-                const cosA = Math.cos(angRad);
-                const sinA = Math.sin(angRad);
-                return { x0, y0, a, b, cosA, sinA, gray };
+                [ 0,     0,      0.69,   0.92,    0,   1.0],
+                [ 0,    -0.0184, 0.6624, 0.874,   0,  -0.8],
+                [ 0.22,  0,      0.11,   0.31,  -18,  -0.2],
+                [-0.22,  0,      0.16,   0.41,   18,  -0.2],
+                [ 0,     0.35,   0.21,   0.25,    0,   0.1],
+                [ 0,     0.1,    0.046,  0.046,   0,   0.1],
+                [ 0,    -0.1,    0.046,  0.046,   0,   0.1],
+                [-0.08, -0.605,  0.046,  0.023,   0,   0.1],
+                [ 0,    -0.606,  0.023,  0.023,   0,   0.1],
+                [ 0.06, -0.605,  0.023,  0.046,   0,   0.1]
+            ].map(([x0, y0, a, b, angle, gray]) => {
+                const r = angle * Math.PI / 180;
+                return { x0, y0, a, b, cosA: Math.cos(r), sinA: Math.sin(r), gray };
             });
-            
+
+            const half = size / 2;
             for (let j = 0; j < size; j++) {
-                const y = (j - halfSize) / halfSize;
-                const rowOffset = j * size;
-                
+                const y = (half - (j + 0.5)) / half;   // y axis points up
                 for (let i = 0; i < size; i++) {
-                    const x = (i - halfSize) / halfSize;
-                    let intensitySum = 0;
-                    
-                    for (const ell of ellipseParams) {
-                        const { x0, y0, a, b, cosA, sinA, gray } = ell;
-                        const dx = x - x0;
-                        const dy = y - y0;
-                        const term1 = ((dx * cosA + dy * sinA) / a) ** 2;
-                        const term2 = ((dx * sinA - dy * cosA) / b) ** 2;
-                        
-                        if (term1 + term2 <= 1) {
-                            intensitySum += gray;
-                        }
+                    const x = ((i + 0.5) - half) / half;
+                    let sum = 0;
+                    for (const e of ellipses) {
+                        const dx = x - e.x0, dy = y - e.y0;
+                        const u = ( dx * e.cosA + dy * e.sinA) / e.a;
+                        const v = (-dx * e.sinA + dy * e.cosA) / e.b;
+                        if (u * u + v * v <= 1) sum += e.gray;
                     }
-                    data[rowOffset + i] = Math.max(0, Math.min(255, intensitySum * 255));
+                    data[j * size + i] = Math.max(0, Math.min(255, sum * 255));
                 }
             }
             return data;
@@ -705,18 +616,12 @@
 
         function createGaussianData(size) {
             const data = new Float32Array(size * size);
-            const halfSize = size / 2;
-            const sigma = size / 8;
-            const scale = 255;
-
+            const half = size / 2, sigma = size / 8;
             for (let j = 0; j < size; j++) {
-                const y = j - halfSize;
-                const rowOffset = j * size;
+                const y = j + 0.5 - half;
                 for (let i = 0; i < size; i++) {
-                    const x = i - halfSize;
-                    const exponent = -(x * x + y * y) / (2 * sigma * sigma);
-                    const intensity = scale * Math.exp(exponent);
-                    data[rowOffset + i] = intensity;
+                    const x = i + 0.5 - half;
+                    data[j * size + i] = 255 * Math.exp(-(x * x + y * y) / (2 * sigma * sigma));
                 }
             }
             return data;
@@ -724,65 +629,58 @@
 
         function createSineWaveData(size) {
             const data = new Float32Array(size * size);
-            const halfSize = size / 2;
-            const kx = 2 * Math.PI * 4 / size; // 4 cycles across width
-            const ky = 2 * Math.PI * 6 / size; // 6 cycles across height
-
+            const half = size / 2;
+            const kx = 2 * Math.PI * 4 / size, ky = 2 * Math.PI * 6 / size;
             for (let j = 0; j < size; j++) {
-                const y = j - halfSize;
-                const rowOffset = j * size;
+                const y = j + 0.5 - half;
                 for (let i = 0; i < size; i++) {
-                    const x = i - halfSize;
-                    const value = Math.sin(kx * x + ky * y); // -1 to 1
-                    data[rowOffset + i] = (value + 1) * 127.5; // map to 0-255
+                    const x = i + 0.5 - half;
+                    data[j * size + i] = (Math.sin(kx * x + ky * y) + 1) * 127.5;
                 }
             }
             return data;
         }
 
         // --- Interactive Guides ---
-        function handleSliderChange(i_theta) {
-            const angleDeg = Math.round((i_theta / (NUM_ANGLES - 1)) * 180);
+        function handleSliderChange(t) {
+            const theta = angleOf(t);
+            const angleDeg = (t * 180 / NUM_ANGLES).toFixed(1);
             sweepValue.textContent = angleDeg;
             sweepValue2.textContent = angleDeg;
 
-            drawProjectionProfile(i_theta);
+            drawProjectionProfile(t);
 
             sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
             radonOverlayCtx.clearRect(0, 0, radonOverlayCanvas.width, radonOverlayCanvas.height);
-            
-            const centerX = sourceOverlayCanvas.width / 2;
-            const centerY = sourceOverlayCanvas.height / 2;
-            const theta = (i_theta / (NUM_ANGLES - 1)) * Math.PI;
 
-            const lineLength = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
-            const cos_t = Math.cos(theta);
-            const sin_t = Math.sin(theta);
-            
-            // Draw main projection axis
+            const cx = sourceOverlayCanvas.width / 2, cy = sourceOverlayCanvas.height / 2;
+            const len = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
+            const cos_t = Math.cos(theta), sin_t = Math.sin(theta);
+
+            // Projection axis
             sourceOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
             sourceOverlayCtx.lineWidth = 1.5;
             sourceOverlayCtx.setLineDash([]);
             sourceOverlayCtx.beginPath();
-            sourceOverlayCtx.moveTo(centerX, centerY);
-            sourceOverlayCtx.lineTo(centerX + lineLength * cos_t, centerY - lineLength * sin_t);
+            sourceOverlayCtx.moveTo(cx, cy);
+            sourceOverlayCtx.lineTo(cx + len * cos_t, cy - len * sin_t);
             sourceOverlayCtx.stroke();
             sourceOverlayCtx.setLineDash([5, 10]);
             sourceOverlayCtx.beginPath();
-            sourceOverlayCtx.moveTo(centerX, centerY);
-            sourceOverlayCtx.lineTo(centerX - lineLength * cos_t, centerY + lineLength * sin_t);
+            sourceOverlayCtx.moveTo(cx, cy);
+            sourceOverlayCtx.lineTo(cx - len * cos_t, cy + len * sin_t);
             sourceOverlayCtx.stroke();
-            
-            // Draw angle arc
+
+            // Angle arc
             sourceOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
-            sourceOverlayCtx.lineWidth = 2.;
+            sourceOverlayCtx.lineWidth = 2;
             sourceOverlayCtx.setLineDash([]);
             sourceOverlayCtx.beginPath();
-            sourceOverlayCtx.arc(centerX, centerY, 25, 0, -theta, true);
+            sourceOverlayCtx.arc(cx, cy, 25, 0, -theta, true);
             sourceOverlayCtx.stroke();
-            
-            // Draw vertical line on sinogram
-            const x_pos = (theta / Math.PI) * radonOverlayCanvas.width;
+
+            // Column t center on the sinogram
+            const x_pos = t + 0.5;
             radonOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
             radonOverlayCtx.lineWidth = 2;
             radonOverlayCtx.beginPath();
@@ -790,63 +688,49 @@
             radonOverlayCtx.lineTo(x_pos, radonOverlayCanvas.height);
             radonOverlayCtx.stroke();
 
-            // Draw guides for interactive points if applicable
             const isInteractive = currentMode === 'function' && INTERACTIVE_MODES.includes(functionPresets.value);
-            if (isInteractive && randomPoints.length > 0) {
-                const rhoDotColors = ['rgba(0, 255, 0, 0.9)', 'rgba(20, 150, 255, 0.9)'];
-                const rhoLineColors = ['rgba(0, 255, 0, 0.9)', 'rgba(20, 150, 255, 0.9)'];
-                
-                randomPoints.forEach((point, index) => {
-                    const dotColor = rhoDotColors[index % rhoDotColors.length];
-                    const lineColor = rhoLineColors[index % rhoLineColors.length];
-                    const rho = point.x * cos_t + point.y * sin_t;
-                    
-                    const point_x_abs = centerX + point.x;
-                    const point_y_abs = centerY - point.y;
+            if (!isInteractive || randomPoints.length === 0) return;
 
-                    const proj_x_abs = centerX + rho * cos_t;
-                    const proj_y_abs = centerY - rho * sin_t;
+            const colors = ['rgba(0, 255, 0, 0.9)', 'rgba(20, 150, 255, 0.9)'];
+            randomPoints.forEach((point, index) => {
+                const color = colors[index % colors.length];
+                const rho = point.x * cos_t + point.y * sin_t;
+                const px = cx + point.x, py = cy - point.y;
+                const qx = cx + rho * cos_t, qy = cy - rho * sin_t;
 
-                    // Dashed line from point to projection axis
-                    sourceOverlayCtx.strokeStyle = lineColor;
-                    sourceOverlayCtx.lineWidth = 1.5;
-                    sourceOverlayCtx.setLineDash([3, 5]);
-                    sourceOverlayCtx.beginPath();
-                    sourceOverlayCtx.moveTo(point_x_abs, point_y_abs);
-                    sourceOverlayCtx.lineTo(proj_x_abs, proj_y_abs);
-                    sourceOverlayCtx.stroke();
-                    
-                    // Solid line from center to projected point on axis
-                    sourceOverlayCtx.strokeStyle = dotColor;
-                    sourceOverlayCtx.lineWidth = 1.5;
-                    sourceOverlayCtx.setLineDash([]);
-                    sourceOverlayCtx.beginPath();
-                    sourceOverlayCtx.moveTo(centerX, centerY);
-                    sourceOverlayCtx.lineTo(proj_x_abs, proj_y_abs);
-                    sourceOverlayCtx.stroke();
-                    
-                    // Dot at projected point
-                    sourceOverlayCtx.fillStyle = dotColor;
-                    sourceOverlayCtx.beginPath();
-                    sourceOverlayCtx.arc(proj_x_abs, proj_y_abs, 3, 0, 2 * Math.PI);
-                    sourceOverlayCtx.fill();
+                sourceOverlayCtx.strokeStyle = color;
+                sourceOverlayCtx.lineWidth = 1.5;
+                sourceOverlayCtx.setLineDash([3, 5]);
+                sourceOverlayCtx.beginPath();
+                sourceOverlayCtx.moveTo(px, py);
+                sourceOverlayCtx.lineTo(qx, qy);
+                sourceOverlayCtx.stroke();
 
-                    // Horizontal line on sinogram
-                    const y_rho_pos = (radonOverlayCanvas.height / 2) - (rho / RHO_MAX) * (radonOverlayCanvas.height / 2);
-                    radonOverlayCtx.strokeStyle = lineColor;
-                    radonOverlayCtx.lineWidth = 1.5;
-                    radonOverlayCtx.beginPath();
-                    radonOverlayCtx.moveTo(0, y_rho_pos);
-                    radonOverlayCtx.lineTo(radonOverlayCanvas.width, y_rho_pos);
-                    radonOverlayCtx.stroke();
+                sourceOverlayCtx.setLineDash([]);
+                sourceOverlayCtx.beginPath();
+                sourceOverlayCtx.moveTo(cx, cy);
+                sourceOverlayCtx.lineTo(qx, qy);
+                sourceOverlayCtx.stroke();
 
-                    // Dot on sinogram
-                    radonOverlayCtx.fillStyle = dotColor;
-                    radonOverlayCtx.beginPath();
-                    radonOverlayCtx.arc(x_pos, y_rho_pos, 4, 0, 2 * Math.PI);
-                    radonOverlayCtx.fill();
-                });
-            }
+                sourceOverlayCtx.fillStyle = color;
+                sourceOverlayCtx.beginPath();
+                sourceOverlayCtx.arc(qx, qy, 3, 0, 2 * Math.PI);
+                sourceOverlayCtx.fill();
+
+                // Same mapping as drawSinogram: bin r = rho + RHO_OFFSET, drawn at row NUM_RHO-1-r
+                const y_rho_pos = RHO_OFFSET - rho - 0.5;
+                radonOverlayCtx.strokeStyle = color;
+                radonOverlayCtx.lineWidth = 1.5;
+                radonOverlayCtx.beginPath();
+                radonOverlayCtx.moveTo(0, y_rho_pos);
+                radonOverlayCtx.lineTo(radonOverlayCanvas.width, y_rho_pos);
+                radonOverlayCtx.stroke();
+
+                radonOverlayCtx.fillStyle = color;
+                radonOverlayCtx.beginPath();
+                radonOverlayCtx.arc(x_pos, y_rho_pos, 4, 0, 2 * Math.PI);
+                radonOverlayCtx.fill();
+            });
         }
     </script>
 </body>
