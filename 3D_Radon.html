@@ -641,418 +641,7 @@
         </div>
     </div>
 
-    <script>
-        // --- DOM Elements ---
-        const presetSelector = document.getElementById('presets');
-        const imgSizeSelect = document.getElementById('img-size');
-        const sliceCountSlider = document.getElementById('slice-count');
-        const sliceCountValue = document.getElementById('slice-count-value');
-        const numAnglesSlider = document.getElementById('num-angles');
-        const numAnglesValue = document.getElementById('num-angles-value');
-        const noiseSlider = document.getElementById('noise-level');
-        const noiseValue = document.getElementById('noise-level-value');
-        const filterTypeSelect = document.getElementById('filter-type');
-        const maskReconCheckbox = document.getElementById('mask-recon');
-        const showSliceCheckbox = document.getElementById('show-slice');
-        const windowCenterSlider = document.getElementById('window-center');
-        const windowCenterValue = document.getElementById('window-center-value');
-        const windowWidthSlider = document.getElementById('window-width');
-        const windowWidthValue = document.getElementById('window-width-value');
-        const currentSliceSlider = document.getElementById('current-slice');
-        const currentSliceValue = document.getElementById('current-slice-value');
-        const statusEl = document.getElementById('status');
-        const progressBarContainer = document.getElementById('progress-bar-container');
-        const progressBar = document.getElementById('progress-bar');
-        const sliceReadout = document.getElementById('slice-readout');
-        const sinoReadout = document.getElementById('sino-readout');
-
-        const sourceContainer = document.getElementById('source-container');
-        const reconContainer = document.getElementById('recon-container');
-        const sliceCanvas = document.getElementById('slice-canvas');
-        const sliceCtx = sliceCanvas.getContext('2d');
-        const sinogramCanvas = document.getElementById('sinogram-canvas');
-        const sinogramCtx = sinogramCanvas.getContext('2d');
-
-        // --- Constants & Global State ---
-        let IMG_SIZE = 128; // user-configurable below
-        let sourceScene, reconScene;
-        let sinograms = [], reconstructedSlices = [], sourceSlices = [], sourceSlicesFloat = [];
-        let sourceObjectGroup = new THREE.Group();
-        let reconObjectGroup = new THREE.Group();
-        let icosahedronPlanes = null;
-        let currentSourceObject = null;
-        let isProcessing = false;
-
-        const GLOBAL_BOUNDS = new THREE.Box3(
-            new THREE.Vector3(-1.5, -1.5, -1.5),
-            new THREE.Vector3(1.5, 1.5, 1.5)
-        );
-
-        let rngSeed = 42;
-        function seededRandom() {
-            rngSeed = (rngSeed * 9301 + 49297) % 233280;
-            return rngSeed / 233280;
-        }
-
-        // --- Help modal ---
-        document.getElementById('help-trigger').addEventListener('click', () => {
-            document.getElementById('help-overlay').classList.add('open');
-        });
-        document.getElementById('help-close').addEventListener('click', () => {
-            document.getElementById('help-overlay').classList.remove('open');
-        });
-        document.getElementById('help-overlay').addEventListener('click', (e) => {
-            if (e.target.id === 'help-overlay') e.currentTarget.classList.remove('open');
-        });
-
-        function init() {
-            sourceScene = init3DScene(sourceContainer);
-            reconScene = init3DScene(reconContainer);
-            sourceScene.scene.add(sourceObjectGroup);
-            reconScene.scene.add(reconObjectGroup);
-            syncCameras();
-            animate();
-            presetSelector.addEventListener('change', handlePresetChange);
-            setupSliders();
-            setupDragHandle();
-            setupKeyboard();
-            handlePresetChange();
-        }
-
-        function setupSliders() {
-            const pair = (slider, numInput, onCommit) => {
-                slider.addEventListener('input', () => { numInput.value = slider.value; });
-                slider.addEventListener('change', onCommit);
-                numInput.addEventListener('change', () => {
-                    let val = parseInt(numInput.value);
-                    const min = parseInt(slider.min), max = parseInt(slider.max);
-                    if (isNaN(val) || val < min) val = min;
-                    if (val > max) val = max;
-                    numInput.value = val;
-                    slider.value = val;
-                    onCommit();
-                });
-            };
-            pair(sliceCountSlider, sliceCountValue, runFullTransform);
-            pair(numAnglesSlider, numAnglesValue, runFullTransform);
-            pair(noiseSlider, noiseValue, runFullTransform);
-            filterTypeSelect.addEventListener('change', runFullTransform);
-            imgSizeSelect.addEventListener('change', () => {
-                IMG_SIZE = parseInt(imgSizeSelect.value);
-                runFullTransform();
-            });
-
-            // Window/level: instant display update only — no recompute.
-            pair(windowCenterSlider, windowCenterValue, () => {
-                if (currentSourceObject && reconstructedSlices.length) {
-                    reconObjectGroup.clear();
-                    displayReconstructedVolume(reconstructedSlices, currentSourceObject);
-                    updateSlicePlanes();
-                    updateViews();
-                }
-            });
-            pair(windowWidthSlider, windowWidthValue, () => {
-                if (currentSourceObject && reconstructedSlices.length) {
-                    reconObjectGroup.clear();
-                    displayReconstructedVolume(reconstructedSlices, currentSourceObject);
-                    updateSlicePlanes();
-                    updateViews();
-                }
-            });
-
-            maskReconCheckbox.addEventListener('change', () => {
-                if (currentSourceObject && reconstructedSlices.length) {
-                    reconObjectGroup.clear();
-                    displayReconstructedVolume(reconstructedSlices, currentSourceObject);
-                    updateSlicePlanes();
-                }
-            });
-
-            currentSliceSlider.addEventListener('input', () => {
-                currentSliceValue.value = currentSliceSlider.value;
-                updateViews();
-            });
-            currentSliceValue.addEventListener('change', () => {
-                const max = parseInt(currentSliceSlider.max);
-                let val = parseInt(currentSliceValue.value);
-                if (val < 0) val = 0;
-                if (val > max) val = max;
-                currentSliceSlider.value = val;
-                currentSliceValue.value = val;
-                updateViews();
-            });
-            showSliceCheckbox.addEventListener('change', updateSlicePlanes);
-        }
-
-        function setupKeyboard() {
-            window.addEventListener('keydown', (e) => {
-                if (currentSliceSlider.disabled) return;
-                if (document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'number') return;
-                const max = parseInt(currentSliceSlider.max);
-                let val = parseInt(currentSliceSlider.value);
-                if (e.key === 'ArrowRight' || e.key === 'ArrowUp') val = Math.min(max, val + 1);
-                else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') val = Math.max(0, val - 1);
-                else return;
-                currentSliceSlider.value = val;
-                currentSliceValue.value = val;
-                updateViews();
-                e.preventDefault();
-            });
-        }
-
-        function setupDragHandle() {
-            const resizer = document.getElementById('drag-handle');
-            const leftPanel = document.getElementById('controls-panel');
-            let isResizing = false;
-            resizer.addEventListener('mousedown', e => {
-                e.preventDefault();
-                isResizing = true;
-                document.body.style.cursor = 'col-resize';
-                document.body.style.userSelect = 'none';
-                window.addEventListener('mousemove', handleMouseMove);
-                window.addEventListener('mouseup', stopResize);
-            });
-            function handleMouseMove(e) {
-                if (!isResizing) return;
-                const p = resizer.parentElement;
-                const w = e.clientX - p.getBoundingClientRect().left;
-                if (w > 260 && w < p.clientWidth - 400) leftPanel.style.width = `${w}px`;
-            }
-            function stopResize() {
-                isResizing = false;
-                document.body.style.cursor = 'default';
-                document.body.style.userSelect = 'auto';
-                window.removeEventListener('mousemove', handleMouseMove);
-                window.removeEventListener('mouseup', stopResize);
-            }
-        }
-
-        function syncCameras() {
-            const sync = (sourceControls, targetControls, targetCamera) => {
-                targetCamera.position.copy(sourceControls.object.position);
-                targetCamera.quaternion.copy(sourceControls.object.quaternion);
-                targetControls.target.copy(sourceControls.target);
-            };
-            sourceScene.controls.addEventListener('change', () => sync(sourceScene.controls, reconScene.controls, reconScene.camera));
-            reconScene.controls.addEventListener('change', () => sync(reconScene.controls, sourceScene.controls, sourceScene.camera));
-        }
-
-        function init3DScene(container) {
-            const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x000000);
-            const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-            camera.position.set(2.2, 2.2, 2.2);
-            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            container.appendChild(renderer.domElement);
-
-            const controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.1;
-            const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-            dirLight.position.set(5, 10, 7.5);
-            scene.add(dirLight);
-            const axesHelper = new THREE.AxesHelper(1.5);
-            scene.add(axesHelper);
-
-            const resizeObserver = new ResizeObserver(entries => {
-                for (let entry of entries) {
-                    const { width, height } = entry.contentRect;
-                    if (width > 0 && height > 0) {
-                        const size = Math.min(width, height);
-                        camera.aspect = 1;
-                        camera.updateProjectionMatrix();
-                        renderer.setSize(size, size);
-                    }
-                }
-            });
-            resizeObserver.observe(container);
-            return { scene, camera, renderer, controls };
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-            sourceScene.controls.update();
-            reconScene.controls.update();
-            sourceScene.renderer.render(sourceScene.scene, sourceScene.camera);
-            reconScene.renderer.render(reconScene.scene, reconScene.camera);
-        }
-
-        function handlePresetChange() {
-            const presetType = presetSelector.value;
-            rngSeed = 42;
-            sourceObjectGroup.clear();
-            reconObjectGroup.clear();
-            sliceCtx.clearRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-            sinogramCtx.clearRect(0, 0, sinogramCanvas.width, sinogramCanvas.height);
-            sinograms = []; reconstructedSlices = []; sourceSlices = []; sourceSlicesFloat = [];
-            currentSliceSlider.disabled = true;
-            currentSliceSlider.value = 0;
-            currentSliceValue.value = '0';
-            progressBar.style.width = '0%';
-            progressBarContainer.style.display = 'none';
-
-            const object3D = generate3DObject(presetType);
-            currentSourceObject = object3D;
-            sourceObjectGroup.add(object3D);
-            sourceObjectGroup.updateMatrixWorld(true);
-
-            runFullTransform();
-        }
-
-        // ============ Icosahedron helpers ============
-        function createIcosahedronPlanes() {
-            const t = (1 + Math.sqrt(5)) / 2;
-            const vertices = [
-                new THREE.Vector3(-1, t, 0).normalize(), new THREE.Vector3(1, t, 0).normalize(),
-                new THREE.Vector3(-1, -t, 0).normalize(), new THREE.Vector3(1, -t, 0).normalize(),
-                new THREE.Vector3(0, -1, t).normalize(), new THREE.Vector3(0, 1, t).normalize(),
-                new THREE.Vector3(0, -1, -t).normalize(), new THREE.Vector3(0, 1, -t).normalize(),
-                new THREE.Vector3(t, 0, -1).normalize(), new THREE.Vector3(t, 0, 1).normalize(),
-                new THREE.Vector3(-t, 0, -1).normalize(), new THREE.Vector3(-t, 0, 1).normalize()
-            ];
-            const faces = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
-            const planes = [];
-            for (const face of faces) {
-                const v0 = vertices[face[0]], v1 = vertices[face[1]], v2 = vertices[face[2]];
-                const normal = new THREE.Vector3().crossVectors(
-                    new THREE.Vector3().subVectors(v1, v0),
-                    new THREE.Vector3().subVectors(v2, v0)
-                ).normalize();
-                const center = new THREE.Vector3().add(v0).add(v1).add(v2).divideScalar(3);
-                if (normal.dot(center) < 0) normal.negate();
-                const d0 = -normal.dot(v0);
-                planes.push({ normal, d0 });
-            }
-            return planes;
-        }
-        function getIcosahedronPlanes() {
-            if (!icosahedronPlanes) icosahedronPlanes = createIcosahedronPlanes();
-            return icosahedronPlanes;
-        }
-
-        // ============ Inside-test (analytical) ============
-        function isInsideObjectAnalytical(point, object) {
-            if (!object) return false;
-            if (object === slicePlaneSource || object === slicePlaneRecon) return false;
-            if (object.isGroup) {
-                for (const child of object.children) {
-                    if (child === slicePlaneSource || child === slicePlaneRecon) continue;
-                    if (isInsideObjectAnalytical(point, child)) return true;
-                }
-                return false;
-            }
-            const localPoint = new THREE.Vector3();
-            const inverseMatrix = new THREE.Matrix4().copy(object.matrixWorld).invert();
-            localPoint.copy(point).applyMatrix4(inverseMatrix);
-            const geo = object.geometry;
-            if (!geo) return false;
-
-            switch (geo.type) {
-                case 'SphereGeometry': {
-                    const r = geo.parameters.radius;
-                    return localPoint.lengthSq() < (r * r);
-                }
-                case 'BoxGeometry': {
-                    const { width, height, depth } = geo.parameters;
-                    return Math.abs(localPoint.x) < width / 2 && Math.abs(localPoint.y) < height / 2 && Math.abs(localPoint.z) < depth / 2;
-                }
-                case 'TorusGeometry': {
-                    const R = geo.parameters.radius; const r = geo.parameters.tube;
-                    const p = Math.sqrt(localPoint.x ** 2 + localPoint.y ** 2) - R;
-                    return p ** 2 + localPoint.z ** 2 < r ** 2;
-                }
-                case 'CylinderGeometry': {
-                    const rT = geo.parameters.radiusTop;
-                    const h = geo.parameters.height;
-                    return (localPoint.x ** 2 + localPoint.z ** 2) < rT * rT && Math.abs(localPoint.y) < h / 2;
-                }
-                case 'IcosahedronGeometry': {
-                    const radius = geo.parameters.radius;
-                    const planes = getIcosahedronPlanes();
-                    for (let i = 0; i < planes.length; i++) {
-                        const plane = planes[i];
-                        if (plane.normal.dot(localPoint) + plane.d0 * radius > 1e-5) return false;
-                    }
-                    return true;
-                }
-                default: return false;
-            }
-        }
-
-        // Density-aware slicing.
-        // Two composition rules for groups:
-        //   - additive (Shepp-Logan): sum signed densities, clamp to [0,1].
-        //   - max (default for other phantoms): take max density of any child.
-        function densityAt(point, object) {
-            if (!object) return 0;
-            if (object === slicePlaneSource || object === slicePlaneRecon) return 0;
-            if (object.isGroup) {
-                const additive = object.userData && object.userData.isAdditivePhantom;
-                if (additive) {
-                    let sum = 0;
-                    for (const child of object.children) {
-                        if (child === slicePlaneSource || child === slicePlaneRecon) continue;
-                        const inside = isInsideObjectAnalytical(point, child);
-                        if (inside) {
-                            const d = (child.userData && typeof child.userData.density === 'number') ? child.userData.density : 0;
-                            sum += d;
-                        }
-                    }
-                    return Math.max(0, Math.min(1, sum));
-                }
-                // Max-composition
-                let d = 0;
-                for (const child of object.children) {
-                    if (child === slicePlaneSource || child === slicePlaneRecon) continue;
-                    const dc = densityAt(point, child);
-                    if (dc > d) d = dc;
-                }
-                return d;
-            }
-            const inside = isInsideObjectAnalytical(point, object);
-            if (!inside) return 0;
-            const d = (object.userData && typeof object.userData.density === 'number') ? object.userData.density : 1.0;
-            return Math.max(0, Math.min(1, d));
-        }
-
-        function getSlicesFrom3DObject(object, sliceCount, imageSize) {
-            const slices = [];      // ImageData (for the worker — uses .data[i*4] as intensity)
-            const slicesFloat = []; // Float32Array per slice, raw density 0..1 (for W/L display)
-            object.updateWorldMatrix(true, true);
-
-            const zMin = GLOBAL_BOUNDS.min.z, zMax = GLOBAL_BOUNDS.max.z;
-            const zStep = (zMax - zMin) / sliceCount;
-            const point = new THREE.Vector3();
-            const xRange = GLOBAL_BOUNDS.max.x - GLOBAL_BOUNDS.min.x;
-            const yRange = GLOBAL_BOUNDS.max.y - GLOBAL_BOUNDS.min.y;
-
-            for (let i = 0; i < sliceCount; i++) {
-                const z = zMin + (i + 0.5) * zStep;
-                const imageData = new ImageData(imageSize, imageSize);
-                const floatBuf = new Float32Array(imageSize * imageSize);
-                for (let y = 0; y < imageSize; y++) {
-                    for (let x = 0; x < imageSize; x++) {
-                        const sx = GLOBAL_BOUNDS.min.x + (x / (imageSize - 1)) * xRange;
-                        const sy = GLOBAL_BOUNDS.max.y - (y / (imageSize - 1)) * yRange;
-                        point.set(sx, sy, z);
-                        const density = densityAt(point, object);
-                        floatBuf[y * imageSize + x] = density;
-                        const intensity = Math.floor(density * 220);
-                        const alpha = density > 0 ? 255 : 0;
-                        imageData.data.set([intensity, intensity, intensity, alpha], (y * imageSize + x) * 4);
-                    }
-                }
-                slices.push(imageData);
-                slicesFloat.push(floatBuf);
-            }
-            return { slices, slicesFloat };
-        }
-
-        // ============ FFT worker ============
-        const workerCode = `
+    <script type="text/js-worker" id="worker-src">
             (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.FFT = f()}})(function(){var define,module,exports;return (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
             'use strict';
             function FFT(size) {
@@ -1104,322 +693,708 @@
             },{}]},{},[1])(1)
             });
 
-            function gaussian() {
-                let u = 0, v = 0;
-                while (u === 0) u = Math.random();
-                while (v === 0) v = Math.random();
-                return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-            }
+        // ================= Worker: slice → Radon → noise → FBP =================
+        const FFTCtor = self.FFT || globalThis.FFT;
 
-            function radonTransform(imageData, numAngles, rhoMax, numRho) {
-                const width = imageData.width, height = imageData.height, data = imageData.data;
-                const centerX = width / 2, centerY = height / 2;
-                const sinogram = Array.from({ length: numAngles }, () => new Float32Array(numRho).fill(0));
-                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
-                // Precompute trig
-                const cosT = new Float32Array(numAngles);
-                const sinT = new Float32Array(numAngles);
-                for (let i = 0; i < numAngles; i++) {
-                    cosT[i] = Math.cos(angles[i]);
-                    sinT[i] = Math.sin(angles[i]);
+        const clamp01 = v => v < 0 ? 0 : (v > 1 ? 1 : v);
+
+        // Icosahedron face planes (unit radius), computed once
+        let icoPlanes = null;
+        function getIcoPlanes() {
+            if (icoPlanes) return icoPlanes;
+            const t = (1 + Math.sqrt(5)) / 2;
+            const raw = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]];
+            const v = raw.map(([x, y, z]) => { const l = Math.hypot(x, y, z); return [x / l, y / l, z / l]; });
+            const faces = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+            icoPlanes = faces.map(([a, b, c]) => {
+                const v0 = v[a], v1 = v[b], v2 = v[c];
+                const e1 = [v1[0]-v0[0], v1[1]-v0[1], v1[2]-v0[2]], e2 = [v2[0]-v0[0], v2[1]-v0[1], v2[2]-v0[2]];
+                let n = [e1[1]*e2[2]-e1[2]*e2[1], e1[2]*e2[0]-e1[0]*e2[2], e1[0]*e2[1]-e1[1]*e2[0]];
+                const nl = Math.hypot(n[0], n[1], n[2]); n = n.map(q => q / nl);
+                const cx = (v0[0]+v1[0]+v2[0])/3, cy = (v0[1]+v1[1]+v2[1])/3, cz = (v0[2]+v1[2]+v2[2])/3;
+                if (n[0]*cx + n[1]*cy + n[2]*cz < 0) n = n.map(q => -q);
+                return { nx: n[0], ny: n[1], nz: n[2], d0: -(n[0]*v0[0] + n[1]*v0[1] + n[2]*v0[2]) };
+            });
+            return icoPlanes;
+        }
+
+        // Analytical inside test. inv = column-major inverse world matrix (precomputed once on main thread).
+        function insidePrim(p, x, y, z) {
+            const bx = x - p.bc[0], by = y - p.bc[1], bz = z - p.bc[2];
+            if (bx*bx + by*by + bz*bz > p.br2) return false;   // cheap bounding-sphere reject
+            const e = p.inv;
+            const lx = e[0]*x + e[4]*y + e[8]*z  + e[12];
+            const ly = e[1]*x + e[5]*y + e[9]*z  + e[13];
+            const lz = e[2]*x + e[6]*y + e[10]*z + e[14];
+            switch (p.type) {
+                case 'sphere': return lx*lx + ly*ly + lz*lz < p.r * p.r;
+                case 'box': return Math.abs(lx) < p.w / 2 && Math.abs(ly) < p.h / 2 && Math.abs(lz) < p.d / 2;
+                case 'torus': { const q = Math.sqrt(lx*lx + ly*ly) - p.R; return q*q + lz*lz < p.r * p.r; }
+                case 'cylinder': return lx*lx + lz*lz < p.r * p.r && Math.abs(ly) < p.h / 2;
+                case 'icosahedron': {
+                    const planes = getIcoPlanes();
+                    for (let i = 0; i < planes.length; i++) {
+                        const pl = planes[i];
+                        if (pl.nx*lx + pl.ny*ly + pl.nz*lz + pl.d0 * p.radius > 1e-5) return false;
+                    }
+                    return true;
                 }
-                // Linear interpolation: each pixel's intensity is split between two adjacent ρ bins
-                // proportional to the fractional distance from the pixel's projection to each bin center.
-                // This is the discrete analog of an exact line-integral with a triangular detector kernel.
-                for (let y = 0; y < height; y++) {
-                    for (let x = 0; x < width; x++) {
-                        const intensity = data[(y * width + x) * 4];
-                        if (intensity > 5) {
-                            const x_coord = x - centerX;
-                            const y_coord = -(y - centerY);
-                            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                                const rhoF = x_coord * cosT[i_theta] + y_coord * sinT[i_theta];
-                                const i0 = Math.floor(rhoF);
-                                const frac = rhoF - i0;
-                                const idx0 = i0 + rhoMax;
-                                const idx1 = idx0 + 1;
-                                if (idx0 >= 0 && idx0 < numRho) {
-                                    sinogram[i_theta][idx0] += intensity * (1 - frac);
-                                }
-                                if (idx1 >= 0 && idx1 < numRho) {
-                                    sinogram[i_theta][idx1] += intensity * frac;
-                                }
-                            }
+            }
+            return false;
+        }
+
+        // Groups: additive (Shepp-Logan: sum signed densities, clamp) or max-composition.
+        function densityAt(node, x, y, z) {
+            if (node.kind === 'group') {
+                if (node.additive) {
+                    let sum = 0;
+                    for (const c of node.children) {
+                        const inside = c.kind === 'prim' ? insidePrim(c, x, y, z) : densityAt(c, x, y, z) > 0;
+                        if (inside) sum += (c.density ?? 0);
+                    }
+                    return clamp01(sum);
+                }
+                let d = 0;
+                for (const c of node.children) { const dc = densityAt(c, x, y, z); if (dc > d) d = dc; }
+                return d;
+            }
+            return insidePrim(node, x, y, z) ? clamp01(node.density ?? 1) : 0;
+        }
+
+        // Sample at pixel centers: pixel (x,y) ↔ world (minX + (x+.5)·dx, maxY − (y+.5)·dy)
+        function makeSlice(tree, size, b, z) {
+            const out = new Float32Array(size * size);
+            const dx = (b.maxX - b.minX) / size, dy = (b.maxY - b.minY) / size;
+            for (let y = 0; y < size; y++) {
+                const sy = b.maxY - (y + 0.5) * dy;
+                for (let x = 0; x < size; x++) {
+                    out[y * size + x] = densityAt(tree, b.minX + (x + 0.5) * dx, sy, z);
+                }
+            }
+            return out;
+        }
+
+        function trig(numAngles) {
+            const c = new Float64Array(numAngles), s = new Float64Array(numAngles);
+            for (let i = 0; i < numAngles; i++) { const a = i * Math.PI / numAngles; c[i] = Math.cos(a); s[i] = Math.sin(a); }
+            return [c, s];
+        }
+
+        // Sinogram: flat Float32Array [θ · numRho + ρ], pixel-unit ρ, ρ = 0 at bin numRho/2.
+        // Linear split between the two nearest bins.
+        function radonTransform(img, size, numAngles, numRho) {
+            const sino = new Float32Array(numAngles * numRho);
+            const [cosT, sinT] = trig(numAngles);
+            const c = size / 2, off = numRho / 2;
+            for (let y = 0; y < size; y++) {
+                const yc = c - (y + 0.5);
+                for (let x = 0; x < size; x++) {
+                    const v = img[y * size + x];
+                    if (v === 0) continue;
+                    const xc = x + 0.5 - c;
+                    for (let t = 0; t < numAngles; t++) {
+                        const f = xc * cosT[t] + yc * sinT[t] + off;
+                        const i0 = Math.floor(f), w = f - i0;
+                        if (i0 >= 0 && i0 + 1 < numRho) {
+                            const base = t * numRho;
+                            sino[base + i0] += v * (1 - w);
+                            sino[base + i0 + 1] += v * w;
                         }
                     }
                 }
-                return sinogram;
             }
+            return sino;
+        }
 
-            function addNoise(sinogram, noisePct) {
-                if (noisePct <= 0) return sinogram;
-                let maxVal = 0;
-                for (const row of sinogram) for (const v of row) if (v > maxVal) maxVal = v;
-                if (maxVal === 0) return sinogram;
-                const sigma = (noisePct / 100) * maxVal;
-                for (let i = 0; i < sinogram.length; i++) {
-                    for (let j = 0; j < sinogram[i].length; j++) {
-                        sinogram[i][j] = Math.max(0, sinogram[i][j] + gaussian() * sigma);
-                    }
+        function gaussian() {
+            let u = 0, v = 0;
+            while (u === 0) u = Math.random();
+            while (v === 0) v = Math.random();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        }
+
+        // Zero-mean Gaussian noise; no clamping (clamping at 0 would bias projections upward)
+        function addNoise(sino, noisePct) {
+            if (noisePct <= 0) return;
+            let maxVal = 0;
+            for (let i = 0; i < sino.length; i++) if (sino[i] > maxVal) maxVal = sino[i];
+            if (maxVal === 0) return;
+            const sigma = (noisePct / 100) * maxVal;
+            for (let i = 0; i < sino.length; i++) sino[i] += gaussian() * sigma;
+        }
+
+        // Frequency response in standard (unshifted) FFT order: index 0 = DC, n/2 = Nyquist.
+        // Ramp = |FFT| of the discrete Ram-Lak kernel (Kak & Slaney): h[0]=1/4, h[odd k]=−1/(π²k²).
+        // This avoids the zero-DC error of a naive |f| ramp and gives correctly scaled FBP.
+        const filterCache = new Map();
+        function getFilter(n, type) {
+            const key = n + ':' + type;
+            if (filterCache.has(key)) return filterCache.get(key);
+            const H = new Float32Array(n);
+            if (type === 'none') {
+                H.fill(1);
+            } else {
+                const fft = new FFTCtor(n);
+                const h = fft.createComplexArray();
+                for (let i = 0; i < n; i++) {
+                    const k = i <= n / 2 ? i : i - n;
+                    h[2 * i] = k === 0 ? 0.25 : (k % 2 !== 0 ? -1 / (Math.PI * Math.PI * k * k) : 0);
                 }
-                return sinogram;
-            }
-
-            function buildFilter(numRho, filterType) {
-                const filter = new Float32Array(numRho);
-                const center = numRho / 2;
-                for (let i = 0; i < numRho; i++) {
-                    const freq = Math.abs(i - center);
-                    const nyquist = center;
-                    const ramp = freq;
-                    let window = 1;
-                    const t = freq / nyquist;
-                    if (filterType === 'shepp') {
-                        window = (t > 0) ? Math.sin(Math.PI * t / 2) / (Math.PI * t / 2) : 1;
-                    } else if (filterType === 'hann') {
-                        window = 0.5 * (1 + Math.cos(Math.PI * t));
-                    } else if (filterType === 'none') {
-                        filter[i] = 1; continue;
-                    }
-                    filter[i] = ramp * window;
+                const Hc = fft.createComplexArray();
+                fft.transform(Hc, h);
+                for (let i = 0; i < n; i++) {
+                    const t = Math.min(i, n - i) / (n / 2);   // 0 at DC → 1 at Nyquist
+                    let win = 1;
+                    if (type === 'shepp') win = t > 0 ? Math.sin(Math.PI * t / 2) / (Math.PI * t / 2) : 1;
+                    else if (type === 'hann') win = 0.5 * (1 + Math.cos(Math.PI * t));
+                    H[i] = Math.abs(Hc[2 * i]) * win;
                 }
-                return filter;
             }
+            filterCache.set(key, H);
+            return H;
+        }
 
-            function filterSinogram(sinogram, numAngles, numRho, filterType) {
-                const fft = new FFT(numRho);
-                const filteredSinogram = [];
-                const filter = buildFilter(numRho, filterType);
-                for (let i = 0; i < numAngles; i++) {
-                    const projection = sinogram[i];
-                    const complexProjection = fft.createComplexArray();
-                    for (let j = 0; j < projection.length; j++) {
-                        complexProjection[2 * j] = projection[j];
-                        complexProjection[2 * j + 1] = 0;
-                    }
-                    const freqDomain = fft.createComplexArray();
-                    fft.transform(freqDomain, complexProjection);
-                    for (let j = 0; j < numRho; j++) {
-                        freqDomain[2 * j] *= filter[j];
-                        freqDomain[2 * j + 1] *= filter[j];
-                    }
-                    const filteredComplex = fft.createComplexArray();
-                    fft.inverseTransform(filteredComplex, freqDomain);
-                    const finalProjection = new Float32Array(numRho);
-                    for (let j = 0; j < numRho; j++) {
-                        finalProjection[j] = filteredComplex[2 * j] / numRho;
-                    }
-                    filteredSinogram.push(finalProjection);
-                }
-                return filteredSinogram;
+        function filterSinogram(sino, numAngles, numRho, type) {
+            if (type === 'none') return sino;
+            let n = 1;
+            while (n < 2 * numRho) n <<= 1;   // zero-padding avoids wrap-around of the kernel tails
+            const fft = new FFTCtor(n);
+            const H = getFilter(n, type);
+            const inBuf = fft.createComplexArray(), freq = fft.createComplexArray(), outBuf = fft.createComplexArray();
+            const out = new Float32Array(sino.length);
+            for (let t = 0; t < numAngles; t++) {
+                const base = t * numRho;
+                inBuf.fill(0);
+                for (let j = 0; j < numRho; j++) inBuf[2 * j] = sino[base + j];
+                fft.transform(freq, inBuf);
+                for (let j = 0; j < n; j++) { freq[2 * j] *= H[j]; freq[2 * j + 1] *= H[j]; }
+                fft.inverseTransform(outBuf, freq);
+                for (let j = 0; j < numRho; j++) out[base + j] = outBuf[2 * j] / n;
             }
+            return out;
+        }
 
-            function inverseRadonTransform(sinogram, width, height, numAngles, rhoMax, numRho) {
-                const reconstructedData = new Float32Array(width * height).fill(0);
-                const angles = Array.from({ length: numAngles }, (_, i) => i * Math.PI / numAngles);
-                const centerX = width / 2, centerY = height / 2;
-                // Linear interpolation along ρ for each backprojection ray.
-                // This is the single biggest quality improvement vs nearest-neighbor.
-                for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                    const projection = sinogram[i_theta];
-                    const cosA = Math.cos(angles[i_theta]), sinA = Math.sin(angles[i_theta]);
-                    for (let y = 0; y < height; y++) {
-                        const y_coord = -(y - centerY);
-                        const yTerm = y_coord * sinA;
-                        for (let x = 0; x < width; x++) {
-                            const x_coord = x - centerX;
-                            const rhoF = x_coord * cosA + yTerm;
-                            const i0 = Math.floor(rhoF);
-                            const frac = rhoF - i0;
-                            const idx0 = i0 + rhoMax;
-                            const idx1 = idx0 + 1;
-                            // Bounds check then linearly blend the two adjacent projection samples
-                            if (idx0 >= 0 && idx1 < numRho) {
-                                reconstructedData[y * width + x] +=
-                                    projection[idx0] * (1 - frac) + projection[idx1] * frac;
-                            } else if (idx0 >= 0 && idx0 < numRho) {
-                                reconstructedData[y * width + x] += projection[idx0] * (1 - frac);
-                            } else if (idx1 >= 0 && idx1 < numRho) {
-                                reconstructedData[y * width + x] += projection[idx1] * frac;
-                            }
+        // Back-projection with linear interpolation, scaled by π/N_θ (so filtered output ≈ true density)
+        function backProject(sino, size, numAngles, numRho) {
+            const out = new Float32Array(size * size);
+            const [cosT, sinT] = trig(numAngles);
+            const c = size / 2, off = numRho / 2;
+            for (let t = 0; t < numAngles; t++) {
+                const base = t * numRho, cosA = cosT[t], sinA = sinT[t];
+                for (let y = 0; y < size; y++) {
+                    const yTerm = (c - (y + 0.5)) * sinA + off;
+                    const row = y * size;
+                    for (let x = 0; x < size; x++) {
+                        const f = (x + 0.5 - c) * cosA + yTerm;
+                        const i0 = Math.floor(f), w = f - i0;
+                        if (i0 >= 0 && i0 + 1 < numRho) {
+                            out[row + x] += sino[base + i0] * (1 - w) + sino[base + i0 + 1] * w;
                         }
                     }
                 }
-                return reconstructedData;
             }
+            const scale = Math.PI / numAngles;
+            for (let i = 0; i < out.length; i++) out[i] *= scale;
+            return out;
+        }
 
-            self.onmessage = function(e) {
-                const { slice, index, numAngles, noisePct, filterType } = e.data;
-                const { width, height } = slice;
-                let numRho = Math.pow(2, Math.ceil(Math.log2(2 * Math.ceil(Math.hypot(width, height) / 2))));
-                const rhoMax = numRho / 2;
-                let sinogram = radonTransform(slice, numAngles, rhoMax, numRho);
-                sinogram = addNoise(sinogram, noisePct);
-                const filteredSinogram = filterSinogram(sinogram, numAngles, numRho, filterType);
-                const reconstructedSlice = inverseRadonTransform(filteredSinogram, width, height, numAngles, rhoMax, numRho);
-                self.postMessage({
-                    sliceIndex: index,
-                    sinogram: sinogram,
-                    reconstructedSlice: reconstructedSlice
+        self.onmessage = function (e) {
+            const m = e.data;
+            try {
+                const slice = makeSlice(m.tree, m.size, m.bounds, m.z);
+                const sino = radonTransform(slice, m.size, m.numAngles, m.numRho);
+                addNoise(sino, m.noisePct);
+                const recon = backProject(filterSinogram(sino, m.numAngles, m.numRho, m.filterType), m.size, m.numAngles, m.numRho);
+                self.postMessage({ index: m.index, slice, sino, recon }, [slice.buffer, sino.buffer, recon.buffer]);
+            } catch (err) {
+                self.postMessage({ index: m.index, error: String((err && err.stack) || err) });
+            }
+        };
+
+    </script>
+
+    <script>
+        // --- DOM Elements ---
+        const $ = id => document.getElementById(id);
+        const presetSelector = $('presets');
+        const imgSizeSelect = $('img-size');
+        const sliceCountSlider = $('slice-count');
+        const sliceCountValue = $('slice-count-value');
+        const numAnglesSlider = $('num-angles');
+        const numAnglesValue = $('num-angles-value');
+        const noiseSlider = $('noise-level');
+        const noiseValue = $('noise-level-value');
+        const filterTypeSelect = $('filter-type');
+        const maskReconCheckbox = $('mask-recon');
+        const showSliceCheckbox = $('show-slice');
+        const windowCenterSlider = $('window-center');
+        const windowCenterValue = $('window-center-value');
+        const windowWidthSlider = $('window-width');
+        const windowWidthValue = $('window-width-value');
+        const currentSliceSlider = $('current-slice');
+        const currentSliceValue = $('current-slice-value');
+        const statusEl = $('status');
+        const progressBarContainer = $('progress-bar-container');
+        const progressBar = $('progress-bar');
+        const sliceReadout = $('slice-readout');
+        const sinoReadout = $('sino-readout');
+        const helpOverlay = $('help-overlay');
+
+        const sourceContainer = $('source-container');
+        const reconContainer = $('recon-container');
+        const sliceCanvas = $('slice-canvas');
+        const sliceCtx = sliceCanvas.getContext('2d');
+        const sinogramCanvas = $('sinogram-canvas');
+        const sinogramCtx = sinogramCanvas.getContext('2d');
+
+        // --- Global State ---
+        let sourceScene, reconScene;
+        const sourceObjectGroup = new THREE.Group();
+        const reconObjectGroup = new THREE.Group();
+        let currentSourceObject = null;
+
+        // Everything the display needs, committed atomically when a run finishes
+        let volume = null;
+
+        let runGen = 0;            // bumped on every request; stale runs are abandoned
+        let isProcessing = false;
+        let progressHideTimer = null;
+
+        let slicePlaneSource = null;
+        let slicePlaneRecon = null;
+        const slicePlaneMaterial = new THREE.MeshBasicMaterial({
+            color: 0xfbbf24, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false
+        });
+
+        const GLOBAL_BOUNDS = new THREE.Box3(new THREE.Vector3(-1.5, -1.5, -1.5), new THREE.Vector3(1.5, 1.5, 1.5));
+
+        let rngSeed = 42;
+        function seededRandom() {
+            rngSeed = (rngSeed * 9301 + 49297) % 233280;
+            return rngSeed / 233280;
+        }
+
+        // --- Help modal ---
+        $('help-trigger').addEventListener('click', () => helpOverlay.classList.add('open'));
+        $('help-close').addEventListener('click', () => helpOverlay.classList.remove('open'));
+        helpOverlay.addEventListener('click', e => { if (e.target === helpOverlay) helpOverlay.classList.remove('open'); });
+
+        // --- Worker pool (persistent, reused across runs) ---
+        const workerUrl = URL.createObjectURL(new Blob([$('worker-src').textContent], { type: 'text/javascript' }));
+        const POOL_SIZE = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 8));
+        const pool = [];
+        function getPool() {
+            while (pool.length < POOL_SIZE) pool.push(new Worker(workerUrl));
+            return pool;
+        }
+        function replaceWorker(i) {
+            try { pool[i].terminate(); } catch (e) { /* already dead */ }
+            pool[i] = new Worker(workerUrl);
+        }
+
+        function init() {
+            sourceScene = init3DScene(sourceContainer);
+            reconScene = init3DScene(reconContainer);
+            sourceScene.scene.add(sourceObjectGroup);
+            reconScene.scene.add(reconObjectGroup);
+            syncCameras();
+            animate();
+            presetSelector.addEventListener('change', handlePresetChange);
+            setupSliders();
+            setupDragHandle();
+            setupKeyboard();
+            handlePresetChange();
+        }
+
+        function setupSliders() {
+            const pair = (slider, numInput, onCommit) => {
+                slider.addEventListener('input', () => { numInput.value = slider.value; });
+                slider.addEventListener('change', onCommit);
+                numInput.addEventListener('change', () => {
+                    let val = parseInt(numInput.value, 10);
+                    const min = parseInt(slider.min, 10), max = parseInt(slider.max, 10);
+                    if (isNaN(val) || val < min) val = min;
+                    if (val > max) val = max;
+                    numInput.value = val;
+                    slider.value = val;
+                    onCommit();
                 });
             };
-        `;
-        const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
-        const workerUrl = URL.createObjectURL(workerBlob);
+            // Acquisition/reconstruction settings: always accepted; a running job restarts with them.
+            pair(sliceCountSlider, sliceCountValue, runFullTransform);
+            pair(numAnglesSlider, numAnglesValue, runFullTransform);
+            pair(noiseSlider, noiseValue, runFullTransform);
+            filterTypeSelect.addEventListener('change', runFullTransform);
+            imgSizeSelect.addEventListener('change', runFullTransform);
 
-        async function processSlicesWithWorkers(slices, numAngles, noisePct, filterType) {
-            return new Promise(resolve => {
-                const numSlices = slices.length;
-                sinograms = new Array(numSlices);
-                reconstructedSlices = new Array(numSlices);
-                const numWorkers = Math.min(navigator.hardwareConcurrency || 4, numSlices);
-                let sliceQueue = Array.from({ length: numSlices }, (_, i) => i);
-                let slicesProcessed = 0;
-                function runWorker() {
-                    if (sliceQueue.length === 0) return;
-                    const sliceIndexToProcess = sliceQueue.shift();
-                    const worker = new Worker(workerUrl);
-                    worker.onmessage = e => {
-                        const { sliceIndex, sinogram, reconstructedSlice } = e.data;
-                        sinograms[sliceIndex] = sinogram;
-                        reconstructedSlices[sliceIndex] = reconstructedSlice;
-                        slicesProcessed++;
-                        progressBar.style.width = `${10 + (slicesProcessed / numSlices) * 85}%`;
-                        worker.terminate();
-                        if (slicesProcessed === numSlices) resolve();
-                        else runWorker();
-                    };
-                    worker.onerror = (err) => {
-                        console.error("Worker error:", err);
-                        slicesProcessed++;
-                        worker.terminate();
-                        if (slicesProcessed === numSlices) resolve();
-                        else runWorker();
-                    };
-                    worker.postMessage({
-                        slice: slices[sliceIndexToProcess],
-                        index: sliceIndexToProcess,
-                        numAngles, noisePct, filterType
-                    });
-                }
-                for (let i = 0; i < numWorkers; i++) runWorker();
+            // Display-only settings: operate on the committed volume, never on a partial run.
+            const redisplay = () => {
+                if (!volume) return;
+                displayReconstructedVolume();
+                updateViews();
+            };
+            pair(windowCenterSlider, windowCenterValue, redisplay);
+            pair(windowWidthSlider, windowWidthValue, redisplay);
+            maskReconCheckbox.addEventListener('change', redisplay);
+
+            currentSliceSlider.addEventListener('input', () => {
+                currentSliceValue.value = currentSliceSlider.value;
+                updateViews();
+            });
+            currentSliceValue.addEventListener('change', () => {
+                const max = parseInt(currentSliceSlider.max, 10);
+                let val = parseInt(currentSliceValue.value, 10);
+                if (isNaN(val) || val < 0) val = 0;
+                if (val > max) val = max;
+                currentSliceSlider.value = val;
+                currentSliceValue.value = val;
+                updateViews();
+            });
+            showSliceCheckbox.addEventListener('change', updateSlicePlanes);
+        }
+
+        function setupKeyboard() {
+            window.addEventListener('keydown', e => {
+                if (currentSliceSlider.disabled || helpOverlay.classList.contains('open')) return;
+                // Let focused form controls keep their own keyboard behaviour
+                const ae = document.activeElement;
+                if (ae && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(ae.tagName)) return;
+                const max = parseInt(currentSliceSlider.max, 10);
+                let val = parseInt(currentSliceSlider.value, 10);
+                if (e.key === 'ArrowRight' || e.key === 'ArrowUp') val = Math.min(max, val + 1);
+                else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') val = Math.max(0, val - 1);
+                else return;
+                currentSliceSlider.value = val;
+                currentSliceValue.value = val;
+                updateViews();
+                e.preventDefault();
             });
         }
 
+        function setupDragHandle() {
+            const resizer = $('drag-handle');
+            const leftPanel = $('controls-panel');
+            let isResizing = false;
+            resizer.addEventListener('mousedown', e => {
+                e.preventDefault();
+                isResizing = true;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', stopResize);
+            });
+            function handleMouseMove(e) {
+                if (!isResizing) return;
+                const p = resizer.parentElement;
+                const w = e.clientX - p.getBoundingClientRect().left;
+                if (w > 260 && w < p.clientWidth - 400) leftPanel.style.width = `${w}px`;
+            }
+            function stopResize() {
+                isResizing = false;
+                document.body.style.cursor = isProcessing ? 'progress' : 'default';
+                document.body.style.userSelect = 'auto';
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', stopResize);
+            }
+        }
+
+        function syncCameras() {
+            const sync = (sourceControls, targetControls, targetCamera) => {
+                targetCamera.position.copy(sourceControls.object.position);
+                targetCamera.quaternion.copy(sourceControls.object.quaternion);
+                targetControls.target.copy(sourceControls.target);
+            };
+            sourceScene.controls.addEventListener('change', () => sync(sourceScene.controls, reconScene.controls, reconScene.camera));
+            reconScene.controls.addEventListener('change', () => sync(reconScene.controls, sourceScene.controls, sourceScene.camera));
+        }
+
+        function init3DScene(container) {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+            camera.position.set(2.2, 2.2, 2.2);
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dirLight.position.set(5, 10, 7.5);
+            scene.add(dirLight);
+            scene.add(new THREE.AxesHelper(1.5));
+
+            const resizeObserver = new ResizeObserver(entries => {
+                for (const entry of entries) {
+                    const { width, height } = entry.contentRect;
+                    if (width > 0 && height > 0) {
+                        const size = Math.min(width, height);
+                        camera.aspect = 1;
+                        camera.updateProjectionMatrix();
+                        renderer.setSize(size, size);
+                    }
+                }
+            });
+            resizeObserver.observe(container);
+            return { scene, camera, renderer, controls };
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            sourceScene.controls.update();
+            reconScene.controls.update();
+            sourceScene.renderer.render(sourceScene.scene, sourceScene.camera);
+            reconScene.renderer.render(reconScene.scene, reconScene.camera);
+        }
+
+        // --- GPU resource cleanup ---
+        function disposeChildren(group) {
+            for (const child of [...group.children]) {
+                child.traverse(o => {
+                    if (o.geometry) o.geometry.dispose();
+                    const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+                    for (const m of mats) {
+                        if (m === slicePlaneMaterial) continue;   // shared, kept for the page lifetime
+                        if (m.map) m.map.dispose();
+                        m.dispose();
+                    }
+                });
+                group.remove(child);
+            }
+            if (group === sourceObjectGroup) slicePlaneSource = null;
+            if (group === reconObjectGroup) slicePlaneRecon = null;
+        }
+
+        function handlePresetChange() {
+            runGen++;   // abandon any run for the previous object
+            rngSeed = 42;
+            disposeChildren(sourceObjectGroup);
+            disposeChildren(reconObjectGroup);
+            volume = null;
+            sliceCtx.clearRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+            sinogramCtx.clearRect(0, 0, sinogramCanvas.width, sinogramCanvas.height);
+            sliceReadout.textContent = 'z = —';
+            sinoReadout.textContent = '— × —';
+            currentSliceSlider.disabled = true;
+            currentSliceValue.disabled = true;
+
+            currentSourceObject = generate3DObject(presetSelector.value);
+            sourceObjectGroup.add(currentSourceObject);
+            sourceObjectGroup.updateMatrixWorld(true);
+
+            runFullTransform();
+        }
+
+        // --- Compile the Three.js object into a plain, cloneable description for the workers ---
+        // Inverse world matrices and bounding spheres are computed once here, not per pixel.
+        function compileObject(object) {
+            object.updateWorldMatrix(true, true);
+            const walk = o => {
+                if (o === slicePlaneSource || o === slicePlaneRecon) return null;
+                const density = (o.userData && typeof o.userData.density === 'number') ? o.userData.density : null;
+                if (o.isGroup) {
+                    return {
+                        kind: 'group',
+                        additive: !!(o.userData && o.userData.isAdditivePhantom),
+                        density,
+                        children: o.children.map(walk).filter(Boolean)
+                    };
+                }
+                if (!o.isMesh || !o.geometry) return null;
+                const g = o.geometry, p = g.parameters;
+                const node = { kind: 'prim', density, inv: new THREE.Matrix4().copy(o.matrixWorld).invert().elements.slice() };
+                switch (g.type) {
+                    case 'SphereGeometry': node.type = 'sphere'; node.r = p.radius; break;
+                    case 'BoxGeometry': node.type = 'box'; node.w = p.width; node.h = p.height; node.d = p.depth; break;
+                    case 'TorusGeometry': node.type = 'torus'; node.R = p.radius; node.r = p.tube; break;
+                    case 'CylinderGeometry': node.type = 'cylinder'; node.r = p.radiusTop; node.h = p.height; break;
+                    case 'IcosahedronGeometry': node.type = 'icosahedron'; node.radius = p.radius; break;
+                    default: return null;
+                }
+                if (!g.boundingSphere) g.computeBoundingSphere();
+                const bs = g.boundingSphere.clone().applyMatrix4(o.matrixWorld);
+                node.bc = [bs.center.x, bs.center.y, bs.center.z];
+                node.br2 = (bs.radius * 1.02 + 1e-6) ** 2;
+                return node;
+            };
+            return walk(object);
+        }
+
+        function sliceZ(i, sliceCount) {
+            const zMin = GLOBAL_BOUNDS.min.z, zMax = GLOBAL_BOUNDS.max.z;
+            return zMin + (i + 0.5) * (zMax - zMin) / sliceCount;
+        }
+
+        function readConfig() {
+            if (!currentSourceObject) return null;
+            const size = parseInt(imgSizeSelect.value, 10);
+            return {
+                size,
+                sliceCount: parseInt(sliceCountSlider.value, 10),
+                numAngles: parseInt(numAnglesSlider.value, 10),
+                numRho: 2 * Math.ceil(Math.hypot(size, size) / 2) + 4,
+                noisePct: parseInt(noiseSlider.value, 10),
+                filterType: filterTypeSelect.value,
+                bounds: { minX: GLOBAL_BOUNDS.min.x, maxX: GLOBAL_BOUNDS.max.x, minY: GLOBAL_BOUNDS.min.y, maxY: GLOBAL_BOUNDS.max.y },
+                tree: compileObject(currentSourceObject)
+            };
+        }
+
+        // Resolves with results, with { failed: true }, or with null if the run was superseded.
+        function runSlicesOnPool(cfg, gen) {
+            return new Promise(resolve => {
+                const N = cfg.sliceCount;
+                const res = { src: new Array(N), sino: new Array(N), recon: new Array(N), failed: false };
+                const workers = getPool();
+                let next = 0, done = 0, inflight = 0, finished = false;
+                const finish = v => { if (!finished) { finished = true; resolve(v); } };
+
+                const dispatch = wi => {
+                    const stale = gen !== runGen;
+                    if (stale || res.failed || next >= N) {
+                        if (inflight === 0) finish(stale ? null : res);
+                        return;
+                    }
+                    const i = next++;
+                    inflight++;
+                    const w = workers[wi];
+                    w.onmessage = e => {
+                        inflight--;
+                        const d = e.data;
+                        if (d.error) {
+                            console.error('Slice', d.index, 'failed:', d.error);
+                            res.failed = true;
+                        } else {
+                            res.src[d.index] = d.slice;
+                            res.sino[d.index] = d.sino;
+                            res.recon[d.index] = d.recon;
+                            done++;
+                            if (gen === runGen) progressBar.style.width = `${5 + (done / N) * 90}%`;
+                        }
+                        dispatch(wi);
+                    };
+                    w.onerror = err => {
+                        if (err.preventDefault) err.preventDefault();
+                        console.error('Worker crashed:', err.message || err);
+                        inflight--;
+                        res.failed = true;
+                        replaceWorker(wi);
+                        dispatch(wi);
+                    };
+                    w.postMessage({
+                        index: i, z: sliceZ(i, N), tree: cfg.tree, size: cfg.size, bounds: cfg.bounds,
+                        numAngles: cfg.numAngles, numRho: cfg.numRho, noisePct: cfg.noisePct, filterType: cfg.filterType
+                    });
+                };
+                workers.forEach((_, wi) => dispatch(wi));
+            });
+        }
+
+        // Any settings change calls this. If a run is active it is abandoned and restarted with the new settings.
         async function runFullTransform() {
-            if (isProcessing) return;
+            runGen++;
+            if (isProcessing) {
+                statusEl.textContent = 'settings changed — restarting…';
+                return;
+            }
             isProcessing = true;
-            document.body.style.cursor = 'wait';
-            presetSelector.disabled = true;
-            sliceCountSlider.disabled = true;
-            sliceCountValue.disabled = true;
-            numAnglesSlider.disabled = true;
-            numAnglesValue.disabled = true;
-            noiseSlider.disabled = true;
-            noiseValue.disabled = true;
-            filterTypeSelect.disabled = true;
-
-            statusEl.textContent = 'processing…';
+            document.body.style.cursor = 'progress';
+            clearTimeout(progressHideTimer);
             progressBarContainer.style.display = 'block';
-            progressBar.style.width = '5%';
-            const object3D = sourceObjectGroup.children[0];
-            if (!object3D) { isProcessing = false; return; }
-            reconObjectGroup.clear();
 
-            const sliceCount = parseInt(sliceCountSlider.value);
-            const numAngles = parseInt(numAnglesSlider.value);
-            const noisePct = parseInt(noiseSlider.value);
-            const filterType = filterTypeSelect.value;
+            try {
+                while (true) {
+                    const gen = runGen;
+                    const cfg = readConfig();
+                    if (!cfg) { statusEl.textContent = 'no object to process'; break; }
 
-            await new Promise(r => setTimeout(r, 10));
-            statusEl.textContent = `[1/4] slicing volume (N_z=${sliceCount})…`;
-            const sliceResult = getSlicesFrom3DObject(object3D, sliceCount, IMG_SIZE);
-            sourceSlices = sliceResult.slices;
-            sourceSlicesFloat = sliceResult.slicesFloat;
-            progressBar.style.width = '10%';
-            statusEl.textContent = `[2/4] computing ${sliceCount} sinograms (N_θ=${numAngles})…`;
-            await processSlicesWithWorkers(sourceSlices, numAngles, noisePct, filterType);
-            statusEl.textContent = '[3/4] building 3D reconstruction…';
-            displayReconstructedVolume(reconstructedSlices, object3D);
-            progressBar.style.width = '100%';
-            statusEl.textContent = `[done] N_z=${sliceCount} · N_θ=${numAngles} · σ=${noisePct}%`;
+                    progressBar.style.width = '5%';
+                    statusEl.textContent = `slicing + FBP: ${cfg.sliceCount} slices × ${cfg.numAngles} θ @ ${cfg.size}px…`;
+                    const t0 = performance.now();
+                    const result = await runSlicesOnPool(cfg, gen);
 
-            currentSliceSlider.max = sliceCount - 1;
-            currentSliceValue.max = sliceCount - 1;
-            currentSliceSlider.value = Math.floor((sliceCount - 1) / 2);
-            currentSliceValue.value = currentSliceSlider.value;
+                    if (gen !== runGen) continue;   // settings changed mid-run → start over
+                    if (!result || result.failed) {
+                        statusEl.textContent = 'error: reconstruction failed (see console)';
+                        break;
+                    }
+                    commitVolume(cfg, result);
+                    progressBar.style.width = '100%';
+                    statusEl.textContent = `[done] N_z=${cfg.sliceCount} · N_θ=${cfg.numAngles} · σ=${cfg.noisePct}% · ${Math.round(performance.now() - t0)} ms`;
+                    break;
+                }
+            } catch (err) {
+                console.error(err);
+                statusEl.textContent = 'error: ' + err.message;
+            } finally {
+                isProcessing = false;
+                document.body.style.cursor = 'default';
+                progressHideTimer = setTimeout(() => {
+                    progressBarContainer.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 800);
+            }
+        }
+
+        function commitVolume(cfg, result) {
+            let reconMax = 0;
+            for (const r of result.recon) for (let i = 0; i < r.length; i++) if (r[i] > reconMax) reconMax = r[i];
+
+            const prevIndex = parseInt(currentSliceSlider.value, 10);
+            const keepIndex = volume && volume.sliceCount === cfg.sliceCount && !isNaN(prevIndex);
+
+            volume = {
+                size: cfg.size, sliceCount: cfg.sliceCount, numAngles: cfg.numAngles, numRho: cfg.numRho,
+                filterType: cfg.filterType, sourceFloat: result.src, sinograms: result.sino, recons: result.recon, reconMax
+            };
+
+            currentSliceSlider.max = cfg.sliceCount - 1;
+            currentSliceValue.max = cfg.sliceCount - 1;
+            const idx = keepIndex ? Math.min(prevIndex, cfg.sliceCount - 1) : Math.floor((cfg.sliceCount - 1) / 2);
+            currentSliceSlider.value = idx;
+            currentSliceValue.value = idx;
             currentSliceSlider.disabled = false;
             currentSliceValue.disabled = false;
+
+            displayReconstructedVolume();
             updateViews();
-
-            setTimeout(() => {
-                progressBarContainer.style.display = 'none';
-                progressBar.style.width = '0%';
-            }, 800);
-
-            presetSelector.disabled = false;
-            sliceCountSlider.disabled = false;
-            sliceCountValue.disabled = false;
-            numAnglesSlider.disabled = false;
-            numAnglesValue.disabled = false;
-            noiseSlider.disabled = false;
-            noiseValue.disabled = false;
-            filterTypeSelect.disabled = false;
-            document.body.style.cursor = 'default';
-            isProcessing = false;
         }
 
         // ============ Phantom generators ============
         function makeStandardMaterial(gray, opts) {
             return new THREE.MeshStandardMaterial({
                 color: new THREE.Color(gray, gray, gray),
-                metalness: 0.2,
-                roughness: 0.5,
-                side: THREE.DoubleSide,
+                metalness: 0.2, roughness: 0.5, side: THREE.DoubleSide,
                 ...(opts || {})
             });
         }
 
-        // 3D Shepp-Logan phantom. Standard parameters (Kak & Slaney / Toft 1996).
-        // Convention: head's long axis is Y (so coronal-ish view in our XYZ).
-        // We use SphereGeometry(1) scaled to ellipsoid + per-object density.
-        // Slice axis is Z (axial). To make inner structures appear in axial cuts,
-        // their Z extent must span enough to be hit by several slices.
+        // 3D modified Shepp-Logan phantom (Kak & Slaney geometry, Toft contrast),
+        // i.e. the table used by the common phantom3d implementation. Ventricle tilt = rotation about Z.
+        // Head long axis is Y; slices are axial (Z).
         function makeSheppLogan() {
             const group = new THREE.Group();
-            // [cx, cy, cz,  sx,  sy,  sz,  density,  rotZdeg]
-            // Standard 3D Shepp-Logan (head phantom). Densities are the canonical values
-            // (background subtracted = 0). Coordinates rescaled to fit our [-1.5,1.5] cube.
             const SCALE = 1.1;
+            // [cx, cy, cz, sx, sy, sz, density, rotZdeg]
             const ellipsoids = [
-                // Outer skull (large, dense)
-                [ 0.0,    0.0,    0.0,    0.69, 0.92, 0.81,  1.00,   0 ],
-                // Inner brain (slightly smaller, lower density)
-                [ 0.0,   -0.0184, 0.0,    0.6624,0.874,0.78, -0.80,   0 ],
-                // Right ventricle (tilted ellipsoid, small in Z so visible in mid-slices)
-                [ 0.22,   0.0,    0.0,    0.11, 0.31, 0.22, -0.20, -18 ],
-                // Left ventricle
-                [-0.22,   0.0,    0.0,    0.16, 0.41, 0.28, -0.20,  18 ],
-                // Top
-                [ 0.0,    0.35,  -0.15,   0.21, 0.25, 0.41,  0.10,   0 ],
-                // Small bright nodules (sized to be ≥3 px @ IMG_SIZE=128)
-                [ 0.0,    0.10,   0.25,   0.046,0.046,0.05,  0.20,   0 ],
-                [ 0.0,   -0.10,   0.25,   0.046,0.046,0.05,  0.20,   0 ],
-                [-0.08,  -0.605,  0.0,    0.046,0.023,0.05,  0.20,   0 ],
-                [ 0.06,  -0.605,  0.0,    0.046,0.023,0.05,  0.20,   0 ],
-                [ 0.0,   -0.605,  0.0,    0.056,0.04, 0.10,  0.20,   0 ],
+                [ 0.00,  0.0000,  0.00, 0.6900, 0.920, 0.810,  1.0,   0 ],   // skull
+                [ 0.00, -0.0184,  0.00, 0.6624, 0.874, 0.780, -0.8,   0 ],   // brain
+                [ 0.22,  0.0000,  0.00, 0.1100, 0.310, 0.220, -0.2, -18 ],   // right ventricle
+                [-0.22,  0.0000,  0.00, 0.1600, 0.410, 0.280, -0.2,  18 ],   // left ventricle
+                [ 0.00,  0.3500, -0.15, 0.2100, 0.250, 0.410,  0.1,   0 ],
+                [ 0.00,  0.1000,  0.25, 0.0460, 0.046, 0.050,  0.1,   0 ],
+                [ 0.00, -0.1000,  0.25, 0.0460, 0.046, 0.050,  0.1,   0 ],
+                [-0.08, -0.6050,  0.00, 0.0460, 0.023, 0.050,  0.1,   0 ],
+                [ 0.00, -0.6060,  0.00, 0.0230, 0.023, 0.020,  0.1,   0 ],
+                [ 0.06, -0.6050,  0.00, 0.0230, 0.046, 0.020,  0.1,   0 ],
             ];
-
-            for (const e of ellipsoids) {
-                const [cx, cy, cz, sx, sy, sz, density, rotZdeg] = e;
-                // Visual: only positive-density components are rendered as solid 3D.
-                // Negative-density (cavities) and inner components are added invisibly
-                // so they affect slicing/projection but not the 3D mesh display.
+            for (const [cx, cy, cz, sx, sy, sz, density, rotZdeg] of ellipsoids) {
+                // Only the dense shell is drawn as a solid mesh; inner components still contribute to the density.
                 const visible = density > 0.3;
                 const visGray = Math.min(0.95, Math.max(0.3, 0.5 + density * 0.4));
-                const material = visible
-                    ? makeStandardMaterial(visGray)
-                    : new THREE.MeshBasicMaterial({ visible: false });
+                const material = visible ? makeStandardMaterial(visGray) : new THREE.MeshBasicMaterial({ visible: false });
                 const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), material);
                 sphere.scale.set(sx * SCALE, sy * SCALE, sz * SCALE);
                 sphere.position.set(cx * SCALE, cy * SCALE, cz * SCALE);
@@ -1428,28 +1403,20 @@
                 sphere.userData.isPhantomComponent = true;
                 group.add(sphere);
             }
-            group.userData.isAdditivePhantom = true; // Tell densityAt() to sum components
+            group.userData.isAdditivePhantom = true;
             return group;
         }
 
-        // Defrise phantom: stack of horizontal disks (cylinders flattened in Z) along Z axis.
+        // Defrise phantom: stack of disks along Z.
         function makeDefrise() {
             const group = new THREE.Group();
-            const radius = 1.0;
-            const thickness = 0.12;
-            const gap = 0.10;
+            const radius = 1.0, thickness = 0.12, gap = 0.10, nLayers = 7;
             const totalStep = thickness + gap;
-            const nLayers = 7;
             const startZ = -((nLayers - 1) / 2) * totalStep;
             for (let i = 0; i < nLayers; i++) {
-                const z = startZ + i * totalStep;
-                // Cylinder oriented along Y in Three.js; we want disks normal to Z → rotate.
-                const cyl = new THREE.Mesh(
-                    new THREE.CylinderGeometry(radius, radius, thickness, 64),
-                    makeStandardMaterial(0.7)
-                );
-                cyl.rotation.x = Math.PI / 2; // align cylinder axis with Z
-                cyl.position.set(0, 0, z);
+                const cyl = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, thickness, 64), makeStandardMaterial(0.7));
+                cyl.rotation.x = Math.PI / 2;   // cylinder axis → Z
+                cyl.position.set(0, 0, startZ + i * totalStep);
                 cyl.userData.density = 0.8;
                 group.add(cyl);
             }
@@ -1460,22 +1427,12 @@
         function makeHotRods() {
             const group = new THREE.Group();
             const config = [
-                // [x, y, radius]
-                [-0.7,  0.3, 0.18],
-                [-0.2,  0.5, 0.13],
-                [ 0.3,  0.55, 0.09],
-                [ 0.7,  0.5, 0.06],
-                [-0.6, -0.4, 0.15],
-                [-0.1, -0.6, 0.10],
-                [ 0.4, -0.55, 0.07],
-                [ 0.75,-0.35, 0.05],
+                [-0.7,  0.3, 0.18], [-0.2,  0.5, 0.13], [ 0.3,  0.55, 0.09], [ 0.7,  0.5, 0.06],
+                [-0.6, -0.4, 0.15], [-0.1, -0.6, 0.10], [ 0.4, -0.55, 0.07], [ 0.75, -0.35, 0.05],
                 [ 0.0,  0.0, 0.20],
             ];
             for (const [x, y, r] of config) {
-                const cyl = new THREE.Mesh(
-                    new THREE.CylinderGeometry(r, r, 2.4, 48),
-                    makeStandardMaterial(0.6 + r)
-                );
+                const cyl = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 2.4, 48), makeStandardMaterial(0.6 + r));
                 cyl.rotation.x = Math.PI / 2;
                 cyl.position.set(x, y, 0);
                 cyl.userData.density = 0.85;
@@ -1485,222 +1442,180 @@
         }
 
         function generate3DObject(type) {
-            const mat = () => makeStandardMaterial(0.55);
             let geometry;
             switch (type) {
                 case 'shepp_logan_3d': return makeSheppLogan();
                 case 'defrise': return makeDefrise();
                 case 'hot_rods': return makeHotRods();
-                case 'small_off_center_sphere':
-                    geometry = new THREE.SphereGeometry(0.25, 32, 32); break;
-                case 'sphere':
-                    geometry = new THREE.SphereGeometry(0.8, 64, 64); break;
-                case 'cube':
-                    geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2); break;
-                case 'torus':
-                    geometry = new THREE.TorusGeometry(0.7, 0.3, 64, 100); break;
-                case 'icosahedron':
-                    geometry = new THREE.IcosahedronGeometry(0.8, 0); break;
+                case 'small_off_center_sphere': geometry = new THREE.SphereGeometry(0.25, 32, 32); break;
+                case 'sphere': geometry = new THREE.SphereGeometry(0.8, 64, 64); break;
+                case 'cube': geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2); break;
+                case 'torus': geometry = new THREE.TorusGeometry(0.7, 0.3, 64, 100); break;
+                case 'icosahedron': geometry = new THREE.IcosahedronGeometry(0.8, 0); break;
                 case '3_spheres': {
                     const group = new THREE.Group();
                     for (let i = 0; i < 3; i++) {
                         const radius = 0.25 + seededRandom() * 0.35;
                         const gray = 0.5 + seededRandom() * 0.4;
-                        const sphere = new THREE.Mesh(
-                            new THREE.SphereGeometry(radius, 32, 32),
-                            makeStandardMaterial(gray)
-                        );
-                        sphere.position.set(
-                            (seededRandom() - 0.5) * 1.4,
-                            (seededRandom() - 0.5) * 1.4,
-                            (seededRandom() - 0.5) * 1.4
-                        );
+                        const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 32), makeStandardMaterial(gray));
+                        sphere.position.set((seededRandom() - 0.5) * 1.4, (seededRandom() - 0.5) * 1.4, (seededRandom() - 0.5) * 1.4);
                         sphere.userData.density = 0.6 + seededRandom() * 0.4;
                         group.add(sphere);
                     }
                     return group;
                 }
+                default: geometry = new THREE.SphereGeometry(0.8, 64, 64);
             }
-            const mesh = new THREE.Mesh(geometry, mat());
+            const mesh = new THREE.Mesh(geometry, makeStandardMaterial(0.55));
             if (type === 'small_off_center_sphere') mesh.position.set(0.4, 0.3, 0.4);
             if (type === 'cube') { mesh.rotation.x = Math.PI / 4; mesh.rotation.y = Math.PI / 4; }
             mesh.userData.density = 1.0;
             return mesh;
         }
 
-        // Apply window/level: map [center-width/2, center+width/2] → [0, 255].
-        // center, width are 0..100 (UI scale).
-        function applyWindowLevel(normalizedVal, center, width) {
-            // normalizedVal is in [0,1]
+        // ============ Display ============
+        // Window/level: map [center − width/2, center + width/2] → [0, 255]; center, width on a 0..100 scale.
+        function applyWindowLevel(v, center, width) {
             const c = center / 100;
             const w = Math.max(0.001, width / 100);
-            const lo = c - w / 2;
-            const hi = c + w / 2;
-            if (normalizedVal <= lo) return 0;
-            if (normalizedVal >= hi) return 255;
-            return Math.floor(((normalizedVal - lo) / (hi - lo)) * 255);
+            const lo = c - w / 2, hi = c + w / 2;
+            if (v <= lo) return 0;
+            if (v >= hi) return 255;
+            return Math.floor(((v - lo) / (hi - lo)) * 255);
         }
 
         function getWindowLevel() {
-            return {
-                center: parseFloat(windowCenterSlider.value),
-                width: parseFloat(windowWidthSlider.value)
-            };
+            return { center: parseFloat(windowCenterSlider.value), width: parseFloat(windowWidthSlider.value) };
         }
 
-        function displayReconstructedVolume(reconSlices, sourceObject) {
-            const boundingBox = GLOBAL_BOUNDS;
-            const zMin = boundingBox.min.z, zMax = boundingBox.max.z;
-            const zStep = (zMax - zMin) / reconSlices.length;
-            const point = new THREE.Vector3();
-            const xRange = boundingBox.max.x - boundingBox.min.x;
-            const yRange = boundingBox.max.y - boundingBox.min.y;
+        // Filtered FBP is correctly scaled, so values are already in density units (same scale as the source).
+        // Unfiltered back-projection has no meaningful scale → normalize by the global (whole-volume) maximum.
+        function reconDisplayValue(v) {
+            if (volume.filterType !== 'none') return v;
+            return volume.reconMax > 0 ? v / volume.reconMax : 0;
+        }
+
+        function displayReconstructedVolume() {
+            disposeChildren(reconObjectGroup);
+            if (!volume) return;
+
+            const { size, sliceCount } = volume;
+            const xRange = GLOBAL_BOUNDS.max.x - GLOBAL_BOUNDS.min.x;
+            const yRange = GLOBAL_BOUNDS.max.y - GLOBAL_BOUNDS.min.y;
             const useMask = maskReconCheckbox.checked;
             const wl = getWindowLevel();
 
-            for (let i = 0; i < reconSlices.length; i++) {
-                const sliceData = reconSlices[i];
-                if (!sliceData) continue;
-                const canvas = document.createElement('canvas');
-                canvas.width = canvas.height = IMG_SIZE;
-                const ctx = canvas.getContext('2d');
-                const imageData = ctx.createImageData(IMG_SIZE, IMG_SIZE);
-                let maxVal = -Infinity, minVal = Infinity;
-                for (const val of sliceData) { if (val > maxVal) maxVal = val; if (val < minVal) minVal = val; }
-                const range = maxVal - minVal;
-                const z = zMin + (i + 0.5) * zStep;
-                if (range > 1e-9) {
-                    for (let p = 0; p < sliceData.length; p++) {
-                        const y_px = Math.floor(p / IMG_SIZE);
-                        const x_px = p % IMG_SIZE;
-                        const normalizedVal = Math.max(0, (sliceData[p] - minVal) / range);
-                        const colorVal = applyWindowLevel(normalizedVal, wl.center, wl.width);
+            for (let i = 0; i < sliceCount; i++) {
+                const data = volume.recons[i], src = volume.sourceFloat[i];
+                if (!data) continue;
+                const rgba = new Uint8Array(size * size * 4);
+                for (let y = 0; y < size; y++) {
+                    const dstRow = (size - 1 - y) * size;   // DataTexture row 0 is the bottom (+y at top)
+                    for (let x = 0; x < size; x++) {
+                        const p = y * size + x;
+                        const nv = reconDisplayValue(data[p]);
+                        const colorVal = applyWindowLevel(nv, wl.center, wl.width);
                         let alpha = 0;
                         if (useMask) {
-                            const sx_w = boundingBox.min.x + (x_px / (IMG_SIZE - 1)) * xRange;
-                            const sy_w = boundingBox.max.y - (y_px / (IMG_SIZE - 1)) * yRange;
-                            point.set(sx_w, sy_w, z);
-                            // Use density (handles additive Shepp-Logan correctly)
-                            if (densityAt(point, sourceObject) > 0.05 && normalizedVal > 0.18) alpha = 255;
-                        } else {
-                            if (normalizedVal > 0.20) alpha = Math.floor(normalizedVal * 255);
+                            if (src[p] > 0.05 && nv > 0.05) alpha = 255;
+                        } else if (nv > 0.15) {
+                            alpha = Math.min(255, Math.floor(nv * 255));
                         }
-                        imageData.data.set([colorVal, colorVal, colorVal, alpha], p * 4);
+                        const o = (dstRow + x) * 4;
+                        rgba[o] = rgba[o + 1] = rgba[o + 2] = colorVal;
+                        rgba[o + 3] = alpha;
                     }
                 }
-                ctx.putImageData(imageData, 0, 0);
-                const texture = new THREE.CanvasTexture(canvas);
-                const material = new THREE.MeshBasicMaterial({
-                    map: texture, transparent: true, alphaTest: 0.05, side: THREE.DoubleSide
-                });
-                const geometry = new THREE.PlaneGeometry(xRange, yRange);
-                const plane = new THREE.Mesh(geometry, material);
-                plane.position.z = z;
+                const texture = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
+                texture.magFilter = THREE.LinearFilter;
+                texture.minFilter = THREE.LinearFilter;
+                texture.needsUpdate = true;
+                const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
+                const plane = new THREE.Mesh(new THREE.PlaneGeometry(xRange, yRange), material);
+                plane.position.z = sliceZ(i, sliceCount);
                 reconObjectGroup.add(plane);
             }
+            updateSlicePlanes();
         }
 
         function updateViews() {
-            const sliceIndex = parseInt(currentSliceSlider.value);
+            if (!volume) { updateSlicePlanes(); return; }
+            const { size, sliceCount } = volume;
+            const sliceIndex = Math.min(parseInt(currentSliceSlider.value, 10) || 0, sliceCount - 1);
             currentSliceValue.value = sliceIndex;
-            if (sourceSlicesFloat && sourceSlicesFloat[sliceIndex]) {
-                sliceCanvas.width = IMG_SIZE;
-                sliceCanvas.height = IMG_SIZE;
+
+            const floatBuf = volume.sourceFloat[sliceIndex];
+            if (floatBuf) {
+                sliceCanvas.width = size;
+                sliceCanvas.height = size;
                 const wl = getWindowLevel();
-                const floatBuf = sourceSlicesFloat[sliceIndex];
-                const img = sliceCtx.createImageData(IMG_SIZE, IMG_SIZE);
+                const img = sliceCtx.createImageData(size, size);
                 for (let p = 0; p < floatBuf.length; p++) {
                     const v = applyWindowLevel(floatBuf[p], wl.center, wl.width);
-                    img.data.set([v, v, v, 255], p * 4);
+                    const o = p * 4;
+                    img.data[o] = img.data[o + 1] = img.data[o + 2] = v;
+                    img.data[o + 3] = 255;
                 }
                 sliceCtx.putImageData(img, 0, 0);
-                // z value readout
-                const zMin = GLOBAL_BOUNDS.min.z, zMax = GLOBAL_BOUNDS.max.z;
-                const zStep = (zMax - zMin) / sourceSlices.length;
-                const z = zMin + (sliceIndex + 0.5) * zStep;
-                sliceReadout.textContent = `z = ${z.toFixed(2)} · idx ${sliceIndex}/${sourceSlices.length - 1}`;
+                sliceReadout.textContent = `z = ${sliceZ(sliceIndex, sliceCount).toFixed(2)} · idx ${sliceIndex}/${sliceCount - 1}`;
             }
             updateSlicePlanes();
-            if (sinograms && sinograms[sliceIndex]) {
-                drawSinogram(sinograms[sliceIndex]);
-                const numAngles = sinograms[sliceIndex].length;
-                const numRho = sinograms[sliceIndex][0]?.length || 0;
-                sinoReadout.textContent = `${numRho} ρ × ${numAngles} θ`;
+
+            const sino = volume.sinograms[sliceIndex];
+            if (sino) {
+                drawSinogram(sino, volume.numAngles, volume.numRho);
+                sinoReadout.textContent = `${volume.numRho} ρ × ${volume.numAngles} θ`;
             }
         }
 
-        function drawSinogram(sinogram) {
-            const numAngles = sinogram.length;
-            if (numAngles === 0) return;
-            const numRho = sinogram[0].length;
+        // Rows = θ, columns = ρ. Min–max scaled (noise can make values negative).
+        function drawSinogram(sino, numAngles, numRho) {
             sinogramCanvas.width = numRho;
             sinogramCanvas.height = numAngles;
-            // Force square display aspect for pedagogical clarity (independent of numRho/numAngles).
             sinogramCanvas.style.aspectRatio = '1 / 1';
             sinogramCanvas.style.width = '100%';
             sinogramCanvas.style.height = '100%';
             sinogramCanvas.style.objectFit = 'fill';
             sinogramCanvas.style.imageRendering = 'auto';
-            const outputImageData = sinogramCtx.createImageData(numRho, numAngles);
-            let maxVal = 0;
-            for (let i = 0; i < numAngles; i++) {
-                for (let j = 0; j < numRho; j++) { if (sinogram[i][j] > maxVal) maxVal = sinogram[i][j]; }
-            }
-            if (maxVal === 0) {
-                sinogramCtx.clearRect(0, 0, sinogramCanvas.width, sinogramCanvas.height);
+
+            let min = Infinity, max = -Infinity;
+            for (let i = 0; i < sino.length; i++) { if (sino[i] < min) min = sino[i]; if (sino[i] > max) max = sino[i]; }
+            const range = max - min;
+            if (!(range > 1e-9)) {
+                sinogramCtx.fillStyle = 'black';
+                sinogramCtx.fillRect(0, 0, numRho, numAngles);
                 return;
             }
-            for (let i_theta = 0; i_theta < numAngles; i_theta++) {
-                for (let i_rho = 0; i_rho < numRho; i_rho++) {
-                    const val = (sinogram[i_theta][i_rho] / maxVal) * 255;
-                    const idx = (i_theta * numRho + i_rho) * 4;
-                    outputImageData.data.set([val, val, val, 255], idx);
-                }
+            const img = sinogramCtx.createImageData(numRho, numAngles);
+            const scale = 255 / range;
+            for (let i = 0; i < sino.length; i++) {
+                const v = (sino[i] - min) * scale, o = i * 4;
+                img.data[o] = img.data[o + 1] = img.data[o + 2] = v;
+                img.data[o + 3] = 255;
             }
-            sinogramCtx.putImageData(outputImageData, 0, 0);
+            sinogramCtx.putImageData(img, 0, 0);
         }
 
-        let slicePlaneSource = null;
-        let slicePlaneRecon = null;
-        const slicePlaneMaterial = new THREE.MeshBasicMaterial({
-            color: 0xfbbf24,
-            transparent: true,
-            opacity: 0.28,
-            side: THREE.DoubleSide,
-            depthWrite: false
-        });
-
         function updateSlicePlanes() {
-            const sliceIndex = parseInt(currentSliceSlider.value);
-            const object3D = sourceObjectGroup.children[0];
-            const showSliceChecked = showSliceCheckbox.checked;
-
-            if (slicePlaneSource && slicePlaneSource.parent) {
-                slicePlaneSource.parent.remove(slicePlaneSource);
-                slicePlaneSource.geometry.dispose();
-                slicePlaneSource = null;
+            for (const plane of [slicePlaneSource, slicePlaneRecon]) {
+                if (plane) {
+                    if (plane.parent) plane.parent.remove(plane);
+                    plane.geometry.dispose();
+                }
             }
-            if (slicePlaneRecon && slicePlaneRecon.parent) {
-                slicePlaneRecon.parent.remove(slicePlaneRecon);
-                slicePlaneRecon.geometry.dispose();
-                slicePlaneRecon = null;
-            }
+            slicePlaneSource = slicePlaneRecon = null;
 
-            if (!object3D || !showSliceChecked || !sourceSlices[sliceIndex]) return;
+            if (!currentSourceObject || !showSliceCheckbox.checked || !volume) return;
+            const sliceIndex = Math.min(parseInt(currentSliceSlider.value, 10) || 0, volume.sliceCount - 1);
+            const z = sliceZ(sliceIndex, volume.sliceCount);
+            const sizeX = GLOBAL_BOUNDS.max.x - GLOBAL_BOUNDS.min.x;
+            const sizeY = GLOBAL_BOUNDS.max.y - GLOBAL_BOUNDS.min.y;
 
-            const boundingBox = GLOBAL_BOUNDS;
-            const zMin = boundingBox.min.z, zMax = boundingBox.max.z;
-            const zStep = (zMax - zMin) / sourceSlices.length;
-            const z = zMin + (sliceIndex + 0.5) * zStep;
-            const sizeX = boundingBox.max.x - boundingBox.min.x;
-            const sizeY = boundingBox.max.y - boundingBox.min.y;
-            const planeGeometry = new THREE.PlaneGeometry(sizeX, sizeY);
-
-            slicePlaneSource = new THREE.Mesh(planeGeometry, slicePlaneMaterial);
+            slicePlaneSource = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeY), slicePlaneMaterial);
             slicePlaneSource.position.z = z;
             sourceObjectGroup.add(slicePlaneSource);
 
-            slicePlaneRecon = new THREE.Mesh(planeGeometry.clone(), slicePlaneMaterial);
+            slicePlaneRecon = new THREE.Mesh(new THREE.PlaneGeometry(sizeX, sizeY), slicePlaneMaterial);
             slicePlaneRecon.position.z = z;
             reconObjectGroup.add(slicePlaneRecon);
         }
