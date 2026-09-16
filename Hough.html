@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>2D Hough Explorer</title>
-    <link href="./dist/output.css" rel="stylesheet">
+    <link href="./dist/output.css" rel="stylesheet" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.tailwindcss.com';document.head.appendChild(s);})()">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
@@ -81,6 +81,7 @@
                 <div class="flex items-center gap-2">
                     <label for="function-presets" class="text-sm font-medium text-gray-700">or select a Preset:</label>
                     <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
+                        <option value="custom" disabled hidden>Uploaded image</option>
                         <option value="simple-line" selected>Simple Line</option>
                         <option value="intersecting-lines">Intersecting Lines</option>
                         <option value="parallel-lines">Parallel Lines</option>
@@ -158,284 +159,304 @@
 
     <script>
         // --- DOM Elements ---
-        const useUploadBtn = document.getElementById('use-upload-btn'),
-            imageUpload = document.getElementById('image-upload'),
-            statusEl = document.getElementById('status'),
-            sourceCanvas = document.getElementById('sourceCanvas'),
-            sourceCtx = sourceCanvas.getContext('2d'),
-            houghCanvas = document.getElementById('houghCanvas'),
+        const $ = id => document.getElementById(id);
+        const useUploadBtn = $('use-upload-btn'),
+            imageUpload = $('image-upload'),
+            statusEl = $('status'),
+            sourceCanvas = $('sourceCanvas'),
+            sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true }),
+            houghCanvas = $('houghCanvas'),
             houghCtx = houghCanvas.getContext('2d'),
-            projectionCanvas = document.getElementById('projectionCanvas'),
+            projectionCanvas = $('projectionCanvas'),
             projectionCtx = projectionCanvas.getContext('2d'),
-            detectionCanvas = document.getElementById('detectionCanvas'),
+            detectionCanvas = $('detectionCanvas'),
             detectionCtx = detectionCanvas.getContext('2d'),
-            functionPresets = document.getElementById('function-presets'),
-            thresholdSlider = document.getElementById('threshold-slider'),
-            thresholdValueEl = document.getElementById('threshold-value'),
-            rhoMaxLabel = document.getElementById('rho-max-label'),
-            rhoMinLabel = document.getElementById('rho-min-label'),
-            sourceOverlayCanvas = document.getElementById('sourceOverlayCanvas'),
+            functionPresets = $('function-presets'),
+            thresholdSlider = $('threshold-slider'),
+            thresholdValueEl = $('threshold-value'),
+            rhoMaxLabel = $('rho-max-label'),
+            rhoMinLabel = $('rho-min-label'),
+            sourceOverlayCanvas = $('sourceOverlayCanvas'),
             sourceOverlayCtx = sourceOverlayCanvas.getContext('2d'),
-            houghOverlayCanvas = document.getElementById('houghOverlayCanvas'),
+            houghOverlayCanvas = $('houghOverlayCanvas'),
             houghOverlayCtx = houghOverlayCanvas.getContext('2d'),
-            sweepContainer = document.getElementById('sweep-container'),
-            sweepSlider = document.getElementById('sweep-slider'),
-            sweepValue = document.getElementById('sweep-value'),
-            sweepValue2 = document.getElementById('sweep-value-2');
-
+            sweepSlider = $('sweep-slider'),
+            sweepValue = $('sweep-value'),
+            sweepValue2 = $('sweep-value-2');
 
         // --- Constants & State ---
         const IMG_SIZE = 256;
         const NUM_ANGLES = 180;
-        let NUM_RHO, RHO_MAX;
-        let currentMode = null, sourceImage = new Image();
-        let accumulator = [], maxAccumulatorValue = 0;
-        let cosAngles = new Float32Array(NUM_ANGLES), sinAngles = new Float32Array(NUM_ANGLES);
+        const RHO_MAX = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
+        const RHO_OFFSET = Math.ceil(RHO_MAX);      // bin index of ρ = 0
+        const NUM_RHO = 2 * RHO_OFFSET + 1;         // symmetric: bins for ρ = −RHO_OFFSET … +RHO_OFFSET
+
+        const MIN_VOTES = 10;          // never report a "line" with fewer edge pixels than this
+        const MAX_LINES = 60;          // cap on drawn lines
+        const NMS_RADIUS = 1;          // local-maximum window in the accumulator (±bins); nearby maxima are merged below
+        const MERGE_THETA = 3;         // peaks closer than this (θ bins) …
+        const MERGE_RHO = 4;           // … and this (ρ bins) are the same line (e.g. both sides of a stroke)
+
+        let currentMode = 'function';
+        let sourceImage = null, currentObjectURL = null;
+        let accumulator = [], maxAccumulatorValue = 0, edgeCount = 0;
+        let currentLines = [];   // declared before the first performTransform() call
+        const cosAngles = new Float64Array(NUM_ANGLES), sinAngles = new Float64Array(NUM_ANGLES);
 
         // --- Initial Setup ---
-        function initializeParameters() {
-            RHO_MAX = Math.hypot(IMG_SIZE, IMG_SIZE) / 2;
-            NUM_RHO = 2 * Math.ceil(RHO_MAX);
-            
-            [sourceCanvas, detectionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
-            projectionCanvas.width = NUM_RHO;
-            projectionCanvas.height = 80;
-
-            for(let i=0; i < NUM_ANGLES; i++) {
-                const angle = i * Math.PI / NUM_ANGLES;
-                cosAngles[i] = Math.cos(angle);
-                sinAngles[i] = Math.sin(angle);
-            }
-            sweepSlider.max = NUM_ANGLES - 1;
+        [sourceCanvas, detectionCanvas, sourceOverlayCanvas].forEach(c => c.width = c.height = IMG_SIZE);
+        projectionCanvas.width = NUM_RHO;
+        projectionCanvas.height = 80;
+        for (let i = 0; i < NUM_ANGLES; i++) {
+            const a = i * Math.PI / NUM_ANGLES;
+            cosAngles[i] = Math.cos(a);
+            sinAngles[i] = Math.sin(a);
         }
-        
-        initializeParameters();
+        sweepSlider.max = NUM_ANGLES - 1;
+        rhoMaxLabel.textContent = `+${RHO_OFFSET}`;
+        rhoMinLabel.textContent = `-${RHO_OFFSET}`;
 
-        useUploadBtn.addEventListener('click', () => { setupMode('upload'); imageUpload.click(); });
+        useUploadBtn.addEventListener('click', () => imageUpload.click());   // mode changes only once an image loads
         imageUpload.addEventListener('change', handleImageUpload);
         functionPresets.addEventListener('change', () => { setupMode('function'); performTransform(); });
-        sweepSlider.addEventListener('input', (e) => handleSliderChange(parseInt(e.target.value)));
-        thresholdSlider.addEventListener('input', (e) => {
+        sweepSlider.addEventListener('input', e => handleSliderChange(parseInt(e.target.value, 10)));
+        thresholdSlider.addEventListener('input', e => {
             thresholdValueEl.textContent = e.target.value;
             drawDetectedLines();
         });
-        
+
         setupMode('function');
         performTransform();
 
         // --- Mode Setup ---
         function setupMode(mode) {
             currentMode = mode;
-            useUploadBtn.classList.remove('active-btn');
-            
-            if (mode === 'upload') {
-                useUploadBtn.classList.add('active-btn');
-                statusEl.textContent = 'Select an image file to begin.';
-            } else if (mode === 'function') {
-                statusEl.textContent = 'Choose a preset to generate a pattern.';
-            }
+            useUploadBtn.classList.toggle('active-btn', mode === 'upload');
+            if (mode === 'upload') functionPresets.value = 'custom';   // any later preset pick fires 'change'
         }
-        
+
         function handleImageUpload(event) {
             const file = event.target.files[0];
-            if (file) {
-                sourceImage.src = URL.createObjectURL(file);
-                sourceImage.onload = () => {
-                    setupMode('upload');
-                    performTransform();
-                };
-            }
+            imageUpload.value = '';   // allow re-uploading the same file
+            if (!file) return;
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+                currentObjectURL = url;
+                sourceImage = img;
+                setupMode('upload');
+                performTransform();
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                statusEl.textContent = 'Could not load that image.';
+            };
+            img.src = url;
         }
 
         // --- Main Execution ---
         function performTransform() {
             const startTime = performance.now();
-            
-            // 1. Generate Source Image & Setup Mode
-            generateSource();
-            setupMode(currentMode);
-            
-            // 2. Pre-processing: Edge Detection (Internal)
-            const sourceImageData = sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
-            const edgeImageData = sobelFilter(sourceImageData);
 
-            // 3. Hough Transform
-            const { accumulator: houghAccumulator, rhoMax: houghRhoMax, maxVotes } = houghTransform(edgeImageData);
-            accumulator = houghAccumulator;
-            RHO_MAX = houghRhoMax;
-            maxAccumulatorValue = maxVotes;
-            
-            rhoMaxLabel.textContent = `+${Math.round(RHO_MAX)}`;
-            rhoMinLabel.textContent = `-${Math.round(RHO_MAX)}`;
-            
-            // 4. Draw main results
+            if (currentMode === 'function') generateFromFunction();
+            else if (currentMode === 'upload' && sourceImage) drawSourceToCanvas(sourceImage);
+
+            const edges = detectEdges(sourceCtx.getImageData(0, 0, IMG_SIZE, IMG_SIZE));
+            const result = houghTransform(edges);
+            accumulator = result.accumulator;
+            maxAccumulatorValue = result.maxVotes;
+            edgeCount = result.edgeCount;
+
             drawAccumulator();
-            drawDetectedLines();
-            
-            // 5. Initialize interactive display
             sweepSlider.value = 0;
-            handleSliderChange(0);
+            const n = drawDetectedLines();
 
-            const endTime = performance.now();
-            statusEl.textContent = `Transform complete (${Math.round(endTime-startTime)}ms).`;
+            statusEl.textContent = `Transform complete (${Math.round(performance.now() - startTime)} ms) · ${edgeCount} edge px · ${n} line${n === 1 ? '' : 's'}.`;
         }
 
-        // --- Data Generation ---
-        function generateSource() {
-            if (currentMode === 'function') {
-                generateFromFunction();
-            } else if (currentMode === 'upload' && sourceImage.src) {
-                drawSourceToCanvas(sourceImage);
+        // --- Edge detection: Sobel + non-maximum suppression (thin, 1-px edges) ---
+        function detectEdges(imageData) {
+            const W = imageData.width, H = imageData.height, src = imageData.data;
+            const gray = new Float32Array(W * H);
+            for (let i = 0; i < W * H; i++) {
+                gray[i] = src[i * 4] * 0.299 + src[i * 4 + 1] * 0.587 + src[i * 4 + 2] * 0.114;
             }
-        }
 
-        // --- Core Logic: Pre-processing, Hough Transform & Line Detection ---
-        function sobelFilter(imageData) {
-            const width = imageData.width;
-            const height = imageData.height;
-            const grayscale = new Uint8ClampedArray(width * height);
-            const output = new ImageData(width, height);
-
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                grayscale[i / 4] = (imageData.data[i] * 0.299) + (imageData.data[i + 1] * 0.587) + (imageData.data[i + 2] * 0.114);
-            }
-            
-            const kernelX = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
-            const kernelY = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]];
-            const SOBEL_THRESHOLD = 80;
-
-            for (let y = 1; y < height - 1; y++) {
-                for (let x = 1; x < width - 1; x++) {
-                    let pixelX = 0, pixelY = 0;
-                    for (let j = -1; j <= 1; j++) {
-                        for (let i = -1; i <= 1; i++) {
-                            const val = grayscale[(y + j) * width + (x + i)];
-                            pixelX += val * kernelX[j + 1][i + 1];
-                            pixelY += val * kernelY[j + 1][i + 1];
-                        }
-                    }
-                    const magnitude = Math.sqrt(pixelX * pixelX + pixelY * pixelY);
-                    const outIdx = (y * width + x) * 4;
-                    const color = magnitude > SOBEL_THRESHOLD ? 255 : 0;
-                    output.data[outIdx] = output.data[outIdx+1] = output.data[outIdx+2] = color;
-                    output.data[outIdx+3] = 255;
+            const mag = new Float32Array(W * H), gxA = new Float32Array(W * H), gyA = new Float32Array(W * H);
+            let maxMag = 0;
+            for (let y = 1; y < H - 1; y++) {
+                for (let x = 1; x < W - 1; x++) {
+                    const i = y * W + x;
+                    const tl = gray[i - W - 1], t = gray[i - W], tr = gray[i - W + 1];
+                    const l = gray[i - 1], r = gray[i + 1];
+                    const bl = gray[i + W - 1], b = gray[i + W], br = gray[i + W + 1];
+                    const gx = (tr + 2 * r + br) - (tl + 2 * l + bl);
+                    const gy = (bl + 2 * b + br) - (tl + 2 * t + tr);
+                    gxA[i] = gx; gyA[i] = gy;
+                    const m = Math.hypot(gx, gy);
+                    mag[i] = m;
+                    if (m > maxMag) maxMag = m;
                 }
             }
-            return output;
+
+            // Threshold adapts to image contrast (a fixed value fails on dim or noisy photos)
+            const threshold = Math.max(40, 0.2 * maxMag);
+            const edges = new Uint8Array(W * H);
+            for (let y = 1; y < H - 1; y++) {
+                for (let x = 1; x < W - 1; x++) {
+                    const i = y * W + x, m = mag[i];
+                    if (m < threshold) continue;
+                    // Compare with the two neighbours along the gradient direction (quantized to 4 directions)
+                    const ang = Math.atan2(gyA[i], gxA[i]);
+                    const d = ((Math.round(ang / (Math.PI / 4)) % 4) + 4) % 4;
+                    let n1, n2;
+                    if (d === 0)      { n1 = mag[i - 1];     n2 = mag[i + 1]; }
+                    else if (d === 1) { n1 = mag[i - W - 1]; n2 = mag[i + W + 1]; }
+                    else if (d === 2) { n1 = mag[i - W];     n2 = mag[i + W]; }
+                    else              { n1 = mag[i - W + 1]; n2 = mag[i + W - 1]; }
+                    if (m >= n1 && m > n2) edges[i] = 1;   // asymmetric test keeps exactly one pixel on plateaus
+                }
+            }
+            return { edges, width: W, height: H };
         }
 
-        function houghTransform(edgeImageData) {
-            const width = edgeImageData.width, height = edgeImageData.height, data = edgeImageData.data;
-            const centerX = width / 2, centerY = height / 2;
-            const houghRhoMax = Math.hypot(width, height) / 2;
-            const numRho = 2 * Math.ceil(houghRhoMax);
-            const houghAccumulator = Array.from({ length: NUM_ANGLES }, () => new Uint32Array(numRho));
-            let maxVotes = 0;
-            
+        // --- Hough transform (pixel centers, y axis up) ---
+        function houghTransform({ edges, width, height }) {
+            const acc = Array.from({ length: NUM_ANGLES }, () => new Uint32Array(NUM_RHO));
+            const cx = width / 2, cy = height / 2;
+            let maxVotes = 0, count = 0;
             for (let y = 0; y < height; y++) {
+                const ym = cy - (y + 0.5);
                 for (let x = 0; x < width; x++) {
-                    const idx = (y * width + x) * 4;
-                    if (data[idx] > 128) { // Is an edge point
-                        for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                            const y_math = -(y - centerY);
-                            const x_math = x - centerX;
-                            const rho = x_math * cosAngles[i_theta] + y_math * sinAngles[i_theta];
-                            const i_rho = Math.round(rho) + Math.ceil(houghRhoMax);
-                            if (i_rho >= 0 && i_rho < numRho) {
-                                const currentVotes = ++houghAccumulator[i_theta][i_rho];
-                                if(currentVotes > maxVotes) maxVotes = currentVotes;
-                            }
+                    if (!edges[y * width + x]) continue;
+                    count++;
+                    const xm = x + 0.5 - cx;
+                    for (let t = 0; t < NUM_ANGLES; t++) {
+                        const r = Math.round(xm * cosAngles[t] + ym * sinAngles[t]) + RHO_OFFSET;
+                        if (r >= 0 && r < NUM_RHO) {
+                            const v = ++acc[t][r];
+                            if (v > maxVotes) maxVotes = v;
                         }
                     }
                 }
             }
-            return { accumulator: houghAccumulator, rhoMax: houghRhoMax, maxVotes };
+            return { accumulator: acc, maxVotes, edgeCount: count };
         }
-        
+
+        // Neighbour cell (t + dt, r + dr) with correct wrap-around: (θ ± π, ρ) ≡ (θ, −ρ)
+        function neighbour(t, r, dt, dr) {
+            let nt = t + dt, nr = r + dr;
+            if (nt < 0 || nt >= NUM_ANGLES) {
+                nt = (nt + NUM_ANGLES) % NUM_ANGLES;
+                nr = 2 * RHO_OFFSET - nr;   // mirror ρ
+            }
+            return nr >= 0 && nr < NUM_RHO ? [nt, nr] : null;
+        }
+
         function findAccumulatorPeaks() {
-            const peaks = [];
-            if (accumulator.length === 0 || maxAccumulatorValue === 0) return peaks;
-            
-            const threshold = (thresholdSlider.value / 100) * maxAccumulatorValue;
+            if (accumulator.length === 0 || maxAccumulatorValue === 0) return [];
+            const threshold = Math.max(MIN_VOTES, (thresholdSlider.value / 100) * maxAccumulatorValue);
 
-            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                for (let i_rho = 0; i_rho < NUM_RHO; i_rho++) {
-                    const votes = accumulator[i_theta][i_rho];
-                    if (votes >= threshold) {
-                        let isPeak = true;
-                        for (let di = -2; di <= 2; di++) {
-                            for (let dr = -2; dr <= 2; dr++) {
-                                if (di === 0 && dr === 0) continue;
-                                const ni = (i_theta + di + NUM_ANGLES) % NUM_ANGLES;
-                                const nr = i_rho + dr;
-                                if (nr >= 0 && nr < NUM_RHO && accumulator[ni][nr] > votes) {
-                                    isPeak = false;
-                                    break;
-                                }
-                            }
-                            if (!isPeak) break;
+            // 1. Strict local maxima with deterministic tie-breaking (plateaus yield one cell)
+            const candidates = [];
+            for (let t = 0; t < NUM_ANGLES; t++) {
+                const row = accumulator[t];
+                for (let r = 0; r < NUM_RHO; r++) {
+                    const votes = row[r];
+                    if (votes === 0 || votes < threshold) continue;
+                    const selfKey = t * NUM_RHO + r;
+                    let isPeak = true;
+                    for (let dt = -NMS_RADIUS; dt <= NMS_RADIUS && isPeak; dt++) {
+                        for (let dr = -NMS_RADIUS; dr <= NMS_RADIUS; dr++) {
+                            if (dt === 0 && dr === 0) continue;
+                            const nb = neighbour(t, r, dt, dr);
+                            if (!nb) continue;
+                            const nv = accumulator[nb[0]][nb[1]];
+                            if (nv > votes || (nv === votes && nb[0] * NUM_RHO + nb[1] < selfKey)) { isPeak = false; break; }
                         }
-                        if (isPeak) peaks.push({ i_theta, i_rho, votes });
+                    }
+                    if (isPeak) candidates.push({ t, r, votes });
+                }
+            }
+            candidates.sort((a, b) => b.votes - a.votes);
+
+            // 2. Merge nearby peaks into one line (both edges of a stroke, quantization splits),
+            //    using a vote-weighted mean position.
+            const lines = [];
+            for (const c of candidates) {
+                let merged = false;
+                for (const L of lines) {
+                    // Express c in L's frame, handling the θ wrap
+                    let dt = c.t - L.t0, rho = c.r - RHO_OFFSET;
+                    if (dt > NUM_ANGLES / 2) { dt -= NUM_ANGLES; rho = -rho; }
+                    else if (dt < -NUM_ANGLES / 2) { dt += NUM_ANGLES; rho = -rho; }
+                    const lTheta = L.tSum / L.w, lRho = L.rSum / L.w;
+                    if (Math.abs(L.t0 + dt - lTheta) <= MERGE_THETA && Math.abs(rho - lRho) <= MERGE_RHO) {
+                        L.tSum += (L.t0 + dt) * c.votes;
+                        L.rSum += rho * c.votes;
+                        L.w += c.votes;
+                        L.votes = Math.max(L.votes, c.votes);
+                        merged = true;
+                        break;
+                    }
+                }
+                if (!merged) {
+                    if (lines.length >= MAX_LINES) continue;
+                    lines.push({ t0: c.t, tSum: c.t * c.votes, rSum: (c.r - RHO_OFFSET) * c.votes, w: c.votes, votes: c.votes });
+                }
+            }
+            return lines.map(L => ({
+                theta: (L.tSum / L.w) * Math.PI / NUM_ANGLES,   // may slightly exceed [0, π) — still a valid line
+                rho: L.rSum / L.w,
+                votes: L.votes
+            }));
+        }
+
+        // --- Visualization ---
+        function drawAccumulator() {
+            houghCanvas.width = houghOverlayCanvas.width = NUM_ANGLES;
+            houghCanvas.height = houghOverlayCanvas.height = NUM_RHO;
+            const img = houghCtx.createImageData(NUM_ANGLES, NUM_RHO);
+            for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;   // opaque black default
+            if (maxAccumulatorValue > 0) {
+                for (let t = 0; t < NUM_ANGLES; t++) {
+                    for (let r = 0; r < NUM_RHO; r++) {
+                        const val = Math.sqrt(accumulator[t][r] / maxAccumulatorValue) * 255;
+                        const idx = ((NUM_RHO - 1 - r) * NUM_ANGLES + t) * 4;   // +ρ at top
+                        img.data[idx] = img.data[idx + 1] = img.data[idx + 2] = val;
                     }
                 }
             }
-            return peaks.sort((a, b) => b.votes - a.votes);
-        }
-
-        // --- Visualization Functions ---
-        function drawAccumulator() {
-            if (accumulator.length === 0) return;
-            houghCanvas.width = NUM_ANGLES;
-            houghCanvas.height = NUM_RHO;
-            houghCtx.fillStyle = 'black';
-            houghCtx.fillRect(0, 0, NUM_ANGLES, NUM_RHO);
-            const outputImageData = houghCtx.createImageData(NUM_ANGLES, NUM_RHO);
-            if (maxAccumulatorValue === 0) return;
-
-            for (let i_theta = 0; i_theta < NUM_ANGLES; i_theta++) {
-                for (let i_rho = 0; i_rho < NUM_RHO; i_rho++) {
-                    const val = Math.pow(accumulator[i_theta][i_rho] / maxAccumulatorValue, 0.5) * 255;
-                    const idx = ((NUM_RHO - 1 - i_rho) * NUM_ANGLES + i_theta) * 4;
-                    outputImageData.data[idx] = outputImageData.data[idx + 1] = outputImageData.data[idx + 2] = val;
-                    outputImageData.data[idx + 3] = 255;
-                }
-            }
-            houghCtx.putImageData(outputImageData, 0, 0);
+            houghCtx.putImageData(img, 0, 0);
         }
 
         function drawDetectedLines() {
-            const peaks = findAccumulatorPeaks();
-            
+            currentLines = findAccumulatorPeaks();
+
             detectionCtx.fillStyle = 'black';
             detectionCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
-            
-            if (peaks.length === 0) {
-                 handleSliderChange(parseInt(sweepSlider.value));
-                 return;
-            }
-            
             detectionCtx.save();
+            // Math coords (y up, origin at image center) → canvas; pixel centers land on integer + 0.5
             detectionCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
             detectionCtx.strokeStyle = 'white';
             detectionCtx.lineWidth = 1;
-            peaks.forEach(peak => {
-                const theta = peak.i_theta * Math.PI / NUM_ANGLES;
-                const rho = peak.i_rho - (NUM_RHO / 2);
-                const cos_t = Math.cos(theta), sin_t = Math.sin(theta);
-                const x0 = rho * cos_t, y0 = rho * sin_t;
-                const x1 = Math.round(x0 + 1000 * (-sin_t)), y1 = Math.round(y0 + 1000 * (cos_t));
-                const x2 = Math.round(x0 - 1000 * (-sin_t)), y2 = Math.round(y0 - 1000 * (cos_t));
+            const L = IMG_SIZE * 2;
+            for (const { theta, rho } of currentLines) {
+                const c = Math.cos(theta), s = Math.sin(theta);
+                const x0 = rho * c, y0 = rho * s;
                 detectionCtx.beginPath();
-                detectionCtx.moveTo(x1, -y1);
-                detectionCtx.lineTo(x2, -y2);
+                detectionCtx.moveTo(x0 - L * s, -(y0 + L * c));
+                detectionCtx.lineTo(x0 + L * s, -(y0 - L * c));
                 detectionCtx.stroke();
-            });
+            }
             detectionCtx.restore();
 
-            handleSliderChange(parseInt(sweepSlider.value));
+            handleSliderChange(parseInt(sweepSlider.value, 10));
+            return currentLines.length;
         }
 
-        // --- Preset Generation & Drawing ---
+        // --- Preset Generation ---
         function generateFromFunction() {
             const type = functionPresets.value;
             sourceCtx.fillStyle = 'black';
@@ -443,202 +464,166 @@
             sourceCtx.save();
             sourceCtx.translate(IMG_SIZE / 2, IMG_SIZE / 2);
             sourceCtx.strokeStyle = 'white';
-            
+            sourceCtx.lineWidth = 2;
+
             const drawLine = (x1, y1, x2, y2) => {
                 sourceCtx.beginPath(); sourceCtx.moveTo(x1, y1); sourceCtx.lineTo(x2, y2); sourceCtx.stroke();
             };
 
             switch (type) {
                 case 'simple-line':
-                    sourceCtx.lineWidth = 2;
                     drawLine(-90, 60, 90, -50);
                     break;
-                case 'triangle':
-                    sourceCtx.lineWidth = 2;
-                    const pt1 = [-80, -70], pt2 = [90, -50], pt3 = [10, 80];
-                    drawLine(pt1[0],-pt1[1],pt2[0],-pt2[1]);
-                    drawLine(pt2[0],-pt2[1],pt3[0],-pt3[1]);
-                    drawLine(pt3[0],-pt3[1],pt1[0],-pt1[1]);
+                case 'triangle': {
+                    const p1 = [-80, -70], p2 = [90, -50], p3 = [10, 80];
+                    drawLine(p1[0], -p1[1], p2[0], -p2[1]);
+                    drawLine(p2[0], -p2[1], p3[0], -p3[1]);
+                    drawLine(p3[0], -p3[1], p1[0], -p1[1]);
                     break;
-                case 'square':
-                    sourceCtx.lineWidth = 2;
+                }
+                case 'square': {
                     const size = 150;
-                    sourceCtx.strokeRect(-size/2, -size/2, size, size);
+                    sourceCtx.strokeRect(-size / 2, -size / 2, size, size);
                     break;
+                }
                 case 'parallel-lines':
-                    sourceCtx.lineWidth = 2;
-                    for(let i = -4; i <= 4; i++) {
+                    for (let i = -4; i <= 4; i++) {
                         const offset = i * 20;
                         drawLine(-120, -100 + offset, 120, 80 + offset);
                     }
                     break;
                 case 'intersecting-lines':
-                    sourceCtx.lineWidth = 2;
                     drawLine(-100, -80, 100, 60);
                     drawLine(-100, 80, 100, -60);
                     break;
                 case 'circle':
-                    sourceCtx.lineWidth = 2;
                     sourceCtx.beginPath();
                     sourceCtx.arc(0, 0, 80, 0, 2 * Math.PI);
                     sourceCtx.stroke();
                     break;
                 case 'ellipse':
-                     sourceCtx.lineWidth = 2;
                     sourceCtx.beginPath();
                     sourceCtx.ellipse(0, 0, 90, 60, 0, 0, 2 * Math.PI);
                     sourceCtx.stroke();
                     break;
-                case 'star':
-                    sourceCtx.lineWidth = 2;
-                    sourceCtx.beginPath();
+                case 'star': {
                     const spikes = 5, outerRadius = 100, innerRadius = 40;
                     let rot = Math.PI / 2 * 3;
-                    let x, y;
+                    sourceCtx.beginPath();
                     for (let i = 0; i < spikes; i++) {
-                        x = Math.cos(rot) * outerRadius;
-                        y = Math.sin(rot) * outerRadius;
-                        sourceCtx.lineTo(x, y);
-                        rot += (Math.PI * 2) / (spikes * 2);
-
-                        x = Math.cos(rot) * innerRadius;
-                        y = Math.sin(rot) * innerRadius;
-                        sourceCtx.lineTo(x, y);
-                        rot += (Math.PI * 2) / (spikes * 2);
+                        sourceCtx.lineTo(Math.cos(rot) * outerRadius, Math.sin(rot) * outerRadius);
+                        rot += Math.PI / spikes;
+                        sourceCtx.lineTo(Math.cos(rot) * innerRadius, Math.sin(rot) * innerRadius);
+                        rot += Math.PI / spikes;
                     }
                     sourceCtx.closePath();
                     sourceCtx.stroke();
                     break;
-                case 'building':
+                }
+                case 'building': {
                     sourceCtx.lineWidth = 3;
                     const w = 40, h = 30, gap = 15;
                     for (let r = -2; r < 2; r++) {
                         for (let c = -2; c < 2; c++) {
-                            const x = (c + 0.5) * (w + gap);
-                            const y = (r + 0.5) * (h + gap);
-                            sourceCtx.strokeRect(x - w/2, y - h/2, w, h);
+                            const x = (c + 0.5) * (w + gap), y = (r + 0.5) * (h + gap);
+                            sourceCtx.strokeRect(x - w / 2, y - h / 2, w, h);
                         }
                     }
                     break;
-                case 'sudoku':
-                    const gridSize = 198;
-                    const cellSize = gridSize / 9;
-                    sourceCtx.beginPath();
-                    for(let i = 0; i <= 9; i++) {
-                        const pos = -gridSize/2 + i * cellSize;
-                        sourceCtx.lineWidth = (i % 3 === 0) ? 2.5 : 1;
-                        // vertical lines
-                        sourceCtx.moveTo(pos, -gridSize/2);
-                        sourceCtx.lineTo(pos, gridSize/2);
-                        // horizontal lines
-                        sourceCtx.moveTo(-gridSize/2, pos);
-                        sourceCtx.lineTo(gridSize/2, pos);
+                }
+                case 'sudoku': {
+                    const gridSize = 198, cellSize = gridSize / 9;
+                    for (let i = 0; i <= 9; i++) {
+                        const pos = -gridSize / 2 + i * cellSize;
+                        sourceCtx.lineWidth = (i % 3 === 0) ? 2.5 : 1;   // stroked per line so widths apply
+                        drawLine(pos, -gridSize / 2, pos, gridSize / 2);
+                        drawLine(-gridSize / 2, pos, gridSize / 2, pos);
                     }
-                    sourceCtx.stroke();
                     break;
+                }
             }
             sourceCtx.restore();
         }
-        
+
         function drawSourceToCanvas(source) {
             sourceCtx.fillStyle = 'black';
             sourceCtx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
-            const sourceW = source.width, sourceH = source.height;
-            const ratio = Math.min(IMG_SIZE / sourceW, IMG_SIZE / sourceH);
-            const sx = (IMG_SIZE - sourceW * ratio) / 2, sy = (IMG_SIZE - sourceH * ratio) / 2;
-            sourceCtx.drawImage(source, 0, 0, sourceW, sourceH, sx, sy, sourceW * ratio, sourceH * ratio);
+            const sw = source.naturalWidth, sh = source.naturalHeight;
+            const ratio = Math.min(IMG_SIZE / sw, IMG_SIZE / sh);
+            sourceCtx.drawImage(source, 0, 0, sw, sh,
+                (IMG_SIZE - sw * ratio) / 2, (IMG_SIZE - sh * ratio) / 2, sw * ratio, sh * ratio);
         }
 
-        function drawProjectionProfile(i_theta) {
-            if (!accumulator || accumulator.length === 0) return;
-
-            const projectionData = accumulator[i_theta];
-            const w = projectionCanvas.width;
-            const h = projectionCanvas.height;
+        function drawProjectionProfile(t) {
+            const w = projectionCanvas.width, h = projectionCanvas.height;
             projectionCtx.clearRect(0, 0, w, h);
-
+            if (!accumulator.length) return;
+            const col = accumulator[t];
             let maxVal = 0;
-            for(let i=0; i < projectionData.length; i++) {
-                if(projectionData[i] > maxVal) maxVal = projectionData[i];
-            }
+            for (let i = 0; i < col.length; i++) if (col[i] > maxVal) maxVal = col[i];
+            if (maxVal === 0) return;
 
-            if(maxVal === 0) return;
-
+            const scaleY = (h - 2) / maxVal, scaleX = w / col.length;
             projectionCtx.beginPath();
             projectionCtx.moveTo(0, h);
-            
-            const scaleY = h / maxVal;
-            const scaleX = w / projectionData.length;
-
-            for (let i = 0; i < projectionData.length; i++) {
-                const x = i * scaleX;
-                const y = h - (projectionData[i] * scaleY);
-                projectionCtx.lineTo(x, y);
-            }
-            
+            for (let i = 0; i < col.length; i++) projectionCtx.lineTo((i + 0.5) * scaleX, h - col[i] * scaleY);
             projectionCtx.lineTo(w, h);
             projectionCtx.closePath();
-            
-            projectionCtx.fillStyle = 'rgba(59, 130, 246, 0.5)'; // blue-500 with opacity
-            projectionCtx.strokeStyle = 'rgba(59, 130, 246, 1)'; // blue-500
+            projectionCtx.fillStyle = 'rgba(59, 130, 246, 0.5)';
+            projectionCtx.strokeStyle = 'rgba(59, 130, 246, 1)';
             projectionCtx.lineWidth = 2;
             projectionCtx.fill();
             projectionCtx.stroke();
         }
 
         // --- Interactive Guides ---
-        function handleSliderChange(i_theta) {
-            const angleDeg = Math.round(i_theta * 180 / NUM_ANGLES);
+        function handleSliderChange(t) {
+            const angleDeg = Math.round(t * 180 / NUM_ANGLES);
             sweepValue.textContent = angleDeg;
             sweepValue2.textContent = angleDeg;
+            drawProjectionProfile(t);
 
-            drawProjectionProfile(i_theta);
+            const W = sourceOverlayCanvas.width, H = sourceOverlayCanvas.height;
+            const cx = W / 2, cy = H / 2, theta = t * Math.PI / NUM_ANGLES;
+            const cos_t = cosAngles[t], sin_t = sinAngles[t], len = Math.max(W, H);
 
-            sourceOverlayCtx.clearRect(0, 0, sourceOverlayCanvas.width, sourceOverlayCanvas.height);
-            
-            houghOverlayCanvas.width = houghCanvas.width;
-            houghOverlayCanvas.height = houghCanvas.height;
-            houghOverlayCtx.clearRect(0,0, houghOverlayCanvas.width, houghOverlayCanvas.height);
-
-            const centerX = sourceOverlayCanvas.width / 2;
-            const centerY = sourceOverlayCanvas.height / 2;
-            const theta = i_theta * Math.PI / NUM_ANGLES;
-            
-            // Draw projection axis on source image
-            const lineLength = Math.max(sourceOverlayCanvas.width, sourceOverlayCanvas.height);
-            const cos_t = cosAngles[i_theta];
-            const sin_t = sinAngles[i_theta];
-            const x1 = centerX - lineLength * cos_t;
-            const y1 = centerY + lineLength * sin_t;
-            const x2 = centerX + lineLength * cos_t;
-            const y2 = centerY - lineLength * sin_t;
-
+            sourceOverlayCtx.clearRect(0, 0, W, H);
             sourceOverlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
             sourceOverlayCtx.lineWidth = 1;
             sourceOverlayCtx.setLineDash([5, 5]);
             sourceOverlayCtx.beginPath();
-            sourceOverlayCtx.moveTo(x1, y1);
-            sourceOverlayCtx.lineTo(x2, y2);
+            sourceOverlayCtx.moveTo(cx - len * cos_t, cy + len * sin_t);
+            sourceOverlayCtx.lineTo(cx + len * cos_t, cy - len * sin_t);
             sourceOverlayCtx.stroke();
             sourceOverlayCtx.setLineDash([]);
 
-
-// Draw angle arc on source
+            // Angle arc (canvas angles are clockwise, so −θ draws the math angle)
             sourceOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
-            sourceOverlayCtx.lineWidth = 2.;
+            sourceOverlayCtx.lineWidth = 2;
             sourceOverlayCtx.beginPath();
-            // Draw arc for angle theta. Canvas angles are clockwise by default.
-            // To represent the mathematical counter-clockwise angle theta, we use -theta.
-            sourceOverlayCtx.arc(centerX, centerY, 25, 0, -theta, true);
+            sourceOverlayCtx.arc(cx, cy, 25, 0, -theta, true);
             sourceOverlayCtx.stroke();
-            
-            // Draw vertical line on Hough space
+
+            // Hough space: sweep line + detected peak markers
+            houghOverlayCtx.clearRect(0, 0, houghOverlayCanvas.width, houghOverlayCanvas.height);
             houghOverlayCtx.strokeStyle = 'rgba(255, 165, 0, 0.9)';
             houghOverlayCtx.lineWidth = 2;
             houghOverlayCtx.beginPath();
-            houghOverlayCtx.moveTo(i_theta, 0);
-            houghOverlayCtx.lineTo(i_theta, houghOverlayCanvas.height);
+            houghOverlayCtx.moveTo(t + 0.5, 0);
+            houghOverlayCtx.lineTo(t + 0.5, houghOverlayCanvas.height);
             houghOverlayCtx.stroke();
+
+            houghOverlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.95)';
+            houghOverlayCtx.lineWidth = 1.5;
+            for (const { theta: th, rho } of currentLines) {
+                let tb = th * NUM_ANGLES / Math.PI, rb = rho;
+                if (tb < 0) { tb += NUM_ANGLES; rb = -rb; }
+                else if (tb >= NUM_ANGLES) { tb -= NUM_ANGLES; rb = -rb; }
+                const px = tb + 0.5, py = NUM_RHO - 0.5 - (rb + RHO_OFFSET);
+                houghOverlayCtx.beginPath();
+                houghOverlayCtx.arc(px, py, 4, 0, 2 * Math.PI);
+                houghOverlayCtx.stroke();
+            }
         }
     </script>
 </body>
