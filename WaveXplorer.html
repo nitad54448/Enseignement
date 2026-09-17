@@ -181,7 +181,7 @@
 
         #acceleration-panel {
             position: absolute; right: 15px; bottom: 15px; z-index: 5;
-            width: min(200px, calc(100% - 30px)); height: 200px; max-height: calc(100% - 30px);
+            width: min(360px, calc(100% - 30px)); height: 240px; max-height: calc(100% - 30px);
             background: rgba(20, 30, 50, 0.8); border: 1px solid var(--border-color);
             border-radius: 8px; overflow: hidden; display: none;
         }
@@ -354,8 +354,8 @@
             };
             scatteringParams = {
                 numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
-                polarizationType: 'linear_vertical', polarQuantity: 'field', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0,
-                vectorsPerCycle: 12, wavelength: 0, showSection: false, showWavefront: true, showPsi: true, psiDegrees: 55, historyQuantity: 'acceleration',
+                polarizationType: 'linear_vertical', polarSelections: { field: false, intensity: false }, showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0,
+                vectorsPerCycle: 12, wavelength: 0, showSection: false, showWavefront: true, showPsi: false, psiDegrees: 55, historySelections: { position: false, velocity: false, acceleration: false, E: false },
             };
             scatteringParams.wavelength = scatteringParams.waveSpeed / scatteringParams.oscillationFrequency * (2 * Math.PI);
         }
@@ -799,15 +799,7 @@
                 
                 case 'wave_scattering': {
                     parameterControlsContainer.innerHTML = `
-                        <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">A new wavefront is emitted at each <b>extremum of acceleration</b>. Yellow denotes a positive field and red a negative field, relative to the transverse projection of the incident polarization. The scattered field has the <b>opposite sign to the incident field at emission</b>: a phase shift of π, in addition to the propagation delay r/c. For an electron (charge −1), displacement is in phase with the incident field; acceleration is in opposition. The expanding dipole shapes illustrate the angular amplitude pattern.</p> </div>
-                        <div class="control-group">
-                            <label for="history-quantity">Bottom plot:</label>
-                            <select id="history-quantity">
-                                <option value="acceleration" ${scatteringParams.historyQuantity === 'acceleration' ? 'selected' : ''}>Acceleration a(t)</option>
-                                <option value="speed" ${scatteringParams.historyQuantity === 'speed' ? 'selected' : ''}>Speed |v(t)|</option>
-                            </select>
-                            <p class="param-info">Speed is nonnegative and zero at turning points. Both plots use simulation units.</p>
-                        </div>
+                        <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;"> <b>Thompson model</b>.The particle radiates a continuous wave. For clarity, the animation displays a wavefront at each extremum of acceleration. Yellow denotes a positive scattered field and red a negative one, relative to the transverse projection of the incident polarization. The scattered field has the <b>opposite sign to the incident field at emission</b>: a phase shift of π, in addition to the propagation delay r/c. For an electron (charge −1), displacement is in phase with the incident field; acceleration is in opposition. The expanding dipole shapes illustrate the angular amplitude pattern.</p> </div>
                         <div class="control-group"> <label for="mass-slider">Particle Mass, in e-</label>
                             <div class="slider-group"> <input type="range" id="mass-slider" min="0" max="3.265" step="0.01" value="0"> <span id="mass-display" class="param-info" style="min-width: 40px; padding: 5px 10px; margin-left:10px;">1</span> </div>
                         </div>
@@ -817,25 +809,46 @@
                             </div></div>
                         <div class="control-group"> <label for="polarization-selector-scatter">Incoming Wave Polarization:</label> <select id="polarization-selector-scatter" class="control-group select"> <option value="linear_vertical">Linear: E along x (figure)</option> <option value="linear_horizontal">Linear: E along y</option> <option value="non_polarized">Non-Polarized</option> </select> </div>
                         <div class="control-group"> <label>Show Radiated Wave:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="radiated-wave-toggle" checked> <span class="slider"></span> </label> </div>
-                        <div class="control-group"><label for="polar-quantity">Polar plot:</label><select id="polar-quantity"><option value="field">E amplitude: |sin ψ|</option><option value="intensity">Intensity: sin²ψ</option></select></div>
                         <div class="control-group"> <label>Show Incoming Wavefront:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="wavefront-toggle" checked> <span class="slider"></span> </label> </div>
-                        <div class="control-group"><label><input type="checkbox" id="psi-show" checked> Illustrate ψ</label>
+                        <div class="control-group"><label for="psi-show">Illustrate ψ:</label> <label class="switch" style="vertical-align: middle;"><input type="checkbox" id="psi-show" ${scatteringParams.showPsi ? 'checked' : ''}><span class="slider"></span></label>
+                            <div id="psi-controls" ${scatteringParams.showPsi ? '' : 'hidden'}>
                             <label for="psi-slider">ψ: angle between ε̂ and R̂ (degrees)</label>
                             <div class="slider-group"><input type="range" id="psi-slider" min="0" max="180" step="1" value="55"></div>
                             <input type="number" class="value-input" id="psi-value" min="0" max="180" step="1" value="55">
-                            <p id="psi-readout" class="param-info"></p></div>
-                        <div class="control-group"> <label>Show Section (Radiated Wave):</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="section-toggle"> <span class="slider"></span> </label> </div>`;
-                    document.getElementById('history-quantity').addEventListener('change', e => {
-                        scatteringParams.historyQuantity = e.target.value;
-                        updateAccelerationPlot(); // Redraw immediately, including while paused.
+                            <p id="psi-readout" class="param-info"></p></div></div>
+                        <div class="control-group"> <label>Show Section (Radiated Wave):</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="section-toggle"> <span class="slider"></span> </label> </div>
+                        <div class="control-group"><label>Polar plot:</label>
+                            ${[['field','E amplitude'],['intensity','Intensity']].map(([key,label]) =>
+                                `<label style="display:block"><input type="checkbox" id="polar-${key}" ${scatteringParams.polarSelections[key] ? 'checked' : ''}> ${label}</label>`).join('')}
+                        </div>
+                        <div class="control-group">
+                            <label>Bottom plot:</label>
+                            ${[['position','Position x(t)'],['velocity','Velocity v(t)'],['acceleration','Acceleration a(t)'],['E','E(t) · incident at electron']].map(([key,label]) =>
+                                `<label style="display:block"><input type="checkbox" id="history-${key}" ${scatteringParams.historySelections[key] ? 'checked' : ''}> ${label}</label>`).join('')}
+                            <p class="param-info">Signed values in simulation units, along the polarization axis. Select any combination; deselect all to hide the plot. E is the incident field at the equilibrium position, with unit amplitude.</p>
+                        </div>`;
+                    Object.keys(scatteringParams.historySelections).forEach(key => {
+                        document.getElementById('history-' + key).addEventListener('change', e => {
+                            scatteringParams.historySelections[key] = e.target.checked;
+                            updateAccelerationPlot(); // Also redraw while paused.
+                        });
                     });
-                    document.getElementById('psi-show').addEventListener('change', e => scatteringParams.showPsi = e.target.checked);
+                    document.getElementById('psi-show').addEventListener('change', e => {
+                        scatteringParams.showPsi = e.target.checked;
+                        document.getElementById('psi-controls').hidden = !e.target.checked;
+                        updatePsiIllustration();
+                    });
                     connectSliderAndNumberInput('psi-slider','psi-value','psiDegrees',false,null,scatteringParams);
                     const massSlider = document.getElementById('mass-slider');
                     const massDisplay = document.getElementById('mass-display');
                     massSlider.addEventListener('input', (e) => { const linearMass = Math.pow(10, parseFloat(e.target.value)); scatteringParams.particleMass = linearMass; massDisplay.textContent = Math.round(linearMass); });
                     document.querySelectorAll('input[name="charge"]').forEach(r => r.addEventListener('change', (e) => scatteringParams.particleCharge = parseInt(e.target.value)));
-                    document.getElementById('polar-quantity').addEventListener('change', e => scatteringParams.polarQuantity = e.target.value);
+                    Object.keys(scatteringParams.polarSelections).forEach(key => {
+                        document.getElementById('polar-' + key).addEventListener('change', e => {
+                            scatteringParams.polarSelections[key] = e.target.checked;
+                            drawPolarDipole(scatteringParams.polarizationType);
+                        });
+                    });
                     document.getElementById('polarization-selector-scatter').addEventListener('change', (e) => scatteringParams.polarizationType = e.target.value);
                     document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => scatteringParams.showRadiatedWave = e.target.checked);
                     document.getElementById('wavefront-toggle').addEventListener('change', (e) => scatteringParams.showWavefront = e.target.checked);
@@ -1250,7 +1263,7 @@ function setupConceptVisualization(concept) {
                     switchToPerspectiveCamera();
                     axesHelper.visible = false;
                     if (gridHelper) gridHelper.visible = false;
-                    if (polarCanvas) polarCanvas.style.display = 'block';
+                    if (polarCanvas) polarCanvas.style.display = Object.values(scatteringParams.polarSelections).some(Boolean) ? 'block' : 'none';
                     scatteringViz.lights.push(new THREE.AmbientLight(0xffffff, 0.6));
                     scatteringViz.lights.push(new THREE.DirectionalLight(0xffffff, 0.8));
                     scatteringViz.lights.forEach(l => scene.add(l));
@@ -2653,56 +2666,68 @@ function setupConceptVisualization(concept) {
         }
         function updateAccelerationPlot() {
             const p = scatteringParams;
-            // Along the instantaneous polarization axis: x = (Aq/m) sin(omega*t).
-            // Idealized non-polarized direction changes are not modeled as impulses.
+            // Signed components along the instantaneous polarization axis.
+            // As in the particle animation, direction changes in non-polarized mode
+            // are idealized; their derivative impulses are not represented.
             const signature = [p.particleMass,p.particleCharge,p.polarizationType,p.oscillationFrequency,p.baseAmplitude].join('|');
             if (signature !== accelerationSignature) { accelerationHistory.length = 0; accelerationSignature = signature; }
-            const value = -(p.oscillationFrequency ** 2) * p.baseAmplitude * p.particleCharge / p.particleMass * Math.sin(p.oscillationFrequency * animationTime);
-            const speed = Math.abs(p.oscillationFrequency * p.baseAmplitude * p.particleCharge / p.particleMass * Math.cos(p.oscillationFrequency * animationTime));
+            const omega = p.oscillationFrequency, phase = omega * animationTime;
+            const amplitude = p.baseAmplitude * p.particleCharge / p.particleMass;
+            const sample = {t: animationTime, position: amplitude * Math.sin(phase),
+                velocity: omega * amplitude * Math.cos(phase),
+                acceleration: -omega * omega * amplitude * Math.sin(phase), E: -Math.sin(phase)};
             const last = accelerationHistory[accelerationHistory.length-1];
-            // Retain both quantities so changing the selector preserves the full history.
-            if (!last || animationTime > last.t) accelerationHistory.push({t: animationTime, a: value, speed});
+            // Record all quantities even when hidden so toggles preserve history.
+            if (!last || animationTime > last.t) accelerationHistory.push(sample);
             while (accelerationHistory.length && accelerationHistory[0].t < animationTime - 3) accelerationHistory.shift();
-            const showSpeed = p.historyQuantity === 'speed';
-            const label = showSpeed ? 'Speed |v*|' : 'Acceleration a*';
+            const series = [
+                {key:'position', label:'x', color:'#60a5fa', peak:Math.abs(amplitude), dash:[]},
+                {key:'velocity', label:'v', color:'#4ade80', peak:Math.abs(omega*amplitude), dash:[7,3]},
+                {key:'acceleration', label:'a', color:'#f472b6', peak:Math.abs(omega*omega*amplitude), dash:[3,3]},
+                {key:'E', label:'E', color:'#facc15', peak:1, dash:[10,4,2,4]}
+            ].filter(line => p.historySelections[line.key]);
+            const panel = document.getElementById('acceleration-panel');
+            panel.style.display = currentConcept === 'wave_scattering' && series.length ? 'block' : 'none';
+            if (panel.style.display === 'none') return;
+            clampAccelerationPanel();
             const title = document.getElementById('acceleration-title');
-            title.textContent = label + ' · last 3 s';
-            title.title = (showSpeed
-                ? '|v*| = |ω*(A*q*/m*) cos(ω*t*)|. Units: L₀/T₀.'
-                : 'a* = −ω*²(A*q*/m*) sin(ω*t*). Units: L₀/T₀².') +
-                ' Drag to move; double-click to return to the bottom right.';
-            document.getElementById('acceleration-panel').setAttribute('aria-label', label + ' history');
+            title.textContent = 'Signed quantities · last 3 s';
+            title.title = 'x = (Aq/m) sin(ωt); v = ω(Aq/m) cos(ωt); a = −ω²(Aq/m) sin(ωt); E = −sin(ωt). Simulation units; E has unit amplitude. Drag to move; double-click to reset.';
+            const description = series.map(line => line.key).join(', ') + ' versus simulation time';
+            panel.setAttribute('aria-label', description);
             const canvas = document.getElementById('acceleration-canvas'), ctx = canvas.getContext('2d');
-            canvas.setAttribute('aria-label', (showSpeed ? 'Speed magnitude' : 'Signed acceleration') + ' versus simulation time, last three seconds');
+            canvas.setAttribute('aria-label', description);
             const w = canvas.clientWidth, h = canvas.clientHeight;
-            if (w < 100 || h < 60) return;
+            if (w < 100 || h < 80) return;
             const dpr = window.devicePixelRatio || 1;
             if (canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)) { canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr); }
             ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
-            const left=43, right=w-12, top=24, bottom=h-30;
-            const peak = (showSpeed ? Math.abs(p.oscillationFrequency) : p.oscillationFrequency ** 2) * Math.abs(p.baseAmplitude * p.particleCharge / p.particleMass);
-            const range = Math.max(0.001, peak) * 1.1;
-            const lower = showSpeed ? 0 : -range;
-            const x=t=>left+(t-(animationTime-3))/3*(right-left), y=a=>bottom-(a-lower)/(range-lower)*(bottom-top);
-            ctx.font='11px system-ui'; ctx.fillStyle='#e2e8f0'; ctx.textAlign='left';
-            ctx.fillText((showSpeed ? '|v*| = ' : 'a* = ') + (showSpeed ? speed : value).toPrecision(3),left,12);
-            ctx.lineWidth=1; ctx.strokeStyle='#526580';
-            for(const a of (showSpeed ? [0, range/2, range] : [-range,0,range])) {
-                ctx.beginPath(); ctx.moveTo(left,y(a)); ctx.lineTo(right,y(a)); ctx.stroke();
-                ctx.textAlign='right'; ctx.fillText(a===0?'0':a.toFixed(2),left-5,y(a)+4);
+            const left=49, right=w-12, top=52, bottom=h-30;
+            const range = Math.max(0.001, ...series.map(line => line.peak)) * 1.1;
+            const x=t=>left+(t-(animationTime-3))/3*(right-left);
+            const y=value=>bottom-(value+range)/(2*range)*(bottom-top);
+            ctx.font='11px system-ui'; ctx.textAlign='left';
+            series.forEach((line,i) => {
+                ctx.fillStyle=line.color;
+                ctx.fillText(line.label+' = '+sample[line.key].toPrecision(3), 12+(i%2)*(w/2), 14+Math.floor(i/2)*16);
+            });
+            ctx.fillStyle='#e2e8f0'; ctx.lineWidth=1; ctx.strokeStyle='#526580'; ctx.setLineDash([]);
+            for(const value of [-range,0,range]) {
+                ctx.beginPath(); ctx.moveTo(left,y(value)); ctx.lineTo(right,y(value)); ctx.stroke();
+                ctx.textAlign='right'; ctx.fillText(value===0?'0':value.toPrecision(2),left-5,y(value)+4);
             }
             ctx.textAlign='center';
-            for(let i=0;i<=3;i++) {
-                const px=left+i/3*(right-left); ctx.fillText(String(i-3)+' s',px,bottom+15);
-            }
-            ctx.textAlign='right'; ctx.fillText('Time (s ago)',right,h-2);
+            for(let i=0;i<=3;i++) ctx.fillText(String(i-3)+' s',left+i/3*(right-left),bottom+15);
+            ctx.textAlign='right'; ctx.fillText('Simulation units · time (s ago)',right,h-2);
             ctx.save(); ctx.beginPath(); ctx.rect(left,top,right-left,bottom-top); ctx.clip();
-            ctx.strokeStyle=showSpeed ? '#facc15' : '#67e8f9'; ctx.lineWidth=2.8; ctx.lineJoin='round'; ctx.beginPath();
-            accelerationHistory.forEach((v,i)=>{
-                const sample = showSpeed ? v.speed : v.a;
-                if(i) ctx.lineTo(x(v.t),y(sample)); else ctx.moveTo(x(v.t),y(sample));
+            series.forEach(line => {
+                ctx.strokeStyle=line.color; ctx.lineWidth=2.5; ctx.lineJoin='round'; ctx.setLineDash(line.dash); ctx.beginPath();
+                accelerationHistory.forEach((v,i) => {
+                    if(i) ctx.lineTo(x(v.t),y(v[line.key])); else ctx.moveTo(x(v.t),y(v[line.key]));
+                });
+                ctx.stroke();
             });
-            ctx.stroke(); ctx.restore();
+            ctx.restore();
         }
 
         // All polarization curves and arrows sample the same traveling field.
@@ -2954,7 +2979,7 @@ function setupConceptVisualization(concept) {
             accelerationHistory.length = 0;
             accelerationSignature = '';
             document.getElementById('acceleration-panel').style.display =
-                currentConcept === 'wave_scattering' ? 'block' : 'none';
+                currentConcept === 'wave_scattering' && Object.values(scatteringParams.historySelections).some(Boolean) ? 'block' : 'none';
             setupConceptUI(currentConcept);
             setupConceptVisualization(currentConcept);
         }
@@ -3193,9 +3218,16 @@ function setupConceptVisualization(concept) {
         // Drawn in 2D as a textbook-style polar diagram.
         function drawPolarDipole(polarizationType) {
             if (!polarCtx) return;
+            const series = [
+                {key: 'field', label: 'E amplitude', color: '#ff8c00', fill: 'rgba(255,140,0,0.12)'},
+                {key: 'intensity', label: 'Intensity', color: '#67e8f9', fill: 'rgba(103,232,249,0.10)'}
+            ].filter(line => scatteringParams.polarSelections[line.key]);
+            polarCanvas.style.display = currentConcept === 'wave_scattering' && series.length ? 'block' : 'none';
+            if (polarCanvas.style.display === 'none') return;
+            polarCanvas.setAttribute('aria-label', 'Polar plot: ' + series.map(line => line.label).join(' and '));
             const w = polarCanvas.width, h = polarCanvas.height;
             const cx = w / 2, cy = h / 2;
-            const R = Math.min(w, h) / 2 - 24;
+            const R = Math.min(w, h) / 2 - 34;
             polarCtx.clearRect(0, 0, w, h);
             // Reference circles at r = 0.25, 0.5, 0.75, 1.0 with labels
             polarCtx.strokeStyle = 'rgba(255,255,255,0.18)';
@@ -3228,8 +3260,10 @@ function setupConceptVisualization(concept) {
             // Pattern
             const isLinear = polarizationType.startsWith('linear');
             const dipoleAxisAngle = (polarizationType === 'linear_horizontal') ? 0 : Math.PI / 2;
-            polarCtx.strokeStyle = '#ff8c00';
-            polarCtx.fillStyle = 'rgba(255, 140, 0, 0.25)';
+            series.forEach(line => {
+            polarCtx.strokeStyle = line.color;
+            polarCtx.fillStyle = line.fill;
+            polarCtx.setLineDash(line.key === 'intensity' ? [5, 3] : []);
             polarCtx.lineWidth = 2;
             polarCtx.beginPath();
             const N = 180;
@@ -3242,7 +3276,7 @@ function setupConceptVisualization(concept) {
                 } else {
                     r = 0.5 * (1 + Math.cos(theta) * Math.cos(theta));
                 }
-                if (scatteringParams.polarQuantity === 'field') r = Math.sqrt(r);
+                if (line.key === 'field') r = Math.sqrt(r);
                 const px = cx + R * r * Math.cos(phi);
                 const py = cy - R * r * Math.sin(phi);
                 if (i === 0) polarCtx.moveTo(px, py);
@@ -3251,6 +3285,8 @@ function setupConceptVisualization(concept) {
             polarCtx.closePath();
             polarCtx.fill();
             polarCtx.stroke();
+            });
+            polarCtx.setLineDash([]);
             // Dipole axis indicator (dashed)
             polarCtx.setLineDash([4, 3]);
             polarCtx.strokeStyle = 'rgba(255,255,255,0.5)';
@@ -3281,9 +3317,13 @@ function setupConceptVisualization(concept) {
             polarCtx.font = '11px Arial';
             polarCtx.textAlign = 'center';
             polarCtx.textBaseline = 'middle';
-            const fieldPlot = scatteringParams.polarQuantity === 'field';
-            const title = isLinear ? (fieldPlot ? 'E amplitude: |sin ψ|' : 'Intensity: sin²ψ') : (fieldPlot ? 'RMS E: √[½(1 + cos²ψ)]' : 'Intensity: ½(1 + cos²ψ)');
-            polarCtx.fillText(title, cx, 10);
+            series.forEach((line, i) => {
+                polarCtx.fillStyle = line.color;
+                const fieldPlot = line.key === 'field';
+                const title = isLinear ? (fieldPlot ? 'E amplitude: |sin ψ|' : 'Intensity: sin²ψ') : (fieldPlot ? 'RMS E: √[½(1 + cos²ψ)]' : 'Intensity: ½(1 + cos²ψ)');
+                polarCtx.fillText(title, cx, 9 + i * 12);
+            });
+            polarCtx.fillStyle = '#cccccc';
             polarCtx.font = '9px Arial';
             polarCtx.fillText(isLinear ? 'ψ = ∠(ε̂, R̂)' : 'ψ from propagation axis (average)', cx, h - 6);
         }
