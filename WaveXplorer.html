@@ -349,12 +349,12 @@
             scatteringViz = {
                 particle: null,
                 incomingWave: { planes: [], vectors: [], polarizationAngles: [], passedParticle: [] },
-                radiatedWave: { shells: [] },
+                radiatedWave: { shells: [] }, continuousField: null, polarizationTexture: null,
                 lights: [], axes: null, lastEmittedCycle: -1, nextShellIndex: 0, lastParticleAngle: 0
             };
             scatteringParams = {
                 numPlanes: 5, waveSpeed: 2.5, oscillationFrequency: 2.0, baseAmplitude: 1.0, sceneExtent: 12, particleMass: 1, particleCharge: 1,
-                polarizationType: 'linear_vertical', polarSelections: { field: false, intensity: false }, showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0,
+                polarizationType: 'linear_vertical', polarSelections: { field: false, intensity: false }, radiationDisplay: 'mesh', showRadiatedWave: true, numRadiatedShells: 10, shellMaxAge: 5.0,
                 vectorsPerCycle: 12, wavelength: 0, showSection: false, showWavefront: true, showPsi: false, psiDegrees: 55, historySelections: { position: false, velocity: false, acceleration: false, E: false },
             };
             scatteringParams.wavelength = scatteringParams.waveSpeed / scatteringParams.oscillationFrequency * (2 * Math.PI);
@@ -414,11 +414,112 @@
                     orientationAngle: 0,
                     clippingPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
                 };
+                const positions = shell.sphere.geometry.attributes.position;
+                const colors = new Float32Array(positions.count*3);
+                for(let j=0;j<positions.count;j++) {
+                    const x=positions.getX(j), y=positions.getY(j), z=positions.getZ(j);
+                    const intensity=0.5*(1+x*x/(x*x+y*y+z*z));
+                    colors.set([intensity,intensity,intensity],3*j);
+                }
+                shell.sphere.geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
+                shell.sphere.material.vertexColors=true;
                 shell.sphere.visible = false; shell.torus.visible = false;
                 scene.add(shell.sphere); scene.add(shell.torus);
                 scatteringViz.radiatedWave.shells.push(shell);
             }
             planeMat.dispose(); radiatedMat.dispose(); sphereGeom.dispose(); dipoleGeom.dispose();
+        }
+
+        // Idealized unpolarized carrier: a balanced, shuffled direction sequence.
+        // Abrupt direction changes are illustrative; transition transients are omitted.
+        const scatteringPolarizationBytes = (() => {
+            const directions = Array.from({length:64}, (_,i) => i*4);
+            let seed = 173;
+            for (let i=63; i>0; i--) {
+                seed = (1664525*seed + 1013904223) >>> 0;
+                const j = seed % (i+1);
+                [directions[i],directions[j]] = [directions[j],directions[i]];
+            }
+            return directions;
+        })();
+        function scatteringPolarizationAngle(t) {
+            const cycle = Math.floor(scatteringParams.oscillationFrequency*t/(2*Math.PI));
+            return scatteringPolarizationBytes[((cycle%64)+64)%64] / 256 * 2*Math.PI;
+        }
+        function updateScatteringPsiControls() {
+            const polarized = scatteringParams.polarizationType.startsWith('linear');
+            const toggle = document.getElementById('psi-show');
+            document.getElementById('psi-group').hidden = !polarized;
+            toggle.disabled = !polarized;
+            if (!polarized) scatteringParams.showPsi = false;
+            toggle.checked = scatteringParams.showPsi;
+            document.getElementById('psi-controls').hidden = !polarized || !scatteringParams.showPsi;
+        }
+        function createContinuousScatteringField() {
+            const data = new Uint8Array(64*4);
+            scatteringPolarizationBytes.forEach((value,i) => { data[4*i]=value; data[4*i+3]=255; });
+            const texture = new THREE.DataTexture(data,64,1,THREE.RGBAFormat);
+            texture.minFilter = texture.magFilter = THREE.NearestFilter;
+            texture.needsUpdate = true;
+            scatteringViz.polarizationTexture = texture;
+            const material = new THREE.ShaderMaterial({
+                transparent:true, depthWrite:false, side:THREE.BackSide,
+                uniforms: {time:{value:0}, omega:{value:2}, speed:{value:2.5},
+                    strength:{value:1}, unpolarized:{value:0}, directions:{value:texture},
+                    eye:{value:new THREE.Vector3()}, section:{value:0}},
+                vertexShader: `varying vec3 fieldPoint;
+                    void main(){fieldPoint=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+                fragmentShader: `precision highp float;
+                    varying vec3 fieldPoint;
+                    uniform float time,omega,speed,strength,unpolarized,section;
+                    uniform vec3 eye;
+                    uniform sampler2D directions;
+                    void main(){
+                        // Integrate a genuinely 3D field along the viewing ray.
+                        vec3 ray=normalize(fieldPoint-eye);
+                        float b=dot(eye,ray);
+                        float disc=b*b-dot(eye,eye)+144.0;
+                        if(disc<=0.0) discard;
+                        float start=max(0.0,-b-sqrt(disc));
+                        float finish=-b+sqrt(disc);
+                        float stepSize=(finish-start)/96.0;
+                        vec4 accum=vec4(0.0);
+                        for(int i=0;i<96;i++){
+                            vec3 point=eye+ray*(start+(float(i)+0.5)*stepSize);
+                            float r=length(point);
+                            if(r<0.42 || (section>0.5 && point.z>0.0)) continue;
+                            vec3 n=point/r;
+                            float tr=time-r/speed;
+                            vec3 source=vec3(0.0,1.0,0.0);
+                            if(unpolarized>0.5){
+                                float cycle=mod(floor(omega*tr/6.28318530718),64.0);
+                                float angle=texture2D(directions,vec2((cycle+0.5)/64.0,0.5)).r*255.0/256.0*6.28318530718;
+                                source=vec3(0.0,cos(angle),sin(angle));
+                            }
+                            vec3 projected=source-n*dot(n,source);
+                            vec3 analyzer=vec3(0.0,1.0,0.0)-n*n.y;
+                            float analyzerLength=length(analyzer);
+                            float component=analyzerLength>0.0001?dot(projected,analyzer/analyzerLength):0.0;
+                            // E_sc is opposite to E_inc at the retarded time.
+                            float signedField=sin(omega*tr)*component;
+                            vec3 neutral=vec3(0.32,0.36,0.43);
+                            vec3 color=mix(neutral,signedField>=0.0?vec3(1.0,0.92,0.10):vec3(0.91,0.25,0.23),abs(signedField));
+                            float density=0.65*strength*abs(signedField)/r;
+                            density*=1.0-smoothstep(11.0,12.0,r);
+                            float alpha=1.0-exp(-density*stepSize);
+                            accum.rgb+=(1.0-accum.a)*alpha*color;
+                            accum.a+=(1.0-accum.a)*alpha;
+                            if(accum.a>0.98) break;
+                        }
+                        if(accum.a<0.002) discard;
+                        gl_FragColor=vec4(accum.rgb/accum.a,accum.a);
+                    }`
+
+            });
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(12,48,32),material);
+            mesh.visible=false;
+            scatteringViz.continuousField=mesh;
+            scene.add(mesh);
         }
 
         function emitScatteringPulse(currentPhase) {
@@ -443,11 +544,26 @@
         }
 
         function updateRadiatedScatteringWave(currentAmplitude) {
-            const isLinear = scatteringParams.polarizationType.startsWith('linear') || scatteringParams.polarizationType === 'non_polarized';
+            const isLinear = scatteringParams.polarizationType.startsWith('linear');
             const show = scatteringParams.showRadiatedWave && scatteringParams.particleCharge !== 0;
             const amplitudeScale = Math.min(1, currentAmplitude / scatteringParams.baseAmplitude);
+            const continuous = scatteringParams.radiationDisplay === 'continuous';
+            const field = scatteringViz.continuousField;
+            if (field) {
+                field.visible = show && continuous;
+                field.rotation.x = scatteringParams.polarizationType === 'linear_horizontal' ? Math.PI/2 : 0;
+                const u=field.material.uniforms;
+                u.time.value=animationTime; u.omega.value=scatteringParams.oscillationFrequency;
+                u.speed.value=scatteringParams.waveSpeed;
+                u.strength.value=currentAmplitude*scatteringParams.particleCharge**2;
+                u.unpolarized.value=isLinear ? 0 : 1;
+                u.section.value=scatteringParams.showSection ? 1 : 0;
+                field.updateWorldMatrix(true,false);
+                camera.getWorldPosition(u.eye.value);
+                field.worldToLocal(u.eye.value);
+            }
             scatteringViz.radiatedWave.shells.forEach(shell => {
-                if (!shell.isActive || !show) { shell.sphere.visible = false; shell.torus.visible = false; return; }
+                if (!shell.isActive || !show || continuous) { shell.sphere.visible = false; shell.torus.visible = false; return; }
                 shell.sphere.visible = !isLinear; shell.torus.visible = isLinear;
                 const age = animationTime - shell.birthTime;
                 if (age > scatteringParams.shellMaxAge) { shell.isActive = false; shell.sphere.visible = false; shell.torus.visible = false; return; }
@@ -469,6 +585,9 @@
                     shell.torus.scale.setScalar(scale); shell.torus.material.opacity = opacity;
                 } else {
                     shell.sphere.scale.setScalar(scale); shell.sphere.material.opacity = opacity;
+                    // Neutral color: this brightness is averaged intensity, not a signed field.
+                    shell.sphere.material.color.set(0xcbd5e1);
+                    shell.sphere.material.clippingPlanes = scatteringParams.showSection ? [shell.clippingPlane] : null;
                 }
             });
         }
@@ -799,7 +918,7 @@
                 
                 case 'wave_scattering': {
                     parameterControlsContainer.innerHTML = `
-                        <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;"> <b>Thompson model</b>.The particle radiates a continuous wave. For clarity, the animation displays a wavefront at each extremum of acceleration. Yellow denotes a positive scattered field and red a negative one, relative to the transverse projection of the incident polarization. The scattered field has the <b>opposite sign to the incident field at emission</b>: a phase shift of π, in addition to the propagation delay r/c. For an electron (charge −1), displacement is in phase with the incident field; acceleration is in opposition. The expanding dipole shapes illustrate the angular amplitude pattern.</p> </div>
+                        <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">The particle radiates a <b>continuous wave</b>. Mesh mode displays selected markers at extrema of acceleration. Yellow denotes a positive field and red a negative field, relative to the transverse projection of the incident polarization. The scattered field has the <b>opposite sign to the incident field at emission</b>: a phase shift of π, in addition to the propagation delay r/c. For an electron (charge −1), displacement is in phase with the incident field; acceleration is in opposition. In polarized mesh mode, the expanding dipole shapes illustrate angular amplitude, not spherical wavefront geometry. Unpolarized mesh mode shows spherical fronts with brightness indicating the averaged angular intensity. Continuous mode displays the field throughout a 3D volume with all phases; rotate the view to inspect it, or enable Show Section for a cutaway.</p> </div>
                         <div class="control-group"> <label for="mass-slider">Particle Mass, in e-</label>
                             <div class="slider-group"> <input type="range" id="mass-slider" min="0" max="3.265" step="0.01" value="0"> <span id="mass-display" class="param-info" style="min-width: 40px; padding: 5px 10px; margin-left:10px;">1</span> </div>
                         </div>
@@ -809,8 +928,12 @@
                             </div></div>
                         <div class="control-group"> <label for="polarization-selector-scatter">Incoming Wave Polarization:</label> <select id="polarization-selector-scatter" class="control-group select"> <option value="linear_vertical">Linear: E along x (figure)</option> <option value="linear_horizontal">Linear: E along y</option> <option value="non_polarized">Non-Polarized</option> </select> </div>
                         <div class="control-group"> <label>Show Radiated Wave:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="radiated-wave-toggle" checked> <span class="slider"></span> </label> </div>
+                        <div class="control-group"><label for="radiation-display">Radiation display:</label>
+                            <select id="radiation-display"><option value="mesh">Mesh at extrema</option><option value="continuous">Continuous field · 3D volume</option></select>
+                            <p class="param-info">Continuous 3D volume: yellow → neutral → red shows the signed transverse field at t − r/c; opacity follows its magnitude. The central near-field region is omitted and brightness is enhanced for visibility. For unpolarized light, color shows one analyzer component of an illustrative changing-polarization carrier; the polar plot shows the time-averaged pattern, not its instantaneous field.</p>
+                        </div>
                         <div class="control-group"> <label>Show Incoming Wavefront:</label> <label class="switch" style="vertical-align: middle;"> <input type="checkbox" id="wavefront-toggle" checked> <span class="slider"></span> </label> </div>
-                        <div class="control-group"><label for="psi-show">Illustrate ψ:</label> <label class="switch" style="vertical-align: middle;"><input type="checkbox" id="psi-show" ${scatteringParams.showPsi ? 'checked' : ''}><span class="slider"></span></label>
+                        <div class="control-group" id="psi-group"><label for="psi-show">Illustrate ψ:</label> <label class="switch" style="vertical-align: middle;"><input type="checkbox" id="psi-show" ${scatteringParams.showPsi ? 'checked' : ''}><span class="slider"></span></label>
                             <div id="psi-controls" ${scatteringParams.showPsi ? '' : 'hidden'}>
                             <label for="psi-slider">ψ: angle between ε̂ and R̂ (degrees)</label>
                             <div class="slider-group"><input type="range" id="psi-slider" min="0" max="180" step="1" value="55"></div>
@@ -843,13 +966,22 @@
                     const massDisplay = document.getElementById('mass-display');
                     massSlider.addEventListener('input', (e) => { const linearMass = Math.pow(10, parseFloat(e.target.value)); scatteringParams.particleMass = linearMass; massDisplay.textContent = Math.round(linearMass); });
                     document.querySelectorAll('input[name="charge"]').forEach(r => r.addEventListener('change', (e) => scatteringParams.particleCharge = parseInt(e.target.value)));
+                    document.getElementById('radiation-display').addEventListener('change', e => {
+                        scatteringParams.radiationDisplay = e.target.value;
+                        updateRadiatedScatteringWave(scatteringParams.baseAmplitude / scatteringParams.particleMass);
+                    });
                     Object.keys(scatteringParams.polarSelections).forEach(key => {
                         document.getElementById('polar-' + key).addEventListener('change', e => {
                             scatteringParams.polarSelections[key] = e.target.checked;
                             drawPolarDipole(scatteringParams.polarizationType);
                         });
                     });
-                    document.getElementById('polarization-selector-scatter').addEventListener('change', (e) => scatteringParams.polarizationType = e.target.value);
+                    document.getElementById('polarization-selector-scatter').addEventListener('change', e => {
+                        scatteringParams.polarizationType = e.target.value;
+                        updateScatteringPsiControls();
+                        updateConceptVisualization('wave_scattering');
+                    });
+                    updateScatteringPsiControls();
                     document.getElementById('radiated-wave-toggle').addEventListener('change', (e) => scatteringParams.showRadiatedWave = e.target.checked);
                     document.getElementById('wavefront-toggle').addEventListener('change', (e) => scatteringParams.showWavefront = e.target.checked);
                     document.getElementById('section-toggle').addEventListener('change', (e) => scatteringParams.showSection = e.target.checked);
@@ -1271,12 +1403,13 @@ function setupConceptVisualization(concept) {
                     scene.add(scatteringViz.axes);
                     createScatteringParticle();
                     createScatteringWaves();
+                    createContinuousScatteringField();
                     // Internal wave coordinates (propagation x, polarization y) map to
                     // the reference figure's world coordinates (propagation z, polarization x).
                     scatteringFrame = new THREE.Group();
                     scatteringFrame.setRotationFromMatrix(new THREE.Matrix4().makeBasis(
                         new THREE.Vector3(0,0,1),new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0)));
-                    scatteringFrame.add(scatteringViz.particle);
+                    scatteringFrame.add(scatteringViz.particle, scatteringViz.continuousField);
                     scatteringViz.incomingWave.planes.forEach(o=>scatteringFrame.add(o));
                     scatteringViz.incomingWave.vectors.forEach(row=>row.forEach(o=>scatteringFrame.add(o)));
                     scatteringViz.radiatedWave.shells.forEach(shell=>scatteringFrame.add(shell.sphere,shell.torus));
@@ -1697,16 +1830,6 @@ function setupConceptVisualization(concept) {
                 case 'wave_scattering': {
                     const omega_t = scatteringParams.oscillationFrequency * animationTime;
                     const firstPeakOffset = ((scatteringParams.waveSpeed * animationTime - (scatteringParams.wavelength / 4)) % scatteringParams.wavelength + scatteringParams.wavelength) % scatteringParams.wavelength;
-                    if (scatteringParams.polarizationType === 'non_polarized') {
-                        for (let i = 0; i < scatteringParams.numPlanes; i++) {
-                            const peakX = scatteringParams.sceneExtent + firstPeakOffset - i * scatteringParams.wavelength;
-                            if (!scatteringViz.incomingWave.passedParticle[i] && peakX < 0) scatteringViz.incomingWave.passedParticle[i] = true;
-                            if (scatteringViz.incomingWave.passedParticle[i] && peakX > scatteringParams.sceneExtent) {
-                                scatteringViz.incomingWave.passedParticle[i] = false;
-                                scatteringViz.incomingWave.polarizationAngles[i] = Math.random() * 2 * Math.PI;
-                            }
-                        }
-                    }
                     const k_scatter = (2 * Math.PI) / scatteringParams.wavelength;
                     for (let i = 0; i < scatteringParams.numPlanes; i++) {
                         const peakX = scatteringParams.sceneExtent + firstPeakOffset - i * scatteringParams.wavelength;
@@ -1726,7 +1849,7 @@ function setupConceptVisualization(concept) {
                                     polarizationDir.set(0, 0, 1);
                                     break;
                                 case 'non_polarized':
-                                    const currentAngle = scatteringViz.incomingWave.polarizationAngles[i];
+                                    const currentAngle = scatteringPolarizationAngle(animationTime - vector.position.x / scatteringParams.waveSpeed);
                                     polarizationDir.set(0, Math.cos(currentAngle), Math.sin(currentAngle));
                                     break;
                             }
@@ -1739,8 +1862,7 @@ function setupConceptVisualization(concept) {
                     const particlePhase = omega_t;
                     let particleAngle = 0;
                     if (scatteringParams.polarizationType === 'non_polarized') {
-                        const i_particle = Math.floor((scatteringParams.sceneExtent + firstPeakOffset) / scatteringParams.wavelength);
-                        particleAngle = scatteringViz.incomingWave.polarizationAngles[Math.max(0, Math.min(i_particle, scatteringParams.numPlanes - 1))];
+                        particleAngle = scatteringPolarizationAngle(animationTime);
                     }
                     const effectiveAmplitude = scatteringParams.baseAmplitude / scatteringParams.particleMass; // normalized visual displacement amplitude
                     let displacement = new THREE.Vector3();
@@ -2323,6 +2445,8 @@ function setupConceptVisualization(concept) {
                         s.torus.geometry.dispose();
                         s.torus.material.dispose();
                     });
+                    if (scatteringViz.continuousField) disposeSceneObject(scatteringViz.continuousField);
+                    if (scatteringViz.polarizationTexture) scatteringViz.polarizationTexture.dispose();
                     scatteringViz.lights.forEach(l => scene.remove(l));
                     if (scatteringViz.axes) disposeSceneObject(scatteringViz.axes);
                     if (scatteringFrame) { scene.remove(scatteringFrame); scatteringFrame = null; }
@@ -3252,14 +3376,14 @@ function setupConceptVisualization(concept) {
             polarCtx.textAlign = 'center';
             polarCtx.fillStyle = 'rgba(200,200,200,0.85)';
             polarCtx.font = '10px Arial';
-            const horizontalDipole = polarizationType === 'linear_horizontal';
+            const horizontalDipole = polarizationType === 'linear_horizontal' || polarizationType === 'non_polarized';
             polarCtx.fillText(horizontalDipole ? '90°' : '0°', cx, cy - R - 6);
             polarCtx.fillText(horizontalDipole ? '90°' : '180°', cx, cy + R + 10);
             polarCtx.textAlign = 'left';   polarCtx.fillText(horizontalDipole ? '0°' : '90°', cx + R + 4, cy + 4);
             polarCtx.textAlign = 'right';  polarCtx.fillText(horizontalDipole ? '180°' : '90°', cx - R - 4, cy + 4);
             // Pattern
             const isLinear = polarizationType.startsWith('linear');
-            const dipoleAxisAngle = (polarizationType === 'linear_horizontal') ? 0 : Math.PI / 2;
+            const dipoleAxisAngle = horizontalDipole ? 0 : Math.PI / 2;
             series.forEach(line => {
             polarCtx.strokeStyle = line.color;
             polarCtx.fillStyle = line.fill;
@@ -3320,12 +3444,12 @@ function setupConceptVisualization(concept) {
             series.forEach((line, i) => {
                 polarCtx.fillStyle = line.color;
                 const fieldPlot = line.key === 'field';
-                const title = isLinear ? (fieldPlot ? 'E amplitude: |sin ψ|' : 'Intensity: sin²ψ') : (fieldPlot ? 'RMS E: √[½(1 + cos²ψ)]' : 'Intensity: ½(1 + cos²ψ)');
+                const title = isLinear ? (fieldPlot ? 'E amplitude: |sin ψ|' : 'Intensity: sin²ψ') : (fieldPlot ? 'RMS E: √[½(1 + cos²θ)]' : 'Intensity: ½(1 + cos²θ)');
                 polarCtx.fillText(title, cx, 9 + i * 12);
             });
             polarCtx.fillStyle = '#cccccc';
             polarCtx.font = '9px Arial';
-            polarCtx.fillText(isLinear ? 'ψ = ∠(ε̂, R̂)' : 'ψ from propagation axis (average)', cx, h - 6);
+            polarCtx.fillText(isLinear ? 'ψ = ∠(ε̂, R̂)' : 'θ from incident beam · averaged', cx, h - 6);
         }
 
 
