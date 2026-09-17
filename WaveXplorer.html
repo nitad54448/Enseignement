@@ -426,11 +426,16 @@
             if (currentCycle > scatteringViz.lastEmittedCycle) {
                 scatteringViz.lastEmittedCycle = currentCycle;
                 const shell = scatteringViz.radiatedWave.shells[scatteringViz.nextShellIndex];
-                shell.isActive = true; shell.birthTime = animationTime;
+                // Exact extremum time: propagation must not acquire a frame-dependent phase lag.
+                shell.isActive = true;
+                shell.birthTime = (currentCycle + 0.5) * Math.PI / scatteringParams.oscillationFrequency;
                 shell.orientationAngle = scatteringParams.polarizationType === 'linear_horizontal'
                     ? Math.PI / 2 : (scatteringViz.lastParticleAngle || 0);
                 const isPeakEmission = currentCycle % 2 === 0;
-                const targetColor = isPeakEmission ? 0xE74C3C : 0xFFFF00;
+                // E_inc(0,t) = -sin(omega*t). In the transverse polarization basis,
+                // E_sc(r,t) is proportional to -E_inc(0,t-r/c), independently of charge sign.
+                // At phase pi/2 the incident field is negative, so the scattered field is positive.
+                const targetColor = isPeakEmission ? 0xFFFF00 : 0xE74C3C;
                 shell.torus.material.color.set(targetColor);
                 shell.sphere.material.color.set(targetColor);
                 scatteringViz.nextShellIndex = (scatteringViz.nextShellIndex + 1) % scatteringParams.numRadiatedShells;
@@ -794,7 +799,7 @@
                 
                 case 'wave_scattering': {
                     parameterControlsContainer.innerHTML = `
-                        <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">A new wavefront is emitted when the particle's <b>acceleration is maximum</b>. The color of the radiated wave matches the corresponding polarization vector (yellow for peak, red for trough) to show that the resulting wave has the same frequency as the incoming wave.</p> </div>
+                        <div class="control-group"> <p style="font-size:0.9em; line-height:1.4; margin-bottom: 25px;">A new wavefront is emitted at each <b>extremum of acceleration</b>. Yellow denotes a positive field and red a negative field, relative to the transverse projection of the incident polarization. The scattered field has the <b>opposite sign to the incident field at emission</b>: a phase shift of π, in addition to the propagation delay r/c. For an electron (charge −1), displacement is in phase with the incident field; acceleration is in opposition. The expanding dipole shapes illustrate the angular amplitude pattern.</p> </div>
                         <div class="control-group">
                             <label for="history-quantity">Bottom plot:</label>
                             <select id="history-quantity">
