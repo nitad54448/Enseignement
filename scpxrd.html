@@ -1,666 +1,344 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cubic Powder XRD Simulator</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #f0f0f0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        #app-container { display: flex; width: 100%; flex-grow: 1; min-height: 0; }
-        #controls-panel { width: 450px; min-width: 350px; max-width: 600px; flex-shrink: 0; padding: 24px; background-color: #111827; border-right: 1px solid #374151; overflow-y: auto; color: #d1d5db; }
-        #drag-handle { width: 6px; cursor: col-resize; background-color: #374151; flex-shrink: 0; transition: background-color: 0.2s; }
-        #drag-handle:hover { background-color: #3b82f6; }
-        #results-area { flex-grow: 1; position: relative; background-color: #ffffff; min-width: 0; display: flex; flex-direction: column; padding: 1.5rem; color: #1f2937; overflow-y: auto; }
-        .control-group { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #374151;}
-        .control-group:last-child { border-bottom: none; }
-        .control-label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
-        .control-input, .control-select { width: 100%; background-color: #374151; border: 1px solid #4b5563; color: #e5e7eb; border-radius: 0.375rem; padding: 0.75rem; transition: all 0.2s ease; }
-        .control-input:focus, .control-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4); }
-        .btn { padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; transition: background-color: 0.2s; cursor: pointer; }
-        .btn-primary { background-color: #3b82f6; color: white; }
-        .btn-primary:hover { background-color: #2563eb; }
-        .btn-secondary { background-color: #4b5563; color: #d1d5db; }
-        .btn-secondary:hover { background-color: #6b7280; }
-        footer { width: 100%; background-color: #ffffff; padding: 8px 24px; font-size: 0.8em; color: #4b5563; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
-        input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; background: #4b5563; border-radius: 5px; outline: none; transition: background 0.2s; }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #e5e7eb; border-radius: 50%; cursor: pointer; border: 2px solid #374151;}
-        input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; background: #e5e7eb; border-radius: 50%; cursor: pointer; border: 2px solid #374151; }
-        /* Simple direct child selector to apply Tailwind-like classes for brevity */
-        .w-1\/2 { width: 50%; }
-        .w-auto { width: auto; }
-        .pr-8 { padding-right: 2rem; }
-        .p-4 { padding: 1rem; }
-        .mb-4 { margin-bottom: 1rem; }
-        .mt-4 { margin-top: 1rem; }
-        .mt-3 { margin-top: 0.75rem; }
-        .space-y-2 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; margin-bottom: 0; }
-        .flex { display: flex; }
-        .items-center { align-items: center; }
-        .space-x-2 > :not([hidden]) ~ :not([hidden]) { margin-left: 0.5rem; margin-right: 0; }
-        .space-x-4 > :not([hidden]) ~ :not([hidden]) { margin-left: 1rem; margin-right: 0; }
-        .justify-between { justify-content: space-between; }
-        .rounded-lg { border-radius: 0.5rem; }
-        .bg-gray-900\/50 { background-color: rgba(17, 24, 39, 0.5); }
-        .hidden { display: none; }
-        .text-sky-400 { color: #38bdf8; }
-        .text-amber-400 { color: #f59e0b; }
-        .text-2xl { font-size: 1.5rem; line-height: 2rem; }
-        .font-bold { font-weight: 700; }
-        .text-white { color: #ffffff; }
-        .mb-2 { margin-bottom: 0.5rem; }
-        .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
-        .text-gray-400 { color: #9ca3af; }
-        .mb-6 { margin-bottom: 1.5rem; }
-        .text-lg { font-size: 1.125rem; line-height: 1.75rem; }
-        .font-semibold { font-weight: 600; }
-        .mb-3 { margin-bottom: 0.75rem; }
-        .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-        .p-2 { padding: 0.5rem; }
-        .bg-gray-100 { background-color: #f3f4f6; }
-        .rounded { border-radius: 0.25rem; }
-        .text-gray-700 { color: #374151; }
-        .text-gray-800 { color: #1f2937; }
-        .mt-6 { margin-top: 1.5rem; }
-        .border-t { border-top-width: 1px; }
-        .pt-4 { padding-top: 1rem; }
-        .min-w-full { min-width: 100%; }
-        .divide-y > :not([hidden]) ~ :not([hidden]) { border-top-width: 1px; border-bottom-width: 0px; }
-        .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #e5e7eb; }
-        .bg-gray-50 { background-color: #f9fafb; }
-        .sticky { position: sticky; }
-        .top-0 { top: 0; }
-        .px-4 { padding-left: 1rem; padding-right: 1rem; }
-        .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
-        .text-left { text-align: left; }
-        .text-xs { font-size: 0.75rem; line-height: 1rem; }
-        .font-medium { font-weight: 500; }
-        .text-gray-500 { color: #6b7280; }
-        .uppercase { text-transform: uppercase; }
-        .tracking-wider { letter-spacing: 0.05em; }
-        .bg-white { background-color: #ffffff; }
-        .w-full { width: 100%; }
-        .relative { position: relative; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cubic Powder XRD Simulator</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: light; --panel:#111827; --line:#374151; --blue:#2563eb; }
+    * { box-sizing: border-box; }
+    body { margin:0; height:100vh; overflow:hidden; display:flex; flex-direction:column; background:#f3f4f6; color:#1f2937; font-family:Inter,sans-serif; }
+    #app { display:flex; flex:1; min-height:0; }
+    #controls-panel { width:450px; min-width:350px; max-width:600px; flex:none; padding:24px; overflow-y:auto; color:#d1d5db; background:var(--panel); }
+    #drag-handle { width:6px; flex:none; cursor:col-resize; background:var(--line); }
+    #drag-handle:hover { background:#3b82f6; }
+    #results-area { flex:1; min-width:0; padding:24px; overflow:hidden; background:white; display:flex; flex-direction:column; }
+    h1 { margin:0 0 8px; color:white; font-size:1.5rem; }
+    .intro { margin:0 0 24px; color:#9ca3af; font-size:.875rem; line-height:1.5; }
+    .group { margin-bottom:24px; padding-bottom:24px; border-bottom:1px solid var(--line); }
+    .group h2 { margin:0 0 12px; color:white; font-size:1.125rem; }
+    label { display:block; margin:14px 0 7px; color:#9ca3af; font-size:.9rem; font-weight:500; }
+    input, select { width:100%; padding:11px 12px; border:1px solid #4b5563; border-radius:6px; background:#374151; color:#f3f4f6; font:inherit; }
+    input:focus, select:focus { outline:none; border-color:#3b82f6; box-shadow:0 0 0 2px rgb(59 130 246 / .35); }
+    input[type=range] { padding:0; border:0; accent-color:#3b82f6; }
+    .row { display:flex; gap:12px; }
+    .row > * { flex:1; min-width:0; }
+    .atom-card { margin-top:12px; padding:16px; border-radius:8px; background:rgb(17 24 39 / .55); }
+    .atom-title { margin:0; font-weight:700; color:#38bdf8; }
+    #atom2-card .atom-title { color:#f59e0b; }
+    .value { color:white; font-weight:600; }
+    .buttons { display:flex; justify-content:space-between; gap:8px; margin-top:14px; }
+    button { padding:9px 14px; border:0; border-radius:6px; cursor:pointer; font:600 .9rem Inter,sans-serif; }
+    .primary { background:#2563eb; color:white; }
+    .secondary { background:#4b5563; color:#e5e7eb; }
+    .hidden { display:none !important; }
+    .status { min-height:20px; margin:0 0 10px; color:#b91c1c; font-size:.86rem; }
+    .result-header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:14px; }
+    .result-header h2 { margin:0; font-size:1.5rem; }
+    #composition { padding:8px 10px; border-radius:5px; background:#f3f4f6; font-family:ui-monospace,monospace; }
+    .tabs { display:flex; gap:6px; border-bottom:1px solid #d1d5db; }
+    .tab { border-radius:6px 6px 0 0; background:#e5e7eb; color:#374151; }
+    .tab.active { background:var(--blue); color:white; }
+    .tab-panel { flex:1; min-height:0; padding-top:16px; }
+    #diagram-panel { position:relative; }
+    #diagram-wrap { position:absolute; inset:16px 0 0; }
+    #peaks-panel { overflow:auto; }
+    .chart-help { position:absolute; z-index:2; top:24px; right:10px; padding:6px 8px; border-radius:4px; background:rgb(255 255 255 / .88); color:#6b7280; font-size:.75rem; pointer-events:none; }
+    table { width:100%; border-collapse:collapse; }
+    th { position:sticky; top:0; padding:11px 12px; background:#f9fafb; color:#6b7280; text-align:left; font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; }
+    td { padding:10px 12px; border-top:1px solid #e5e7eb; font-size:.875rem; }
+    footer { flex:none; padding:7px 24px; border-top:1px solid #e5e7eb; background:white; color:#6b7280; font-size:.75rem; }
+    @media (max-width:800px) { body{height:auto;overflow:auto} #app{display:block} #controls-panel{width:100%;max-width:none} #drag-handle{display:none} #results-area{height:75vh} }
+  </style>
 </head>
 <body>
+  <main id="app">
+    <aside id="controls-panel">
+      <h1>Cubic Powder XRD Simulator</h1>
+      <p class="intro">Build a cubic structure and calculate its powder diffraction pattern using WK1995 X-ray scattering factors.</p>
 
-    <div id="app-container">
-        <div id="controls-panel">
-            <h1 class="text-2xl font-bold text-white mb-2">Simple Cubic XRD Simulator</h1>
-            <p class="text-sm text-gray-400 mb-6">Define a crystal structure using any cubic space group and atomic positions to visualize its diffraction pattern.</p>
-            
-            <div>
-                <div class="control-group">
-                    <h2 class="text-lg font-semibold text-white mb-3">General Parameters</h2>
-                    <label for="space-group" class="control-label">Cubic Space Group</label>
-                    <select id="space-group" class="control-select"></select>
-                    
-                    <label for="lattice-parameter" class="control-label mt-4">Lattice Parameter (a) in Å: <span id="lattice-parameter-value" class="font-semibold text-white">3.567</span></label>
-                    <input type="range" id="lattice-parameter" min="2.0" max="15.0" value="3.567" step="0.001">
-
-                    <label for="xray-wavelength" class="control-label mt-4">X-Ray Wavelength (λ) in Å</label>
-                    <div class="flex items-center space-x-2">
-                        <input type="number" id="xray-wavelength" value="1.5406" step="0.0001" class="control-input">
-                        <select id="wavelength-preset" class="control-select w-auto pr-8">
-                            <option value="1.5406">Cu Kα</option>
-                            <option value="0.7093">Mo Kα</option>
-                            <option value="1.7889">Co Kα</option>
-                            <option value="custom" style="display: none;">User</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <h2 class="text-lg font-semibold text-white mb-3">Atomic Positions</h2>
-                    <div id="atom1-controls" class="p-4 bg-gray-900/50 rounded-lg mb-4">
-                        <div class="flex space-x-4">
-                            <div class="w-1/2">
-                                <label for="atom1-element" class="control-label text-sky-400">Atom 1</label>
-                                <select id="atom1-element" class="control-select"></select>
-                            </div>
-                            <div class="w-1/2">
-                                <label class="control-label">Wyckoff Position</label>
-                                <select id="atom1-wyckoff" class="control-select"></select>
-                            </div>
-                        </div>
-                        <div id="atom1-coords" class="mt-3 space-y-2 hidden"></div>
-                    </div>
-                    <div id="atom2-controls" class="p-4 bg-gray-900/50 rounded-lg hidden">
-                         <div class="flex space-x-4">
-                            <div class="w-1/2">
-                                <label for="atom2-element" class="control-label text-amber-400">Atom 2</label>
-                                <select id="atom2-element" class="control-select"></select>
-                            </div>
-                            <div class="w-1/2">
-                                <label class="control-label">Wyckoff Position</label>
-                                <select id="atom2-wyckoff" class="control-select"></select>
-                            </div>
-                        </div>
-                        <div id="atom2-coords" class="mt-3 space-y-2 hidden"></div>
-                    </div>
-                    <div class="flex justify-between mt-4">
-                        <button id="add-atom-btn" class="btn btn-primary">Add Atom 2</button>
-                        <button id="remove-atom-btn" class="btn btn-secondary hidden">Remove Atom 2</button>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                     <h2 class="text-lg font-semibold text-white mb-3">Graphing</h2>
-                    <label for="two-theta-min" class="control-label">Graph 2θ Min (°): <span id="two-theta-min-value" class="font-semibold text-white">10</span></label>
-                    <input type="range" id="two-theta-min" min="5" max="160" value="10" step="1">
-
-                    <label for="two-theta-max" class="control-label mt-4">Graph 2θ Max (°): <span id="two-theta-max-value" class="font-semibold text-white">120</span></label>
-                    <input type="range" id="two-theta-max" min="5" max="160" value="120" step="1">
-                </div>
-            </div>
+      <section class="group">
+        <h2>General parameters</h2>
+        <label for="xray-wavelength">X-ray wavelength λ (Å)</label>
+        <div class="row">
+          <input type="number" id="xray-wavelength" value="1.5406" min="0.01" step="0.0001">
+          <select id="wavelength-preset" aria-label="Wavelength preset">
+            <option value="1.5406">Cu Kα</option><option value="0.7093">Mo Kα</option><option value="1.7889">Co Kα</option><option value="custom" hidden>Custom</option>
+          </select>
         </div>
+        <label for="space-group">Cubic space group</label>
+        <select id="space-group"></select>
+        <label for="lattice-parameter">Lattice parameter a (Å): <span id="lattice-value" class="value">3.567</span></label>
+        <input type="range" id="lattice-parameter" min="2" max="15" value="3.567" step="0.001">
+        <label for="global-b">Debye–Waller B (Å²): <span id="global-b-value" class="value">0.50</span></label>
+        <input id="global-b" type="range" min="0" max="3" value="0.5" step="0.01">
+      </section>
 
-        <div id="drag-handle"></div>
+      <section class="group">
+        <h2>Atomic positions</h2>
+        <datalist id="element-options"></datalist>
+        <article id="atom1-card" class="atom-card">
+          <p class="atom-title">Atom 1</p>
+          <div class="row">
+            <div><label for="atom1-element">Species</label><input id="atom1-element" type="search" list="element-options" autocomplete="off" spellcheck="false"></div>
+            <div><label for="atom1-wyckoff">Wyckoff position</label><select id="atom1-wyckoff"></select></div>
+          </div>
+          <div id="atom1-coords"></div>
+        </article>
+        <article id="atom2-card" class="atom-card hidden">
+          <p class="atom-title">Atom 2</p>
+          <div class="row">
+            <div><label for="atom2-element">Species</label><input id="atom2-element" type="search" list="element-options" autocomplete="off" spellcheck="false"></div>
+            <div><label for="atom2-wyckoff">Wyckoff position</label><select id="atom2-wyckoff"></select></div>
+          </div>
+          <div id="atom2-coords"></div>
+        </article>
+        <div class="buttons"><button id="add-atom" class="primary">Add atom 2</button><button id="remove-atom" class="secondary hidden">Remove atom 2</button></div>
+      </section>
+    </aside>
+    <div id="drag-handle" aria-hidden="true"></div>
 
-        <div id="results-area">
-            <div id="results-container" class="w-full">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-semibold text-gray-800">Diffraction Pattern</h2>
-                    <h3 id="composition-display" class="text-xl font-mono p-2 bg-gray-100 rounded text-gray-700"></h3>
-                </div>
-                
-                <div class="relative" style="height: 70vh;">
-                    <canvas id="xrd-chart"></canvas>
-                </div>
-                
-                <div>
-                    <h3 class="text-xl font-semibold mt-6 mb-4 border-t pt-4 text-gray-800">Calculated Diffraction Peaks</h3>
-                    <div class="relative">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">2θ (°)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">d-spacing (Å)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">(hkl)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Multiplicity (p)</th>
-                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Intensity</th>
-                                </tr>
-                            </thead>
-                            <tbody id="peak-table-body" class="bg-white divide-y divide-gray-200">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <section id="results-area">
+      <div class="result-header"><h2>Diffraction pattern</h2><div id="composition"></div></div>
+      <p id="status" class="status" role="status"></p>
+      <nav class="tabs" role="tablist" aria-label="Results">
+        <button id="diagram-tab" class="tab active" role="tab" aria-selected="true" aria-controls="diagram-panel">Diagram</button>
+        <button id="peaks-tab" class="tab" role="tab" aria-selected="false" aria-controls="peaks-panel">Calculated diffraction peaks</button>
+      </nav>
+      <section id="diagram-panel" class="tab-panel" role="tabpanel" aria-labelledby="diagram-tab">
+        <div class="chart-help">Drag a rectangle: zoom · Shift+drag: pan · Right-click: reset</div>
+        <div id="diagram-wrap"><canvas id="xrd-chart"></canvas></div>
+      </section>
+      <section id="peaks-panel" class="tab-panel hidden" role="tabpanel" aria-labelledby="peaks-tab">
+        <table><thead><tr><th>2θ (°)</th><th>d-spacing (Å)</th><th>(hkl)</th><th>Total multiplicity</th><th>Intensity</th></tr></thead><tbody id="peak-table-body"></tbody></table>
+      </section>
+    </section>
+  </main>
+  <footer>NitaD, Univ Paris-Saclay · WK1995 five-Gaussian X-ray form factors</footer>
 
-    <footer id="footer-date"></footer>
+  <script>
+    const cubicSpaceGroups = {"195":{"name":"P23","wyckoff_positions":{"1a":{"multiplicity":1,"coordinates":["0,0,0"]},"1b":{"multiplicity":1,"coordinates":["1/2,1/2,1/2"]},"3c":{"multiplicity":3,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"3d":{"multiplicity":3,"coordinates":["1/2,0,0","0,1/2,0","0,0,1/2"]},"4e":{"multiplicity":4,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x"]},"6f":{"multiplicity":6,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x"]},"6g":{"multiplicity":6,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x"]},"6h":{"multiplicity":6,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x"]},"6i":{"multiplicity":6,"coordinates":["x,1/2,1/2","-x,1/2,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,1/2,x","1/2,1/2,-x"]},"12j":{"multiplicity":12,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x"]}}},"196":{"name":"F23","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["0,0,0","0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"4b":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","1/2,1,1","1,1/2,1","1,1,1/2"]},"4c":{"multiplicity":4,"coordinates":["1/4,1/4,1/4","1/4,3/4,3/4","3/4,1/4,3/4","3/4,3/4,1/4"]},"4d":{"multiplicity":4,"coordinates":["3/4,3/4,3/4","3/4,5/4,5/4","5/4,3/4,5/4","5/4,5/4,3/4"]},"16e":{"multiplicity":16,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x"]},"24f":{"multiplicity":24,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x"]},"24g":{"multiplicity":24,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x"]},"48h":{"multiplicity":48,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x"]}}},"197":{"name":"I23","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2"]},"12d":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2"]},"12e":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","x+1/2,1,1/2","-x+1/2,1,1/2","1/2,x+1/2,1","1/2,-x+1/2,1","1,1/2,x+1/2","1,1/2,-x+1/2"]},"24f":{"multiplicity":24,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","x+1/2,y+1/2,z+1/2","-x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,-z+1/2","z+1/2,x+1/2,y+1/2","z+1/2,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y+1/2","-z+1/2,x+1/2,-y+1/2","y+1/2,z+1/2,x+1/2","-y+1/2,z+1/2,-x+1/2","y+1/2,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x+1/2"]}}},"198":{"name":"P213","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x"]},"12b":{"multiplicity":12,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2"]}}},"199":{"name":"I213","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","x+1/2,x+1/2,x+1/2","-x+1,-x+1/2,x+1","-x+1/2,x+1,-x+1","x+1,-x+1,-x+1/2"]},"12b":{"multiplicity":12,"coordinates":["x,0,1/4","-x+1/2,0,3/4","1/4,x,0","3/4,-x+1/2,0","0,1/4,x","0,3/4,-x+1/2","x+1/2,1/2,3/4","-x+1,1/2,5/4","3/4,x+1/2,1/2","5/4,-x+1,1/2","1/2,3/4,x+1/2","1/2,5/4,-x+1"]},"24c":{"multiplicity":24,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","x+1/2,y+1/2,z+1/2","-x+1,-y+1/2,z+1","-x+1/2,y+1,-z+1","x+1,-y+1,-z+1/2","z+1/2,x+1/2,y+1/2","z+1,-x+1,-y+1/2","-z+1,-x+1/2,y+1","-z+1/2,x+1,-y+1","y+1/2,z+1/2,x+1/2","-y+1/2,z+1,-x+1","y+1,-z+1,-x+1/2","-y+1,-z+1/2,x+1"]}}},"200":{"name":"Pm-3","wyckoff_positions":{"1a":{"multiplicity":1,"coordinates":["0,0,0"]},"1b":{"multiplicity":1,"coordinates":["1/2,1/2,1/2"]},"3c":{"multiplicity":3,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"3d":{"multiplicity":3,"coordinates":["1/2,0,0","0,1/2,0","0,0,1/2"]},"6e":{"multiplicity":6,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x"]},"6f":{"multiplicity":6,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x"]},"6g":{"multiplicity":6,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x"]},"6h":{"multiplicity":6,"coordinates":["x,1/2,1/2","-x,1/2,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,1/2,x","1/2,1/2,-x"]},"8i":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","-x,-x,-x","x,x,-x","x,-x,x","-x,x,x"]},"12j":{"multiplicity":12,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0"]},"12k":{"multiplicity":12,"coordinates":["1/2,y,z","1/2,-y,z","1/2,y,-z","1/2,-y,-z","z,1/2,y","z,1/2,-y","-z,1/2,y","-z,1/2,-y","y,z,1/2","-y,z,1/2","y,-z,1/2","-y,-z,1/2"]},"24l":{"multiplicity":24,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x"]}}},"201":{"name":"Pn-3","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["1/4,1/4,1/4","3/4,3/4,3/4"]},"4b":{"multiplicity":4,"coordinates":["0,0,0","1/2,1/2,0","1/2,0,1/2","0,1/2,1/2"]},"4c":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","0,0,1/2","0,1/2,0","1/2,0,0"]},"6d":{"multiplicity":6,"coordinates":["1/4,3/4,3/4","3/4,1/4,3/4","3/4,3/4,1/4","3/4,1/4,1/4","1/4,3/4,1/4","1/4,1/4,3/4"]},"8e":{"multiplicity":8,"coordinates":["x,x,x","-x+1/2,-x+1/2,x","-x+1/2,x,-x+1/2","x,-x+1/2,-x+1/2","-x,-x,-x","x+1/2,x+1/2,-x","x+1/2,-x,x+1/2","-x,x+1/2,x+1/2"]},"12f":{"multiplicity":12,"coordinates":["x,1/4,1/4","-x+1/2,1/4,1/4","1/4,x,1/4","1/4,-x+1/2,1/4","1/4,1/4,x","1/4,1/4,-x+1/2","-x,3/4,3/4","x+1/2,3/4,3/4","3/4,-x,3/4","3/4,x+1/2,3/4","3/4,3/4,-x","3/4,3/4,x+1/2"]},"12g":{"multiplicity":12,"coordinates":["x,3/4,1/4","-x+1/2,3/4,1/4","1/4,x,3/4","1/4,-x+1/2,3/4","3/4,1/4,x","3/4,1/4,-x+1/2","-x,1/4,3/4","x+1/2,1/4,3/4","3/4,-x,1/4","3/4,x+1/2,1/4","1/4,3/4,-x","1/4,3/4,x+1/2"]},"24h":{"multiplicity":24,"coordinates":["x,y,z","-x+1/2,-y+1/2,z","-x+1/2,y,-z+1/2","x,-y+1/2,-z+1/2","z,x,y","z,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y","-z+1/2,x,-y+1/2","y,z,x","-y+1/2,z,-x+1/2","y,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x","-x,-y,-z","x+1/2,y+1/2,-z","x+1/2,-y,z+1/2","-x,y+1/2,z+1/2","-z,-x,-y","-z,x+1/2,y+1/2","z+1/2,x+1/2,-y","z+1/2,-x,y+1/2","-y,-z,-x","y+1/2,-z,x+1/2","-y,z+1/2,x+1/2","y+1/2,z+1/2,-x"]}}},"202":{"name":"Fm-3","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["0,0,0","0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"4b":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,3/4","1/4,3/4,3/4","3/4,5/4,5/4","3/4,1/4,3/4","5/4,3/4,5/4","3/4,3/4,1/4","5/4,5/4,3/4"]},"24d":{"multiplicity":24,"coordinates":["0,1/4,1/4","0,3/4,1/4","1/4,0,1/4","1/4,0,3/4","1/4,1/4,0","3/4,1/4,0","0,3/4,3/4","0,5/4,3/4","1/4,1/2,3/4","1/4,1/2,5/4","1/4,3/4,1/2","3/4,3/4,1/2","1/2,1/4,3/4","1/2,3/4,3/4","3/4,0,3/4","3/4,0,5/4","3/4,1/4,1/2","5/4,1/4,1/2","1/2,3/4,1/4","1/2,5/4,1/4","3/4,1/2,1/4","3/4,1/2,3/4","3/4,3/4,0","5/4,3/4,0"]},"24e":{"multiplicity":24,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x"]},"32f":{"multiplicity":32,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","-x,-x,-x","x,x,-x","x,-x,x","-x,x,x","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","-x,-x+1/2,-x+1/2","x,x+1/2,-x+1/2","x,-x+1/2,x+1/2","-x,x+1/2,x+1/2","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","-x+1/2,-x,-x+1/2","x+1/2,x,-x+1/2","x+1/2,-x,x+1/2","-x+1/2,x,x+1/2","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x","-x+1/2,-x+1/2,-x","x+1/2,x+1/2,-x","x+1/2,-x+1/2,x","-x+1/2,x+1/2,x"]},"48g":{"multiplicity":48,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","-x,3/4,3/4","x,1/4,3/4","3/4,-x,3/4","3/4,x,1/4","3/4,3/4,-x","1/4,3/4,x","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","-x,5/4,5/4","x,3/4,5/4","3/4,-x+1/2,5/4","3/4,x+1/2,3/4","3/4,5/4,-x+1/2","1/4,5/4,x+1/2","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","-x+1/2,3/4,5/4","x+1/2,1/4,5/4","5/4,-x,5/4","5/4,x,3/4","5/4,3/4,-x+1/2","3/4,3/4,x+1/2","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x","-x+1/2,5/4,3/4","x+1/2,3/4,3/4","5/4,-x+1/2,3/4","5/4,x+1/2,1/4","5/4,5/4,-x","3/4,5/4,x"]},"48h":{"multiplicity":48,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","0,y+1/2,z+1/2","0,-y+1/2,z+1/2","0,y+1/2,-z+1/2","0,-y+1/2,-z+1/2","z,1/2,y+1/2","z,1/2,-y+1/2","-z,1/2,y+1/2","-z,1/2,-y+1/2","y,z+1/2,1/2","-y,z+1/2,1/2","y,-z+1/2,1/2","-y,-z+1/2,1/2","1/2,y,z+1/2","1/2,-y,z+1/2","1/2,y,-z+1/2","1/2,-y,-z+1/2","z+1/2,0,y+1/2","z+1/2,0,-y+1/2","-z+1/2,0,y+1/2","-z+1/2,0,-y+1/2","y+1/2,z,1/2","-y+1/2,z,1/2","y+1/2,-z,1/2","-y+1/2,-z,1/2","1/2,y+1/2,z","1/2,-y+1/2,z","1/2,y+1/2,-z","1/2,-y+1/2,-z","z+1/2,1/2,y","z+1/2,1/2,-y","-z+1/2,1/2,y","-z+1/2,1/2,-y","y+1/2,z+1/2,0","-y+1/2,z+1/2,0","y+1/2,-z+1/2,0","-y+1/2,-z+1/2,0"]},"96i":{"multiplicity":96,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","-x,-y+1/2,-z+1/2","x,y+1/2,-z+1/2","x,-y+1/2,z+1/2","-x,y+1/2,z+1/2","-z,-x+1/2,-y+1/2","-z,x+1/2,y+1/2","z,x+1/2,-y+1/2","z,-x+1/2,y+1/2","-y,-z+1/2,-x+1/2","y,-z+1/2,x+1/2","-y,z+1/2,x+1/2","y,z+1/2,-x+1/2","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","-x+1/2,-y,-z+1/2","x+1/2,y,-z+1/2","x+1/2,-y,z+1/2","-x+1/2,y,z+1/2","-z+1/2,-x,-y+1/2","-z+1/2,x,y+1/2","z+1/2,x,-y+1/2","z+1/2,-x,y+1/2","-y+1/2,-z,-x+1/2","y+1/2,-z,x+1/2","-y+1/2,z,x+1/2","y+1/2,z,-x+1/2","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x","-x+1/2,-y+1/2,-z","x+1/2,y+1/2,-z","x+1/2,-y+1/2,z","-x+1/2,y+1/2,z","-z+1/2,-x+1/2,-y","-z+1/2,x+1/2,y","z+1/2,x+1/2,-y","z+1/2,-x+1/2,y","-y+1/2,-z+1/2,-x","y+1/2,-z+1/2,x","-y+1/2,z+1/2,x","y+1/2,z+1/2,-x"]}}},"203":{"name":"Fd-3","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["1/8,1/8,1/8","7/8,7/8,7/8","1/8,5/8,5/8","7/8,11/8,11/8","5/8,1/8,5/8","11/8,7/8,11/8","5/8,5/8,1/8","11/8,11/8,7/8"]},"8b":{"multiplicity":8,"coordinates":["5/8,5/8,5/8","3/8,3/8,3/8","5/8,9/8,9/8","3/8,7/8,7/8","9/8,5/8,9/8","7/8,3/8,7/8","9/8,9/8,5/8","7/8,7/8,3/8"]},"16c":{"multiplicity":16,"coordinates":["0,0,0","1/4,1/4,0","1/4,0,1/4","0,1/4,1/4","0,1/2,1/2","1/4,3/4,1/2","1/4,1/2,3/4","0,3/4,3/4","1/2,0,1/2","3/4,1/4,1/2","3/4,0,3/4","1/2,1/4,3/4","1/2,1/2,0","3/4,3/4,0","3/4,1/2,1/4","1/2,3/4,1/4"]},"16d":{"multiplicity":16,"coordinates":["1/2,1/2,1/2","3/4,3/4,1/2","3/4,1/2,3/4","1/2,3/4,3/4","1/2,1,1","3/4,5/4,1","3/4,1,5/4","1/2,5/4,5/4","1,1/2,1","5/4,3/4,1","5/4,1/2,5/4","1,3/4,5/4","1,1,1/2","5/4,5/4,1/2","5/4,1,3/4","1,5/4,3/4"]},"32e":{"multiplicity":32,"coordinates":["x,x,x","-x+1/4,-x+1/4,x","-x+1/4,x,-x+1/4","x,-x+1/4,-x+1/4","-x,-x,-x","x+3/4,x+3/4,-x","x+3/4,-x,x+3/4","-x,x+3/4,x+3/4","x,x+1/2,x+1/2","-x+1/4,-x+3/4,x+1/2","-x+1/4,x+1/2,-x+3/4","x,-x+3/4,-x+3/4","-x,-x+1/2,-x+1/2","x+3/4,x+5/4,-x+1/2","x+3/4,-x+1/2,x+5/4","-x,x+5/4,x+5/4","x+1/2,x,x+1/2","-x+3/4,-x+1/4,x+1/2","-x+3/4,x,-x+3/4","x+1/2,-x+1/4,-x+3/4","-x+1/2,-x,-x+1/2","x+5/4,x+3/4,-x+1/2","x+5/4,-x,x+5/4","-x+1/2,x+3/4,x+5/4","x+1/2,x+1/2,x","-x+3/4,-x+3/4,x","-x+3/4,x+1/2,-x+1/4","x+1/2,-x+3/4,-x+1/4","-x+1/2,-x+1/2,-x","x+5/4,x+5/4,-x","x+5/4,-x+1/2,x+3/4","-x+1/2,x+5/4,x+3/4"]},"48f":{"multiplicity":48,"coordinates":["x,1/8,1/8","-x+1/4,1/8,1/8","1/8,x,1/8","1/8,-x+1/4,1/8","1/8,1/8,x","1/8,1/8,-x+1/4","-x,7/8,7/8","x+3/4,7/8,7/8","7/8,-x,7/8","7/8,x+3/4,7/8","7/8,7/8,-x","7/8,7/8,x+3/4","x,5/8,5/8","-x+1/4,5/8,5/8","1/8,x+1/2,5/8","1/8,-x+3/4,5/8","1/8,5/8,x+1/2","1/8,5/8,-x+3/4","-x,11/8,11/8","x+3/4,11/8,11/8","7/8,-x+1/2,11/8","7/8,x+5/4,11/8","7/8,11/8,-x+1/2","7/8,11/8,x+5/4","x+1/2,1/8,5/8","-x+3/4,1/8,5/8","5/8,x,5/8","5/8,-x+1/4,5/8","5/8,1/8,x+1/2","5/8,1/8,-x+3/4","-x+1/2,7/8,11/8","x+5/4,7/8,11/8","11/8,-x,11/8","11/8,x+3/4,11/8","11/8,7/8,-x+1/2","11/8,7/8,x+5/4","x+1/2,5/8,1/8","-x+3/4,5/8,1/8","5/8,x+1/2,1/8","5/8,-x+3/4,1/8","5/8,5/8,x","5/8,5/8,-x+1/4","-x+1/2,11/8,7/8","x+5/4,11/8,7/8","11/8,-x+1/2,7/8","11/8,x+5/4,7/8","11/8,11/8,-x","11/8,11/8,x+3/4"]},"96g":{"multiplicity":96,"coordinates":["x,y,z","-x+1/4,-y+1/4,z","-x+1/4,y,-z+1/4","x,-y+1/4,-z+1/4","z,x,y","z,-x+1/4,-y+1/4","-z+1/4,-x+1/4,y","-z+1/4,x,-y+1/4","y,z,x","-y+1/4,z,-x+1/4","y,-z+1/4,-x+1/4","-y+1/4,-z+1/4,x","-x,-y,-z","x+3/4,y+3/4,-z","x+3/4,-y,z+3/4","-x,y+3/4,z+3/4","-z,-x,-y","-z,x+3/4,y+3/4","z+3/4,x+3/4,-y","z+3/4,-x,y+3/4","-y,-z,-x","y+3/4,-z,x+3/4","-y,z+3/4,x+3/4","y+3/4,z+3/4,-x","x,y+1/2,z+1/2","-x+1/4,-y+3/4,z+1/2","-x+1/4,y+1/2,-z+3/4","x,-y+3/4,-z+3/4","z,x+1/2,y+1/2","z,-x+3/4,-y+3/4","-z+1/4,-x+3/4,y+1/2","-z+1/4,x+1/2,-y+3/4","y,z+1/2,x+1/2","-y+1/4,z+1/2,-x+3/4","y,-z+3/4,-x+3/4","-y+1/4,-z+3/4,x+1/2","-x,-y+1/2,-z+1/2","x+3/4,y+5/4,-z+1/2","x+3/4,-y+1/2,z+5/4","-x,y+5/4,z+5/4","-z,-x+1/2,-y+1/2","-z,x+5/4,y+5/4","z+3/4,x+5/4,-y+1/2","z+3/4,-x+1/2,y+5/4","-y,-z+1/2,-x+1/2","y+3/4,-z+1/2,x+5/4","-y,z+5/4,x+5/4","y+3/4,z+5/4,-x+1/2","x+1/2,y,z+1/2","-x+3/4,-y+1/4,z+1/2","-x+3/4,y,-z+3/4","x+1/2,-y+1/4,-z+3/4","z+1/2,x,y+1/2","z+1/2,-x+1/4,-y+3/4","-z+3/4,-x+1/4,y+1/2","-z+3/4,x,-y+3/4","y+1/2,z,x+1/2","-y+3/4,z,-x+3/4","y+1/2,-z+1/4,-x+3/4","-y+3/4,-z+1/4,x+1/2","-x+1/2,-y,-z+1/2","x+5/4,y+3/4,-z+1/2","x+5/4,-y,z+5/4","-x+1/2,y+3/4,z+5/4","-z+1/2,-x,-y+1/2","-z+1/2,x+3/4,y+5/4","z+5/4,x+3/4,-y+1/2","z+5/4,-x,y+5/4","-y+1/2,-z,-x+1/2","y+5/4,-z,x+5/4","-y+1/2,z+3/4,x+5/4","y+5/4,z+3/4,-x+1/2","x+1/2,y+1/2,z","-x+3/4,-y+3/4,z","-x+3/4,y+1/2,-z+1/4","x+1/2,-y+3/4,-z+1/4","z+1/2,x+1/2,y","z+1/2,-x+3/4,-y+1/4","-z+3/4,-x+3/4,y","-z+3/4,x+1/2,-y+1/4","y+1/2,z+1/2,x","-y+3/4,z+1/2,-x+1/4","y+1/2,-z+3/4,-x+1/4","-y+3/4,-z+3/4,x","-x+1/2,-y+1/2,-z","x+5/4,y+5/4,-z","x+5/4,-y+1/2,z+3/4","-x+1/2,y+5/4,z+3/4","-z+1/2,-x+1/2,-y","-z+1/2,x+5/4,y+3/4","z+5/4,x+5/4,-y","z+5/4,-x+1/2,y+3/4","-y+1/2,-z+1/2,-x","y+5/4,-z+1/2,x+3/4","-y+1/2,z+5/4,x+3/4","y+5/4,z+5/4,-x"]}}},"204":{"name":"Im-3","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,1/4","3/4,1/4,3/4","1/4,3/4,3/4","3/4,3/4,3/4","5/4,5/4,3/4","5/4,3/4,5/4","3/4,5/4,5/4"]},"12d":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2"]},"12e":{"multiplicity":12,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x","x+1/2,1/2,1","-x+1/2,1/2,1","1,x+1/2,1/2","1,-x+1/2,1/2","1/2,1,x+1/2","1/2,1,-x+1/2"]},"16f":{"multiplicity":16,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","-x,-x,-x","x,x,-x","x,-x,x","-x,x,x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,x+1/2"]},"24g":{"multiplicity":24,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","1/2,y+1/2,z+1/2","1/2,-y+1/2,z+1/2","1/2,y+1/2,-z+1/2","1/2,-y+1/2,-z+1/2","z+1/2,1/2,y+1/2","z+1/2,1/2,-y+1/2","-z+1/2,1/2,y+1/2","-z+1/2,1/2,-y+1/2","y+1/2,z+1/2,1/2","-y+1/2,z+1/2,1/2","y+1/2,-z+1/2,1/2","-y+1/2,-z+1/2,1/2"]},"48h":{"multiplicity":48,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","x+1/2,y+1/2,z+1/2","-x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,-z+1/2","z+1/2,x+1/2,y+1/2","z+1/2,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y+1/2","-z+1/2,x+1/2,-y+1/2","y+1/2,z+1/2,x+1/2","-y+1/2,z+1/2,-x+1/2","y+1/2,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x+1/2","-x+1/2,-y+1/2,-z+1/2","x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,z+1/2","-z+1/2,-x+1/2,-y+1/2","-z+1/2,x+1/2,y+1/2","z+1/2,x+1/2,-y+1/2","z+1/2,-x+1/2,y+1/2","-y+1/2,-z+1/2,-x+1/2","y+1/2,-z+1/2,x+1/2","-y+1/2,z+1/2,x+1/2","y+1/2,z+1/2,-x+1/2"]}}},"205":{"name":"Pa-3","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["0,0,0","1/2,0,1/2","0,1/2,1/2","1/2,1/2,0"]},"4b":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","0,1/2,0","1/2,0,0","0,0,1/2"]},"8c":{"multiplicity":8,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","-x,-x,-x","x+1/2,x,-x+1/2","x,-x+1/2,x+1/2","-x+1/2,x+1/2,x"]},"24d":{"multiplicity":24,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","-x,-y,-z","x+1/2,y,-z+1/2","x,-y+1/2,z+1/2","-x+1/2,y+1/2,z","-z,-x,-y","-z+1/2,x+1/2,y","z+1/2,x,-y+1/2","z,-x+1/2,y+1/2","-y,-z,-x","y,-z+1/2,x+1/2","-y+1/2,z+1/2,x","y+1/2,z,-x+1/2"]}}},"206":{"name":"Ia-3","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["0,0,0","1/2,0,1/2","0,1/2,1/2","1/2,1/2,0","1/2,1/2,1/2","1,1/2,1","1/2,1,1","1,1,1/2"]},"8b":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","1/4,3/4,3/4","3/4,3/4,1/4","3/4,1/4,3/4","3/4,3/4,3/4","3/4,5/4,5/4","5/4,5/4,3/4","5/4,3/4,5/4"]},"16c":{"multiplicity":16,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","-x,-x,-x","x+1/2,x,-x+1/2","x,-x+1/2,x+1/2","-x+1/2,x+1/2,x","x+1/2,x+1/2,x+1/2","-x+1,-x+1/2,x+1","-x+1/2,x+1,-x+1","x+1,-x+1,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1,x+1/2,-x+1","x+1/2,-x+1,x+1","-x+1,x+1,x+1/2"]},"24d":{"multiplicity":24,"coordinates":["x,0,1/4","-x+1/2,0,3/4","1/4,x,0","3/4,-x+1/2,0","0,1/4,x","0,3/4,-x+1/2","-x,0,3/4","x+1/2,0,1/4","3/4,-x,0","1/4,x+1/2,0","0,3/4,-x","0,1/4,x+1/2","x+1/2,1/2,3/4","-x+1,1/2,5/4","3/4,x+1/2,1/2","5/4,-x+1,1/2","1/2,3/4,x+1/2","1/2,5/4,-x+1","-x+1/2,1/2,5/4","x+1,1/2,3/4","5/4,-x+1/2,1/2","3/4,x+1,1/2","1/2,5/4,-x+1/2","1/2,3/4,x+1"]},"48e":{"multiplicity":48,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","-x,-y,-z","x+1/2,y,-z+1/2","x,-y+1/2,z+1/2","-x+1/2,y+1/2,z","-z,-x,-y","-z+1/2,x+1/2,y","z+1/2,x,-y+1/2","z,-x+1/2,y+1/2","-y,-z,-x","y,-z+1/2,x+1/2","-y+1/2,z+1/2,x","y+1/2,z,-x+1/2","x+1/2,y+1/2,z+1/2","-x+1,-y+1/2,z+1","-x+1/2,y+1,-z+1","x+1,-y+1,-z+1/2","z+1/2,x+1/2,y+1/2","z+1,-x+1,-y+1/2","-z+1,-x+1/2,y+1","-z+1/2,x+1,-y+1","y+1/2,z+1/2,x+1/2","-y+1/2,z+1,-x+1","y+1,-z+1,-x+1/2","-y+1,-z+1/2,x+1","-x+1/2,-y+1/2,-z+1/2","x+1,y+1/2,-z+1","x+1/2,-y+1,z+1","-x+1,y+1,z+1/2","-z+1/2,-x+1/2,-y+1/2","-z+1,x+1,y+1/2","z+1,x+1/2,-y+1","z+1/2,-x+1,y+1","-y+1/2,-z+1/2,-x+1/2","y+1/2,-z+1,x+1","-y+1,z+1,x+1/2","y+1,z+1/2,-x+1"]}}},"207":{"name":"P432","wyckoff_positions":{"1a":{"multiplicity":1,"coordinates":["0,0,0"]},"1b":{"multiplicity":1,"coordinates":["1/2,1/2,1/2"]},"3c":{"multiplicity":3,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"3d":{"multiplicity":3,"coordinates":["1/2,0,0","0,1/2,0","0,0,1/2"]},"6e":{"multiplicity":6,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x"]},"6f":{"multiplicity":6,"coordinates":["x,1/2,1/2","-x,1/2,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,1/2,x","1/2,1/2,-x"]},"8g":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x,-x","-x,-x,-x","x,-x,x","-x,x,x"]},"12h":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","1/2,x,0","1/2,-x,0","x,0,1/2","-x,0,1/2","0,1/2,-x","0,1/2,x"]},"12i":{"multiplicity":12,"coordinates":["0,y,y","0,-y,y","0,y,-y","0,-y,-y","y,0,y","y,0,-y","-y,0,y","-y,0,-y","y,y,0","-y,y,0","y,-y,0","-y,-y,0"]},"12j":{"multiplicity":12,"coordinates":["1/2,y,y","1/2,-y,y","1/2,y,-y","1/2,-y,-y","y,1/2,y","y,1/2,-y","-y,1/2,y","-y,1/2,-y","y,y,1/2","-y,y,1/2","y,-y,1/2","-y,-y,1/2"]},"24k":{"multiplicity":24,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,-z","-y,-x,-z","y,-x,z","-y,x,z","x,z,-y","-x,z,y","-x,-z,-y","x,-z,y","z,y,-x","z,-y,x","-z,y,x","-z,-y,-x"]}}},"208":{"name":"P4232","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"4b":{"multiplicity":4,"coordinates":["1/4,1/4,1/4","3/4,3/4,1/4","3/4,1/4,3/4","1/4,3/4,3/4"]},"4c":{"multiplicity":4,"coordinates":["3/4,3/4,3/4","1/4,1/4,3/4","1/4,3/4,1/4","3/4,1/4,1/4"]},"6d":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","0,1/2,0","1/2,0,0","0,0,1/2"]},"6e":{"multiplicity":6,"coordinates":["1/4,0,1/2","3/4,0,1/2","1/2,1/4,0","1/2,3/4,0","0,1/2,1/4","0,1/2,3/4"]},"6f":{"multiplicity":6,"coordinates":["1/4,1/2,0","3/4,1/2,0","0,1/4,1/2","0,3/4,1/2","1/2,0,1/4","1/2,0,3/4"]},"8g":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,x+1/2"]},"12h":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,1/2,-x+1/2","1/2,1/2,x+1/2"]},"12i":{"multiplicity":12,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x","1/2,x+1/2,0","1/2,-x+1/2,0","x+1/2,0,1/2","-x+1/2,0,1/2","0,1/2,-x+1/2","0,1/2,x+1/2"]},"12j":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","0,x+1/2,1/2","0,-x+1/2,1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,0,-x+1/2","1/2,0,x+1/2"]},"12k":{"multiplicity":12,"coordinates":["1/4,y,-y+1/2","3/4,-y,-y+1/2","3/4,y,y+1/2","1/4,-y,y+1/2","-y+1/2,1/4,y","-y+1/2,3/4,-y","y+1/2,3/4,y","y+1/2,1/4,-y","y,-y+1/2,1/4","-y,-y+1/2,3/4","y,y+1/2,3/4","-y,y+1/2,1/4"]},"12l":{"multiplicity":12,"coordinates":["1/4,y,y+1/2","3/4,-y,y+1/2","3/4,y,-y+1/2","1/4,-y,-y+1/2","y+1/2,1/4,y","y+1/2,3/4,-y","-y+1/2,3/4,y","-y+1/2,1/4,-y","y,y+1/2,1/4","-y,y+1/2,3/4","y,-y+1/2,3/4","-y,-y+1/2,1/4"]},"24m":{"multiplicity":24,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y+1/2,x+1/2,-z+1/2","-y+1/2,-x+1/2,-z+1/2","y+1/2,-x+1/2,z+1/2","-y+1/2,x+1/2,z+1/2","x+1/2,z+1/2,-y+1/2","-x+1/2,z+1/2,y+1/2","-x+1/2,-z+1/2,-y+1/2","x+1/2,-z+1/2,y+1/2","z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,x+1/2","-z+1/2,-y+1/2,-x+1/2"]}}},"209":{"name":"F432","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["0,0,0","0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"4b":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","1/4,1/4,3/4","1/4,3/4,3/4","1/4,3/4,5/4","3/4,1/4,3/4","3/4,1/4,5/4","3/4,3/4,1/4","3/4,3/4,3/4"]},"24d":{"multiplicity":24,"coordinates":["0,1/4,1/4","0,3/4,1/4","1/4,0,1/4","1/4,0,3/4","1/4,1/4,0","3/4,1/4,0","0,3/4,3/4","0,5/4,3/4","1/4,1/2,3/4","1/4,1/2,5/4","1/4,3/4,1/2","3/4,3/4,1/2","1/2,1/4,3/4","1/2,3/4,3/4","3/4,0,3/4","3/4,0,5/4","3/4,1/4,1/2","5/4,1/4,1/2","1/2,3/4,1/4","1/2,5/4,1/4","3/4,1/2,1/4","3/4,1/2,3/4","3/4,3/4,0","5/4,3/4,0"]},"24e":{"multiplicity":24,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x"]},"32f":{"multiplicity":32,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x,-x","-x,-x,-x","x,-x,x","-x,x,x","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","x,x+1/2,-x+1/2","-x,-x+1/2,-x+1/2","x,-x+1/2,x+1/2","-x,x+1/2,x+1/2","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","x+1/2,x,-x+1/2","-x+1/2,-x,-x+1/2","x+1/2,-x,x+1/2","-x+1/2,x,x+1/2","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x","x+1/2,x+1/2,-x","-x+1/2,-x+1/2,-x","x+1/2,-x+1/2,x","-x+1/2,x+1/2,x"]},"48g":{"multiplicity":48,"coordinates":["0,y,y","0,-y,y","0,y,-y","0,-y,-y","y,0,y","y,0,-y","-y,0,y","-y,0,-y","y,y,0","-y,y,0","y,-y,0","-y,-y,0","0,y+1/2,y+1/2","0,-y+1/2,y+1/2","0,y+1/2,-y+1/2","0,-y+1/2,-y+1/2","y,1/2,y+1/2","y,1/2,-y+1/2","-y,1/2,y+1/2","-y,1/2,-y+1/2","y,y+1/2,1/2","-y,y+1/2,1/2","y,-y+1/2,1/2","-y,-y+1/2,1/2","1/2,y,y+1/2","1/2,-y,y+1/2","1/2,y,-y+1/2","1/2,-y,-y+1/2","y+1/2,0,y+1/2","y+1/2,0,-y+1/2","-y+1/2,0,y+1/2","-y+1/2,0,-y+1/2","y+1/2,y,1/2","-y+1/2,y,1/2","y+1/2,-y,1/2","-y+1/2,-y,1/2","1/2,y+1/2,y","1/2,-y+1/2,y","1/2,y+1/2,-y","1/2,-y+1/2,-y","y+1/2,1/2,y","y+1/2,1/2,-y","-y+1/2,1/2,y","-y+1/2,1/2,-y","y+1/2,y+1/2,0","-y+1/2,y+1/2,0","y+1/2,-y+1/2,0","-y+1/2,-y+1/2,0"]},"48h":{"multiplicity":48,"coordinates":["1/2,y,y","1/2,-y,y","1/2,y,-y","1/2,-y,-y","y,1/2,y","y,1/2,-y","-y,1/2,y","-y,1/2,-y","y,y,1/2","-y,y,1/2","y,-y,1/2","-y,-y,1/2","1/2,y+1/2,y+1/2","1/2,-y+1/2,y+1/2","1/2,y+1/2,-y+1/2","1/2,-y+1/2,-y+1/2","y,1,y+1/2","y,1,-y+1/2","-y,1,y+1/2","-y,1,-y+1/2","y,y+1/2,1","-y,y+1/2,1","y,-y+1/2,1","-y,-y+1/2,1","1,y,y+1/2","1,-y,y+1/2","1,y,-y+1/2","1,-y,-y+1/2","y+1/2,1/2,y+1/2","y+1/2,1/2,-y+1/2","-y+1/2,1/2,y+1/2","-y+1/2,1/2,-y+1/2","y+1/2,y,1","-y+1/2,y,1","y+1/2,-y,1","-y+1/2,-y,1","1,y+1/2,y","1,-y+1/2,y","1,y+1/2,-y","1,-y+1/2,-y","y+1/2,1,y","y+1/2,1,-y","-y+1/2,1,y","-y+1/2,1,-y","y+1/2,y+1/2,1/2","-y+1/2,y+1/2,1/2","y+1/2,-y+1/2,1/2","-y+1/2,-y+1/2,1/2"]},"48i":{"multiplicity":48,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","1/4,x,3/4","3/4,-x,3/4","x,1/4,3/4","-x,1/4,1/4","1/4,1/4,-x","1/4,3/4,x","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","1/4,x+1/2,5/4","3/4,-x+1/2,5/4","x,3/4,5/4","-x,3/4,3/4","1/4,3/4,-x+1/2","1/4,5/4,x+1/2","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","3/4,x,5/4","5/4,-x,5/4","x+1/2,1/4,5/4","-x+1/2,1/4,3/4","3/4,1/4,-x+1/2","3/4,3/4,x+1/2","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x","3/4,x+1/2,3/4","5/4,-x+1/2,3/4","x+1/2,3/4,3/4","-x+1/2,3/4,1/4","3/4,3/4,-x","3/4,5/4,x"]},"96j":{"multiplicity":96,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,-z","-y,-x,-z","y,-x,z","-y,x,z","x,z,-y","-x,z,y","-x,-z,-y","x,-z,y","z,y,-x","z,-y,x","-z,y,x","-z,-y,-x","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","y,x+1/2,-z+1/2","-y,-x+1/2,-z+1/2","y,-x+1/2,z+1/2","-y,x+1/2,z+1/2","x,z+1/2,-y+1/2","-x,z+1/2,y+1/2","-x,-z+1/2,-y+1/2","x,-z+1/2,y+1/2","z,y+1/2,-x+1/2","z,-y+1/2,x+1/2","-z,y+1/2,x+1/2","-z,-y+1/2,-x+1/2","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","y+1/2,x,-z+1/2","-y+1/2,-x,-z+1/2","y+1/2,-x,z+1/2","-y+1/2,x,z+1/2","x+1/2,z,-y+1/2","-x+1/2,z,y+1/2","-x+1/2,-z,-y+1/2","x+1/2,-z,y+1/2","z+1/2,y,-x+1/2","z+1/2,-y,x+1/2","-z+1/2,y,x+1/2","-z+1/2,-y,-x+1/2","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x","y+1/2,x+1/2,-z","-y+1/2,-x+1/2,-z","y+1/2,-x+1/2,z","-y+1/2,x+1/2,z","x+1/2,z+1/2,-y","-x+1/2,z+1/2,y","-x+1/2,-z+1/2,-y","x+1/2,-z+1/2,y","z+1/2,y+1/2,-x","z+1/2,-y+1/2,x","-z+1/2,y+1/2,x","-z+1/2,-y+1/2,-x"]}}},"210":{"name":"F4132","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["0,0,0","3/4,1/4,3/4","0,1/2,1/2","3/4,3/4,5/4","1/2,0,1/2","5/4,1/4,5/4","1/2,1/2,0","5/4,3/4,3/4"]},"8b":{"multiplicity":8,"coordinates":["1/2,1/2,1/2","1/4,3/4,1/4","1/2,1,1","1/4,5/4,3/4","1,1/2,1","3/4,3/4,3/4","1,1,1/2","3/4,5/4,1/4"]},"16c":{"multiplicity":16,"coordinates":["1/8,1/8,1/8","7/8,3/8,5/8","3/8,5/8,7/8","5/8,7/8,3/8","1/8,5/8,5/8","7/8,7/8,9/8","3/8,9/8,11/8","5/8,11/8,7/8","5/8,1/8,5/8","11/8,3/8,9/8","7/8,5/8,11/8","9/8,7/8,7/8","5/8,5/8,1/8","11/8,7/8,5/8","7/8,9/8,7/8","9/8,11/8,3/8"]},"16d":{"multiplicity":16,"coordinates":["5/8,5/8,5/8","3/8,7/8,1/8","7/8,1/8,3/8","1/8,3/8,7/8","5/8,9/8,9/8","3/8,11/8,5/8","7/8,5/8,7/8","1/8,7/8,11/8","9/8,5/8,9/8","7/8,7/8,5/8","11/8,1/8,7/8","5/8,3/8,11/8","9/8,9/8,5/8","7/8,11/8,1/8","11/8,5/8,3/8","5/8,7/8,7/8"]},"32e":{"multiplicity":32,"coordinates":["x,x,x","-x,-x+1/2,x+1/2","-x+1/2,x+1/2,-x","x+1/2,-x,-x+1/2","x+3/4,x+1/4,-x+3/4","-x+1/4,-x+1/4,-x+1/4","x+1/4,-x+3/4,x+3/4","-x+3/4,x+3/4,x+1/4","x,x+1/2,x+1/2","-x,-x+1,x+1","-x+1/2,x+1,-x+1/2","x+1/2,-x+1/2,-x+1","x+3/4,x+3/4,-x+5/4","-x+1/4,-x+3/4,-x+3/4","x+1/4,-x+5/4,x+5/4","-x+3/4,x+5/4,x+3/4","x+1/2,x,x+1/2","-x+1/2,-x+1/2,x+1","-x+1,x+1/2,-x+1/2","x+1,-x,-x+1","x+5/4,x+1/4,-x+5/4","-x+3/4,-x+1/4,-x+3/4","x+3/4,-x+3/4,x+5/4","-x+5/4,x+3/4,x+3/4","x+1/2,x+1/2,x","-x+1/2,-x+1,x+1/2","-x+1,x+1,-x","x+1,-x+1/2,-x+1/2","x+5/4,x+3/4,-x+3/4","-x+3/4,-x+3/4,-x+1/4","x+3/4,-x+5/4,x+3/4","-x+5/4,x+5/4,x+1/4"]},"48f":{"multiplicity":48,"coordinates":["x,0,0","-x,1/2,1/2","0,x,0","1/2,-x,1/2","0,0,x","1/2,1/2,-x","3/4,x+1/4,3/4","1/4,-x+1/4,1/4","x+3/4,1/4,3/4","-x+3/4,3/4,1/4","3/4,1/4,-x+3/4","1/4,3/4,x+3/4","x,1/2,1/2","-x,1,1","0,x+1/2,1/2","1/2,-x+1/2,1","0,1/2,x+1/2","1/2,1,-x+1/2","3/4,x+3/4,5/4","1/4,-x+3/4,3/4","x+3/4,3/4,5/4","-x+3/4,5/4,3/4","3/4,3/4,-x+5/4","1/4,5/4,x+5/4","x+1/2,0,1/2","-x+1/2,1/2,1","1/2,x,1/2","1,-x,1","1/2,0,x+1/2","1,1/2,-x+1/2","5/4,x+1/4,5/4","3/4,-x+1/4,3/4","x+5/4,1/4,5/4","-x+5/4,3/4,3/4","5/4,1/4,-x+5/4","3/4,3/4,x+5/4","x+1/2,1/2,0","-x+1/2,1,1/2","1/2,x+1/2,0","1,-x+1/2,1/2","1/2,1/2,x","1,1,-x","5/4,x+3/4,3/4","3/4,-x+3/4,1/4","x+5/4,3/4,3/4","-x+5/4,5/4,1/4","5/4,3/4,-x+3/4","3/4,5/4,x+3/4"]},"48g":{"multiplicity":48,"coordinates":["1/8,y,-y+1/4","7/8,-y+1/2,-y+3/4","3/8,y+1/2,y+3/4","5/8,-y,y+1/4","-y+1/4,1/8,y","-y+3/4,7/8,-y+1/2","y+3/4,3/8,y+1/2","y+1/4,5/8,-y","y,-y+1/4,1/8","-y+1/2,-y+3/4,7/8","y+1/2,y+3/4,3/8","-y,y+1/4,5/8","1/8,y+1/2,-y+3/4","7/8,-y+1,-y+5/4","3/8,y+1,y+5/4","5/8,-y+1/2,y+3/4","-y+1/4,5/8,y+1/2","-y+3/4,11/8,-y+1","y+3/4,7/8,y+1","y+1/4,9/8,-y+1/2","y,-y+3/4,5/8","-y+1/2,-y+5/4,11/8","y+1/2,y+5/4,7/8","-y,y+3/4,9/8","5/8,y,-y+3/4","11/8,-y+1/2,-y+5/4","7/8,y+1/2,y+5/4","9/8,-y,y+3/4","-y+3/4,1/8,y+1/2","-y+5/4,7/8,-y+1","y+5/4,3/8,y+1","y+3/4,5/8,-y+1/2","y+1/2,-y+1/4,5/8","-y+1,-y+3/4,11/8","y+1,y+3/4,7/8","-y+1/2,y+1/4,9/8","5/8,y+1/2,-y+1/4","11/8,-y+1,-y+3/4","7/8,y+1,y+3/4","9/8,-y+1/2,y+1/4","-y+3/4,5/8,y","-y+5/4,11/8,-y+1/2","y+5/4,7/8,y+1/2","y+3/4,9/8,-y","y+1/2,-y+3/4,1/8","-y+1,-y+5/4,7/8","y+1,y+5/4,3/8","-y+1/2,y+3/4,5/8"]},"96h":{"multiplicity":96,"coordinates":["x,y,z","-x,-y+1/2,z+1/2","-x+1/2,y+1/2,-z","x+1/2,-y,-z+1/2","z,x,y","z+1/2,-x,-y+1/2","-z,-x+1/2,y+1/2","-z+1/2,x+1/2,-y","y,z,x","-y+1/2,z+1/2,-x","y+1/2,-z,-x+1/2","-y,-z+1/2,x+1/2","y+3/4,x+1/4,-z+3/4","-y+1/4,-x+1/4,-z+1/4","y+1/4,-x+3/4,z+3/4","-y+3/4,x+3/4,z+1/4","x+3/4,z+1/4,-y+3/4","-x+3/4,z+3/4,y+1/4","-x+1/4,-z+1/4,-y+1/4","x+1/4,-z+3/4,y+3/4","z+3/4,y+1/4,-x+3/4","z+1/4,-y+3/4,x+3/4","-z+3/4,y+3/4,x+1/4","-z+1/4,-y+1/4,-x+1/4","x,y+1/2,z+1/2","-x,-y+1,z+1","-x+1/2,y+1,-z+1/2","x+1/2,-y+1/2,-z+1","z,x+1/2,y+1/2","z+1/2,-x+1/2,-y+1","-z,-x+1,y+1","-z+1/2,x+1,-y+1/2","y,z+1/2,x+1/2","-y+1/2,z+1,-x+1/2","y+1/2,-z+1/2,-x+1","-y,-z+1,x+1","y+3/4,x+3/4,-z+5/4","-y+1/4,-x+3/4,-z+3/4","y+1/4,-x+5/4,z+5/4","-y+3/4,x+5/4,z+3/4","x+3/4,z+3/4,-y+5/4","-x+3/4,z+5/4,y+3/4","-x+1/4,-z+3/4,-y+3/4","x+1/4,-z+5/4,y+5/4","z+3/4,y+3/4,-x+5/4","z+1/4,-y+5/4,x+5/4","-z+3/4,y+5/4,x+3/4","-z+1/4,-y+3/4,-x+3/4","x+1/2,y,z+1/2","-x+1/2,-y+1/2,z+1","-x+1,y+1/2,-z+1/2","x+1,-y,-z+1","z+1/2,x,y+1/2","z+1,-x,-y+1","-z+1/2,-x+1/2,y+1","-z+1,x+1/2,-y+1/2","y+1/2,z,x+1/2","-y+1,z+1/2,-x+1/2","y+1,-z,-x+1","-y+1/2,-z+1/2,x+1","y+5/4,x+1/4,-z+5/4","-y+3/4,-x+1/4,-z+3/4","y+3/4,-x+3/4,z+5/4","-y+5/4,x+3/4,z+3/4","x+5/4,z+1/4,-y+5/4","-x+5/4,z+3/4,y+3/4","-x+3/4,-z+1/4,-y+3/4","x+3/4,-z+3/4,y+5/4","z+5/4,y+1/4,-x+5/4","z+3/4,-y+3/4,x+5/4","-z+5/4,y+3/4,x+3/4","-z+3/4,-y+1/4,-x+3/4","x+1/2,y+1/2,z","-x+1/2,-y+1,z+1/2","-x+1,y+1,-z","x+1,-y+1/2,-z+1/2","z+1/2,x+1/2,y","z+1,-x+1/2,-y+1/2","-z+1/2,-x+1,y+1/2","-z+1,x+1,-y","y+1/2,z+1/2,x","-y+1,z+1,-x","y+1,-z+1/2,-x+1/2","-y+1/2,-z+1,x+1/2","y+5/4,x+3/4,-z+3/4","-y+3/4,-x+3/4,-z+1/4","y+3/4,-x+5/4,z+3/4","-y+5/4,x+5/4,z+1/4","x+5/4,z+3/4,-y+3/4","-x+5/4,z+5/4,y+1/4","-x+3/4,-z+3/4,-y+1/4","x+3/4,-z+5/4,y+3/4","z+5/4,y+3/4,-x+3/4","z+3/4,-y+5/4,x+3/4","-z+5/4,y+5/4,x+1/4","-z+3/4,-y+3/4,-x+1/4"]}}},"211":{"name":"I432","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,1/4","3/4,1/4,3/4","1/4,3/4,3/4","3/4,3/4,3/4","5/4,5/4,3/4","5/4,3/4,5/4","3/4,5/4,5/4"]},"12d":{"multiplicity":12,"coordinates":["1/4,1/2,0","3/4,1/2,0","0,1/4,1/2","0,3/4,1/2","1/2,0,1/4","1/2,0,3/4","3/4,1,1/2","5/4,1,1/2","1/2,3/4,1","1/2,5/4,1","1,1/2,3/4","1,1/2,5/4"]},"12e":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2"]},"16f":{"multiplicity":16,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x,-x","-x,-x,-x","x,-x,x","-x,x,x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2","x+1/2,x+1/2,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,x+1/2"]},"24g":{"multiplicity":24,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","1/2,x,0","1/2,-x,0","x,0,1/2","-x,0,1/2","0,1/2,-x","0,1/2,x","x+1/2,1,1/2","-x+1/2,1,1/2","1/2,x+1/2,1","1/2,-x+1/2,1","1,1/2,x+1/2","1,1/2,-x+1/2","1,x+1/2,1/2","1,-x+1/2,1/2","x+1/2,1/2,1","-x+1/2,1/2,1","1/2,1,-x+1/2","1/2,1,x+1/2"]},"24h":{"multiplicity":24,"coordinates":["0,y,y","0,-y,y","0,y,-y","0,-y,-y","y,0,y","y,0,-y","-y,0,y","-y,0,-y","y,y,0","-y,y,0","y,-y,0","-y,-y,0","1/2,y+1/2,y+1/2","1/2,-y+1/2,y+1/2","1/2,y+1/2,-y+1/2","1/2,-y+1/2,-y+1/2","y+1/2,1/2,y+1/2","y+1/2,1/2,-y+1/2","-y+1/2,1/2,y+1/2","-y+1/2,1/2,-y+1/2","y+1/2,y+1/2,1/2","-y+1/2,y+1/2,1/2","y+1/2,-y+1/2,1/2","-y+1/2,-y+1/2,1/2"]},"24i":{"multiplicity":24,"coordinates":["1/4,y,-y+1/2","3/4,-y,-y+1/2","3/4,y,y+1/2","1/4,-y,y+1/2","-y+1/2,1/4,y","-y+1/2,3/4,-y","y+1/2,3/4,y","y+1/2,1/4,-y","y,-y+1/2,1/4","-y,-y+1/2,3/4","y,y+1/2,3/4","-y,y+1/2,1/4","3/4,y+1/2,-y+1","5/4,-y+1/2,-y+1","5/4,y+1/2,y+1","3/4,-y+1/2,y+1","-y+1,3/4,y+1/2","-y+1,5/4,-y+1/2","y+1,5/4,y+1/2","y+1,3/4,-y+1/2","y+1/2,-y+1,3/4","-y+1/2,-y+1,5/4","y+1/2,y+1,5/4","-y+1/2,y+1,3/4"]},"48j":{"multiplicity":48,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,-z","-y,-x,-z","y,-x,z","-y,x,z","x,z,-y","-x,z,y","-x,-z,-y","x,-z,y","z,y,-x","z,-y,x","-z,y,x","-z,-y,-x","x+1/2,y+1/2,z+1/2","-x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,-z+1/2","z+1/2,x+1/2,y+1/2","z+1/2,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y+1/2","-z+1/2,x+1/2,-y+1/2","y+1/2,z+1/2,x+1/2","-y+1/2,z+1/2,-x+1/2","y+1/2,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x+1/2","y+1/2,x+1/2,-z+1/2","-y+1/2,-x+1/2,-z+1/2","y+1/2,-x+1/2,z+1/2","-y+1/2,x+1/2,z+1/2","x+1/2,z+1/2,-y+1/2","-x+1/2,z+1/2,y+1/2","-x+1/2,-z+1/2,-y+1/2","x+1/2,-z+1/2,y+1/2","z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,x+1/2","-z+1/2,-y+1/2,-x+1/2"]}}},"212":{"name":"P4332","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["1/8,1/8,1/8","3/8,7/8,5/8","7/8,5/8,3/8","5/8,3/8,7/8"]},"4b":{"multiplicity":4,"coordinates":["5/8,5/8,5/8","7/8,3/8,1/8","3/8,1/8,7/8","1/8,7/8,3/8"]},"8c":{"multiplicity":8,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","x+1/4,x+3/4,-x+3/4","-x+1/4,-x+1/4,-x+1/4","x+3/4,-x+3/4,x+1/4","-x+3/4,x+1/4,x+3/4"]},"12d":{"multiplicity":12,"coordinates":["1/8,y,-y+1/4","3/8,-y,-y+3/4","7/8,y+1/2,y+1/4","5/8,-y+1/2,y+3/4","-y+1/4,1/8,y","-y+3/4,3/8,-y","y+1/4,7/8,y+1/2","y+3/4,5/8,-y+1/2","y,-y+1/4,1/8","-y,-y+3/4,3/8","y+1/2,y+1/4,7/8","-y+1/2,y+3/4,5/8"]},"24e":{"multiplicity":24,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","y+1/4,x+3/4,-z+3/4","-y+1/4,-x+1/4,-z+1/4","y+3/4,-x+3/4,z+1/4","-y+3/4,x+1/4,z+3/4","x+1/4,z+3/4,-y+3/4","-x+3/4,z+1/4,y+3/4","-x+1/4,-z+1/4,-y+1/4","x+3/4,-z+3/4,y+1/4","z+1/4,y+3/4,-x+3/4","z+3/4,-y+3/4,x+1/4","-z+3/4,y+1/4,x+3/4","-z+1/4,-y+1/4,-x+1/4"]}}},"213":{"name":"P4132","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["3/8,3/8,3/8","1/8,5/8,7/8","5/8,7/8,1/8","7/8,1/8,5/8"]},"4b":{"multiplicity":4,"coordinates":["7/8,7/8,7/8","5/8,1/8,3/8","1/8,3/8,5/8","3/8,5/8,1/8"]},"8c":{"multiplicity":8,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","x+3/4,x+1/4,-x+1/4","-x+3/4,-x+3/4,-x+3/4","x+1/4,-x+1/4,x+3/4","-x+1/4,x+3/4,x+1/4"]},"12d":{"multiplicity":12,"coordinates":["1/8,y,y+1/4","3/8,-y,y+3/4","7/8,y+1/2,-y+1/4","5/8,-y+1/2,-y+3/4","y+1/4,1/8,y","y+3/4,3/8,-y","-y+1/4,7/8,y+1/2","-y+3/4,5/8,-y+1/2","y,y+1/4,1/8","-y,y+3/4,3/8","y+1/2,-y+1/4,7/8","-y+1/2,-y+3/4,5/8"]},"24e":{"multiplicity":24,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","y+3/4,x+1/4,-z+1/4","-y+3/4,-x+3/4,-z+3/4","y+1/4,-x+1/4,z+3/4","-y+1/4,x+3/4,z+1/4","x+3/4,z+1/4,-y+1/4","-x+1/4,z+3/4,y+1/4","-x+3/4,-z+3/4,-y+3/4","x+1/4,-z+1/4,y+3/4","z+3/4,y+1/4,-x+1/4","z+1/4,-y+1/4,x+3/4","-z+1/4,y+3/4,x+1/4","-z+3/4,-y+3/4,-x+3/4"]}}},"214":{"name":"I4132","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["1/8,1/8,1/8","3/8,7/8,5/8","7/8,5/8,3/8","5/8,3/8,7/8","5/8,5/8,5/8","7/8,11/8,9/8","11/8,9/8,7/8","9/8,7/8,11/8"]},"8b":{"multiplicity":8,"coordinates":["7/8,7/8,7/8","5/8,1/8,3/8","1/8,3/8,5/8","3/8,5/8,1/8","11/8,11/8,11/8","9/8,5/8,7/8","5/8,7/8,9/8","7/8,9/8,5/8"]},"12c":{"multiplicity":12,"coordinates":["1/8,0,1/4","3/8,0,3/4","1/4,1/8,0","3/4,3/8,0","0,1/4,1/8","0,3/4,3/8","5/8,1/2,3/4","7/8,1/2,5/4","3/4,5/8,1/2","5/4,7/8,1/2","1/2,3/4,5/8","1/2,5/4,7/8"]},"12d":{"multiplicity":12,"coordinates":["5/8,0,1/4","7/8,0,3/4","1/4,5/8,0","3/4,7/8,0","0,1/4,5/8","0,3/4,7/8","9/8,1/2,3/4","11/8,1/2,5/4","3/4,9/8,1/2","5/4,11/8,1/2","1/2,3/4,9/8","1/2,5/4,11/8"]},"16e":{"multiplicity":16,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","x+3/4,x+1/4,-x+1/4","-x+3/4,-x+3/4,-x+3/4","x+1/4,-x+1/4,x+3/4","-x+1/4,x+3/4,x+1/4","x+1/2,x+1/2,x+1/2","-x+1,-x+1/2,x+1","-x+1/2,x+1,-x+1","x+1,-x+1,-x+1/2","x+5/4,x+3/4,-x+3/4","-x+5/4,-x+5/4,-x+5/4","x+3/4,-x+3/4,x+5/4","-x+3/4,x+5/4,x+3/4"]},"24f":{"multiplicity":24,"coordinates":["x,0,1/4","-x+1/2,0,3/4","1/4,x,0","3/4,-x+1/2,0","0,1/4,x","0,3/4,-x+1/2","3/4,x+1/4,0","3/4,-x+3/4,1/2","x+3/4,1/2,1/4","-x+1/4,0,1/4","0,1/4,-x+1/4","1/2,1/4,x+3/4","x+1/2,1/2,3/4","-x+1,1/2,5/4","3/4,x+1/2,1/2","5/4,-x+1,1/2","1/2,3/4,x+1/2","1/2,5/4,-x+1","5/4,x+3/4,1/2","5/4,-x+5/4,1","x+5/4,1,3/4","-x+3/4,1/2,3/4","1/2,3/4,-x+3/4","1,3/4,x+5/4"]},"24g":{"multiplicity":24,"coordinates":["1/8,y,y+1/4","3/8,-y,y+3/4","7/8,y+1/2,-y+1/4","5/8,-y+1/2,-y+3/4","y+1/4,1/8,y","y+3/4,3/8,-y","-y+1/4,7/8,y+1/2","-y+3/4,5/8,-y+1/2","y,y+1/4,1/8","-y,y+3/4,3/8","y+1/2,-y+1/4,7/8","-y+1/2,-y+3/4,5/8","5/8,y+1/2,y+3/4","7/8,-y+1/2,y+5/4","11/8,y+1,-y+3/4","9/8,-y+1,-y+5/4","y+3/4,5/8,y+1/2","y+5/4,7/8,-y+1/2","-y+3/4,11/8,y+1","-y+5/4,9/8,-y+1","y+1/2,y+3/4,5/8","-y+1/2,y+5/4,7/8","y+1,-y+3/4,11/8","-y+1,-y+5/4,9/8"]},"24h":{"multiplicity":24,"coordinates":["1/8,y,-y+1/4","3/8,-y,-y+3/4","7/8,y+1/2,y+1/4","5/8,-y+1/2,y+3/4","-y+1/4,1/8,y","-y+3/4,3/8,-y","y+1/4,7/8,y+1/2","y+3/4,5/8,-y+1/2","y,-y+1/4,1/8","-y,-y+3/4,3/8","y+1/2,y+1/4,7/8","-y+1/2,y+3/4,5/8","5/8,y+1/2,-y+3/4","7/8,-y+1/2,-y+5/4","11/8,y+1,y+3/4","9/8,-y+1,y+5/4","-y+3/4,5/8,y+1/2","-y+5/4,7/8,-y+1/2","y+3/4,11/8,y+1","y+5/4,9/8,-y+1","y+1/2,-y+3/4,5/8","-y+1/2,-y+5/4,7/8","y+1,y+3/4,11/8","-y+1,y+5/4,9/8"]},"48i":{"multiplicity":48,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","y+3/4,x+1/4,-z+1/4","-y+3/4,-x+3/4,-z+3/4","y+1/4,-x+1/4,z+3/4","-y+1/4,x+3/4,z+1/4","x+3/4,z+1/4,-y+1/4","-x+1/4,z+3/4,y+1/4","-x+3/4,-z+3/4,-y+3/4","x+1/4,-z+1/4,y+3/4","z+3/4,y+1/4,-x+1/4","z+1/4,-y+1/4,x+3/4","-z+1/4,y+3/4,x+1/4","-z+3/4,-y+3/4,-x+3/4","x+1/2,y+1/2,z+1/2","-x+1,-y+1/2,z+1","-x+1/2,y+1,-z+1","x+1,-y+1,-z+1/2","z+1/2,x+1/2,y+1/2","z+1,-x+1,-y+1/2","-z+1,-x+1/2,y+1","-z+1/2,x+1,-y+1","y+1/2,z+1/2,x+1/2","-y+1/2,z+1,-x+1","y+1,-z+1,-x+1/2","-y+1,-z+1/2,x+1","y+5/4,x+3/4,-z+3/4","-y+5/4,-x+5/4,-z+5/4","y+3/4,-x+3/4,z+5/4","-y+3/4,x+5/4,z+3/4","x+5/4,z+3/4,-y+3/4","-x+3/4,z+5/4,y+3/4","-x+5/4,-z+5/4,-y+5/4","x+3/4,-z+3/4,y+5/4","z+5/4,y+3/4,-x+3/4","z+3/4,-y+3/4,x+5/4","-z+3/4,y+5/4,x+3/4","-z+5/4,-y+5/4,-x+5/4"]}}},"215":{"name":"P-43m","wyckoff_positions":{"1a":{"multiplicity":1,"coordinates":["0,0,0"]},"1b":{"multiplicity":1,"coordinates":["1/2,1/2,1/2"]},"3c":{"multiplicity":3,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"3d":{"multiplicity":3,"coordinates":["1/2,0,0","0,1/2,0","0,0,1/2"]},"4e":{"multiplicity":4,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x"]},"6f":{"multiplicity":6,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x"]},"6g":{"multiplicity":6,"coordinates":["x,1/2,1/2","-x,1/2,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,1/2,x","1/2,1/2,-x"]},"12h":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","1/2,x,0","1/2,-x,0","x,0,1/2","-x,0,1/2","0,1/2,x","0,1/2,-x"]},"12i":{"multiplicity":12,"coordinates":["x,x,z","-x,-x,z","-x,x,-z","x,-x,-z","z,x,x","z,-x,-x","-z,-x,x","-z,x,-x","x,z,x","-x,z,-x","x,-z,-x","-x,-z,x"]},"24j":{"multiplicity":24,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,z","-y,-x,z","y,-x,-z","-y,x,-z","x,z,y","-x,z,-y","-x,-z,y","x,-z,-y","z,y,x","z,-y,-x","-z,y,-x","-z,-y,x"]}}},"216":{"name":"F-43m","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["0,0,0","0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"4b":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","1/2,1,1","1,1/2,1","1,1,1/2"]},"4c":{"multiplicity":4,"coordinates":["1/4,1/4,1/4","1/4,3/4,3/4","3/4,1/4,3/4","3/4,3/4,1/4"]},"4d":{"multiplicity":4,"coordinates":["3/4,3/4,3/4","3/4,5/4,5/4","5/4,3/4,5/4","5/4,5/4,3/4"]},"16e":{"multiplicity":16,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x"]},"24f":{"multiplicity":24,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x"]},"24g":{"multiplicity":24,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x"]},"48h":{"multiplicity":48,"coordinates":["x,x,z","-x,-x,z","-x,x,-z","x,-x,-z","z,x,x","z,-x,-x","-z,-x,x","-z,x,-x","x,z,x","-x,z,-x","x,-z,-x","-x,-z,x","x,x+1/2,z+1/2","-x,-x+1/2,z+1/2","-x,x+1/2,-z+1/2","x,-x+1/2,-z+1/2","z,x+1/2,x+1/2","z,-x+1/2,-x+1/2","-z,-x+1/2,x+1/2","-z,x+1/2,-x+1/2","x,z+1/2,x+1/2","-x,z+1/2,-x+1/2","x,-z+1/2,-x+1/2","-x,-z+1/2,x+1/2","x+1/2,x,z+1/2","-x+1/2,-x,z+1/2","-x+1/2,x,-z+1/2","x+1/2,-x,-z+1/2","z+1/2,x,x+1/2","z+1/2,-x,-x+1/2","-z+1/2,-x,x+1/2","-z+1/2,x,-x+1/2","x+1/2,z,x+1/2","-x+1/2,z,-x+1/2","x+1/2,-z,-x+1/2","-x+1/2,-z,x+1/2","x+1/2,x+1/2,z","-x+1/2,-x+1/2,z","-x+1/2,x+1/2,-z","x+1/2,-x+1/2,-z","z+1/2,x+1/2,x","z+1/2,-x+1/2,-x","-z+1/2,-x+1/2,x","-z+1/2,x+1/2,-x","x+1/2,z+1/2,x","-x+1/2,z+1/2,-x","x+1/2,-z+1/2,-x","-x+1/2,-z+1/2,x"]},"96i":{"multiplicity":96,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,z","-y,-x,z","y,-x,-z","-y,x,-z","x,z,y","-x,z,-y","-x,-z,y","x,-z,-y","z,y,x","z,-y,-x","-z,y,-x","-z,-y,x","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","y,x+1/2,z+1/2","-y,-x+1/2,z+1/2","y,-x+1/2,-z+1/2","-y,x+1/2,-z+1/2","x,z+1/2,y+1/2","-x,z+1/2,-y+1/2","-x,-z+1/2,y+1/2","x,-z+1/2,-y+1/2","z,y+1/2,x+1/2","z,-y+1/2,-x+1/2","-z,y+1/2,-x+1/2","-z,-y+1/2,x+1/2","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","y+1/2,x,z+1/2","-y+1/2,-x,z+1/2","y+1/2,-x,-z+1/2","-y+1/2,x,-z+1/2","x+1/2,z,y+1/2","-x+1/2,z,-y+1/2","-x+1/2,-z,y+1/2","x+1/2,-z,-y+1/2","z+1/2,y,x+1/2","z+1/2,-y,-x+1/2","-z+1/2,y,-x+1/2","-z+1/2,-y,x+1/2","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x","y+1/2,x+1/2,z","-y+1/2,-x+1/2,z","y+1/2,-x+1/2,-z","-y+1/2,x+1/2,-z","x+1/2,z+1/2,y","-x+1/2,z+1/2,-y","-x+1/2,-z+1/2,y","x+1/2,-z+1/2,-y","z+1/2,y+1/2,x","z+1/2,-y+1/2,-x","-z+1/2,y+1/2,-x","-z+1/2,-y+1/2,x"]}}},"217":{"name":"I-43m","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2"]},"12d":{"multiplicity":12,"coordinates":["1/4,1/2,0","3/4,1/2,0","0,1/4,1/2","0,3/4,1/2","1/2,0,1/4","1/2,0,3/4","3/4,1,1/2","5/4,1,1/2","1/2,3/4,1","1/2,5/4,1","1,1/2,3/4","1,1/2,5/4"]},"12e":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2"]},"24f":{"multiplicity":24,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","1/2,x,0","1/2,-x,0","x,0,1/2","-x,0,1/2","0,1/2,x","0,1/2,-x","x+1/2,1,1/2","-x+1/2,1,1/2","1/2,x+1/2,1","1/2,-x+1/2,1","1,1/2,x+1/2","1,1/2,-x+1/2","1,x+1/2,1/2","1,-x+1/2,1/2","x+1/2,1/2,1","-x+1/2,1/2,1","1/2,1,x+1/2","1/2,1,-x+1/2"]},"24g":{"multiplicity":24,"coordinates":["x,x,z","-x,-x,z","-x,x,-z","x,-x,-z","z,x,x","z,-x,-x","-z,-x,x","-z,x,-x","x,z,x","-x,z,-x","x,-z,-x","-x,-z,x","x+1/2,x+1/2,z+1/2","-x+1/2,-x+1/2,z+1/2","-x+1/2,x+1/2,-z+1/2","x+1/2,-x+1/2,-z+1/2","z+1/2,x+1/2,x+1/2","z+1/2,-x+1/2,-x+1/2","-z+1/2,-x+1/2,x+1/2","-z+1/2,x+1/2,-x+1/2","x+1/2,z+1/2,x+1/2","-x+1/2,z+1/2,-x+1/2","x+1/2,-z+1/2,-x+1/2","-x+1/2,-z+1/2,x+1/2"]},"48h":{"multiplicity":48,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,z","-y,-x,z","y,-x,-z","-y,x,-z","x,z,y","-x,z,-y","-x,-z,y","x,-z,-y","z,y,x","z,-y,-x","-z,y,-x","-z,-y,x","x+1/2,y+1/2,z+1/2","-x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,-z+1/2","z+1/2,x+1/2,y+1/2","z+1/2,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y+1/2","-z+1/2,x+1/2,-y+1/2","y+1/2,z+1/2,x+1/2","-y+1/2,z+1/2,-x+1/2","y+1/2,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x+1/2","y+1/2,x+1/2,z+1/2","-y+1/2,-x+1/2,z+1/2","y+1/2,-x+1/2,-z+1/2","-y+1/2,x+1/2,-z+1/2","x+1/2,z+1/2,y+1/2","-x+1/2,z+1/2,-y+1/2","-x+1/2,-z+1/2,y+1/2","x+1/2,-z+1/2,-y+1/2","z+1/2,y+1/2,x+1/2","z+1/2,-y+1/2,-x+1/2","-z+1/2,y+1/2,-x+1/2","-z+1/2,-y+1/2,x+1/2"]}}},"218":{"name":"P-43n","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","0,1/2,0","1/2,0,0","0,0,1/2"]},"6c":{"multiplicity":6,"coordinates":["1/4,1/2,0","3/4,1/2,0","0,1/4,1/2","0,3/4,1/2","1/2,0,1/4","1/2,0,3/4"]},"6d":{"multiplicity":6,"coordinates":["1/4,0,1/2","3/4,0,1/2","1/2,1/4,0","1/2,3/4,0","0,1/2,1/4","0,1/2,3/4"]},"8e":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","x+1/2,-x+1/2,-x+1/2","-x+1/2,x+1/2,-x+1/2"]},"12f":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2"]},"12g":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","0,x+1/2,1/2","0,-x+1/2,1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,0,x+1/2","1/2,0,-x+1/2"]},"12h":{"multiplicity":12,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x","1/2,x+1/2,0","1/2,-x+1/2,0","x+1/2,0,1/2","-x+1/2,0,1/2","0,1/2,x+1/2","0,1/2,-x+1/2"]},"24i":{"multiplicity":24,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y+1/2,x+1/2,z+1/2","-y+1/2,-x+1/2,z+1/2","y+1/2,-x+1/2,-z+1/2","-y+1/2,x+1/2,-z+1/2","x+1/2,z+1/2,y+1/2","-x+1/2,z+1/2,-y+1/2","-x+1/2,-z+1/2,y+1/2","x+1/2,-z+1/2,-y+1/2","z+1/2,y+1/2,x+1/2","z+1/2,-y+1/2,-x+1/2","-z+1/2,y+1/2,-x+1/2","-z+1/2,-y+1/2,x+1/2"]}}},"219":{"name":"F-43c","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["0,0,0","1/2,1/2,1/2","0,1/2,1/2","1/2,1,1","1/2,0,1/2","1,1/2,1","1/2,1/2,0","1,1,1/2"]},"8b":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,3/4","1/4,3/4,3/4","3/4,5/4,5/4","3/4,1/4,3/4","5/4,3/4,5/4","3/4,3/4,1/4","5/4,5/4,3/4"]},"24c":{"multiplicity":24,"coordinates":["0,1/4,1/4","0,3/4,1/4","1/4,0,1/4","1/4,0,3/4","1/4,1/4,0","3/4,1/4,0","0,3/4,3/4","0,5/4,3/4","1/4,1/2,3/4","1/4,1/2,5/4","1/4,3/4,1/2","3/4,3/4,1/2","1/2,1/4,3/4","1/2,3/4,3/4","3/4,0,3/4","3/4,0,5/4","3/4,1/4,1/2","5/4,1/4,1/2","1/2,3/4,1/4","1/2,5/4,1/4","3/4,1/2,1/4","3/4,1/2,3/4","3/4,3/4,0","5/4,3/4,0"]},"24d":{"multiplicity":24,"coordinates":["1/4,0,0","3/4,0,0","0,1/4,0","0,3/4,0","0,0,1/4","0,0,3/4","1/4,1/2,1/2","3/4,1/2,1/2","0,3/4,1/2","0,5/4,1/2","0,1/2,3/4","0,1/2,5/4","3/4,0,1/2","5/4,0,1/2","1/2,1/4,1/2","1/2,3/4,1/2","1/2,0,3/4","1/2,0,5/4","3/4,1/2,0","5/4,1/2,0","1/2,3/4,0","1/2,5/4,0","1/2,1/2,1/4","1/2,1/2,3/4"]},"32e":{"multiplicity":32,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","x+1/2,-x+1/2,-x+1/2","-x+1/2,x+1/2,-x+1/2","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","x+1/2,x+1,x+1","-x+1/2,-x+1,x+1","x+1/2,-x+1,-x+1","-x+1/2,x+1,-x+1","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","x+1,x+1/2,x+1","-x+1,-x+1/2,x+1","x+1,-x+1/2,-x+1","-x+1,x+1/2,-x+1","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x","x+1,x+1,x+1/2","-x+1,-x+1,x+1/2","x+1,-x+1,-x+1/2","-x+1,x+1,-x+1/2"]},"48f":{"multiplicity":48,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","1/2,x+1,1","1/2,-x+1,1","x+1/2,1,1","-x+1/2,1,1","1/2,1,x+1","1/2,1,-x+1","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","1,x+1/2,1","1,-x+1/2,1","x+1,1/2,1","-x+1,1/2,1","1,1/2,x+1","1,1/2,-x+1","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x","1,x+1,1/2","1,-x+1,1/2","x+1,1,1/2","-x+1,1,1/2","1,1,x+1/2","1,1,-x+1/2"]},"48g":{"multiplicity":48,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","3/4,x+1/2,3/4","1/4,-x+1/2,3/4","x+1/2,3/4,3/4","-x+1/2,3/4,1/4","3/4,3/4,x+1/2","3/4,1/4,-x+1/2","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","3/4,x+1,5/4","1/4,-x+1,5/4","x+1/2,5/4,5/4","-x+1/2,5/4,3/4","3/4,5/4,x+1","3/4,3/4,-x+1","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","5/4,x+1/2,5/4","3/4,-x+1/2,5/4","x+1,3/4,5/4","-x+1,3/4,3/4","5/4,3/4,x+1","5/4,1/4,-x+1","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x","5/4,x+1,3/4","3/4,-x+1,3/4","x+1,5/4,3/4","-x+1,5/4,1/4","5/4,5/4,x+1/2","5/4,3/4,-x+1/2"]},"96h":{"multiplicity":96,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y+1/2,x+1/2,z+1/2","-y+1/2,-x+1/2,z+1/2","y+1/2,-x+1/2,-z+1/2","-y+1/2,x+1/2,-z+1/2","x+1/2,z+1/2,y+1/2","-x+1/2,z+1/2,-y+1/2","-x+1/2,-z+1/2,y+1/2","x+1/2,-z+1/2,-y+1/2","z+1/2,y+1/2,x+1/2","z+1/2,-y+1/2,-x+1/2","-z+1/2,y+1/2,-x+1/2","-z+1/2,-y+1/2,x+1/2","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","y+1/2,x+1,z+1","-y+1/2,-x+1,z+1","y+1/2,-x+1,-z+1","-y+1/2,x+1,-z+1","x+1/2,z+1,y+1","-x+1/2,z+1,-y+1","-x+1/2,-z+1,y+1","x+1/2,-z+1,-y+1","z+1/2,y+1,x+1","z+1/2,-y+1,-x+1","-z+1/2,y+1,-x+1","-z+1/2,-y+1,x+1","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","y+1,x+1/2,z+1","-y+1,-x+1/2,z+1","y+1,-x+1/2,-z+1","-y+1,x+1/2,-z+1","x+1,z+1/2,y+1","-x+1,z+1/2,-y+1","-x+1,-z+1/2,y+1","x+1,-z+1/2,-y+1","z+1,y+1/2,x+1","z+1,-y+1/2,-x+1","-z+1,y+1/2,-x+1","-z+1,-y+1/2,x+1","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x","y+1,x+1,z+1/2","-y+1,-x+1,z+1/2","y+1,-x+1,-z+1/2","-y+1,x+1,-z+1/2","x+1,z+1,y+1/2","-x+1,z+1,-y+1/2","-x+1,-z+1,y+1/2","x+1,-z+1,-y+1/2","z+1,y+1,x+1/2","z+1,-y+1,-x+1/2","-z+1,y+1,-x+1/2","-z+1,-y+1,x+1/2"]}}},"220":{"name":"I-43d","wyckoff_positions":{"12a":{"multiplicity":12,"coordinates":["3/8,0,1/4","1/8,0,3/4","1/4,3/8,0","3/4,1/8,0","0,1/4,3/8","0,3/4,1/8","7/8,1/2,3/4","5/8,1/2,5/4","3/4,7/8,1/2","5/4,5/8,1/2","1/2,3/4,7/8","1/2,5/4,5/8"]},"12b":{"multiplicity":12,"coordinates":["7/8,0,1/4","5/8,0,3/4","1/4,7/8,0","3/4,5/8,0","0,1/4,7/8","0,3/4,5/8","11/8,1/2,3/4","9/8,1/2,5/4","3/4,11/8,1/2","5/4,9/8,1/2","1/2,3/4,11/8","1/2,5/4,9/8"]},"16c":{"multiplicity":16,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","x+1/4,x+1/4,x+1/4","-x+1/4,-x+3/4,x+3/4","x+3/4,-x+1/4,-x+3/4","-x+3/4,x+3/4,-x+1/4","x+1/2,x+1/2,x+1/2","-x+1,-x+1/2,x+1","-x+1/2,x+1,-x+1","x+1,-x+1,-x+1/2","x+3/4,x+3/4,x+3/4","-x+3/4,-x+5/4,x+5/4","x+5/4,-x+3/4,-x+5/4","-x+5/4,x+5/4,-x+3/4"]},"24d":{"multiplicity":24,"coordinates":["x,0,1/4","-x+1/2,0,3/4","1/4,x,0","3/4,-x+1/2,0","0,1/4,x","0,3/4,-x+1/2","1/4,x+1/4,1/2","1/4,-x+3/4,0","x+1/4,1/2,1/4","-x+3/4,0,1/4","1/2,1/4,x+1/4","0,1/4,-x+3/4","x+1/2,1/2,3/4","-x+1,1/2,5/4","3/4,x+1/2,1/2","5/4,-x+1,1/2","1/2,3/4,x+1/2","1/2,5/4,-x+1","3/4,x+3/4,1","3/4,-x+5/4,1/2","x+3/4,1,3/4","-x+5/4,1/2,3/4","1,3/4,x+3/4","1/2,3/4,-x+5/4"]},"48e":{"multiplicity":48,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","y+1/4,x+1/4,z+1/4","-y+1/4,-x+3/4,z+3/4","y+3/4,-x+1/4,-z+3/4","-y+3/4,x+3/4,-z+1/4","x+1/4,z+1/4,y+1/4","-x+3/4,z+3/4,-y+1/4","-x+1/4,-z+3/4,y+3/4","x+3/4,-z+1/4,-y+3/4","z+1/4,y+1/4,x+1/4","z+3/4,-y+1/4,-x+3/4","-z+3/4,y+3/4,-x+1/4","-z+1/4,-y+3/4,x+3/4","x+1/2,y+1/2,z+1/2","-x+1,-y+1/2,z+1","-x+1/2,y+1,-z+1","x+1,-y+1,-z+1/2","z+1/2,x+1/2,y+1/2","z+1,-x+1,-y+1/2","-z+1,-x+1/2,y+1","-z+1/2,x+1,-y+1","y+1/2,z+1/2,x+1/2","-y+1/2,z+1,-x+1","y+1,-z+1,-x+1/2","-y+1,-z+1/2,x+1","y+3/4,x+3/4,z+3/4","-y+3/4,-x+5/4,z+5/4","y+5/4,-x+3/4,-z+5/4","-y+5/4,x+5/4,-z+3/4","x+3/4,z+3/4,y+3/4","-x+5/4,z+5/4,-y+3/4","-x+3/4,-z+5/4,y+5/4","x+5/4,-z+3/4,-y+5/4","z+3/4,y+3/4,x+3/4","z+5/4,-y+3/4,-x+5/4","-z+5/4,y+5/4,-x+3/4","-z+3/4,-y+5/4,x+5/4"]}}},"221":{"name":"Pm-3m","wyckoff_positions":{"1a":{"multiplicity":1,"coordinates":["0,0,0"]},"1b":{"multiplicity":1,"coordinates":["1/2,1/2,1/2"]},"3c":{"multiplicity":3,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"3d":{"multiplicity":3,"coordinates":["1/2,0,0","0,1/2,0","0,0,1/2"]},"6e":{"multiplicity":6,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x"]},"6f":{"multiplicity":6,"coordinates":["x,1/2,1/2","-x,1/2,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,1/2,x","1/2,1/2,-x"]},"8g":{"multiplicity":8,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x,-x","-x,-x,-x","x,-x,x","-x,x,x"]},"12h":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","1/2,x,0","1/2,-x,0","x,0,1/2","-x,0,1/2","0,1/2,-x","0,1/2,x"]},"12i":{"multiplicity":12,"coordinates":["0,y,y","0,-y,y","0,y,-y","0,-y,-y","y,0,y","y,0,-y","-y,0,y","-y,0,-y","y,y,0","-y,y,0","y,-y,0","-y,-y,0"]},"12j":{"multiplicity":12,"coordinates":["1/2,y,y","1/2,-y,y","1/2,y,-y","1/2,-y,-y","y,1/2,y","y,1/2,-y","-y,1/2,y","-y,1/2,-y","y,y,1/2","-y,y,1/2","y,-y,1/2","-y,-y,1/2"]},"24k":{"multiplicity":24,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","y,0,-z","-y,0,-z","y,0,z","-y,0,z","0,z,-y","0,z,y","0,-z,-y","0,-z,y","z,y,0","z,-y,0","-z,y,0","-z,-y,0"]},"24l":{"multiplicity":24,"coordinates":["1/2,y,z","1/2,-y,z","1/2,y,-z","1/2,-y,-z","z,1/2,y","z,1/2,-y","-z,1/2,y","-z,1/2,-y","y,z,1/2","-y,z,1/2","y,-z,1/2","-y,-z,1/2","y,1/2,-z","-y,1/2,-z","y,1/2,z","-y,1/2,z","1/2,z,-y","1/2,z,y","1/2,-z,-y","1/2,-z,y","z,y,1/2","z,-y,1/2","-z,y,1/2","-z,-y,1/2"]},"24m":{"multiplicity":24,"coordinates":["x,x,z","-x,-x,z","-x,x,-z","x,-x,-z","z,x,x","z,-x,-x","-z,-x,x","-z,x,-x","x,z,x","-x,z,-x","x,-z,-x","-x,-z,x","x,x,-z","-x,-x,-z","x,-x,z","-x,x,z","x,z,-x","-x,z,x","-x,-z,-x","x,-z,x","z,x,-x","z,-x,x","-z,x,x","-z,-x,-x"]},"48n":{"multiplicity":48,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,-z","-y,-x,-z","y,-x,z","-y,x,z","x,z,-y","-x,z,y","-x,-z,-y","x,-z,y","z,y,-x","z,-y,x","-z,y,x","-z,-y,-x","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","-y,-x,z","y,x,z","-y,x,-z","y,-x,-z","-x,-z,y","x,-z,-y","x,z,y","-x,z,-y","-z,-y,x","-z,y,-x","z,-y,-x","z,y,x"]}}},"222":{"name":"Pn-3n","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["1/4,1/4,1/4","3/4,3/4,3/4"]},"6b":{"multiplicity":6,"coordinates":["3/4,1/4,1/4","1/4,3/4,1/4","1/4,1/4,3/4","1/4,3/4,3/4","3/4,1/4,3/4","3/4,3/4,1/4"]},"8c":{"multiplicity":8,"coordinates":["0,0,0","1/2,1/2,0","1/2,0,1/2","0,1/2,1/2","0,0,1/2","1/2,1/2,1/2","0,1/2,0","1/2,0,0"]},"12d":{"multiplicity":12,"coordinates":["0,3/4,1/4","1/2,3/4,1/4","1/4,0,3/4","1/4,1/2,3/4","3/4,1/4,0","3/4,1/4,1/2","3/4,0,1/4","3/4,1/2,1/4","0,1/4,3/4","1/2,1/4,3/4","1/4,3/4,1/2","1/4,3/4,0"]},"12e":{"multiplicity":12,"coordinates":["x,1/4,1/4","-x+1/2,1/4,1/4","1/4,x,1/4","1/4,-x+1/2,1/4","1/4,1/4,x","1/4,1/4,-x+1/2","-x,3/4,3/4","x+1/2,3/4,3/4","3/4,-x,3/4","3/4,x+1/2,3/4","3/4,3/4,-x","3/4,3/4,x+1/2"]},"16f":{"multiplicity":16,"coordinates":["x,x,x","-x+1/2,-x+1/2,x","-x+1/2,x,-x+1/2","x,-x+1/2,-x+1/2","x,x,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x,-x+1/2,x","-x+1/2,x,x","-x,-x,-x","x+1/2,x+1/2,-x","x+1/2,-x,x+1/2","-x,x+1/2,x+1/2","-x,-x,x+1/2","x+1/2,x+1/2,x+1/2","-x,x+1/2,-x","x+1/2,-x,-x"]},"24g":{"multiplicity":24,"coordinates":["x,3/4,1/4","-x+1/2,3/4,1/4","1/4,x,3/4","1/4,-x+1/2,3/4","3/4,1/4,x","3/4,1/4,-x+1/2","3/4,x,1/4","3/4,-x+1/2,1/4","x,1/4,3/4","-x+1/2,1/4,3/4","1/4,3/4,-x+1/2","1/4,3/4,x","-x,1/4,3/4","x+1/2,1/4,3/4","3/4,-x,1/4","3/4,x+1/2,1/4","1/4,3/4,-x","1/4,3/4,x+1/2","1/4,-x,3/4","1/4,x+1/2,3/4","-x,3/4,1/4","x+1/2,3/4,1/4","3/4,1/4,x+1/2","3/4,1/4,-x"]},"24h":{"multiplicity":24,"coordinates":["1/4,y,y","1/4,-y+1/2,y","1/4,y,-y+1/2","1/4,-y+1/2,-y+1/2","y,1/4,y","y,1/4,-y+1/2","-y+1/2,1/4,y","-y+1/2,1/4,-y+1/2","y,y,1/4","-y+1/2,y,1/4","y,-y+1/2,1/4","-y+1/2,-y+1/2,1/4","3/4,-y,-y","3/4,y+1/2,-y","3/4,-y,y+1/2","3/4,y+1/2,y+1/2","-y,3/4,-y","-y,3/4,y+1/2","y+1/2,3/4,-y","y+1/2,3/4,y+1/2","-y,-y,3/4","y+1/2,-y,3/4","-y,y+1/2,3/4","y+1/2,y+1/2,3/4"]},"48i":{"multiplicity":48,"coordinates":["x,y,z","-x+1/2,-y+1/2,z","-x+1/2,y,-z+1/2","x,-y+1/2,-z+1/2","z,x,y","z,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y","-z+1/2,x,-y+1/2","y,z,x","-y+1/2,z,-x+1/2","y,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x","y,x,-z+1/2","-y+1/2,-x+1/2,-z+1/2","y,-x+1/2,z","-y+1/2,x,z","x,z,-y+1/2","-x+1/2,z,y","-x+1/2,-z+1/2,-y+1/2","x,-z+1/2,y","z,y,-x+1/2","z,-y+1/2,x","-z+1/2,y,x","-z+1/2,-y+1/2,-x+1/2","-x,-y,-z","x+1/2,y+1/2,-z","x+1/2,-y,z+1/2","-x,y+1/2,z+1/2","-z,-x,-y","-z,x+1/2,y+1/2","z+1/2,x+1/2,-y","z+1/2,-x,y+1/2","-y,-z,-x","y+1/2,-z,x+1/2","-y,z+1/2,x+1/2","y+1/2,z+1/2,-x","-y,-x,z+1/2","y+1/2,x+1/2,z+1/2","-y,x+1/2,-z","y+1/2,-x,-z","-x,-z,y+1/2","x+1/2,-z,-y","x+1/2,z+1/2,y+1/2","-x,z+1/2,-y","-z,-y,x+1/2","-z,y+1/2,-x","z+1/2,-y,-x","z+1/2,y+1/2,x+1/2"]}}},"223":{"name":"Pm-3n","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","0,1/2,0","1/2,0,0","0,0,1/2"]},"6c":{"multiplicity":6,"coordinates":["1/4,0,1/2","3/4,0,1/2","1/2,1/4,0","1/2,3/4,0","0,1/2,1/4","0,1/2,3/4"]},"6d":{"multiplicity":6,"coordinates":["1/4,1/2,0","3/4,1/2,0","0,1/4,1/2","0,3/4,1/2","1/2,0,1/4","1/2,0,3/4"]},"8e":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,1/4","3/4,1/4,3/4","1/4,3/4,3/4","3/4,3/4,3/4","1/4,1/4,3/4","1/4,3/4,1/4","3/4,1/4,1/4"]},"12f":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,1/2,-x+1/2","1/2,1/2,x+1/2"]},"12g":{"multiplicity":12,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x","1/2,x+1/2,0","1/2,-x+1/2,0","x+1/2,0,1/2","-x+1/2,0,1/2","0,1/2,-x+1/2","0,1/2,x+1/2"]},"12h":{"multiplicity":12,"coordinates":["x,1/2,0","-x,1/2,0","0,x,1/2","0,-x,1/2","1/2,0,x","1/2,0,-x","0,x+1/2,1/2","0,-x+1/2,1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,0,-x+1/2","1/2,0,x+1/2"]},"16i":{"multiplicity":16,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,x+1/2","-x,-x,-x","x,x,-x","x,-x,x","-x,x,x","-x+1/2,-x+1/2,x+1/2","x+1/2,x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2"]},"24j":{"multiplicity":24,"coordinates":["1/4,y,y+1/2","3/4,-y,y+1/2","3/4,y,-y+1/2","1/4,-y,-y+1/2","y+1/2,1/4,y","y+1/2,3/4,-y","-y+1/2,3/4,y","-y+1/2,1/4,-y","y,y+1/2,1/4","-y,y+1/2,3/4","y,-y+1/2,3/4","-y,-y+1/2,1/4","3/4,-y,-y+1/2","1/4,y,-y+1/2","1/4,-y,y+1/2","3/4,y,y+1/2","-y+1/2,3/4,-y","-y+1/2,1/4,y","y+1/2,1/4,-y","y+1/2,3/4,y","-y,-y+1/2,3/4","y,-y+1/2,1/4","-y,y+1/2,1/4","y,y+1/2,3/4"]},"24k":{"multiplicity":24,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","y+1/2,1/2,-z+1/2","-y+1/2,1/2,-z+1/2","y+1/2,1/2,z+1/2","-y+1/2,1/2,z+1/2","1/2,z+1/2,-y+1/2","1/2,z+1/2,y+1/2","1/2,-z+1/2,-y+1/2","1/2,-z+1/2,y+1/2","z+1/2,y+1/2,1/2","z+1/2,-y+1/2,1/2","-z+1/2,y+1/2,1/2","-z+1/2,-y+1/2,1/2"]},"48l":{"multiplicity":48,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y+1/2,x+1/2,-z+1/2","-y+1/2,-x+1/2,-z+1/2","y+1/2,-x+1/2,z+1/2","-y+1/2,x+1/2,z+1/2","x+1/2,z+1/2,-y+1/2","-x+1/2,z+1/2,y+1/2","-x+1/2,-z+1/2,-y+1/2","x+1/2,-z+1/2,y+1/2","z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,x+1/2","-z+1/2,-y+1/2,-x+1/2","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","-y+1/2,-x+1/2,z+1/2","y+1/2,x+1/2,z+1/2","-y+1/2,x+1/2,-z+1/2","y+1/2,-x+1/2,-z+1/2","-x+1/2,-z+1/2,y+1/2","x+1/2,-z+1/2,-y+1/2","x+1/2,z+1/2,y+1/2","-x+1/2,z+1/2,-y+1/2","-z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,-x+1/2","z+1/2,y+1/2,x+1/2"]}}},"224":{"name":"Pn-3m","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["1/4,1/4,1/4","3/4,3/4,3/4"]},"4b":{"multiplicity":4,"coordinates":["0,0,0","1/2,1/2,0","1/2,0,1/2","0,1/2,1/2"]},"4c":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","0,0,1/2","0,1/2,0","1/2,0,0"]},"6d":{"multiplicity":6,"coordinates":["1/4,3/4,3/4","3/4,1/4,3/4","3/4,3/4,1/4","1/4,3/4,1/4","3/4,1/4,1/4","1/4,1/4,3/4"]},"8e":{"multiplicity":8,"coordinates":["x,x,x","-x+1/2,-x+1/2,x","-x+1/2,x,-x+1/2","x,-x+1/2,-x+1/2","x+1/2,x+1/2,-x","-x,-x,-x","x+1/2,-x,x+1/2","-x,x+1/2,x+1/2"]},"12f":{"multiplicity":12,"coordinates":["1/2,1/4,3/4","0,1/4,3/4","3/4,1/2,1/4","3/4,0,1/4","1/4,3/4,1/2","1/4,3/4,0","1/2,3/4,1/4","0,3/4,1/4","1/4,1/2,3/4","1/4,0,3/4","3/4,1/4,1/2","3/4,1/4,0"]},"12g":{"multiplicity":12,"coordinates":["x,1/4,1/4","-x+1/2,1/4,1/4","1/4,x,1/4","1/4,-x+1/2,1/4","1/4,1/4,x","1/4,1/4,-x+1/2","3/4,x+1/2,3/4","3/4,-x,3/4","x+1/2,3/4,3/4","-x,3/4,3/4","3/4,3/4,-x","3/4,3/4,x+1/2"]},"24h":{"multiplicity":24,"coordinates":["x,1/4,3/4","-x+1/2,1/4,3/4","3/4,x,1/4","3/4,-x+1/2,1/4","1/4,3/4,x","1/4,3/4,-x+1/2","3/4,x+1/2,1/4","3/4,-x,1/4","x+1/2,1/4,3/4","-x,1/4,3/4","1/4,3/4,-x","1/4,3/4,x+1/2","-x,3/4,1/4","x+1/2,3/4,1/4","1/4,-x,3/4","1/4,x+1/2,3/4","3/4,1/4,-x","3/4,1/4,x+1/2","1/4,-x+1/2,3/4","1/4,x,3/4","-x+1/2,3/4,1/4","x,3/4,1/4","3/4,1/4,x","3/4,1/4,-x+1/2"]},"24i":{"multiplicity":24,"coordinates":["1/2,y,y+1/2","0,-y+1/2,y+1/2","0,y,-y","1/2,-y+1/2,-y","y+1/2,1/2,y","y+1/2,0,-y+1/2","-y,0,y","-y,1/2,-y+1/2","y,y+1/2,1/2","-y+1/2,y+1/2,0","y,-y,0","-y+1/2,-y,1/2","1/2,-y,-y+1/2","0,y+1/2,-y+1/2","0,-y,y","1/2,y+1/2,y","-y+1/2,1/2,-y","-y+1/2,0,y+1/2","y,0,-y","y,1/2,y+1/2","-y,-y+1/2,1/2","y+1/2,-y+1/2,0","-y,y,0","y+1/2,y,1/2"]},"24j":{"multiplicity":24,"coordinates":["1/2,y,-y","0,-y+1/2,-y","0,y,y+1/2","1/2,-y+1/2,y+1/2","-y,1/2,y","-y,0,-y+1/2","y+1/2,0,y","y+1/2,1/2,-y+1/2","y,-y,1/2","-y+1/2,-y,0","y,y+1/2,0","-y+1/2,y+1/2,1/2","1/2,-y,y","0,y+1/2,y","0,-y,-y+1/2","1/2,y+1/2,-y+1/2","y,1/2,-y","y,0,y+1/2","-y+1/2,0,-y","-y+1/2,1/2,y+1/2","-y,y,1/2","y+1/2,y,0","-y,-y+1/2,0","y+1/2,-y+1/2,1/2"]},"24k":{"multiplicity":24,"coordinates":["x,x,z","-x+1/2,-x+1/2,z","-x+1/2,x,-z+1/2","x,-x+1/2,-z+1/2","z,x,x","z,-x+1/2,-x+1/2","-z+1/2,-x+1/2,x","-z+1/2,x,-x+1/2","x,z,x","-x+1/2,z,-x+1/2","x,-z+1/2,-x+1/2","-x+1/2,-z+1/2,x","x+1/2,x+1/2,-z","-x,-x,-z","x+1/2,-x,z+1/2","-x,x+1/2,z+1/2","x+1/2,z+1/2,-x","-x,z+1/2,x+1/2","-x,-z,-x","x+1/2,-z,x+1/2","z+1/2,x+1/2,-x","z+1/2,-x,x+1/2","-z,x+1/2,x+1/2","-z,-x,-x"]},"48l":{"multiplicity":48,"coordinates":["x,y,z","-x+1/2,-y+1/2,z","-x+1/2,y,-z+1/2","x,-y+1/2,-z+1/2","z,x,y","z,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y","-z+1/2,x,-y+1/2","y,z,x","-y+1/2,z,-x+1/2","y,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x","y+1/2,x+1/2,-z","-y,-x,-z","y+1/2,-x,z+1/2","-y,x+1/2,z+1/2","x+1/2,z+1/2,-y","-x,z+1/2,y+1/2","-x,-z,-y","x+1/2,-z,y+1/2","z+1/2,y+1/2,-x","z+1/2,-y,x+1/2","-z,y+1/2,x+1/2","-z,-y,-x","-x,-y,-z","x+1/2,y+1/2,-z","x+1/2,-y,z+1/2","-x,y+1/2,z+1/2","-z,-x,-y","-z,x+1/2,y+1/2","z+1/2,x+1/2,-y","z+1/2,-x,y+1/2","-y,-z,-x","y+1/2,-z,x+1/2","-y,z+1/2,x+1/2","y+1/2,z+1/2,-x","-y+1/2,-x+1/2,z","y,x,z","-y+1/2,x,-z+1/2","y,-x+1/2,-z+1/2","-x+1/2,-z+1/2,y","x,-z+1/2,-y+1/2","x,z,y","-x+1/2,z,-y+1/2","-z+1/2,-y+1/2,x","-z+1/2,y,-x+1/2","z,-y+1/2,-x+1/2","z,y,x"]}}},"225":{"name":"Fm-3m","wyckoff_positions":{"4a":{"multiplicity":4,"coordinates":["0,0,0","0,1/2,1/2","1/2,0,1/2","1/2,1/2,0"]},"4b":{"multiplicity":4,"coordinates":["1/2,1/2,1/2","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","1/4,1/4,3/4","1/4,3/4,3/4","1/4,3/4,5/4","3/4,1/4,3/4","3/4,1/4,5/4","3/4,3/4,1/4","3/4,3/4,3/4"]},"24d":{"multiplicity":24,"coordinates":["0,1/4,1/4","0,3/4,1/4","1/4,0,1/4","1/4,0,3/4","1/4,1/4,0","3/4,1/4,0","0,3/4,3/4","0,5/4,3/4","1/4,1/2,3/4","1/4,1/2,5/4","1/4,3/4,1/2","3/4,3/4,1/2","1/2,1/4,3/4","1/2,3/4,3/4","3/4,0,3/4","3/4,0,5/4","3/4,1/4,1/2","5/4,1/4,1/2","1/2,3/4,1/4","1/2,5/4,1/4","3/4,1/2,1/4","3/4,1/2,3/4","3/4,3/4,0","5/4,3/4,0"]},"24e":{"multiplicity":24,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x"]},"32f":{"multiplicity":32,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x,-x","-x,-x,-x","x,-x,x","-x,x,x","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","x,x+1/2,-x+1/2","-x,-x+1/2,-x+1/2","x,-x+1/2,x+1/2","-x,x+1/2,x+1/2","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","x+1/2,x,-x+1/2","-x+1/2,-x,-x+1/2","x+1/2,-x,x+1/2","-x+1/2,x,x+1/2","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x","x+1/2,x+1/2,-x","-x+1/2,-x+1/2,-x","x+1/2,-x+1/2,x","-x+1/2,x+1/2,x"]},"48g":{"multiplicity":48,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","1/4,x,3/4","3/4,-x,3/4","x,1/4,3/4","-x,1/4,1/4","1/4,1/4,-x","1/4,3/4,x","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","1/4,x+1/2,5/4","3/4,-x+1/2,5/4","x,3/4,5/4","-x,3/4,3/4","1/4,3/4,-x+1/2","1/4,5/4,x+1/2","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","3/4,x,5/4","5/4,-x,5/4","x+1/2,1/4,5/4","-x+1/2,1/4,3/4","3/4,1/4,-x+1/2","3/4,3/4,x+1/2","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x","3/4,x+1/2,3/4","5/4,-x+1/2,3/4","x+1/2,3/4,3/4","-x+1/2,3/4,1/4","3/4,3/4,-x","3/4,5/4,x"]},"48h":{"multiplicity":48,"coordinates":["0,y,y","0,-y,y","0,y,-y","0,-y,-y","y,0,y","y,0,-y","-y,0,y","-y,0,-y","y,y,0","-y,y,0","y,-y,0","-y,-y,0","0,y+1/2,y+1/2","0,-y+1/2,y+1/2","0,y+1/2,-y+1/2","0,-y+1/2,-y+1/2","y,1/2,y+1/2","y,1/2,-y+1/2","-y,1/2,y+1/2","-y,1/2,-y+1/2","y,y+1/2,1/2","-y,y+1/2,1/2","y,-y+1/2,1/2","-y,-y+1/2,1/2","1/2,y,y+1/2","1/2,-y,y+1/2","1/2,y,-y+1/2","1/2,-y,-y+1/2","y+1/2,0,y+1/2","y+1/2,0,-y+1/2","-y+1/2,0,y+1/2","-y+1/2,0,-y+1/2","y+1/2,y,1/2","-y+1/2,y,1/2","y+1/2,-y,1/2","-y+1/2,-y,1/2","1/2,y+1/2,y","1/2,-y+1/2,y","1/2,y+1/2,-y","1/2,-y+1/2,-y","y+1/2,1/2,y","y+1/2,1/2,-y","-y+1/2,1/2,y","-y+1/2,1/2,-y","y+1/2,y+1/2,0","-y+1/2,y+1/2,0","y+1/2,-y+1/2,0","-y+1/2,-y+1/2,0"]},"48i":{"multiplicity":48,"coordinates":["1/2,y,y","1/2,-y,y","1/2,y,-y","1/2,-y,-y","y,1/2,y","y,1/2,-y","-y,1/2,y","-y,1/2,-y","y,y,1/2","-y,y,1/2","y,-y,1/2","-y,-y,1/2","1/2,y+1/2,y+1/2","1/2,-y+1/2,y+1/2","1/2,y+1/2,-y+1/2","1/2,-y+1/2,-y+1/2","y,1,y+1/2","y,1,-y+1/2","-y,1,y+1/2","-y,1,-y+1/2","y,y+1/2,1","-y,y+1/2,1","y,-y+1/2,1","-y,-y+1/2,1","1,y,y+1/2","1,-y,y+1/2","1,y,-y+1/2","1,-y,-y+1/2","y+1/2,1/2,y+1/2","y+1/2,1/2,-y+1/2","-y+1/2,1/2,y+1/2","-y+1/2,1/2,-y+1/2","y+1/2,y,1","-y+1/2,y,1","y+1/2,-y,1","-y+1/2,-y,1","1,y+1/2,y","1,-y+1/2,y","1,y+1/2,-y","1,-y+1/2,-y","y+1/2,1,y","y+1/2,1,-y","-y+1/2,1,y","-y+1/2,1,-y","y+1/2,y+1/2,1/2","-y+1/2,y+1/2,1/2","y+1/2,-y+1/2,1/2","-y+1/2,-y+1/2,1/2"]},"96j":{"multiplicity":96,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","y,0,-z","-y,0,-z","y,0,z","-y,0,z","0,z,-y","0,z,y","0,-z,-y","0,-z,y","z,y,0","z,-y,0","-z,y,0","-z,-y,0","0,y+1/2,z+1/2","0,-y+1/2,z+1/2","0,y+1/2,-z+1/2","0,-y+1/2,-z+1/2","z,1/2,y+1/2","z,1/2,-y+1/2","-z,1/2,y+1/2","-z,1/2,-y+1/2","y,z+1/2,1/2","-y,z+1/2,1/2","y,-z+1/2,1/2","-y,-z+1/2,1/2","y,1/2,-z+1/2","-y,1/2,-z+1/2","y,1/2,z+1/2","-y,1/2,z+1/2","0,z+1/2,-y+1/2","0,z+1/2,y+1/2","0,-z+1/2,-y+1/2","0,-z+1/2,y+1/2","z,y+1/2,1/2","z,-y+1/2,1/2","-z,y+1/2,1/2","-z,-y+1/2,1/2","1/2,y,z+1/2","1/2,-y,z+1/2","1/2,y,-z+1/2","1/2,-y,-z+1/2","z+1/2,0,y+1/2","z+1/2,0,-y+1/2","-z+1/2,0,y+1/2","-z+1/2,0,-y+1/2","y+1/2,z,1/2","-y+1/2,z,1/2","y+1/2,-z,1/2","-y+1/2,-z,1/2","y+1/2,0,-z+1/2","-y+1/2,0,-z+1/2","y+1/2,0,z+1/2","-y+1/2,0,z+1/2","1/2,z,-y+1/2","1/2,z,y+1/2","1/2,-z,-y+1/2","1/2,-z,y+1/2","z+1/2,y,1/2","z+1/2,-y,1/2","-z+1/2,y,1/2","-z+1/2,-y,1/2","1/2,y+1/2,z","1/2,-y+1/2,z","1/2,y+1/2,-z","1/2,-y+1/2,-z","z+1/2,1/2,y","z+1/2,1/2,-y","-z+1/2,1/2,y","-z+1/2,1/2,-y","y+1/2,z+1/2,0","-y+1/2,z+1/2,0","y+1/2,-z+1/2,0","-y+1/2,-z+1/2,0","y+1/2,1/2,-z","-y+1/2,1/2,-z","y+1/2,1/2,z","-y+1/2,1/2,z","1/2,z+1/2,-y","1/2,z+1/2,y","1/2,-z+1/2,-y","1/2,-z+1/2,y","z+1/2,y+1/2,0","z+1/2,-y+1/2,0","-z+1/2,y+1/2,0","-z+1/2,-y+1/2,0"]},"96k":{"multiplicity":96,"coordinates":["x,x,z","-x,-x,z","-x,x,-z","x,-x,-z","z,x,x","z,-x,-x","-z,-x,x","-z,x,-x","x,z,x","-x,z,-x","x,-z,-x","-x,-z,x","x,x,-z","-x,-x,-z","x,-x,z","-x,x,z","x,z,-x","-x,z,x","-x,-z,-x","x,-z,x","z,x,-x","z,-x,x","-z,x,x","-z,-x,-x","x,x+1/2,z+1/2","-x,-x+1/2,z+1/2","-x,x+1/2,-z+1/2","x,-x+1/2,-z+1/2","z,x+1/2,x+1/2","z,-x+1/2,-x+1/2","-z,-x+1/2,x+1/2","-z,x+1/2,-x+1/2","x,z+1/2,x+1/2","-x,z+1/2,-x+1/2","x,-z+1/2,-x+1/2","-x,-z+1/2,x+1/2","x,x+1/2,-z+1/2","-x,-x+1/2,-z+1/2","x,-x+1/2,z+1/2","-x,x+1/2,z+1/2","x,z+1/2,-x+1/2","-x,z+1/2,x+1/2","-x,-z+1/2,-x+1/2","x,-z+1/2,x+1/2","z,x+1/2,-x+1/2","z,-x+1/2,x+1/2","-z,x+1/2,x+1/2","-z,-x+1/2,-x+1/2","x+1/2,x,z+1/2","-x+1/2,-x,z+1/2","-x+1/2,x,-z+1/2","x+1/2,-x,-z+1/2","z+1/2,x,x+1/2","z+1/2,-x,-x+1/2","-z+1/2,-x,x+1/2","-z+1/2,x,-x+1/2","x+1/2,z,x+1/2","-x+1/2,z,-x+1/2","x+1/2,-z,-x+1/2","-x+1/2,-z,x+1/2","x+1/2,x,-z+1/2","-x+1/2,-x,-z+1/2","x+1/2,-x,z+1/2","-x+1/2,x,z+1/2","x+1/2,z,-x+1/2","-x+1/2,z,x+1/2","-x+1/2,-z,-x+1/2","x+1/2,-z,x+1/2","z+1/2,x,-x+1/2","z+1/2,-x,x+1/2","-z+1/2,x,x+1/2","-z+1/2,-x,-x+1/2","x+1/2,x+1/2,z","-x+1/2,-x+1/2,z","-x+1/2,x+1/2,-z","x+1/2,-x+1/2,-z","z+1/2,x+1/2,x","z+1/2,-x+1/2,-x","-z+1/2,-x+1/2,x","-z+1/2,x+1/2,-x","x+1/2,z+1/2,x","-x+1/2,z+1/2,-x","x+1/2,-z+1/2,-x","-x+1/2,-z+1/2,x","x+1/2,x+1/2,-z","-x+1/2,-x+1/2,-z","x+1/2,-x+1/2,z","-x+1/2,x+1/2,z","x+1/2,z+1/2,-x","-x+1/2,z+1/2,x","-x+1/2,-z+1/2,-x","x+1/2,-z+1/2,x","z+1/2,x+1/2,-x","z+1/2,-x+1/2,x","-z+1/2,x+1/2,x","-z+1/2,-x+1/2,-x"]},"192l":{"multiplicity":192,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,-z","-y,-x,-z","y,-x,z","-y,x,z","x,z,-y","-x,z,y","-x,-z,-y","x,-z,y","z,y,-x","z,-y,x","-z,y,x","-z,-y,-x","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","-y,-x,z","y,x,z","-y,x,-z","y,-x,-z","-x,-z,y","x,-z,-y","x,z,y","-x,z,-y","-z,-y,x","-z,y,-x","z,-y,-x","z,y,x","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","y,x+1/2,-z+1/2","-y,-x+1/2,-z+1/2","y,-x+1/2,z+1/2","-y,x+1/2,z+1/2","x,z+1/2,-y+1/2","-x,z+1/2,y+1/2","-x,-z+1/2,-y+1/2","x,-z+1/2,y+1/2","z,y+1/2,-x+1/2","z,-y+1/2,x+1/2","-z,y+1/2,x+1/2","-z,-y+1/2,-x+1/2","-x,-y+1/2,-z+1/2","x,y+1/2,-z+1/2","x,-y+1/2,z+1/2","-x,y+1/2,z+1/2","-z,-x+1/2,-y+1/2","-z,x+1/2,y+1/2","z,x+1/2,-y+1/2","z,-x+1/2,y+1/2","-y,-z+1/2,-x+1/2","y,-z+1/2,x+1/2","-y,z+1/2,x+1/2","y,z+1/2,-x+1/2","-y,-x+1/2,z+1/2","y,x+1/2,z+1/2","-y,x+1/2,-z+1/2","y,-x+1/2,-z+1/2","-x,-z+1/2,y+1/2","x,-z+1/2,-y+1/2","x,z+1/2,y+1/2","-x,z+1/2,-y+1/2","-z,-y+1/2,x+1/2","-z,y+1/2,-x+1/2","z,-y+1/2,-x+1/2","z,y+1/2,x+1/2","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","y+1/2,x,-z+1/2","-y+1/2,-x,-z+1/2","y+1/2,-x,z+1/2","-y+1/2,x,z+1/2","x+1/2,z,-y+1/2","-x+1/2,z,y+1/2","-x+1/2,-z,-y+1/2","x+1/2,-z,y+1/2","z+1/2,y,-x+1/2","z+1/2,-y,x+1/2","-z+1/2,y,x+1/2","-z+1/2,-y,-x+1/2","-x+1/2,-y,-z+1/2","x+1/2,y,-z+1/2","x+1/2,-y,z+1/2","-x+1/2,y,z+1/2","-z+1/2,-x,-y+1/2","-z+1/2,x,y+1/2","z+1/2,x,-y+1/2","z+1/2,-x,y+1/2","-y+1/2,-z,-x+1/2","y+1/2,-z,x+1/2","-y+1/2,z,x+1/2","y+1/2,z,-x+1/2","-y+1/2,-x,z+1/2","y+1/2,x,z+1/2","-y+1/2,x,-z+1/2","y+1/2,-x,-z+1/2","-x+1/2,-z,y+1/2","x+1/2,-z,-y+1/2","x+1/2,z,y+1/2","-x+1/2,z,-y+1/2","-z+1/2,-y,x+1/2","-z+1/2,y,-x+1/2","z+1/2,-y,-x+1/2","z+1/2,y,x+1/2","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x","y+1/2,x+1/2,-z","-y+1/2,-x+1/2,-z","y+1/2,-x+1/2,z","-y+1/2,x+1/2,z","x+1/2,z+1/2,-y","-x+1/2,z+1/2,y","-x+1/2,-z+1/2,-y","x+1/2,-z+1/2,y","z+1/2,y+1/2,-x","z+1/2,-y+1/2,x","-z+1/2,y+1/2,x","-z+1/2,-y+1/2,-x","-x+1/2,-y+1/2,-z","x+1/2,y+1/2,-z","x+1/2,-y+1/2,z","-x+1/2,y+1/2,z","-z+1/2,-x+1/2,-y","-z+1/2,x+1/2,y","z+1/2,x+1/2,-y","z+1/2,-x+1/2,y","-y+1/2,-z+1/2,-x","y+1/2,-z+1/2,x","-y+1/2,z+1/2,x","y+1/2,z+1/2,-x","-y+1/2,-x+1/2,z","y+1/2,x+1/2,z","-y+1/2,x+1/2,-z","y+1/2,-x+1/2,-z","-x+1/2,-z+1/2,y","x+1/2,-z+1/2,-y","x+1/2,z+1/2,y","-x+1/2,z+1/2,-y","-z+1/2,-y+1/2,x","-z+1/2,y+1/2,-x","z+1/2,-y+1/2,-x","z+1/2,y+1/2,x"]}}},"226":{"name":"Fm-3c","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,3/4","1/4,3/4,3/4","3/4,5/4,5/4","3/4,1/4,3/4","5/4,3/4,5/4","3/4,3/4,1/4","5/4,5/4,3/4"]},"8b":{"multiplicity":8,"coordinates":["0,0,0","1/2,1/2,1/2","0,1/2,1/2","1/2,1,1","1/2,0,1/2","1,1/2,1","1/2,1/2,0","1,1,1/2"]},"24c":{"multiplicity":24,"coordinates":["1/4,0,0","3/4,0,0","0,1/4,0","0,3/4,0","0,0,1/4","0,0,3/4","1/4,1/2,1/2","3/4,1/2,1/2","0,3/4,1/2","0,5/4,1/2","0,1/2,3/4","0,1/2,5/4","3/4,0,1/2","5/4,0,1/2","1/2,1/4,1/2","1/2,3/4,1/2","1/2,0,3/4","1/2,0,5/4","3/4,1/2,0","5/4,1/2,0","1/2,3/4,0","1/2,5/4,0","1/2,1/2,1/4","1/2,1/2,3/4"]},"24d":{"multiplicity":24,"coordinates":["0,1/4,1/4","0,3/4,1/4","1/4,0,1/4","1/4,0,3/4","1/4,1/4,0","3/4,1/4,0","0,3/4,3/4","0,5/4,3/4","1/4,1/2,3/4","1/4,1/2,5/4","1/4,3/4,1/2","3/4,3/4,1/2","1/2,1/4,3/4","1/2,3/4,3/4","3/4,0,3/4","3/4,0,5/4","3/4,1/4,1/2","5/4,1/4,1/2","1/2,3/4,1/4","1/2,5/4,1/4","3/4,1/2,1/4","3/4,1/2,3/4","3/4,3/4,0","5/4,3/4,0"]},"48e":{"multiplicity":48,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,1/2,-x+1/2","1/2,1/2,x+1/2","x,1/2,1/2","-x,1/2,1/2","0,x+1/2,1/2","0,-x+1/2,1/2","0,1/2,x+1/2","0,1/2,-x+1/2","1/2,x+1,1","1/2,-x+1,1","x+1/2,1,1","-x+1/2,1,1","1/2,1,-x+1","1/2,1,x+1","x+1/2,0,1/2","-x+1/2,0,1/2","1/2,x,1/2","1/2,-x,1/2","1/2,0,x+1/2","1/2,0,-x+1/2","1,x+1/2,1","1,-x+1/2,1","x+1,1/2,1","-x+1,1/2,1","1,1/2,-x+1","1,1/2,x+1","x+1/2,1/2,0","-x+1/2,1/2,0","1/2,x+1/2,0","1/2,-x+1/2,0","1/2,1/2,x","1/2,1/2,-x","1,x+1,1/2","1,-x+1,1/2","x+1,1,1/2","-x+1,1,1/2","1,1,-x+1/2","1,1,x+1/2"]},"48f":{"multiplicity":48,"coordinates":["x,1/4,1/4","-x,3/4,1/4","1/4,x,1/4","1/4,-x,3/4","1/4,1/4,x","3/4,1/4,-x","-x,3/4,3/4","x,1/4,3/4","3/4,-x,3/4","3/4,x,1/4","3/4,3/4,-x","1/4,3/4,x","x,3/4,3/4","-x,5/4,3/4","1/4,x+1/2,3/4","1/4,-x+1/2,5/4","1/4,3/4,x+1/2","3/4,3/4,-x+1/2","-x,5/4,5/4","x,3/4,5/4","3/4,-x+1/2,5/4","3/4,x+1/2,3/4","3/4,5/4,-x+1/2","1/4,5/4,x+1/2","x+1/2,1/4,3/4","-x+1/2,3/4,3/4","3/4,x,3/4","3/4,-x,5/4","3/4,1/4,x+1/2","5/4,1/4,-x+1/2","-x+1/2,3/4,5/4","x+1/2,1/4,5/4","5/4,-x,5/4","5/4,x,3/4","5/4,3/4,-x+1/2","3/4,3/4,x+1/2","x+1/2,3/4,1/4","-x+1/2,5/4,1/4","3/4,x+1/2,1/4","3/4,-x+1/2,3/4","3/4,3/4,x","5/4,3/4,-x","-x+1/2,5/4,3/4","x+1/2,3/4,3/4","5/4,-x+1/2,3/4","5/4,x+1/2,1/4","5/4,5/4,-x","3/4,5/4,x"]},"64g":{"multiplicity":64,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x+1/2,x+1/2,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,x+1/2","-x,-x,-x","x,x,-x","x,-x,x","-x,x,x","-x+1/2,-x+1/2,x+1/2","x+1/2,x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2","x,x+1/2,x+1/2","-x,-x+1/2,x+1/2","-x,x+1/2,-x+1/2","x,-x+1/2,-x+1/2","x+1/2,x+1,-x+1","-x+1/2,-x+1,-x+1","x+1/2,-x+1,x+1","-x+1/2,x+1,x+1","-x,-x+1/2,-x+1/2","x,x+1/2,-x+1/2","x,-x+1/2,x+1/2","-x,x+1/2,x+1/2","-x+1/2,-x+1,x+1","x+1/2,x+1,x+1","-x+1/2,x+1,-x+1","x+1/2,-x+1,-x+1","x+1/2,x,x+1/2","-x+1/2,-x,x+1/2","-x+1/2,x,-x+1/2","x+1/2,-x,-x+1/2","x+1,x+1/2,-x+1","-x+1,-x+1/2,-x+1","x+1,-x+1/2,x+1","-x+1,x+1/2,x+1","-x+1/2,-x,-x+1/2","x+1/2,x,-x+1/2","x+1/2,-x,x+1/2","-x+1/2,x,x+1/2","-x+1,-x+1/2,x+1","x+1,x+1/2,x+1","-x+1,x+1/2,-x+1","x+1,-x+1/2,-x+1","x+1/2,x+1/2,x","-x+1/2,-x+1/2,x","-x+1/2,x+1/2,-x","x+1/2,-x+1/2,-x","x+1,x+1,-x+1/2","-x+1,-x+1,-x+1/2","x+1,-x+1,x+1/2","-x+1,x+1,x+1/2","-x+1/2,-x+1/2,-x","x+1/2,x+1/2,-x","x+1/2,-x+1/2,x","-x+1/2,x+1/2,x","-x+1,-x+1,x+1/2","x+1,x+1,x+1/2","-x+1,x+1,-x+1/2","x+1,-x+1,-x+1/2"]},"96h":{"multiplicity":96,"coordinates":["1/4,y,y","3/4,-y,y","3/4,y,-y","1/4,-y,-y","y,1/4,y","y,3/4,-y","-y,3/4,y","-y,1/4,-y","y,y,1/4","-y,y,3/4","y,-y,3/4","-y,-y,1/4","3/4,-y,-y","1/4,y,-y","1/4,-y,y","3/4,y,y","-y,3/4,-y","-y,1/4,y","y,1/4,-y","y,3/4,y","-y,-y,3/4","y,-y,1/4","-y,y,1/4","y,y,3/4","1/4,y+1/2,y+1/2","3/4,-y+1/2,y+1/2","3/4,y+1/2,-y+1/2","1/4,-y+1/2,-y+1/2","y,3/4,y+1/2","y,5/4,-y+1/2","-y,5/4,y+1/2","-y,3/4,-y+1/2","y,y+1/2,3/4","-y,y+1/2,5/4","y,-y+1/2,5/4","-y,-y+1/2,3/4","3/4,-y+1/2,-y+1/2","1/4,y+1/2,-y+1/2","1/4,-y+1/2,y+1/2","3/4,y+1/2,y+1/2","-y,5/4,-y+1/2","-y,3/4,y+1/2","y,3/4,-y+1/2","y,5/4,y+1/2","-y,-y+1/2,5/4","y,-y+1/2,3/4","-y,y+1/2,3/4","y,y+1/2,5/4","3/4,y,y+1/2","5/4,-y,y+1/2","5/4,y,-y+1/2","3/4,-y,-y+1/2","y+1/2,1/4,y+1/2","y+1/2,3/4,-y+1/2","-y+1/2,3/4,y+1/2","-y+1/2,1/4,-y+1/2","y+1/2,y,3/4","-y+1/2,y,5/4","y+1/2,-y,5/4","-y+1/2,-y,3/4","5/4,-y,-y+1/2","3/4,y,-y+1/2","3/4,-y,y+1/2","5/4,y,y+1/2","-y+1/2,3/4,-y+1/2","-y+1/2,1/4,y+1/2","y+1/2,1/4,-y+1/2","y+1/2,3/4,y+1/2","-y+1/2,-y,5/4","y+1/2,-y,3/4","-y+1/2,y,3/4","y+1/2,y,5/4","3/4,y+1/2,y","5/4,-y+1/2,y","5/4,y+1/2,-y","3/4,-y+1/2,-y","y+1/2,3/4,y","y+1/2,5/4,-y","-y+1/2,5/4,y","-y+1/2,3/4,-y","y+1/2,y+1/2,1/4","-y+1/2,y+1/2,3/4","y+1/2,-y+1/2,3/4","-y+1/2,-y+1/2,1/4","5/4,-y+1/2,-y","3/4,y+1/2,-y","3/4,-y+1/2,y","5/4,y+1/2,y","-y+1/2,5/4,-y","-y+1/2,3/4,y","y+1/2,3/4,-y","y+1/2,5/4,y","-y+1/2,-y+1/2,3/4","y+1/2,-y+1/2,1/4","-y+1/2,y+1/2,1/4","y+1/2,y+1/2,3/4"]},"96i":{"multiplicity":96,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","y+1/2,1/2,-z+1/2","-y+1/2,1/2,-z+1/2","y+1/2,1/2,z+1/2","-y+1/2,1/2,z+1/2","1/2,z+1/2,-y+1/2","1/2,z+1/2,y+1/2","1/2,-z+1/2,-y+1/2","1/2,-z+1/2,y+1/2","z+1/2,y+1/2,1/2","z+1/2,-y+1/2,1/2","-z+1/2,y+1/2,1/2","-z+1/2,-y+1/2,1/2","0,y+1/2,z+1/2","0,-y+1/2,z+1/2","0,y+1/2,-z+1/2","0,-y+1/2,-z+1/2","z,1/2,y+1/2","z,1/2,-y+1/2","-z,1/2,y+1/2","-z,1/2,-y+1/2","y,z+1/2,1/2","-y,z+1/2,1/2","y,-z+1/2,1/2","-y,-z+1/2,1/2","y+1/2,1,-z+1","-y+1/2,1,-z+1","y+1/2,1,z+1","-y+1/2,1,z+1","1/2,z+1,-y+1","1/2,z+1,y+1","1/2,-z+1,-y+1","1/2,-z+1,y+1","z+1/2,y+1,1","z+1/2,-y+1,1","-z+1/2,y+1,1","-z+1/2,-y+1,1","1/2,y,z+1/2","1/2,-y,z+1/2","1/2,y,-z+1/2","1/2,-y,-z+1/2","z+1/2,0,y+1/2","z+1/2,0,-y+1/2","-z+1/2,0,y+1/2","-z+1/2,0,-y+1/2","y+1/2,z,1/2","-y+1/2,z,1/2","y+1/2,-z,1/2","-y+1/2,-z,1/2","y+1,1/2,-z+1","-y+1,1/2,-z+1","y+1,1/2,z+1","-y+1,1/2,z+1","1,z+1/2,-y+1","1,z+1/2,y+1","1,-z+1/2,-y+1","1,-z+1/2,y+1","z+1,y+1/2,1","z+1,-y+1/2,1","-z+1,y+1/2,1","-z+1,-y+1/2,1","1/2,y+1/2,z","1/2,-y+1/2,z","1/2,y+1/2,-z","1/2,-y+1/2,-z","z+1/2,1/2,y","z+1/2,1/2,-y","-z+1/2,1/2,y","-z+1/2,1/2,-y","y+1/2,z+1/2,0","-y+1/2,z+1/2,0","y+1/2,-z+1/2,0","-y+1/2,-z+1/2,0","y+1,1,-z+1/2","-y+1,1,-z+1/2","y+1,1,z+1/2","-y+1,1,z+1/2","1,z+1,-y+1/2","1,z+1,y+1/2","1,-z+1,-y+1/2","1,-z+1,y+1/2","z+1,y+1,1/2","z+1,-y+1,1/2","-z+1,y+1,1/2","-z+1,-y+1,1/2"]},"192j":{"multiplicity":192,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y+1/2,x+1/2,-z+1/2","-y+1/2,-x+1/2,-z+1/2","y+1/2,-x+1/2,z+1/2","-y+1/2,x+1/2,z+1/2","x+1/2,z+1/2,-y+1/2","-x+1/2,z+1/2,y+1/2","-x+1/2,-z+1/2,-y+1/2","x+1/2,-z+1/2,y+1/2","z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,x+1/2","-z+1/2,-y+1/2,-x+1/2","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","-y+1/2,-x+1/2,z+1/2","y+1/2,x+1/2,z+1/2","-y+1/2,x+1/2,-z+1/2","y+1/2,-x+1/2,-z+1/2","-x+1/2,-z+1/2,y+1/2","x+1/2,-z+1/2,-y+1/2","x+1/2,z+1/2,y+1/2","-x+1/2,z+1/2,-y+1/2","-z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,-x+1/2","z+1/2,y+1/2,x+1/2","x,y+1/2,z+1/2","-x,-y+1/2,z+1/2","-x,y+1/2,-z+1/2","x,-y+1/2,-z+1/2","z,x+1/2,y+1/2","z,-x+1/2,-y+1/2","-z,-x+1/2,y+1/2","-z,x+1/2,-y+1/2","y,z+1/2,x+1/2","-y,z+1/2,-x+1/2","y,-z+1/2,-x+1/2","-y,-z+1/2,x+1/2","y+1/2,x+1,-z+1","-y+1/2,-x+1,-z+1","y+1/2,-x+1,z+1","-y+1/2,x+1,z+1","x+1/2,z+1,-y+1","-x+1/2,z+1,y+1","-x+1/2,-z+1,-y+1","x+1/2,-z+1,y+1","z+1/2,y+1,-x+1","z+1/2,-y+1,x+1","-z+1/2,y+1,x+1","-z+1/2,-y+1,-x+1","-x,-y+1/2,-z+1/2","x,y+1/2,-z+1/2","x,-y+1/2,z+1/2","-x,y+1/2,z+1/2","-z,-x+1/2,-y+1/2","-z,x+1/2,y+1/2","z,x+1/2,-y+1/2","z,-x+1/2,y+1/2","-y,-z+1/2,-x+1/2","y,-z+1/2,x+1/2","-y,z+1/2,x+1/2","y,z+1/2,-x+1/2","-y+1/2,-x+1,z+1","y+1/2,x+1,z+1","-y+1/2,x+1,-z+1","y+1/2,-x+1,-z+1","-x+1/2,-z+1,y+1","x+1/2,-z+1,-y+1","x+1/2,z+1,y+1","-x+1/2,z+1,-y+1","-z+1/2,-y+1,x+1","-z+1/2,y+1,-x+1","z+1/2,-y+1,-x+1","z+1/2,y+1,x+1","x+1/2,y,z+1/2","-x+1/2,-y,z+1/2","-x+1/2,y,-z+1/2","x+1/2,-y,-z+1/2","z+1/2,x,y+1/2","z+1/2,-x,-y+1/2","-z+1/2,-x,y+1/2","-z+1/2,x,-y+1/2","y+1/2,z,x+1/2","-y+1/2,z,-x+1/2","y+1/2,-z,-x+1/2","-y+1/2,-z,x+1/2","y+1,x+1/2,-z+1","-y+1,-x+1/2,-z+1","y+1,-x+1/2,z+1","-y+1,x+1/2,z+1","x+1,z+1/2,-y+1","-x+1,z+1/2,y+1","-x+1,-z+1/2,-y+1","x+1,-z+1/2,y+1","z+1,y+1/2,-x+1","z+1,-y+1/2,x+1","-z+1,y+1/2,x+1","-z+1,-y+1/2,-x+1","-x+1/2,-y,-z+1/2","x+1/2,y,-z+1/2","x+1/2,-y,z+1/2","-x+1/2,y,z+1/2","-z+1/2,-x,-y+1/2","-z+1/2,x,y+1/2","z+1/2,x,-y+1/2","z+1/2,-x,y+1/2","-y+1/2,-z,-x+1/2","y+1/2,-z,x+1/2","-y+1/2,z,x+1/2","y+1/2,z,-x+1/2","-y+1,-x+1/2,z+1","y+1,x+1/2,z+1","-y+1,x+1/2,-z+1","y+1,-x+1/2,-z+1","-x+1,-z+1/2,y+1","x+1,-z+1/2,-y+1","x+1,z+1/2,y+1","-x+1,z+1/2,-y+1","-z+1,-y+1/2,x+1","-z+1,y+1/2,-x+1","z+1,-y+1/2,-x+1","z+1,y+1/2,x+1","x+1/2,y+1/2,z","-x+1/2,-y+1/2,z","-x+1/2,y+1/2,-z","x+1/2,-y+1/2,-z","z+1/2,x+1/2,y","z+1/2,-x+1/2,-y","-z+1/2,-x+1/2,y","-z+1/2,x+1/2,-y","y+1/2,z+1/2,x","-y+1/2,z+1/2,-x","y+1/2,-z+1/2,-x","-y+1/2,-z+1/2,x","y+1,x+1,-z+1/2","-y+1,-x+1,-z+1/2","y+1,-x+1,z+1/2","-y+1,x+1,z+1/2","x+1,z+1,-y+1/2","-x+1,z+1,y+1/2","-x+1,-z+1,-y+1/2","x+1,-z+1,y+1/2","z+1,y+1,-x+1/2","z+1,-y+1,x+1/2","-z+1,y+1,x+1/2","-z+1,-y+1,-x+1/2","-x+1/2,-y+1/2,-z","x+1/2,y+1/2,-z","x+1/2,-y+1/2,z","-x+1/2,y+1/2,z","-z+1/2,-x+1/2,-y","-z+1/2,x+1/2,y","z+1/2,x+1/2,-y","z+1/2,-x+1/2,y","-y+1/2,-z+1/2,-x","y+1/2,-z+1/2,x","-y+1/2,z+1/2,x","y+1/2,z+1/2,-x","-y+1,-x+1,z+1/2","y+1,x+1,z+1/2","-y+1,x+1,-z+1/2","y+1,-x+1,-z+1/2","-x+1,-z+1,y+1/2","x+1,-z+1,-y+1/2","x+1,z+1,y+1/2","-x+1,z+1,-y+1/2","-z+1,-y+1,x+1/2","-z+1,y+1,-x+1/2","z+1,-y+1,-x+1/2","z+1,y+1,x+1/2"]}}},"227":{"name":"Fd-3m","wyckoff_positions":{"8a":{"multiplicity":8,"coordinates":["1/8,1/8,1/8","7/8,3/8,3/8","1/8,5/8,5/8","7/8,7/8,7/8","5/8,1/8,5/8","11/8,3/8,7/8","5/8,5/8,1/8","11/8,7/8,3/8"]},"8b":{"multiplicity":8,"coordinates":["3/8,3/8,3/8","1/8,5/8,1/8","3/8,7/8,7/8","1/8,9/8,5/8","7/8,3/8,7/8","5/8,5/8,5/8","7/8,7/8,3/8","5/8,9/8,1/8"]},"16c":{"multiplicity":16,"coordinates":["0,0,0","3/4,1/4,1/2","1/4,1/2,3/4","1/2,3/4,1/4","0,1/2,1/2","3/4,3/4,1","1/4,1,5/4","1/2,5/4,3/4","1/2,0,1/2","5/4,1/4,1","3/4,1/2,5/4","1,3/4,3/4","1/2,1/2,0","5/4,3/4,1/2","3/4,1,3/4","1,5/4,1/4"]},"16d":{"multiplicity":16,"coordinates":["1/2,1/2,1/2","1/4,3/4,0","3/4,0,1/4","0,1/4,3/4","1/2,1,1","1/4,5/4,1/2","3/4,1/2,3/4","0,3/4,5/4","1,1/2,1","3/4,3/4,1/2","5/4,0,3/4","1/2,1/4,5/4","1,1,1/2","3/4,5/4,0","5/4,1/2,1/4","1/2,3/4,3/4"]},"32e":{"multiplicity":32,"coordinates":["x,x,x","-x+3/4,-x+1/4,x+1/2","-x+1/4,x+1/2,-x+3/4","x+1/2,-x+3/4,-x+1/4","x+3/4,x+1/4,-x+1/2","-x,-x,-x","x+1/4,-x+1/2,x+3/4","-x+1/2,x+3/4,x+1/4","x,x+1/2,x+1/2","-x+3/4,-x+3/4,x+1","-x+1/4,x+1,-x+5/4","x+1/2,-x+5/4,-x+3/4","x+3/4,x+3/4,-x+1","-x,-x+1/2,-x+1/2","x+1/4,-x+1,x+5/4","-x+1/2,x+5/4,x+3/4","x+1/2,x,x+1/2","-x+5/4,-x+1/4,x+1","-x+3/4,x+1/2,-x+5/4","x+1,-x+3/4,-x+3/4","x+5/4,x+1/4,-x+1","-x+1/2,-x,-x+1/2","x+3/4,-x+1/2,x+5/4","-x+1,x+3/4,x+3/4","x+1/2,x+1/2,x","-x+5/4,-x+3/4,x+1/2","-x+3/4,x+1,-x+3/4","x+1,-x+5/4,-x+1/4","x+5/4,x+3/4,-x+1/2","-x+1/2,-x+1/2,-x","x+3/4,-x+1,x+3/4","-x+1,x+5/4,x+1/4"]},"48f":{"multiplicity":48,"coordinates":["x,1/8,1/8","-x+3/4,1/8,5/8","1/8,x,1/8","5/8,-x+3/4,1/8","1/8,1/8,x","1/8,5/8,-x+3/4","7/8,x+1/4,3/8","7/8,-x,7/8","x+3/4,3/8,3/8","-x+1/2,7/8,3/8","7/8,3/8,-x+1/2","3/8,3/8,x+3/4","x,5/8,5/8","-x+3/4,5/8,9/8","1/8,x+1/2,5/8","5/8,-x+5/4,5/8","1/8,5/8,x+1/2","1/8,9/8,-x+5/4","7/8,x+3/4,7/8","7/8,-x+1/2,11/8","x+3/4,7/8,7/8","-x+1/2,11/8,7/8","7/8,7/8,-x+1","3/8,7/8,x+5/4","x+1/2,1/8,5/8","-x+5/4,1/8,9/8","5/8,x,5/8","9/8,-x+3/4,5/8","5/8,1/8,x+1/2","5/8,5/8,-x+5/4","11/8,x+1/4,7/8","11/8,-x,11/8","x+5/4,3/8,7/8","-x+1,7/8,7/8","11/8,3/8,-x+1","7/8,3/8,x+5/4","x+1/2,5/8,1/8","-x+5/4,5/8,5/8","5/8,x+1/2,1/8","9/8,-x+5/4,1/8","5/8,5/8,x","5/8,9/8,-x+3/4","11/8,x+3/4,3/8","11/8,-x+1/2,7/8","x+5/4,7/8,3/8","-x+1,11/8,3/8","11/8,7/8,-x+1/2","7/8,7/8,x+3/4"]},"96g":{"multiplicity":96,"coordinates":["x,x,z","-x+3/4,-x+1/4,z+1/2","-x+1/4,x+1/2,-z+3/4","x+1/2,-x+3/4,-z+1/4","z,x,x","z+1/2,-x+3/4,-x+1/4","-z+3/4,-x+1/4,x+1/2","-z+1/4,x+1/2,-x+3/4","x,z,x","-x+1/4,z+1/2,-x+3/4","x+1/2,-z+3/4,-x+1/4","-x+3/4,-z+1/4,x+1/2","x+3/4,x+1/4,-z+1/2","-x,-x,-z","x+1/4,-x+1/2,z+3/4","-x+1/2,x+3/4,z+1/4","x+3/4,z+1/4,-x+1/2","-x+1/2,z+3/4,x+1/4","-x,-z,-x","x+1/4,-z+1/2,x+3/4","z+3/4,x+1/4,-x+1/2","z+1/4,-x+1/2,x+3/4","-z+1/2,x+3/4,x+1/4","-z,-x,-x","x,x+1/2,z+1/2","-x+3/4,-x+3/4,z+1","-x+1/4,x+1,-z+5/4","x+1/2,-x+5/4,-z+3/4","z,x+1/2,x+1/2","z+1/2,-x+5/4,-x+3/4","-z+3/4,-x+3/4,x+1","-z+1/4,x+1,-x+5/4","x,z+1/2,x+1/2","-x+1/4,z+1,-x+5/4","x+1/2,-z+5/4,-x+3/4","-x+3/4,-z+3/4,x+1","x+3/4,x+3/4,-z+1","-x,-x+1/2,-z+1/2","x+1/4,-x+1,z+5/4","-x+1/2,x+5/4,z+3/4","x+3/4,z+3/4,-x+1","-x+1/2,z+5/4,x+3/4","-x,-z+1/2,-x+1/2","x+1/4,-z+1,x+5/4","z+3/4,x+3/4,-x+1","z+1/4,-x+1,x+5/4","-z+1/2,x+5/4,x+3/4","-z,-x+1/2,-x+1/2","x+1/2,x,z+1/2","-x+5/4,-x+1/4,z+1","-x+3/4,x+1/2,-z+5/4","x+1,-x+3/4,-z+3/4","z+1/2,x,x+1/2","z+1,-x+3/4,-x+3/4","-z+5/4,-x+1/4,x+1","-z+3/4,x+1/2,-x+5/4","x+1/2,z,x+1/2","-x+3/4,z+1/2,-x+5/4","x+1,-z+3/4,-x+3/4","-x+5/4,-z+1/4,x+1","x+5/4,x+1/4,-z+1","-x+1/2,-x,-z+1/2","x+3/4,-x+1/2,z+5/4","-x+1,x+3/4,z+3/4","x+5/4,z+1/4,-x+1","-x+1,z+3/4,x+3/4","-x+1/2,-z,-x+1/2","x+3/4,-z+1/2,x+5/4","z+5/4,x+1/4,-x+1","z+3/4,-x+1/2,x+5/4","-z+1,x+3/4,x+3/4","-z+1/2,-x,-x+1/2","x+1/2,x+1/2,z","-x+5/4,-x+3/4,z+1/2","-x+3/4,x+1,-z+3/4","x+1,-x+5/4,-z+1/4","z+1/2,x+1/2,x","z+1,-x+5/4,-x+1/4","-z+5/4,-x+3/4,x+1/2","-z+3/4,x+1,-x+3/4","x+1/2,z+1/2,x","-x+3/4,z+1,-x+3/4","x+1,-z+5/4,-x+1/4","-x+5/4,-z+3/4,x+1/2","x+5/4,x+3/4,-z+1/2","-x+1/2,-x+1/2,-z","x+3/4,-x+1,z+3/4","-x+1,x+5/4,z+1/4","x+5/4,z+3/4,-x+1/2","-x+1,z+5/4,x+1/4","-x+1/2,-z+1/2,-x","x+3/4,-z+1,x+3/4","z+5/4,x+3/4,-x+1/2","z+3/4,-x+1,x+3/4","-z+1,x+5/4,x+1/4","-z+1/2,-x+1/2,-x"]},"96h":{"multiplicity":96,"coordinates":["0,y,-y","3/4,-y+1/4,-y+1/2","1/4,y+1/2,y+3/4","1/2,-y+3/4,y+1/4","-y,0,y","-y+1/2,3/4,-y+1/4","y+3/4,1/4,y+1/2","y+1/4,1/2,-y+3/4","y,-y,0","-y+1/4,-y+1/2,3/4","y+1/2,y+3/4,1/4","-y+3/4,y+1/4,1/2","0,-y,y","1/4,y+3/4,y+1/2","3/4,-y+1/2,-y+1/4","1/2,y+1/4,-y+3/4","y,0,-y","y+1/2,1/4,y+3/4","-y+1/4,3/4,-y+1/2","-y+3/4,1/2,y+1/4","-y,y,0","y+3/4,y+1/2,1/4","-y+1/2,-y+1/4,3/4","y+1/4,-y+3/4,1/2","0,y+1/2,-y+1/2","3/4,-y+3/4,-y+1","1/4,y+1,y+5/4","1/2,-y+5/4,y+3/4","-y,1/2,y+1/2","-y+1/2,5/4,-y+3/4","y+3/4,3/4,y+1","y+1/4,1,-y+5/4","y,-y+1/2,1/2","-y+1/4,-y+1,5/4","y+1/2,y+5/4,3/4","-y+3/4,y+3/4,1","0,-y+1/2,y+1/2","1/4,y+5/4,y+1","3/4,-y+1,-y+3/4","1/2,y+3/4,-y+5/4","y,1/2,-y+1/2","y+1/2,3/4,y+5/4","-y+1/4,5/4,-y+1","-y+3/4,1,y+3/4","-y,y+1/2,1/2","y+3/4,y+1,3/4","-y+1/2,-y+3/4,5/4","y+1/4,-y+5/4,1","1/2,y,-y+1/2","5/4,-y+1/4,-y+1","3/4,y+1/2,y+5/4","1,-y+3/4,y+3/4","-y+1/2,0,y+1/2","-y+1,3/4,-y+3/4","y+5/4,1/4,y+1","y+3/4,1/2,-y+5/4","y+1/2,-y,1/2","-y+3/4,-y+1/2,5/4","y+1,y+3/4,3/4","-y+5/4,y+1/4,1","1/2,-y,y+1/2","3/4,y+3/4,y+1","5/4,-y+1/2,-y+3/4","1,y+1/4,-y+5/4","y+1/2,0,-y+1/2","y+1,1/4,y+5/4","-y+3/4,3/4,-y+1","-y+5/4,1/2,y+3/4","-y+1/2,y,1/2","y+5/4,y+1/2,3/4","-y+1,-y+1/4,5/4","y+3/4,-y+3/4,1","1/2,y+1/2,-y","5/4,-y+3/4,-y+1/2","3/4,y+1,y+3/4","1,-y+5/4,y+1/4","-y+1/2,1/2,y","-y+1,5/4,-y+1/4","y+5/4,3/4,y+1/2","y+3/4,1,-y+3/4","y+1/2,-y+1/2,0","-y+3/4,-y+1,3/4","y+1,y+5/4,1/4","-y+5/4,y+3/4,1/2","1/2,-y+1/2,y","3/4,y+5/4,y+1/2","5/4,-y+1,-y+1/4","1,y+3/4,-y+3/4","y+1/2,1/2,-y","y+1,3/4,y+3/4","-y+3/4,5/4,-y+1/2","-y+5/4,1,y+1/4","-y+1/2,y+1/2,0","y+5/4,y+1,1/4","-y+1,-y+3/4,3/4","y+3/4,-y+5/4,1/2"]},"192i":{"multiplicity":192,"coordinates":["x,y,z","-x+3/4,-y+1/4,z+1/2","-x+1/4,y+1/2,-z+3/4","x+1/2,-y+3/4,-z+1/4","z,x,y","z+1/2,-x+3/4,-y+1/4","-z+3/4,-x+1/4,y+1/2","-z+1/4,x+1/2,-y+3/4","y,z,x","-y+1/4,z+1/2,-x+3/4","y+1/2,-z+3/4,-x+1/4","-y+3/4,-z+1/4,x+1/2","y+3/4,x+1/4,-z+1/2","-y,-x,-z","y+1/4,-x+1/2,z+3/4","-y+1/2,x+3/4,z+1/4","x+3/4,z+1/4,-y+1/2","-x+1/2,z+3/4,y+1/4","-x,-z,-y","x+1/4,-z+1/2,y+3/4","z+3/4,y+1/4,-x+1/2","z+1/4,-y+1/2,x+3/4","-z+1/2,y+3/4,x+1/4","-z,-y,-x","-x,-y,-z","x+1/4,y+3/4,-z+1/2","x+3/4,-y+1/2,z+1/4","-x+1/2,y+1/4,z+3/4","-z,-x,-y","-z+1/2,x+1/4,y+3/4","z+1/4,x+3/4,-y+1/2","z+3/4,-x+1/2,y+1/4","-y,-z,-x","y+3/4,-z+1/2,x+1/4","-y+1/2,z+1/4,x+3/4","y+1/4,z+3/4,-x+1/2","-y+1/4,-x+3/4,z+1/2","y,x,z","-y+3/4,x+1/2,-z+1/4","y+1/2,-x+1/4,-z+3/4","-x+1/4,-z+3/4,y+1/2","x+1/2,-z+1/4,-y+3/4","x,z,y","-x+3/4,z+1/2,-y+1/4","-z+1/4,-y+3/4,x+1/2","-z+3/4,y+1/2,-x+1/4","z+1/2,-y+1/4,-x+3/4","z,y,x","x,y+1/2,z+1/2","-x+3/4,-y+3/4,z+1","-x+1/4,y+1,-z+5/4","x+1/2,-y+5/4,-z+3/4","z,x+1/2,y+1/2","z+1/2,-x+5/4,-y+3/4","-z+3/4,-x+3/4,y+1","-z+1/4,x+1,-y+5/4","y,z+1/2,x+1/2","-y+1/4,z+1,-x+5/4","y+1/2,-z+5/4,-x+3/4","-y+3/4,-z+3/4,x+1","y+3/4,x+3/4,-z+1","-y,-x+1/2,-z+1/2","y+1/4,-x+1,z+5/4","-y+1/2,x+5/4,z+3/4","x+3/4,z+3/4,-y+1","-x+1/2,z+5/4,y+3/4","-x,-z+1/2,-y+1/2","x+1/4,-z+1,y+5/4","z+3/4,y+3/4,-x+1","z+1/4,-y+1,x+5/4","-z+1/2,y+5/4,x+3/4","-z,-y+1/2,-x+1/2","-x,-y+1/2,-z+1/2","x+1/4,y+5/4,-z+1","x+3/4,-y+1,z+3/4","-x+1/2,y+3/4,z+5/4","-z,-x+1/2,-y+1/2","-z+1/2,x+3/4,y+5/4","z+1/4,x+5/4,-y+1","z+3/4,-x+1,y+3/4","-y,-z+1/2,-x+1/2","y+3/4,-z+1,x+3/4","-y+1/2,z+3/4,x+5/4","y+1/4,z+5/4,-x+1","-y+1/4,-x+5/4,z+1","y,x+1/2,z+1/2","-y+3/4,x+1,-z+3/4","y+1/2,-x+3/4,-z+5/4","-x+1/4,-z+5/4,y+1","x+1/2,-z+3/4,-y+5/4","x,z+1/2,y+1/2","-x+3/4,z+1,-y+3/4","-z+1/4,-y+5/4,x+1","-z+3/4,y+1,-x+3/4","z+1/2,-y+3/4,-x+5/4","z,y+1/2,x+1/2","x+1/2,y,z+1/2","-x+5/4,-y+1/4,z+1","-x+3/4,y+1/2,-z+5/4","x+1,-y+3/4,-z+3/4","z+1/2,x,y+1/2","z+1,-x+3/4,-y+3/4","-z+5/4,-x+1/4,y+1","-z+3/4,x+1/2,-y+5/4","y+1/2,z,x+1/2","-y+3/4,z+1/2,-x+5/4","y+1,-z+3/4,-x+3/4","-y+5/4,-z+1/4,x+1","y+5/4,x+1/4,-z+1","-y+1/2,-x,-z+1/2","y+3/4,-x+1/2,z+5/4","-y+1,x+3/4,z+3/4","x+5/4,z+1/4,-y+1","-x+1,z+3/4,y+3/4","-x+1/2,-z,-y+1/2","x+3/4,-z+1/2,y+5/4","z+5/4,y+1/4,-x+1","z+3/4,-y+1/2,x+5/4","-z+1,y+3/4,x+3/4","-z+1/2,-y,-x+1/2","-x+1/2,-y,-z+1/2","x+3/4,y+3/4,-z+1","x+5/4,-y+1/2,z+3/4","-x+1,y+1/4,z+5/4","-z+1/2,-x,-y+1/2","-z+1,x+1/4,y+5/4","z+3/4,x+3/4,-y+1","z+5/4,-x+1/2,y+3/4","-y+1/2,-z,-x+1/2","y+5/4,-z+1/2,x+3/4","-y+1,z+1/4,x+5/4","y+3/4,z+3/4,-x+1","-y+3/4,-x+3/4,z+1","y+1/2,x,z+1/2","-y+5/4,x+1/2,-z+3/4","y+1,-x+1/4,-z+5/4","-x+3/4,-z+3/4,y+1","x+1,-z+1/4,-y+5/4","x+1/2,z,y+1/2","-x+5/4,z+1/2,-y+3/4","-z+3/4,-y+3/4,x+1","-z+5/4,y+1/2,-x+3/4","z+1,-y+1/4,-x+5/4","z+1/2,y,x+1/2","x+1/2,y+1/2,z","-x+5/4,-y+3/4,z+1/2","-x+3/4,y+1,-z+3/4","x+1,-y+5/4,-z+1/4","z+1/2,x+1/2,y","z+1,-x+5/4,-y+1/4","-z+5/4,-x+3/4,y+1/2","-z+3/4,x+1,-y+3/4","y+1/2,z+1/2,x","-y+3/4,z+1,-x+3/4","y+1,-z+5/4,-x+1/4","-y+5/4,-z+3/4,x+1/2","y+5/4,x+3/4,-z+1/2","-y+1/2,-x+1/2,-z","y+3/4,-x+1,z+3/4","-y+1,x+5/4,z+1/4","x+5/4,z+3/4,-y+1/2","-x+1,z+5/4,y+1/4","-x+1/2,-z+1/2,-y","x+3/4,-z+1,y+3/4","z+5/4,y+3/4,-x+1/2","z+3/4,-y+1,x+3/4","-z+1,y+5/4,x+1/4","-z+1/2,-y+1/2,-x","-x+1/2,-y+1/2,-z","x+3/4,y+5/4,-z+1/2","x+5/4,-y+1,z+1/4","-x+1,y+3/4,z+3/4","-z+1/2,-x+1/2,-y","-z+1,x+3/4,y+3/4","z+3/4,x+5/4,-y+1/2","z+5/4,-x+1,y+1/4","-y+1/2,-z+1/2,-x","y+5/4,-z+1,x+1/4","-y+1,z+3/4,x+3/4","y+3/4,z+5/4,-x+1/2","-y+3/4,-x+5/4,z+1/2","y+1/2,x+1/2,z","-y+5/4,x+1,-z+1/4","y+1,-x+3/4,-z+3/4","-x+3/4,-z+5/4,y+1/2","x+1,-z+3/4,-y+3/4","x+1/2,z+1/2,y","-x+5/4,z+1,-y+1/4","-z+3/4,-y+5/4,x+1/2","-z+5/4,y+1,-x+1/4","z+1,-y+3/4,-x+3/4","z+1/2,y+1/2,x"]}}},"228":{"name":"Fd-3c","wyckoff_positions":{"16a":{"multiplicity":16,"coordinates":["1/8,1/8,1/8","7/8,3/8,7/8","7/8,7/8,7/8","1/8,5/8,1/8","1/8,5/8,5/8","7/8,7/8,11/8","7/8,11/8,11/8","1/8,9/8,5/8","5/8,1/8,5/8","11/8,3/8,11/8","11/8,7/8,11/8","5/8,5/8,5/8","5/8,5/8,1/8","11/8,7/8,7/8","11/8,11/8,7/8","5/8,9/8,1/8"]},"32b":{"multiplicity":32,"coordinates":["1/4,1/4,1/4","0,1/2,3/4","1/2,3/4,0","3/4,0,1/2","3/4,3/4,3/4","0,1/2,1/4","1/2,1/4,0","1/4,0,1/2","1/4,3/4,3/4","0,1,5/4","1/2,5/4,1/2","3/4,1/2,1","3/4,5/4,5/4","0,1,3/4","1/2,3/4,1/2","1/4,1/2,1","3/4,1/4,3/4","1/2,1/2,5/4","1,3/4,1/2","5/4,0,1","5/4,3/4,5/4","1/2,1/2,3/4","1,1/4,1/2","3/4,0,1","3/4,3/4,1/4","1/2,1,3/4","1,5/4,0","5/4,1/2,1/2","5/4,5/4,3/4","1/2,1,1/4","1,3/4,0","3/4,1/2,1/2"]},"32c":{"multiplicity":32,"coordinates":["0,0,0","1/4,3/4,1/2","3/4,1/2,1/4","1/2,1/4,3/4","3/4,1/4,0","1/2,1/2,1/2","1/4,0,3/4","0,3/4,1/4","0,1/2,1/2","1/4,5/4,1","3/4,1,3/4","1/2,3/4,5/4","3/4,3/4,1/2","1/2,1,1","1/4,1/2,5/4","0,5/4,3/4","1/2,0,1/2","3/4,3/4,1","5/4,1/2,3/4","1,1/4,5/4","5/4,1/4,1/2","1,1/2,1","3/4,0,5/4","1/2,3/4,3/4","1/2,1/2,0","3/4,5/4,1/2","5/4,1,1/4","1,3/4,3/4","5/4,3/4,0","1,1,1/2","3/4,1/2,3/4","1/2,5/4,1/4"]},"48d":{"multiplicity":48,"coordinates":["7/8,1/8,1/8","3/8,5/8,5/8","1/8,7/8,1/8","5/8,3/8,5/8","1/8,1/8,7/8","5/8,5/8,3/8","7/8,1/8,7/8","3/8,5/8,3/8","5/8,3/8,7/8","1/8,7/8,3/8","7/8,3/8,1/8","3/8,7/8,5/8","7/8,5/8,5/8","3/8,9/8,9/8","1/8,11/8,5/8","5/8,7/8,9/8","1/8,5/8,11/8","5/8,9/8,7/8","7/8,5/8,11/8","3/8,9/8,7/8","5/8,7/8,11/8","1/8,11/8,7/8","7/8,7/8,5/8","3/8,11/8,9/8","11/8,1/8,5/8","7/8,5/8,9/8","5/8,7/8,5/8","9/8,3/8,9/8","5/8,1/8,11/8","9/8,5/8,7/8","11/8,1/8,11/8","7/8,5/8,7/8","9/8,3/8,11/8","5/8,7/8,7/8","11/8,3/8,5/8","7/8,7/8,9/8","11/8,5/8,1/8","7/8,9/8,5/8","5/8,11/8,1/8","9/8,7/8,5/8","5/8,5/8,7/8","9/8,9/8,3/8","11/8,5/8,7/8","7/8,9/8,3/8","9/8,7/8,7/8","5/8,11/8,3/8","11/8,7/8,1/8","7/8,11/8,5/8"]},"64e":{"multiplicity":64,"coordinates":["x,x,x","-x+1/4,-x+3/4,x+1/2","-x+3/4,x+1/2,-x+1/4","x+1/2,-x+1/4,-x+3/4","x+3/4,x+1/4,-x","-x+1/2,-x+1/2,-x+1/2","x+1/4,-x,x+3/4","-x,x+3/4,x+1/4","-x,-x,-x","x+3/4,x+1/4,-x+1/2","x+1/4,-x+1/2,x+3/4","-x+1/2,x+3/4,x+1/4","-x+1/4,-x+3/4,x","x+1/2,x+1/2,x+1/2","-x+3/4,x,-x+1/4","x,-x+1/4,-x+3/4","x,x+1/2,x+1/2","-x+1/4,-x+5/4,x+1","-x+3/4,x+1,-x+3/4","x+1/2,-x+3/4,-x+5/4","x+3/4,x+3/4,-x+1/2","-x+1/2,-x+1,-x+1","x+1/4,-x+1/2,x+5/4","-x,x+5/4,x+3/4","-x,-x+1/2,-x+1/2","x+3/4,x+3/4,-x+1","x+1/4,-x+1,x+5/4","-x+1/2,x+5/4,x+3/4","-x+1/4,-x+5/4,x+1/2","x+1/2,x+1,x+1","-x+3/4,x+1/2,-x+3/4","x,-x+3/4,-x+5/4","x+1/2,x,x+1/2","-x+3/4,-x+3/4,x+1","-x+5/4,x+1/2,-x+3/4","x+1,-x+1/4,-x+5/4","x+5/4,x+1/4,-x+1/2","-x+1,-x+1/2,-x+1","x+3/4,-x,x+5/4","-x+1/2,x+3/4,x+3/4","-x+1/2,-x,-x+1/2","x+5/4,x+1/4,-x+1","x+3/4,-x+1/2,x+5/4","-x+1,x+3/4,x+3/4","-x+3/4,-x+3/4,x+1/2","x+1,x+1/2,x+1","-x+5/4,x,-x+3/4","x+1/2,-x+1/4,-x+5/4","x+1/2,x+1/2,x","-x+3/4,-x+5/4,x+1/2","-x+5/4,x+1,-x+1/4","x+1,-x+3/4,-x+3/4","x+5/4,x+3/4,-x","-x+1,-x+1,-x+1/2","x+3/4,-x+1/2,x+3/4","-x+1/2,x+5/4,x+1/4","-x+1/2,-x+1/2,-x","x+5/4,x+3/4,-x+1/2","x+3/4,-x+1,x+3/4","-x+1,x+5/4,x+1/4","-x+3/4,-x+5/4,x","x+1,x+1,x+1/2","-x+5/4,x+1/2,-x+1/4","x+1/2,-x+3/4,-x+3/4"]},"96f":{"multiplicity":96,"coordinates":["x,1/8,1/8","-x+1/4,5/8,5/8","1/8,x,1/8","5/8,-x+1/4,5/8","1/8,1/8,x","5/8,5/8,-x+1/4","7/8,x+1/4,7/8","3/8,-x+1/2,3/8","x+3/4,3/8,7/8","-x,7/8,3/8","7/8,3/8,-x","3/8,7/8,x+3/4","-x,7/8,7/8","x+3/4,3/8,3/8","7/8,-x,7/8","3/8,x+3/4,3/8","7/8,7/8,-x","3/8,3/8,x+3/4","1/8,-x+3/4,1/8","5/8,x+1/2,5/8","-x+1/4,5/8,1/8","x,1/8,5/8","1/8,5/8,x","5/8,1/8,-x+1/4","x,5/8,5/8","-x+1/4,9/8,9/8","1/8,x+1/2,5/8","5/8,-x+3/4,9/8","1/8,5/8,x+1/2","5/8,9/8,-x+3/4","7/8,x+3/4,11/8","3/8,-x+1,7/8","x+3/4,7/8,11/8","-x,11/8,7/8","7/8,7/8,-x+1/2","3/8,11/8,x+5/4","-x,11/8,11/8","x+3/4,7/8,7/8","7/8,-x+1/2,11/8","3/8,x+5/4,7/8","7/8,11/8,-x+1/2","3/8,7/8,x+5/4","1/8,-x+5/4,5/8","5/8,x+1,9/8","-x+1/4,9/8,5/8","x,5/8,9/8","1/8,9/8,x+1/2","5/8,5/8,-x+3/4","x+1/2,1/8,5/8","-x+3/4,5/8,9/8","5/8,x,5/8","9/8,-x+1/4,9/8","5/8,1/8,x+1/2","9/8,5/8,-x+3/4","11/8,x+1/4,11/8","7/8,-x+1/2,7/8","x+5/4,3/8,11/8","-x+1/2,7/8,7/8","11/8,3/8,-x+1/2","7/8,7/8,x+5/4","-x+1/2,7/8,11/8","x+5/4,3/8,7/8","11/8,-x,11/8","7/8,x+3/4,7/8","11/8,7/8,-x+1/2","7/8,3/8,x+5/4","5/8,-x+3/4,5/8","9/8,x+1/2,9/8","-x+3/4,5/8,5/8","x+1/2,1/8,9/8","5/8,5/8,x+1/2","9/8,1/8,-x+3/4","x+1/2,5/8,1/8","-x+3/4,9/8,5/8","5/8,x+1/2,1/8","9/8,-x+3/4,5/8","5/8,5/8,x","9/8,9/8,-x+1/4","11/8,x+3/4,7/8","7/8,-x+1,3/8","x+5/4,7/8,7/8","-x+1/2,11/8,3/8","11/8,7/8,-x","7/8,11/8,x+3/4","-x+1/2,11/8,7/8","x+5/4,7/8,3/8","11/8,-x+1/2,7/8","7/8,x+5/4,3/8","11/8,11/8,-x","7/8,7/8,x+3/4","5/8,-x+5/4,1/8","9/8,x+1,5/8","-x+3/4,9/8,1/8","x+1/2,5/8,5/8","5/8,9/8,x","9/8,5/8,-x+1/4"]},"96g":{"multiplicity":96,"coordinates":["1/4,y,-y","0,-y+3/4,-y+1/2","1/2,y+1/2,y+1/4","3/4,-y+1/4,y+3/4","-y,1/4,y","-y+1/2,0,-y+3/4","y+1/4,1/2,y+1/2","y+3/4,3/4,-y+1/4","y,-y,1/4","-y+3/4,-y+1/2,0","y+1/2,y+1/4,1/2","-y+1/4,y+3/4,3/4","3/4,-y,y","0,y+1/4,y+1/2","1/2,-y+1/2,-y+3/4","1/4,y+3/4,-y+1/4","y,3/4,-y","y+1/2,0,y+1/4","-y+3/4,1/2,-y+1/2","-y+1/4,1/4,y+3/4","-y,y,3/4","y+1/4,y+1/2,0","-y+1/2,-y+3/4,1/2","y+3/4,-y+1/4,1/4","1/4,y+1/2,-y+1/2","0,-y+5/4,-y+1","1/2,y+1,y+3/4","3/4,-y+3/4,y+5/4","-y,3/4,y+1/2","-y+1/2,1/2,-y+5/4","y+1/4,1,y+1","y+3/4,5/4,-y+3/4","y,-y+1/2,3/4","-y+3/4,-y+1,1/2","y+1/2,y+3/4,1","-y+1/4,y+5/4,5/4","3/4,-y+1/2,y+1/2","0,y+3/4,y+1","1/2,-y+1,-y+5/4","1/4,y+5/4,-y+3/4","y,5/4,-y+1/2","y+1/2,1/2,y+3/4","-y+3/4,1,-y+1","-y+1/4,3/4,y+5/4","-y,y+1/2,5/4","y+1/4,y+1,1/2","-y+1/2,-y+5/4,1","y+3/4,-y+3/4,3/4","3/4,y,-y+1/2","1/2,-y+3/4,-y+1","1,y+1/2,y+3/4","5/4,-y+1/4,y+5/4","-y+1/2,1/4,y+1/2","-y+1,0,-y+5/4","y+3/4,1/2,y+1","y+5/4,3/4,-y+3/4","y+1/2,-y,3/4","-y+5/4,-y+1/2,1/2","y+1,y+1/4,1","-y+3/4,y+3/4,5/4","5/4,-y,y+1/2","1/2,y+1/4,y+1","1,-y+1/2,-y+5/4","3/4,y+3/4,-y+3/4","y+1/2,3/4,-y+1/2","y+1,0,y+3/4","-y+5/4,1/2,-y+1","-y+3/4,1/4,y+5/4","-y+1/2,y,5/4","y+3/4,y+1/2,1/2","-y+1,-y+3/4,1","y+5/4,-y+1/4,3/4","3/4,y+1/2,-y","1/2,-y+5/4,-y+1/2","1,y+1,y+1/4","5/4,-y+3/4,y+3/4","-y+1/2,3/4,y","-y+1,1/2,-y+3/4","y+3/4,1,y+1/2","y+5/4,5/4,-y+1/4","y+1/2,-y+1/2,1/4","-y+5/4,-y+1,0","y+1,y+3/4,1/2","-y+3/4,y+5/4,3/4","5/4,-y+1/2,y","1/2,y+3/4,y+1/2","1,-y+1,-y+3/4","3/4,y+5/4,-y+1/4","y+1/2,5/4,-y","y+1,1/2,y+1/4","-y+5/4,1,-y+1/2","-y+3/4,3/4,y+3/4","-y+1/2,y+1/2,3/4","y+3/4,y+1,0","-y+1,-y+5/4,1/2","y+5/4,-y+3/4,1/4"]},"192h":{"multiplicity":192,"coordinates":["x,y,z","-x+1/4,-y+3/4,z+1/2","-x+3/4,y+1/2,-z+1/4","x+1/2,-y+1/4,-z+3/4","z,x,y","z+1/2,-x+1/4,-y+3/4","-z+1/4,-x+3/4,y+1/2","-z+3/4,x+1/2,-y+1/4","y,z,x","-y+3/4,z+1/2,-x+1/4","y+1/2,-z+1/4,-x+3/4","-y+1/4,-z+3/4,x+1/2","y+3/4,x+1/4,-z","-y+1/2,-x+1/2,-z+1/2","y+1/4,-x,z+3/4","-y,x+3/4,z+1/4","x+3/4,z+1/4,-y","-x,z+3/4,y+1/4","-x+1/2,-z+1/2,-y+1/2","x+1/4,-z,y+3/4","z+3/4,y+1/4,-x","z+1/4,-y,x+3/4","-z,y+3/4,x+1/4","-z+1/2,-y+1/2,-x+1/2","-x,-y,-z","x+3/4,y+1/4,-z+1/2","x+1/4,-y+1/2,z+3/4","-x+1/2,y+3/4,z+1/4","-z,-x,-y","-z+1/2,x+3/4,y+1/4","z+3/4,x+1/4,-y+1/2","z+1/4,-x+1/2,y+3/4","-y,-z,-x","y+1/4,-z+1/2,x+3/4","-y+1/2,z+3/4,x+1/4","y+3/4,z+1/4,-x+1/2","-y+1/4,-x+3/4,z","y+1/2,x+1/2,z+1/2","-y+3/4,x,-z+1/4","y,-x+1/4,-z+3/4","-x+1/4,-z+3/4,y","x,-z+1/4,-y+3/4","x+1/2,z+1/2,y+1/2","-x+3/4,z,-y+1/4","-z+1/4,-y+3/4,x","-z+3/4,y,-x+1/4","z,-y+1/4,-x+3/4","z+1/2,y+1/2,x+1/2","x,y+1/2,z+1/2","-x+1/4,-y+5/4,z+1","-x+3/4,y+1,-z+3/4","x+1/2,-y+3/4,-z+5/4","z,x+1/2,y+1/2","z+1/2,-x+3/4,-y+5/4","-z+1/4,-x+5/4,y+1","-z+3/4,x+1,-y+3/4","y,z+1/2,x+1/2","-y+3/4,z+1,-x+3/4","y+1/2,-z+3/4,-x+5/4","-y+1/4,-z+5/4,x+1","y+3/4,x+3/4,-z+1/2","-y+1/2,-x+1,-z+1","y+1/4,-x+1/2,z+5/4","-y,x+5/4,z+3/4","x+3/4,z+3/4,-y+1/2","-x,z+5/4,y+3/4","-x+1/2,-z+1,-y+1","x+1/4,-z+1/2,y+5/4","z+3/4,y+3/4,-x+1/2","z+1/4,-y+1/2,x+5/4","-z,y+5/4,x+3/4","-z+1/2,-y+1,-x+1","-x,-y+1/2,-z+1/2","x+3/4,y+3/4,-z+1","x+1/4,-y+1,z+5/4","-x+1/2,y+5/4,z+3/4","-z,-x+1/2,-y+1/2","-z+1/2,x+5/4,y+3/4","z+3/4,x+3/4,-y+1","z+1/4,-x+1,y+5/4","-y,-z+1/2,-x+1/2","y+1/4,-z+1,x+5/4","-y+1/2,z+5/4,x+3/4","y+3/4,z+3/4,-x+1","-y+1/4,-x+5/4,z+1/2","y+1/2,x+1,z+1","-y+3/4,x+1/2,-z+3/4","y,-x+3/4,-z+5/4","-x+1/4,-z+5/4,y+1/2","x,-z+3/4,-y+5/4","x+1/2,z+1,y+1","-x+3/4,z+1/2,-y+3/4","-z+1/4,-y+5/4,x+1/2","-z+3/4,y+1/2,-x+3/4","z,-y+3/4,-x+5/4","z+1/2,y+1,x+1","x+1/2,y,z+1/2","-x+3/4,-y+3/4,z+1","-x+5/4,y+1/2,-z+3/4","x+1,-y+1/4,-z+5/4","z+1/2,x,y+1/2","z+1,-x+1/4,-y+5/4","-z+3/4,-x+3/4,y+1","-z+5/4,x+1/2,-y+3/4","y+1/2,z,x+1/2","-y+5/4,z+1/2,-x+3/4","y+1,-z+1/4,-x+5/4","-y+3/4,-z+3/4,x+1","y+5/4,x+1/4,-z+1/2","-y+1,-x+1/2,-z+1","y+3/4,-x,z+5/4","-y+1/2,x+3/4,z+3/4","x+5/4,z+1/4,-y+1/2","-x+1/2,z+3/4,y+3/4","-x+1,-z+1/2,-y+1","x+3/4,-z,y+5/4","z+5/4,y+1/4,-x+1/2","z+3/4,-y,x+5/4","-z+1/2,y+3/4,x+3/4","-z+1,-y+1/2,-x+1","-x+1/2,-y,-z+1/2","x+5/4,y+1/4,-z+1","x+3/4,-y+1/2,z+5/4","-x+1,y+3/4,z+3/4","-z+1/2,-x,-y+1/2","-z+1,x+3/4,y+3/4","z+5/4,x+1/4,-y+1","z+3/4,-x+1/2,y+5/4","-y+1/2,-z,-x+1/2","y+3/4,-z+1/2,x+5/4","-y+1,z+3/4,x+3/4","y+5/4,z+1/4,-x+1","-y+3/4,-x+3/4,z+1/2","y+1,x+1/2,z+1","-y+5/4,x,-z+3/4","y+1/2,-x+1/4,-z+5/4","-x+3/4,-z+3/4,y+1/2","x+1/2,-z+1/4,-y+5/4","x+1,z+1/2,y+1","-x+5/4,z,-y+3/4","-z+3/4,-y+3/4,x+1/2","-z+5/4,y,-x+3/4","z+1/2,-y+1/4,-x+5/4","z+1,y+1/2,x+1","x+1/2,y+1/2,z","-x+3/4,-y+5/4,z+1/2","-x+5/4,y+1,-z+1/4","x+1,-y+3/4,-z+3/4","z+1/2,x+1/2,y","z+1,-x+3/4,-y+3/4","-z+3/4,-x+5/4,y+1/2","-z+5/4,x+1,-y+1/4","y+1/2,z+1/2,x","-y+5/4,z+1,-x+1/4","y+1,-z+3/4,-x+3/4","-y+3/4,-z+5/4,x+1/2","y+5/4,x+3/4,-z","-y+1,-x+1,-z+1/2","y+3/4,-x+1/2,z+3/4","-y+1/2,x+5/4,z+1/4","x+5/4,z+3/4,-y","-x+1/2,z+5/4,y+1/4","-x+1,-z+1,-y+1/2","x+3/4,-z+1/2,y+3/4","z+5/4,y+3/4,-x","z+3/4,-y+1/2,x+3/4","-z+1/2,y+5/4,x+1/4","-z+1,-y+1,-x+1/2","-x+1/2,-y+1/2,-z","x+5/4,y+3/4,-z+1/2","x+3/4,-y+1,z+3/4","-x+1,y+5/4,z+1/4","-z+1/2,-x+1/2,-y","-z+1,x+5/4,y+1/4","z+5/4,x+3/4,-y+1/2","z+3/4,-x+1,y+3/4","-y+1/2,-z+1/2,-x","y+3/4,-z+1,x+3/4","-y+1,z+5/4,x+1/4","y+5/4,z+3/4,-x+1/2","-y+3/4,-x+5/4,z","y+1,x+1,z+1/2","-y+5/4,x+1/2,-z+1/4","y+1/2,-x+3/4,-z+3/4","-x+3/4,-z+5/4,y","x+1/2,-z+3/4,-y+3/4","x+1,z+1,y+1/2","-x+5/4,z+1/2,-y+1/4","-z+3/4,-y+5/4,x","-z+5/4,y+1/2,-x+1/4","z+1/2,-y+3/4,-x+3/4","z+1,y+1,x+1/2"]}}},"229":{"name":"Im-3m","wyckoff_positions":{"2a":{"multiplicity":2,"coordinates":["0,0,0","1/2,1/2,1/2"]},"6b":{"multiplicity":6,"coordinates":["0,1/2,1/2","1/2,0,1/2","1/2,1/2,0","1/2,1,1","1,1/2,1","1,1,1/2"]},"8c":{"multiplicity":8,"coordinates":["1/4,1/4,1/4","3/4,3/4,1/4","3/4,1/4,3/4","1/4,3/4,3/4","3/4,3/4,3/4","5/4,5/4,3/4","5/4,3/4,5/4","3/4,5/4,5/4"]},"12d":{"multiplicity":12,"coordinates":["1/4,0,1/2","3/4,0,1/2","1/2,1/4,0","1/2,3/4,0","0,1/2,1/4","0,1/2,3/4","3/4,1/2,1","5/4,1/2,1","1,3/4,1/2","1,5/4,1/2","1/2,1,3/4","1/2,1,5/4"]},"12e":{"multiplicity":12,"coordinates":["x,0,0","-x,0,0","0,x,0","0,-x,0","0,0,x","0,0,-x","x+1/2,1/2,1/2","-x+1/2,1/2,1/2","1/2,x+1/2,1/2","1/2,-x+1/2,1/2","1/2,1/2,x+1/2","1/2,1/2,-x+1/2"]},"16f":{"multiplicity":16,"coordinates":["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x","x,x,-x","-x,-x,-x","x,-x,x","-x,x,x","x+1/2,x+1/2,x+1/2","-x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,-x+1/2","x+1/2,-x+1/2,-x+1/2","x+1/2,x+1/2,-x+1/2","-x+1/2,-x+1/2,-x+1/2","x+1/2,-x+1/2,x+1/2","-x+1/2,x+1/2,x+1/2"]},"24g":{"multiplicity":24,"coordinates":["x,0,1/2","-x,0,1/2","1/2,x,0","1/2,-x,0","0,1/2,x","0,1/2,-x","0,x,1/2","0,-x,1/2","x,1/2,0","-x,1/2,0","1/2,0,-x","1/2,0,x","x+1/2,1/2,1","-x+1/2,1/2,1","1,x+1/2,1/2","1,-x+1/2,1/2","1/2,1,x+1/2","1/2,1,-x+1/2","1/2,x+1/2,1","1/2,-x+1/2,1","x+1/2,1,1/2","-x+1/2,1,1/2","1,1/2,-x+1/2","1,1/2,x+1/2"]},"24h":{"multiplicity":24,"coordinates":["0,y,y","0,-y,y","0,y,-y","0,-y,-y","y,0,y","y,0,-y","-y,0,y","-y,0,-y","y,y,0","-y,y,0","y,-y,0","-y,-y,0","1/2,y+1/2,y+1/2","1/2,-y+1/2,y+1/2","1/2,y+1/2,-y+1/2","1/2,-y+1/2,-y+1/2","y+1/2,1/2,y+1/2","y+1/2,1/2,-y+1/2","-y+1/2,1/2,y+1/2","-y+1/2,1/2,-y+1/2","y+1/2,y+1/2,1/2","-y+1/2,y+1/2,1/2","y+1/2,-y+1/2,1/2","-y+1/2,-y+1/2,1/2"]},"48i":{"multiplicity":48,"coordinates":["1/4,y,-y+1/2","3/4,-y,-y+1/2","3/4,y,y+1/2","1/4,-y,y+1/2","-y+1/2,1/4,y","-y+1/2,3/4,-y","y+1/2,3/4,y","y+1/2,1/4,-y","y,-y+1/2,1/4","-y,-y+1/2,3/4","y,y+1/2,3/4","-y,y+1/2,1/4","3/4,-y,y+1/2","1/4,y,y+1/2","1/4,-y,-y+1/2","3/4,y,-y+1/2","y+1/2,3/4,-y","y+1/2,1/4,y","-y+1/2,1/4,-y","-y+1/2,3/4,y","-y,y+1/2,3/4","y,y+1/2,1/4","-y,-y+1/2,1/4","y,-y+1/2,3/4","3/4,y+1/2,-y+1","5/4,-y+1/2,-y+1","5/4,y+1/2,y+1","3/4,-y+1/2,y+1","-y+1,3/4,y+1/2","-y+1,5/4,-y+1/2","y+1,5/4,y+1/2","y+1,3/4,-y+1/2","y+1/2,-y+1,3/4","-y+1/2,-y+1,5/4","y+1/2,y+1,5/4","-y+1/2,y+1,3/4","5/4,-y+1/2,y+1","3/4,y+1/2,y+1","3/4,-y+1/2,-y+1","5/4,y+1/2,-y+1","y+1,5/4,-y+1/2","y+1,3/4,y+1/2","-y+1,3/4,-y+1/2","-y+1,5/4,y+1/2","-y+1/2,y+1,5/4","y+1/2,y+1,3/4","-y+1/2,-y+1,3/4","y+1/2,-y+1,5/4"]},"48j":{"multiplicity":48,"coordinates":["0,y,z","0,-y,z","0,y,-z","0,-y,-z","z,0,y","z,0,-y","-z,0,y","-z,0,-y","y,z,0","-y,z,0","y,-z,0","-y,-z,0","y,0,-z","-y,0,-z","y,0,z","-y,0,z","0,z,-y","0,z,y","0,-z,-y","0,-z,y","z,y,0","z,-y,0","-z,y,0","-z,-y,0","1/2,y+1/2,z+1/2","1/2,-y+1/2,z+1/2","1/2,y+1/2,-z+1/2","1/2,-y+1/2,-z+1/2","z+1/2,1/2,y+1/2","z+1/2,1/2,-y+1/2","-z+1/2,1/2,y+1/2","-z+1/2,1/2,-y+1/2","y+1/2,z+1/2,1/2","-y+1/2,z+1/2,1/2","y+1/2,-z+1/2,1/2","-y+1/2,-z+1/2,1/2","y+1/2,1/2,-z+1/2","-y+1/2,1/2,-z+1/2","y+1/2,1/2,z+1/2","-y+1/2,1/2,z+1/2","1/2,z+1/2,-y+1/2","1/2,z+1/2,y+1/2","1/2,-z+1/2,-y+1/2","1/2,-z+1/2,y+1/2","z+1/2,y+1/2,1/2","z+1/2,-y+1/2,1/2","-z+1/2,y+1/2,1/2","-z+1/2,-y+1/2,1/2"]},"48k":{"multiplicity":48,"coordinates":["x,x,z","-x,-x,z","-x,x,-z","x,-x,-z","z,x,x","z,-x,-x","-z,-x,x","-z,x,-x","x,z,x","-x,z,-x","x,-z,-x","-x,-z,x","x,x,-z","-x,-x,-z","x,-x,z","-x,x,z","x,z,-x","-x,z,x","-x,-z,-x","x,-z,x","z,x,-x","z,-x,x","-z,x,x","-z,-x,-x","x+1/2,x+1/2,z+1/2","-x+1/2,-x+1/2,z+1/2","-x+1/2,x+1/2,-z+1/2","x+1/2,-x+1/2,-z+1/2","z+1/2,x+1/2,x+1/2","z+1/2,-x+1/2,-x+1/2","-z+1/2,-x+1/2,x+1/2","-z+1/2,x+1/2,-x+1/2","x+1/2,z+1/2,x+1/2","-x+1/2,z+1/2,-x+1/2","x+1/2,-z+1/2,-x+1/2","-x+1/2,-z+1/2,x+1/2","x+1/2,x+1/2,-z+1/2","-x+1/2,-x+1/2,-z+1/2","x+1/2,-x+1/2,z+1/2","-x+1/2,x+1/2,z+1/2","x+1/2,z+1/2,-x+1/2","-x+1/2,z+1/2,x+1/2","-x+1/2,-z+1/2,-x+1/2","x+1/2,-z+1/2,x+1/2","z+1/2,x+1/2,-x+1/2","z+1/2,-x+1/2,x+1/2","-z+1/2,x+1/2,x+1/2","-z+1/2,-x+1/2,-x+1/2"]},"96l":{"multiplicity":96,"coordinates":["x,y,z","-x,-y,z","-x,y,-z","x,-y,-z","z,x,y","z,-x,-y","-z,-x,y","-z,x,-y","y,z,x","-y,z,-x","y,-z,-x","-y,-z,x","y,x,-z","-y,-x,-z","y,-x,z","-y,x,z","x,z,-y","-x,z,y","-x,-z,-y","x,-z,y","z,y,-x","z,-y,x","-z,y,x","-z,-y,-x","-x,-y,-z","x,y,-z","x,-y,z","-x,y,z","-z,-x,-y","-z,x,y","z,x,-y","z,-x,y","-y,-z,-x","y,-z,x","-y,z,x","y,z,-x","-y,-x,z","y,x,z","-y,x,-z","y,-x,-z","-x,-z,y","x,-z,-y","x,z,y","-x,z,-y","-z,-y,x","-z,y,-x","z,-y,-x","z,y,x","x+1/2,y+1/2,z+1/2","-x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,-z+1/2","z+1/2,x+1/2,y+1/2","z+1/2,-x+1/2,-y+1/2","-z+1/2,-x+1/2,y+1/2","-z+1/2,x+1/2,-y+1/2","y+1/2,z+1/2,x+1/2","-y+1/2,z+1/2,-x+1/2","y+1/2,-z+1/2,-x+1/2","-y+1/2,-z+1/2,x+1/2","y+1/2,x+1/2,-z+1/2","-y+1/2,-x+1/2,-z+1/2","y+1/2,-x+1/2,z+1/2","-y+1/2,x+1/2,z+1/2","x+1/2,z+1/2,-y+1/2","-x+1/2,z+1/2,y+1/2","-x+1/2,-z+1/2,-y+1/2","x+1/2,-z+1/2,y+1/2","z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,x+1/2","-z+1/2,-y+1/2,-x+1/2","-x+1/2,-y+1/2,-z+1/2","x+1/2,y+1/2,-z+1/2","x+1/2,-y+1/2,z+1/2","-x+1/2,y+1/2,z+1/2","-z+1/2,-x+1/2,-y+1/2","-z+1/2,x+1/2,y+1/2","z+1/2,x+1/2,-y+1/2","z+1/2,-x+1/2,y+1/2","-y+1/2,-z+1/2,-x+1/2","y+1/2,-z+1/2,x+1/2","-y+1/2,z+1/2,x+1/2","y+1/2,z+1/2,-x+1/2","-y+1/2,-x+1/2,z+1/2","y+1/2,x+1/2,z+1/2","-y+1/2,x+1/2,-z+1/2","y+1/2,-x+1/2,-z+1/2","-x+1/2,-z+1/2,y+1/2","x+1/2,-z+1/2,-y+1/2","x+1/2,z+1/2,y+1/2","-x+1/2,z+1/2,-y+1/2","-z+1/2,-y+1/2,x+1/2","-z+1/2,y+1/2,-x+1/2","z+1/2,-y+1/2,-x+1/2","z+1/2,y+1/2,x+1/2"]}}},"230":{"name":"Ia-3d","wyckoff_positions":{"16a":{"multiplicity":16,"coordinates":["0,0,0","1/2,0,1/2","0,1/2,1/2","1/2,1/2,0","3/4,1/4,1/4","3/4,3/4,3/4","1/4,1/4,3/4","1/4,3/4,1/4","1/2,1/2,1/2","1,1/2,1","1/2,1,1","1,1,1/2","5/4,3/4,3/4","5/4,5/4,5/4","3/4,3/4,5/4","3/4,5/4,3/4"]},"16b":{"multiplicity":16,"coordinates":["1/8,1/8,1/8","3/8,7/8,5/8","7/8,5/8,3/8","5/8,3/8,7/8","7/8,7/8,7/8","5/8,1/8,3/8","1/8,3/8,5/8","3/8,5/8,1/8","5/8,5/8,5/8","7/8,11/8,9/8","11/8,9/8,7/8","9/8,7/8,11/8","11/8,11/8,11/8","9/8,5/8,7/8","5/8,7/8,9/8","7/8,9/8,5/8"]},"24c":{"multiplicity":24,"coordinates":["1/8,0,1/4","3/8,0,3/4","1/4,1/8,0","3/4,3/8,0","0,1/4,1/8","0,3/4,3/8","7/8,0,3/4","5/8,0,1/4","3/4,7/8,0","1/4,5/8,0","0,3/4,7/8","0,1/4,5/8","5/8,1/2,3/4","7/8,1/2,5/4","3/4,5/8,1/2","5/4,7/8,1/2","1/2,3/4,5/8","1/2,5/4,7/8","11/8,1/2,5/4","9/8,1/2,3/4","5/4,11/8,1/2","3/4,9/8,1/2","1/2,5/4,11/8","1/2,3/4,9/8"]},"24d":{"multiplicity":24,"coordinates":["3/8,0,1/4","1/8,0,3/4","1/4,3/8,0","3/4,1/8,0","0,1/4,3/8","0,3/4,1/8","3/4,5/8,0","3/4,3/8,1/2","1/8,1/2,1/4","7/8,0,1/4","0,1/4,7/8","1/2,1/4,1/8","7/8,1/2,3/4","5/8,1/2,5/4","3/4,7/8,1/2","5/4,5/8,1/2","1/2,3/4,7/8","1/2,5/4,5/8","5/4,9/8,1/2","5/4,7/8,1","5/8,1,3/4","11/8,1/2,3/4","1/2,3/4,11/8","1,3/4,5/8"]},"32e":{"multiplicity":32,"coordinates":["x,x,x","-x+1/2,-x,x+1/2","-x,x+1/2,-x+1/2","x+1/2,-x+1/2,-x","x+3/4,x+1/4,-x+1/4","-x+3/4,-x+3/4,-x+3/4","x+1/4,-x+1/4,x+3/4","-x+1/4,x+3/4,x+1/4","-x,-x,-x","x+1/2,x,-x+1/2","x,-x+1/2,x+1/2","-x+1/2,x+1/2,x","-x+1/4,-x+3/4,x+3/4","x+1/4,x+1/4,x+1/4","-x+3/4,x+3/4,-x+1/4","x+3/4,-x+1/4,-x+3/4","x+1/2,x+1/2,x+1/2","-x+1,-x+1/2,x+1","-x+1/2,x+1,-x+1","x+1,-x+1,-x+1/2","x+5/4,x+3/4,-x+3/4","-x+5/4,-x+5/4,-x+5/4","x+3/4,-x+3/4,x+5/4","-x+3/4,x+5/4,x+3/4","-x+1/2,-x+1/2,-x+1/2","x+1,x+1/2,-x+1","x+1/2,-x+1,x+1","-x+1,x+1,x+1/2","-x+3/4,-x+5/4,x+5/4","x+3/4,x+3/4,x+3/4","-x+5/4,x+5/4,-x+3/4","x+5/4,-x+3/4,-x+5/4"]},"48f":{"multiplicity":48,"coordinates":["x,0,1/4","-x+1/2,0,3/4","1/4,x,0","3/4,-x+1/2,0","0,1/4,x","0,3/4,-x+1/2","3/4,x+1/4,0","3/4,-x+3/4,1/2","x+3/4,1/2,1/4","-x+1/4,0,1/4","0,1/4,-x+1/4","1/2,1/4,x+3/4","-x,0,3/4","x+1/2,0,1/4","3/4,-x,0","1/4,x+1/2,0","0,3/4,-x","0,1/4,x+1/2","1/4,-x+3/4,0","1/4,x+1/4,1/2","-x+1/4,1/2,3/4","x+3/4,0,3/4","0,3/4,x+3/4","1/2,3/4,-x+1/4","x+1/2,1/2,3/4","-x+1,1/2,5/4","3/4,x+1/2,1/2","5/4,-x+1,1/2","1/2,3/4,x+1/2","1/2,5/4,-x+1","5/4,x+3/4,1/2","5/4,-x+5/4,1","x+5/4,1,3/4","-x+3/4,1/2,3/4","1/2,3/4,-x+3/4","1,3/4,x+5/4","-x+1/2,1/2,5/4","x+1,1/2,3/4","5/4,-x+1/2,1/2","3/4,x+1,1/2","1/2,5/4,-x+1/2","1/2,3/4,x+1","3/4,-x+5/4,1/2","3/4,x+3/4,1","-x+3/4,1,5/4","x+5/4,1/2,5/4","1/2,5/4,x+5/4","1,5/4,-x+3/4"]},"48g":{"multiplicity":48,"coordinates":["1/8,y,-y+1/4","3/8,-y,-y+3/4","7/8,y+1/2,y+1/4","5/8,-y+1/2,y+3/4","-y+1/4,1/8,y","-y+3/4,3/8,-y","y+1/4,7/8,y+1/2","y+3/4,5/8,-y+1/2","y,-y+1/4,1/8","-y,-y+3/4,3/8","y+1/2,y+1/4,7/8","-y+1/2,y+3/4,5/8","7/8,-y,y+3/4","5/8,y,y+1/4","1/8,-y+1/2,-y+3/4","3/8,y+1/2,-y+1/4","y+3/4,7/8,-y","y+1/4,5/8,y","-y+3/4,1/8,-y+1/2","-y+1/4,3/8,y+1/2","-y,y+3/4,7/8","y,y+1/4,5/8","-y+1/2,-y+3/4,1/8","y+1/2,-y+1/4,3/8","5/8,y+1/2,-y+3/4","7/8,-y+1/2,-y+5/4","11/8,y+1,y+3/4","9/8,-y+1,y+5/4","-y+3/4,5/8,y+1/2","-y+5/4,7/8,-y+1/2","y+3/4,11/8,y+1","y+5/4,9/8,-y+1","y+1/2,-y+3/4,5/8","-y+1/2,-y+5/4,7/8","y+1,y+3/4,11/8","-y+1,y+5/4,9/8","11/8,-y+1/2,y+5/4","9/8,y+1/2,y+3/4","5/8,-y+1,-y+5/4","7/8,y+1,-y+3/4","y+5/4,11/8,-y+1/2","y+3/4,9/8,y+1/2","-y+5/4,5/8,-y+1","-y+3/4,7/8,y+1","-y+1/2,y+5/4,11/8","y+1/2,y+3/4,9/8","-y+1,-y+5/4,5/8","y+1,-y+3/4,7/8"]},"96h":{"multiplicity":96,"coordinates":["x,y,z","-x+1/2,-y,z+1/2","-x,y+1/2,-z+1/2","x+1/2,-y+1/2,-z","z,x,y","z+1/2,-x+1/2,-y","-z+1/2,-x,y+1/2","-z,x+1/2,-y+1/2","y,z,x","-y,z+1/2,-x+1/2","y+1/2,-z+1/2,-x","-y+1/2,-z,x+1/2","y+3/4,x+1/4,-z+1/4","-y+3/4,-x+3/4,-z+3/4","y+1/4,-x+1/4,z+3/4","-y+1/4,x+3/4,z+1/4","x+3/4,z+1/4,-y+1/4","-x+1/4,z+3/4,y+1/4","-x+3/4,-z+3/4,-y+3/4","x+1/4,-z+1/4,y+3/4","z+3/4,y+1/4,-x+1/4","z+1/4,-y+1/4,x+3/4","-z+1/4,y+3/4,x+1/4","-z+3/4,-y+3/4,-x+3/4","-x,-y,-z","x+1/2,y,-z+1/2","x,-y+1/2,z+1/2","-x+1/2,y+1/2,z","-z,-x,-y","-z+1/2,x+1/2,y","z+1/2,x,-y+1/2","z,-x+1/2,y+1/2","-y,-z,-x","y,-z+1/2,x+1/2","-y+1/2,z+1/2,x","y+1/2,z,-x+1/2","-y+1/4,-x+3/4,z+3/4","y+1/4,x+1/4,z+1/4","-y+3/4,x+3/4,-z+1/4","y+3/4,-x+1/4,-z+3/4","-x+1/4,-z+3/4,y+3/4","x+3/4,-z+1/4,-y+3/4","x+1/4,z+1/4,y+1/4","-x+3/4,z+3/4,-y+1/4","-z+1/4,-y+3/4,x+3/4","-z+3/4,y+3/4,-x+1/4","z+3/4,-y+1/4,-x+3/4","z+1/4,y+1/4,x+1/4","x+1/2,y+1/2,z+1/2","-x+1,-y+1/2,z+1","-x+1/2,y+1,-z+1","x+1,-y+1,-z+1/2","z+1/2,x+1/2,y+1/2","z+1,-x+1,-y+1/2","-z+1,-x+1/2,y+1","-z+1/2,x+1,-y+1","y+1/2,z+1/2,x+1/2","-y+1/2,z+1,-x+1","y+1,-z+1,-x+1/2","-y+1,-z+1/2,x+1","y+5/4,x+3/4,-z+3/4","-y+5/4,-x+5/4,-z+5/4","y+3/4,-x+3/4,z+5/4","-y+3/4,x+5/4,z+3/4","x+5/4,z+3/4,-y+3/4","-x+3/4,z+5/4,y+3/4","-x+5/4,-z+5/4,-y+5/4","x+3/4,-z+3/4,y+5/4","z+5/4,y+3/4,-x+3/4","z+3/4,-y+3/4,x+5/4","-z+3/4,y+5/4,x+3/4","-z+5/4,-y+5/4,-x+5/4","-x+1/2,-y+1/2,-z+1/2","x+1,y+1/2,-z+1","x+1/2,-y+1,z+1","-x+1,y+1,z+1/2","-z+1/2,-x+1/2,-y+1/2","-z+1,x+1,y+1/2","z+1,x+1/2,-y+1","z+1/2,-x+1,y+1","-y+1/2,-z+1/2,-x+1/2","y+1/2,-z+1,x+1","-y+1,z+1,x+1/2","y+1,z+1/2,-x+1","-y+3/4,-x+5/4,z+5/4","y+3/4,x+3/4,z+3/4","-y+5/4,x+5/4,-z+3/4","y+5/4,-x+3/4,-z+5/4","-x+3/4,-z+5/4,y+5/4","x+5/4,-z+3/4,-y+5/4","x+3/4,z+3/4,y+3/4","-x+5/4,z+5/4,-y+3/4","-z+3/4,-y+5/4,x+5/4","-z+5/4,y+5/4,-x+3/4","z+5/4,-y+3/4,-x+5/4","z+3/4,y+3/4,x+3/4"]}}}};
+    const SCATTERING_URL = '/scatters/xray_wk1995.json';
+    const TWO_THETA_MIN = 5;
+    const TWO_THETA_MAX = 160;
+    let scatteringTable = {};
 
-    <script>
-        // --- START OF DATA DEFINITIONS ---
-        const cubicSpaceGroups = {
-            "195":{name:"P 2 3",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"1b":{multiplicity:1,coordinates:["0.5,0.5,0.5"]},"4e":{multiplicity:4,coordinates:["x,x,x", "x,-x,-x", "-x,x,-x", "-x,-x,x"]}}},
-            "196":{name:"F 2 3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4b":{multiplicity:4,coordinates:["0.5,0.5,0.5","0.5,0,0","0,0.5,0","0,0,0.5"]}}},
-            "197":{name:"I 2 3",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"8c":{multiplicity:8,coordinates:["x,x,x","-x,-x,x","-x,x,-x","x,-x,-x"].map(c=>[c,`0.5+${c.split(',')[0]},0.5-${c.split(',')[1]},0.5-${c.split(',')[2]}`]).flat()}}},
-            "198":{name:"P 21 3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["x,x,x", "0.5-x,0.5+x,-x", "-x,0.5-x,0.5+x", "0.5+x,-x,0.5-x"]}}},
-            "199":{name:"I 21 3",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["x,x,x","0.5-x,0.5+x,-x","-x,0.5-x,0.5+x","0.5+x,-x,0.5-x","0.5+x,0.5+x,0.5+x","x,x,-0.5+x","0.5+x,x,x","x,0.5+x,x"]}}},
-            "200":{name:"P m -3",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"1b":{multiplicity:1,coordinates:["0.5,0.5,0.5"]}}},
-            "201":{name:"P n -3",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]},"4b":{multiplicity:4,coordinates:["0,0,0","0.5,0.5,0","0.5,0,0.5","0,0.5,0.5"]}}},
-            "202":{name:"F m -3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4b":{multiplicity:4,coordinates:["0.5,0.5,0.5","0.5,0,0","0,0.5,0","0,0,0.5"]}}},
-            "203":{name:"F d -3",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125","0.125,0.625,0.625","0.625,0.125,0.625","0.625,0.625,0.125","0.875,0.875,0.875","0.875,0.375,0.375","0.375,0.875,0.375","0.375,0.375,0.875"]}}},
-            "204":{name:"I m -3",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"12e":{multiplicity:12,coordinates:["x,0,0.5","0.5+x,0.5,0","0,0.5,0.5-x","0.5,x,0","0.5-x,0,0.5","0,0.5+x,0.5"]}}},
-            "205":{name:"P a -3",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"8c":{multiplicity:8,coordinates:["x,x,x","0.5-x,x,0.5+x","x,0.5+x,0.5-x","0.5+x,0.5-x,x","-x,-x,-x","0.5+x,-x,0.5-x","-x,0.5-x,0.5+x","0.5-x,0.5+x,-x"]}}},
-            "206":{name:"I a -3",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0,0,0","0.5,0.5,0","0.5,0,0.5","0,0.5,0.5","0.5,0.5,0.5","0,0,0.5","0,0.5,0","0.5,0,0"]},"16b":{multiplicity:16,coordinates:["x,x,x"]}}},
-            "207":{name:"P 4 3 2",wyckoff_positions:{"3c":{multiplicity:3,coordinates:["0.5,0,0.5","0,0.5,0.5","0.5,0.5,0"]}}},
-            "208":{name:"P 42 3 2",wyckoff_positions:{"4c":{multiplicity:4,coordinates:["x,x,0","0.5-x,0.5+x,0.5","-x,0.5-x,0","0.5+x,-x,0.5"]}}},
-            "209":{name:"F 4 3 2",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"8c":{multiplicity:8,coordinates:["0.25,0.25,0.25","0.25,0.75,0.75","0.75,0.25,0.75","0.75,0.75,0.25"]}}},
-            "210":{name:"F 41 3 2",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125","0.375,0.375,0.125","0.375,0.125,0.375","0.125,0.375,0.375"]}}},
-            "211":{name:"I 4 3 2",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]}}},
-            "212":{name:"P 43 21 2",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["x,x,x"]}}},
-            "213":{name:"P 41 21 2",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["x,x,x"]}}},
-            "214":{name:"I 41 3 2",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125"]}}},
-            "215":{name:"P -4 3 m",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"4e":{multiplicity:4,coordinates:["x,x,x"]}}},
-            "216":{name:"F -4 3 m",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4c":{multiplicity:4,coordinates:["0.25,0.25,0.25","0.25,0.75,0.75","0.75,0.25,0.75","0.75,0.75,0.25"]}}},
-            "217":{name:"I -4 3 m",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"12d":{multiplicity:12,coordinates:["x,0,0.5"]}}},
-            "218":{name:"P -4 3 n",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]}}},
-            "219":{name:"F -4 3 c",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]}}},
-            "220":{name:"I -4 3 d",wyckoff_positions:{"12a":{multiplicity:12,coordinates:["0.375,0,0.25"]},"16b":{multiplicity:16,coordinates:["x,x,x"]}}},
-            "221":{name:"P m -3 m",wyckoff_positions:{"1a":{multiplicity:1,coordinates:["0,0,0"]},"1b":{multiplicity:1,coordinates:["0.5,0.5,0.5"]}}},
-            "222":{name:"P n -3 n",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]},"4b":{multiplicity:4,coordinates:["0,0,0","0.5,0.5,0","0,0.5,0.5","0.5,0,0.5"]}}},
-            "223":{name:"P m -3 n",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"6d":{multiplicity:6,coordinates:["0.25,0.5,0","0.75,0.5,0","0,0.25,0.5","0,0.75,0.5","0.5,0,0.25","0.5,0,0.75"]}}},
-            "224":{name:"P n -3 m",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0.25,0.25,0.25","0.75,0.75,0.75"]},"4b":{multiplicity:4,coordinates:["0,0,0","0.5,0.5,0","0,0.5,0.5","0.5,0,0.5"]}}},
-            "225":{name:"F m -3 m",wyckoff_positions:{"4a":{multiplicity:4,coordinates:["0,0,0","0,0.5,0.5","0.5,0,0.5","0.5,0.5,0"]},"4b":{multiplicity:4,coordinates:["0.5,0.5,0.5","0.5,0,0","0,0.5,0","0,0,0.5"]},"8c":{multiplicity:8,coordinates:["0.25,0.25,0.25","0.25,0.75,0.75","0.75,0.25,0.75","0.75,0.75,0.25","0.75,0.75,0.75","0.75,0.25,0.25","0.25,0.75,0.25","0.25,0.25,0.75"]}}},
-            "226":{name:"F m -3 c",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.25,0.25,0.25","0.75,0.75,0.25","0.75,0.25,0.75","0.25,0.75,0.75"]},"8b":{multiplicity:8,coordinates:["0.25,0.25,0.75","0.75,0.75,0.75","0.75,0.25,0.25","0.25,0.75,0.25"]}}},
-            "227":{name:"F d -3 m",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0,0,0","0.25,0.25,0.25","0,0.5,0.5","0.25,0.75,0.75","0.5,0,0.5","0.75,0.25,0.75","0.5,0.5,0","0.75,0.75,0.25"]},"16c":{multiplicity:16,coordinates:["0.125,0.125,0.125","0.375,0.375,0.125","0.125,0.625,0.625","0.375,0.875,0.625","0.625,0.125,0.625","0.875,0.375,0.625","0.625,0.625,0.125","0.875,0.875,0.125"]}}},
-            "228":{name:"F d -3 c",wyckoff_positions:{"8a":{multiplicity:8,coordinates:["0.125,0.125,0.125"]},"16b":{multiplicity:16,coordinates:["0,0,0"]}}},
-            "229":{name:"I m -3 m",wyckoff_positions:{"2a":{multiplicity:2,coordinates:["0,0,0","0.5,0.5,0.5"]},"16f":{multiplicity:16,coordinates:["x,x,x","0.5+x,0.5+x,0.5-x"]}}},
-            "230":{name:"I a -3 d",wyckoff_positions:{"16a":{multiplicity:16,coordinates:["0,0,0","0.5,0.5,0","0.5,0,0.5","0,0.5,0.5"]},"24d":{multiplicity:24,coordinates:["0.375,0,0.25","0.625,0.5,0.5","0.875,0.5,0.75"]}}}
-        };
-        const atomicScatteringFactors = {
-            'Al': { a: [5.1186, 3.2326, 1.2538, 2.0125], b: [2.6322, 0.0573, 8.0838, 76.5495], c: 1.3813 },
-            'As': {a: [13.5623, 8.7042, 5.9256, 2.1265], b: [0.2483, 26.3113, 5.105, 70.3813], c: 2.6738},
-            'Br': { a: [14.1558, 7.594, 5.6192, 3.4975], b: [0.2524, 21.7374, 5.1764, 58.7478], c: 4.1275 },
-            'C':  { a: [2.31, 1.02, 1.5886, 0.865], b: [20.8439, 10.2075, 0.5687, 51.6512], c: 0.2156 },
-            'Cl': { a: [1.1343, 6.3688, 7.1856, 1.492,], b: [0.006, 1.6335, 33.684, 0.4418,], c: 0.8184 },
-            'F':  { a: [3.5392, 2.6412, 1.2525, 0.4966], b: [1.5773, 15.5422, 0.435, 38.4536], c: 1.0697 },
-            'Fe': { a: [11.233, 7.001, 4.4533, 2.4435], b: [2.5361, 0.1037, 8.8427, 43.832], c: 0.8687 },
-            'Ga': {a: [12.915, 7.8988, 5.4094, 2.003], b: [0.256, 23.906, 5.1627, 65.5295], c: 2.7667},
-            'H':  { a: [0.493, 0.3229, 0.1402, 0.0401], b: [10.5108, 26.1154, 3.1424, 57.7997], c: 0.0037 },
-            'K':  { a: [7.9899, 5.0041, 1.6346, 1.3411], b: [2.2104, 0.1119, 7.8284, 46.5424], c: 3.025 },
-            'Na': { a: [4.7626, 3.149, 1.4536, 0.9984], b: [3.285, 8.8433, 0.3136, 129.424], c: 0.625 },
-            'O':  { a: [3.0485, 2.2868, 1.5463, 0.867], b: [13.2771, 5.7011, 0.3239, 32.9089], c: 0.2508 },
-            'S':  { a: [6.9053, 4.7733, 1.5536, 1.6806], b: [1.4678, 29.2393, 0.2536, 62.5693], c: 1.0858},
-            'Si': { a: [6.2915, 3.0353, 2.1356, 1.176,], b: [2.4386, 30.3449, 0.6826, 81.6937], c: 1.3591 },
-            'Y':  { a: [16.5332, 8.358, 5.0941, 2.6235], b: [0.3582, 9.1336, 29.1736, 75.8755], c: 6.386 },
-            'Zn': {a: [12.2126, 7.1245, 5.6303, 2.1696], b: [0.2646, 21.454, 5.2289, 61.2754], c: 2.8558}
-        };
-        // --- END OF DATA DEFINITIONS ---
+    document.addEventListener('DOMContentLoaded', async () => {
+      const $ = id => document.getElementById(id);
+      const controls = {
+        spaceGroup:$('space-group'), lattice:$('lattice-parameter'), latticeValue:$('lattice-value'),
+        wavelength:$('xray-wavelength'), wavelengthPreset:$('wavelength-preset'), globalB:$('global-b'), globalBValue:$('global-b-value'), elementOptions:$('element-options'),
+        atom1:{element:$('atom1-element'),wyckoff:$('atom1-wyckoff'),coords:$('atom1-coords')},
+        atom2:{element:$('atom2-element'),wyckoff:$('atom2-wyckoff'),coords:$('atom2-coords'),card:$('atom2-card')},
+        addAtom:$('add-atom'), removeAtom:$('remove-atom'), composition:$('composition'), status:$('status'),
+        table:$('peak-table-body'), canvas:$('xrd-chart')
+      };
+      let chart = null;
+      let atom2Active = false;
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const footer = document.getElementById('footer-date');
-            const today = new Date();
-            footer.textContent = `NitaD, Univ Paris-Saclay, 5 august 2025`;
-            
-            const controls = {
-                spaceGroup: document.getElementById('space-group'),
-                latticeParam: document.getElementById('lattice-parameter'),
-                latticeParamValue: document.getElementById('lattice-parameter-value'),
-                wavelength: document.getElementById('xray-wavelength'),
-                wavelengthPreset: document.getElementById('wavelength-preset'),
-                twoThetaMin: document.getElementById('two-theta-min'),
-                twoThetaMinValue: document.getElementById('two-theta-min-value'),
-                twoThetaMax: document.getElementById('two-theta-max'),
-                twoThetaMaxValue: document.getElementById('two-theta-max-value'),
-                atom1: { element: document.getElementById('atom1-element'), wyckoff: document.getElementById('atom1-wyckoff'), coords: document.getElementById('atom1-coords') },
-                atom2: { container: document.getElementById('atom2-controls'), element: document.getElementById('atom2-element'), wyckoff: document.getElementById('atom2-wyckoff'), coords: document.getElementById('atom2-coords') },
-                addAtomBtn: document.getElementById('add-atom-btn'),
-                removeAtomBtn: document.getElementById('remove-atom-btn'),
-                compositionDisplay: document.getElementById('composition-display'),
-                peakTableBody: document.getElementById('peak-table-body'),
-                chartCanvas: document.getElementById('xrd-chart')
-            };
+      function setStatus(message='') { controls.status.textContent = message; }
 
-            let xrdChart;
-            let atom2_active = false;
+      async function loadScatteringFactors() {
+        const response = await fetch(SCATTERING_URL, {cache:'no-cache'});
+        if (!response.ok) throw new Error(`Could not load ${SCATTERING_URL} (${response.status})`);
+        const data = await response.json();
+        if (data?.kind !== 'xray_gaussian' || data?.terms !== 5 || !data?.table) throw new Error('The scattering-factor file does not match the expected WK1995 schema.');
+        scatteringTable = data.table;
+        const species = Object.keys(scatteringTable).sort((a,b) => (scatteringTable[a].Z ?? 999) - (scatteringTable[b].Z ?? 999) || a.localeCompare(b));
+        controls.elementOptions.replaceChildren(...species.map(symbol => Object.assign(document.createElement('option'), {value:symbol})));
+        controls.atom1.element.value = species.includes('C') ? 'C' : species[0];
+        controls.atom2.element.value = species.includes('O') ? 'O' : species[Math.min(1, species.length-1)];
+      }
 
-            const runSimulation = () => {
-                const sg = controls.spaceGroup.value;
-                if (!cubicSpaceGroups[sg]) return;
-                const atomDef1 = { symbol: controls.atom1.element.value, wyckoff: controls.atom1.wyckoff.value, coords: getCoordsFromInput('1') };
-                let atomList = generateAtomList(sg, atomDef1);
-                if (atom2_active) {
-                    const atomDef2 = { symbol: controls.atom2.element.value, wyckoff: controls.atom2.wyckoff.value, coords: getCoordsFromInput('2') };
-                    atomList = atomList.concat(generateAtomList(sg, atomDef2));
-                }
-                const params = { 
-                    a: parseFloat(controls.latticeParam.value), 
-                    lambda: parseFloat(controls.wavelength.value)
-                };
-                if (isNaN(params.a) || isNaN(params.lambda) || params.a <= 0 || params.lambda <= 0 || atomList.length === 0) {
-                     controls.peakTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4">Invalid parameters or no atoms defined.</td></tr>`;
-                    if (xrdChart) xrdChart.destroy();
-                    return;
-                }
-                calculateComposition();
-                const peaks = calculatePeaks(params, atomList);
-                const maxIntensity = populateTable(peaks);
-                plotDiffractogram(peaks, maxIntensity);
-            };
-            
-            const getMultiplicity = (h, k, l) => {
-                let indices = [Math.abs(h), Math.abs(k), Math.abs(l)].sort((a,b) => b-a);
-                h = indices[0]; k = indices[1]; l = indices[2];
+      function validSpecies(symbol) { return Object.prototype.hasOwnProperty.call(scatteringTable, symbol); }
 
-                if (h > 0 && k > 0 && l > 0 && h !== k && k !== l && h !== l) return 48; // hkl
-                if ((h > 0 && h === k && k > l && l > 0) || (h > k && k > 0 && k === l)) return 24; // hhl
-                if (h > 0 && k > 0 && l === 0 && h !== k) return 24; // hk0
-                if (h > 0 && h === k && l === 0) return 12; // hh0
-                if (h > 0 && h === k && k === l) return 8; // hhh
-                if (h > 0 && k === 0 && l === 0) return 6; // h00
-                return 0;
-            };
+      function evaluateExpression(expression, variables) {
+        let value = expression;
+        for (const [key, number] of Object.entries(variables)) value = value.replace(new RegExp(`\\b${key}\\b`, 'g'), `(${number})`);
+        if (!/^[0-9eE+\-*/().\s]+$/.test(value)) throw new Error(`Invalid coordinate expression: ${expression}`);
+        return Function(`"use strict"; return (${value});`)();
+      }
 
-            const calculatePeaks = (params, atomList) => {
-                const { a, lambda } = params;
-                const calculatedPeaks = [];
-                const max_hkl = 12;
-                for (let h = 0; h <= max_hkl; h++) {
-                    for (let k = 0; k <= h; k++) {
-                        for (let l = 0; l <= k; l++) {
-                            if (h === 0 && k === 0 && l === 0) continue;
-                            const hkl_sq = h*h + k*k + l*l;
-                            const d = a / Math.sqrt(hkl_sq);
-                            const sinTheta = lambda / (2 * d);
-                            if (sinTheta <= 1) {
-                                const f_sq = calculateStructureFactor(h, k, l, atomList, sinTheta / lambda);
-                                if (f_sq > 1e-4) {
-                                    const multiplicity = getMultiplicity(h, k, l);
-                                    if (multiplicity === 0) continue;
-                                    
-                                    const thetaRad = Math.asin(sinTheta);
-                                    const cosTheta = Math.cos(thetaRad);
-                                    if(cosTheta < 1e-6) continue;
-                                    const cos2Theta = Math.cos(2 * thetaRad);
-                                    
-                                    const polarizationTerm = 1 + cos2Theta * cos2Theta;
-                                    
-                                    const Lp = polarizationTerm / (sinTheta * sinTheta * cosTheta);
-                                    const intensity = f_sq * Lp * multiplicity;
-
-                                    if (intensity > 1e-3) {
-                                        const existingPeak = calculatedPeaks.find(p => Math.abs(p.d - d) < 1e-5);
-                                        if (!existingPeak) {
-                                            calculatedPeaks.push({ 
-                                                two_theta: 2 * thetaRad * (180 / Math.PI), 
-                                                d, 
-                                                hkl: `(${h},${k},${l})`, 
-                                                intensity,
-                                                multiplicity: multiplicity 
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                return calculatedPeaks.sort((a, b) => a.two_theta - b.two_theta);
-            };
-
-            const calculateStructureFactor = (h, k, l, atomList, s) => {
-                let F_real = 0;
-                let F_imag = 0;
-                atomList.forEach(atom => {
-                    const f = getAtomicScatteringFactor(atom.symbol, s);
-                    const phase = 2 * Math.PI * (h * atom.x + k * atom.y + l * atom.z);
-                    F_real += f * Math.cos(phase);
-                    F_imag += f * Math.sin(phase);
-                });
-                return F_real * F_real + F_imag * F_imag;
-            };
-
-            const getAtomicScatteringFactor = (symbol, s) => {
-                 const params = atomicScatteringFactors[symbol];
-                 if (!params) return 1;
-                 const s_sq = s * s;
-                 let f = params.c;
-                 for (let i = 0; i < 4; i++) { f += params.a[i] * Math.exp(-params.b[i] * s_sq); }
-                 return f;
-            };
-
-            const generateAtomList = (sg, atomDef) => {
-                const wyckoffInfo = cubicSpaceGroups[sg]?.wyckoff_positions[atomDef.wyckoff];
-                if (!wyckoffInfo) return [];
-                const list = wyckoffInfo.coordinates.map(coordStr => {
-                    let tempStr = coordStr;
-                    Object.entries(atomDef.coords).forEach(([key, value]) => {
-                        tempStr = tempStr.replace(new RegExp(`\\b${key}\\b`, 'g'), `(${value})`);
-                    });
-                    try {
-                        let [x, y, z] = tempStr.split(',').map(c => eval(c.trim()));
-                        return { symbol: atomDef.symbol, x:((x%1)+1)%1, y:((y%1)+1)%1, z:((z%1)+1)%1 };
-                    } catch (e) {
-                        console.error("Could not evaluate coordinate:", tempStr, e);
-                        return null;
-                    }
-                }).filter(Boolean);
-                return Array.from(new Map(list.map(item => [`${item.x.toFixed(4)},${item.y.toFixed(4)},${item.z.toFixed(4)}`, item])).values());
-            };
-
-            const initialize = () => {
-                const sortedSpaceGroups = Object.entries(cubicSpaceGroups).sort((a,b) => Number(a[0]) - Number(b[0]));
-                sortedSpaceGroups.forEach(([num, data]) => controls.spaceGroup.add(new Option(`${num}: ${data.name}`, num)));
-                const elements = Object.keys(atomicScatteringFactors).sort();
-                [controls.atom1.element, controls.atom2.element].forEach(sel => elements.forEach(symbol => sel.add(new Option(symbol, symbol))));
-                // Default to Diamond
-                controls.spaceGroup.value = "227";
-                controls.atom1.element.value = "C";
-                controls.latticeParam.value = 3.567;
-                controls.latticeParamValue.textContent = 3.567;
-                updateWyckoffDropdowns();
-                controls.atom1.wyckoff.value = '8a';
-                checkAllCoordinateInputs();
-                toggleAtom2(false);
-            };
-
-            const updateWyckoffDropdowns = () => {
-                const sg = controls.spaceGroup.value;
-                const wyckoffPositions = cubicSpaceGroups[sg]?.wyckoff_positions;
-                if (!wyckoffPositions) return;
-                [controls.atom1.wyckoff, controls.atom2.wyckoff].forEach(sel => {
-                    const currentVal = sel.value;
-                    sel.innerHTML = '';
-                    Object.keys(wyckoffPositions).forEach(key => {
-                        const info = wyckoffPositions[key];
-                        sel.add(new Option(`${key} (mult: ${info.multiplicity})`, key));
-                    });
-                    if (Array.from(sel.options).some(opt => opt.value === currentVal)) { sel.value = currentVal; }
-                });
-                checkAllCoordinateInputs();
-            };
-
-            const checkCoordinateInputs = (atomNumStr) => {
-                const sg = controls.spaceGroup.value;
-                const atomCtrl = controls[`atom${atomNumStr}`];
-                const wyckoffKey = atomCtrl.wyckoff.value;
-                const coordsDiv = atomCtrl.coords;
-                const firstCoordStr = cubicSpaceGroups[sg]?.wyckoff_positions[wyckoffKey]?.coordinates[0] || "";
-                const freeParams = new Set((firstCoordStr.match(/[xyz]/g) || []));
-                coordsDiv.innerHTML = '';
-                if (freeParams.size > 0) {
-                    coordsDiv.classList.remove('hidden');
-                    freeParams.forEach(param => {
-                        const id = `atom${atomNumStr}-coord-${param}`;
-                        const label = Object.assign(document.createElement('label'), { className: 'control-label text-sm', textContent: `Coordinate ${param}:`, htmlFor: id });
-                        const input = Object.assign(document.createElement('input'), { type: 'number', id, value: "0.25", step: "0.001", className: 'control-input text-sm' });
-                        input.addEventListener('input', runSimulation);
-                        coordsDiv.append(label, input);
-                    });
-                } else {
-                    coordsDiv.classList.add('hidden');
-                }
-            };
-            const checkAllCoordinateInputs = () => { checkCoordinateInputs('1'); checkCoordinateInputs('2'); };
-
-            const getCoordsFromInput = (atomNumStr) => {
-                const coords = {};
-                controls[`atom${atomNumStr}`].coords.querySelectorAll('input').forEach(input => {
-                    coords[input.id.split('-').pop()] = parseFloat(input.value);
-                });
-                return coords;
-            };
-            
-            const calculateComposition = () => {
-                const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
-                const sgData = cubicSpaceGroups[controls.spaceGroup.value];
-                const getMult = (sel) => sgData.wyckoff_positions[sel.value]?.multiplicity || 0;
-                const sym1 = controls.atom1.element.value;
-                let mult1 = getMult(controls.atom1.wyckoff);
-                let formula = `${sym1}${mult1 > 1 ? mult1 : ''}`;
-                if (atom2_active) {
-                    const sym2 = controls.atom2.element.value;
-                    let mult2 = getMult(controls.atom2.wyckoff);
-                    if (sym1 === sym2) {
-                        const totalMult = mult1 + mult2;
-                        formula = `${sym1}${totalMult > 1 ? totalMult : ''}`;
-                    } else {
-                        const commonDivisor = gcd(mult1, mult2);
-                        formula = `${sym1}${mult1/commonDivisor > 1 ? mult1/commonDivisor : ''}${sym2}${mult2/commonDivisor > 1 ? mult2/commonDivisor : ''}`;
-                    }
-                }
-                controls.compositionDisplay.textContent = formula;
-            };
-
-            const populateTable = (peaks) => {
-                controls.peakTableBody.innerHTML = '';
-                if (peaks.length === 0) {
-                    controls.peakTableBody.innerHTML = `<tr><td colspan="5" class="text-center py-4">No diffraction peaks found.</td></tr>`;
-                    return 1;
-                }
-                const maxIntensity = Math.max(...peaks.map(p => p.intensity));
-                peaks.forEach(peak => {
-                    const normIntensity = (peak.intensity / maxIntensity * 100);
-                    controls.peakTableBody.innerHTML += `<tr>
-                        <td class="px-4 py-3 text-sm">${peak.two_theta.toFixed(3)}</td>
-                        <td class="px-4 py-3 text-sm">${peak.d.toFixed(4)}</td>
-                        <td class="px-4 py-3 text-sm">${peak.hkl}</td>
-                        <td class="px-4 py-3 text-sm">${peak.multiplicity}</td>
-                        <td class="px-4 py-3 text-sm">${normIntensity.toFixed(1)}</td>
-                    </tr>`;
-                });
-                return maxIntensity || 1;
-            };
-
-            const plotDiffractogram = (peaks, maxIntensity) => {
-                if (xrdChart) { xrdChart.destroy(); }
-                const peakWidth = 0.15;
-                const plotData = [];
-                for (let two_theta = 5; two_theta <= 160; two_theta += 0.01) {
-                    let y = Math.random() * 0.5; 
-                    peaks.forEach(peak => {
-                        if (peak.intensity > 0) {
-                            const normIntensity = (peak.intensity / maxIntensity * 100);
-                            const stdev = peakWidth / 2.355;
-                            y += normIntensity * Math.exp(-((two_theta - peak.two_theta) ** 2) / (2 * stdev * stdev));
-                        }
-                    });
-                    plotData.push({ x: two_theta, y: y });
-                }
-                xrdChart = new Chart(controls.chartCanvas, {
-                    type: 'line', 
-                    data: { 
-                        datasets: [{ 
-                            label: 'Intensity', 
-                            data: plotData, 
-                            borderColor: '#3b82f6', 
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)', 
-                            borderWidth: 1.5, 
-                            pointRadius: 0, 
-                            tension: 0.1, 
-                            fill: true 
-                        }] 
-                    },
-                    options: { 
-                        responsive: true, 
-                        maintainAspectRatio: false, 
-                        animation: false,
-                        scales: { 
-                            x: { 
-                                type: 'linear', 
-                                title: { display: true, text: '2θ (degrees)', font: { size: 14 }}, 
-                                min: parseFloat(controls.twoThetaMin.value), 
-                                max: parseFloat(controls.twoThetaMax.value)
-                            }, 
-                            y: { 
-                                title: { display: true, text: 'Intensity (a.u.)', font: { size: 14 }}, 
-                                min: 0 
-                            } 
-                        },
-                        plugins: { 
-                            legend: { display: false }, 
-                            tooltip: { enabled: false },
-                            zoom: {
-                                pan: {
-                                    enabled: true,
-                                    mode: 'x',
-                                    rangeMin: { x: 0 },
-                                    rangeMax: { x: 160 }
-                                },
-                                zoom: {
-                                    wheel: {
-                                        enabled: true,
-                                    },
-                                    pinch: {
-                                        enabled: true
-                                    },
-                                    mode: 'x',
-                                }
-                            }
-                        }
-                    }
-                });
-            };
-
-            const updateChartRange = () => {
-                if (!xrdChart) return;
-                let min = parseFloat(controls.twoThetaMin.value);
-                let max = parseFloat(controls.twoThetaMax.value);
-                if (min >= max) { 
-                    min = max - 1; 
-                    controls.twoThetaMin.value = min; 
-                    controls.twoThetaMinValue.textContent = min; 
-                };
-                xrdChart.options.scales.x.min = min;
-                xrdChart.options.scales.x.max = max;
-                xrdChart.update('none');
-            };
-
-            const toggleAtom2 = (show) => {
-                atom2_active = show;
-                controls.atom2.container.classList.toggle('hidden', !show);
-                controls.addAtomBtn.classList.toggle('hidden', show);
-                controls.removeAtomBtn.classList.toggle('hidden', !show);
-                runSimulation();
-            };
-
-            // --- Event Listeners ---
-            const allSimControls = [
-                controls.spaceGroup, 
-                controls.latticeParam, 
-                controls.wavelength, 
-                controls.atom1.element, 
-                controls.atom1.wyckoff, 
-                controls.atom2.element, 
-                controls.atom2.wyckoff
-            ];
-            allSimControls.forEach(control => control.addEventListener('input', runSimulation));
-            
-            controls.wavelengthPreset.addEventListener('change', (e) => {
-                if(e.target.value !== 'custom') {
-                    controls.wavelength.value = e.target.value;
-                    runSimulation();
-                }
-            });
-
-            controls.wavelength.addEventListener('input', () => {
-                const currentValue = parseFloat(controls.wavelength.value);
-                let matchFound = false;
-                for (const option of controls.wavelengthPreset.options) {
-                    if (option.value === "custom") continue;
-                    if (Math.abs(currentValue - parseFloat(option.value)) < 0.00001) {
-                        controls.wavelengthPreset.value = option.value;
-                        matchFound = true;
-                        break;
-                    }
-                }
-                if (!matchFound) {
-                    controls.wavelengthPreset.value = 'custom';
-                }
-            });
-
-            controls.spaceGroup.addEventListener('change', () => { updateWyckoffDropdowns(); runSimulation(); });
-            [controls.atom1.wyckoff, controls.atom2.wyckoff].forEach((sel, i) => sel.addEventListener('change', () => { checkCoordinateInputs(String(i+1)); runSimulation(); }));
-
-            controls.latticeParam.addEventListener('input', () => { controls.latticeParamValue.textContent = controls.latticeParam.value; });
-            controls.twoThetaMin.addEventListener('input', () => { controls.twoThetaMinValue.textContent = controls.twoThetaMin.value; updateChartRange(); });
-            controls.twoThetaMax.addEventListener('input', () => { controls.twoThetaMaxValue.textContent = controls.twoThetaMax.value; updateChartRange(); });
-            
-            controls.addAtomBtn.addEventListener('click', () => toggleAtom2(true));
-            controls.removeAtomBtn.addEventListener('click', () => toggleAtom2(false));
-            
-            const resizer = document.getElementById('drag-handle');
-            const leftPanel = document.getElementById('controls-panel');
-            resizer.addEventListener('mousedown', (e) => {
-                e.preventDefault(); document.body.style.cursor = 'col-resize';
-                const moveHandler = (e) => { if (e.clientX > 350 && e.clientX < 600) { leftPanel.style.width = `${e.clientX}px`; } };
-                const upHandler = () => { document.body.style.cursor = 'default'; window.removeEventListener('mousemove', moveHandler); window.removeEventListener('mouseup', upHandler); };
-                window.addEventListener('mousemove', moveHandler);
-                window.addEventListener('mouseup', upHandler);
-            });
-
-            initialize();
+      function generateAtomList(spaceGroup, atom) {
+        const info = cubicSpaceGroups[spaceGroup]?.wyckoff_positions[atom.wyckoff];
+        if (!info || !validSpecies(atom.symbol)) return [];
+        const atoms = info.coordinates.map(text => {
+          const [x,y,z] = text.split(',').map(term => evaluateExpression(term, atom.coords));
+          const wrap = value => ((value % 1) + 1) % 1;
+          return {symbol:atom.symbol, x:wrap(x), y:wrap(y), z:wrap(z)};
         });
-    </script>
+        const unique = [...new Map(atoms.map(a => [`${a.x.toFixed(8)},${a.y.toFixed(8)},${a.z.toFixed(8)}`, a])).values()];
+        if (unique.length !== info.multiplicity) throw new Error(`${spaceGroup} ${atom.wyckoff} generated ${unique.length} sites; expected ${info.multiplicity}.`);
+        return unique;
+      }
+
+      function getMultiplicity(h,k,l) {
+        [h,k,l] = [Math.abs(h),Math.abs(k),Math.abs(l)].sort((a,b)=>b-a);
+        if (h>0 && k>0 && l>0 && h!==k && k!==l && h!==l) return 48;
+        if ((h===k && k>l && l>0) || (h>k && k===l && l>0)) return 24;
+        if (h>k && k>0 && l===0) return 24;
+        if (h===k && k>0 && l===0) return 12;
+        if (h===k && k===l && h>0) return 8;
+        if (h>0 && k===0 && l===0) return 6;
+        return 0;
+      }
+
+      function scatteringFactor(symbol, s) {
+        const p = scatteringTable[symbol];
+        if (!p) throw new Error(`No scattering factors for “${symbol}”. Choose a value from the list.`);
+        let f = Number(p.c) || 0;
+        for (let i=0;i<5;i++) f += p.a[i] * Math.exp(-p.b[i] * s * s);
+        return f;
+      }
+
+      function structureFactorSquared(h,k,l,atoms,s,B) {
+        let real=0, imag=0;
+        const dw = Math.exp(-B * s * s);
+        for (const atom of atoms) {
+          const f = scatteringFactor(atom.symbol,s) * dw;
+          const phase = 2*Math.PI*(h*atom.x+k*atom.y+l*atom.z);
+          real += f*Math.cos(phase); imag += f*Math.sin(phase);
+        }
+        return real*real + imag*imag;
+      }
+
+      function calculatePeaks(a, wavelength, atoms, B) {
+        const groups = new Map();
+        const qMax = 2*a*Math.sin(TWO_THETA_MAX*Math.PI/360)/wavelength;
+        const maxH = Math.ceil(qMax);
+        for (let h=0;h<=maxH;h++) for (let k=0;k<=h;k++) for (let l=0;l<=k;l++) {
+          if (h===0 && k===0 && l===0) continue;
+          const n=h*h+k*k+l*l;
+          if (Math.sqrt(n)>qMax+1e-10) continue;
+          const multiplicity=getMultiplicity(h,k,l); if (!multiplicity) continue;
+          const d=a/Math.sqrt(n), sinTheta=wavelength/(2*d); if (sinTheta<=0 || sinTheta>=1) continue;
+          const theta=Math.asin(sinTheta), twoTheta=2*theta*180/Math.PI;
+          if (twoTheta<TWO_THETA_MIN-1e-8 || twoTheta>TWO_THETA_MAX+1e-8) continue;
+          const f2=structureFactorSquared(h,k,l,atoms,1/(2*d),B); if (f2<1e-8) continue;
+          const lp=(1+Math.cos(2*theta)**2)/(sinTheta*sinTheta*Math.cos(theta));
+          const contribution=f2*lp*multiplicity;
+          const key=String(n);
+          if (!groups.has(key)) groups.set(key,{twoTheta,d,hkls:[],multiplicity:0,intensity:0});
+          const peak=groups.get(key);
+          peak.hkls.push(`(${h},${k},${l})`); peak.multiplicity+=multiplicity; peak.intensity+=contribution;
+        }
+        return [...groups.values()].filter(p=>p.intensity>1e-3).sort((a,b)=>a.twoTheta-b.twoTheta);
+      }
+
+      function atomDefinition(index) {
+        const c=controls[`atom${index}`], coords={};
+        c.coords.querySelectorAll('input[data-coordinate]').forEach(input => { coords[input.dataset.coordinate]=Number(input.value); });
+        return {symbol:c.element.value.trim(),wyckoff:c.wyckoff.value,coords};
+      }
+
+      function formulaText(definitions) {
+        const counts=new Map();
+        for (const atom of definitions) {
+          const count=cubicSpaceGroups[controls.spaceGroup.value].wyckoff_positions[atom.wyckoff].multiplicity;
+          counts.set(atom.symbol,(counts.get(atom.symbol)||0)+count);
+        }
+        const values=[...counts.values()];
+        const gcd=(a,b)=>b?gcd(b,a%b):a;
+        const divisor=values.reduce(gcd);
+        return [...counts].map(([symbol,count])=>symbol+(count/divisor===1?'':count/divisor)).join('');
+      }
+
+      function renderTable(peaks,maxIntensity) {
+        controls.table.replaceChildren();
+        for (const peak of peaks) {
+          const row=document.createElement('tr');
+          const values=[peak.twoTheta.toFixed(3),peak.d.toFixed(4),peak.hkls.join(' + '),peak.multiplicity,(100*peak.intensity/maxIntensity).toFixed(1)];
+          row.append(...values.map(value=>Object.assign(document.createElement('td'),{textContent:value})));
+          controls.table.append(row);
+        }
+      }
+
+      function renderChart(peaks,maxIntensity) {
+        const width=0.15, sigma=width/2.355, points=[];
+        for (let angle=TWO_THETA_MIN;angle<=TWO_THETA_MAX+1e-8;angle+=0.02) {
+          let y=0;
+          for (const peak of peaks) y += 100*peak.intensity/maxIntensity*Math.exp(-((angle-peak.twoTheta)**2)/(2*sigma*sigma));
+          points.push({x:angle,y});
+        }
+        if (chart) chart.destroy();
+        chart=new Chart(controls.canvas,{type:'line',data:{datasets:[{data:points,borderColor:'#2563eb',backgroundColor:'rgb(37 99 235 / .10)',borderWidth:1.4,pointRadius:0,fill:true,tension:0}]},options:{responsive:true,maintainAspectRatio:false,animation:false,parsing:false,normalized:true,scales:{x:{type:'linear',min:TWO_THETA_MIN,max:TWO_THETA_MAX,title:{display:true,text:'2θ (degrees)'}},y:{min:0,title:{display:true,text:'Intensity (a.u.)'}}},plugins:{legend:{display:false},tooltip:{enabled:false},zoom:{limits:{x:{min:TWO_THETA_MIN,max:TWO_THETA_MAX},y:{min:0}},pan:{enabled:true,mode:'xy',modifierKey:'shift'},zoom:{wheel:{enabled:false},pinch:{enabled:true},drag:{enabled:true,backgroundColor:'rgb(37 99 235 / .16)',borderColor:'#2563eb',borderWidth:1},mode:'xy'}}}}});
+      }
+
+      function runSimulation() {
+        try {
+          if (!Object.keys(scatteringTable).length) return;
+          const definitions=[atomDefinition(1),...(atom2Active?[atomDefinition(2)]:[])];
+          for (const atom of definitions) if (!validSpecies(atom.symbol)) throw new Error(`Choose a valid species from the search list: “${atom.symbol || 'empty'}” is unavailable.`);
+          const a=Number(controls.lattice.value), wavelength=Number(controls.wavelength.value), B=Number(controls.globalB.value);
+          if (!(a>0) || !(wavelength>0) || B<0 || B>3) throw new Error('Lattice parameter and wavelength must be positive, and B must be between 0 and 3 Å².');
+          const atoms=definitions.flatMap(atom=>generateAtomList(controls.spaceGroup.value,atom));
+          const peaks=calculatePeaks(a,wavelength,atoms,B);
+          if (!peaks.length) throw new Error('No non-zero peaks occur between 5° and 160° 2θ.');
+          const maxIntensity=Math.max(...peaks.map(p=>p.intensity));
+          controls.composition.textContent=formulaText(definitions);
+          renderTable(peaks,maxIntensity); renderChart(peaks,maxIntensity); setStatus();
+        } catch (error) { setStatus(error.message); controls.table.replaceChildren(); if(chart){chart.destroy();chart=null;} }
+      }
+
+      function coordinateInputs(index) {
+        const c=controls[`atom${index}`], info=cubicSpaceGroups[controls.spaceGroup.value]?.wyckoff_positions[c.wyckoff.value];
+        const parameters=[...new Set((info?.coordinates.join(',').match(/\b[xyz]\b/g)||[]))];
+        c.coords.replaceChildren();
+        for (const parameter of parameters) {
+          const label=document.createElement('label'); label.textContent=`Coordinate ${parameter}`;
+          const defaults={x:'0.123',y:'0.234',z:'0.345'};
+          const input=Object.assign(document.createElement('input'),{type:'number',value:defaults[parameter],step:'0.001'}); input.dataset.coordinate=parameter;
+          input.addEventListener('input',runSimulation); label.append(input); c.coords.append(label);
+        }
+      }
+
+      function updateWyckoff() {
+        const positions=cubicSpaceGroups[controls.spaceGroup.value].wyckoff_positions;
+        for (const index of [1,2]) {
+          const select=controls[`atom${index}`].wyckoff, previous=select.value;
+          select.replaceChildren(...Object.keys(positions).map(label=>new Option(label,label)));
+          if (positions[previous]) select.value=previous;
+          coordinateInputs(index);
+        }
+      }
+
+      function setTab(name) {
+        const diagram=name==='diagram';
+        $('diagram-tab').classList.toggle('active',diagram); $('diagram-tab').setAttribute('aria-selected',diagram);
+        $('peaks-tab').classList.toggle('active',!diagram); $('peaks-tab').setAttribute('aria-selected',!diagram);
+        $('diagram-panel').classList.toggle('hidden',!diagram); $('peaks-panel').classList.toggle('hidden',diagram);
+        if (diagram && chart) requestAnimationFrame(()=>chart.resize());
+      }
+
+      function toggleAtom2(show) {
+        atom2Active=show; controls.atom2.card.classList.toggle('hidden',!show); controls.addAtom.classList.toggle('hidden',show); controls.removeAtom.classList.toggle('hidden',!show); runSimulation();
+      }
+
+      for (const [number,data] of Object.entries(cubicSpaceGroups)) controls.spaceGroup.add(new Option(`${number}: ${data.name}`,number));
+      controls.spaceGroup.value='227'; updateWyckoff(); controls.atom1.wyckoff.value='8a'; coordinateInputs(1);
+      try { await loadScatteringFactors(); } catch(error) { setStatus(error.message); }
+
+      [controls.spaceGroup,controls.lattice,controls.wavelength,controls.globalB,controls.atom1.element,controls.atom1.wyckoff,controls.atom2.element,controls.atom2.wyckoff].forEach(control=>control.addEventListener('input',runSimulation));
+      controls.spaceGroup.addEventListener('change',()=>{updateWyckoff();runSimulation();});
+      [1,2].forEach(index=>controls[`atom${index}`].wyckoff.addEventListener('change',()=>{coordinateInputs(index);runSimulation();}));
+      controls.lattice.addEventListener('input',()=>{controls.latticeValue.textContent=controls.lattice.value;});
+      controls.globalB.addEventListener('input',()=>{controls.globalBValue.textContent=Number(controls.globalB.value).toFixed(2);});
+      controls.wavelengthPreset.addEventListener('change',event=>{if(event.target.value!=='custom'){controls.wavelength.value=event.target.value;runSimulation();}});
+      controls.wavelength.addEventListener('input',()=>{const match=[...controls.wavelengthPreset.options].find(o=>o.value!=='custom'&&Math.abs(Number(o.value)-Number(controls.wavelength.value))<1e-8);controls.wavelengthPreset.value=match?.value||'custom';});
+      controls.addAtom.addEventListener('click',()=>toggleAtom2(true)); controls.removeAtom.addEventListener('click',()=>toggleAtom2(false));
+      $('diagram-tab').addEventListener('click',()=>setTab('diagram')); $('peaks-tab').addEventListener('click',()=>setTab('peaks'));
+      controls.canvas.addEventListener('contextmenu',event=>{event.preventDefault();chart?.resetZoom();});
+
+      const handle=$('drag-handle'),panel=$('controls-panel');
+      handle.addEventListener('mousedown',event=>{event.preventDefault();const move=e=>{if(e.clientX>=350&&e.clientX<=600)panel.style.width=`${e.clientX}px`;};const up=()=>{removeEventListener('mousemove',move);removeEventListener('mouseup',up);};addEventListener('mousemove',move);addEventListener('mouseup',up);});
+      runSimulation();
+    });
+  </script>
 </body>
 </html>
