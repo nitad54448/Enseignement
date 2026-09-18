@@ -17,6 +17,7 @@
             height: 100vh;
             overflow: hidden;
         }
+        *, *::before, *::after { box-sizing: border-box; }
         #app-container {
             display: flex;
             width: 100%;
@@ -57,6 +58,13 @@
             color: #1f2937; /* Dark text for light theme */
             overflow: hidden;
         }
+        #visualization-area h2 {
+            margin: 0 0 1rem;
+            font-size: 1.5rem;
+            line-height: 2rem;
+            font-weight: 700;
+            text-align: center;
+        }
         .canvas-wrapper {
             position: relative;
             width: 100%;
@@ -89,6 +97,19 @@
             border-radius: 0.375rem;
             padding: 0.6rem;
         }
+        .select-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .select-row:last-child { margin-bottom: 0; }
+        .select-row label {
+            width: 96px;
+            flex: 0 0 96px;
+            color: #9ca3af;
+            font-weight: 500;
+        }
         .control-group {
             margin-bottom: 1.5rem;
             padding: 1rem;
@@ -115,6 +136,12 @@
             font-size: 0.9em;
             line-height: 1.5;
             color: #a5b4fc;
+        }
+        .scale-note {
+            margin: 0.65rem 0 0;
+            color: #9ca3af;
+            font-size: 0.78rem;
+            line-height: 1.4;
         }
         .canvas-tooltip {
             position: absolute;
@@ -148,13 +175,13 @@
             <p>Visualize atomic energy levels and allowed transitions.</p>
 
             <div class="control-group">
-                <div class="flex items-center mb-4">
-                    <label for="elementSelect" class="w-24 flex-shrink-0 font-medium text-gray-400">Source</label>
-                    <select id="elementSelect" class="ml-4 flex-1"></select>
+                <div class="select-row">
+                    <label for="elementSelect">Source</label>
+                    <select id="elementSelect"></select>
                 </div>
-                <div class="flex items-center">
-                    <label for="transitionSelect" class="w-24 flex-shrink-0 font-medium text-gray-400">Transition</label>
-                    <select id="transitionSelect" class="ml-4 flex-1">
+                <div class="select-row">
+                    <label for="transitionSelect">Transition</label>
+                    <select id="transitionSelect">
                         <option value="none">None</option>
                         <option value="Ka1">Kα1 (L3 → K)</option>
                         <option value="Ka2">Kα2 (L2 → K)</option>
@@ -163,12 +190,21 @@
                         <option value="Lb1">Lβ1 (M4 → L2)</option>
                     </select>
                 </div>
+                <div class="select-row">
+                    <label for="scaleSelect">Energy scale</label>
+                    <select id="scaleSelect">
+                        <option value="power">Readable (E^0.55)</option>
+                        <option value="linear">Linear</option>
+                        <option value="log">Logarithmic</option>
+                    </select>
+                </div>
+                <p class="scale-note">The readable scale preserves the real ordering and makes the K–L gap dominant without collapsing the M levels.</p>
             </div>
             
             <div class="control-group">
                 <h3 class="font-semibold text-lg text-white mb-2">Selection Rules</h3>
                 <ul class="rules-list">
-                    <li>Δn ≠ 0</li>
+                    <li>Δn: unrestricted</li>
                     <li>Δl = ±1</li>
                     <li>Δj = 0, ±1</li>
                     <li>(j=0 ↔ j=0 forbidden)</li>
@@ -183,7 +219,7 @@
         <div id="drag-handle"></div>
 
         <div id="visualization-area">
-            <h2 class="text-2xl font-bold mb-4 text-center">Atomic Energy Level Diagram</h2>
+            <h2 class="text-2xl font-bold mb-4 text-center">Atomic Subshell Binding Energies</h2>
             <div class="canvas-wrapper">
                 <canvas id="energyDiagramCanvas"></canvas>
             </div>
@@ -237,20 +273,17 @@
             const ctx = canvas.getContext('2d');
             const elementSelect = document.getElementById('elementSelect');
             const transitionSelect = document.getElementById('transitionSelect');
+            const scaleSelect = document.getElementById('scaleSelect');
             const transitionInfoDiv = document.getElementById('transitionInfo'); 
             const tooltip = document.getElementById('tooltip');
             let hittableLevels = [];
 
-            // --- Drawing Constants ---
-            // Y positions are now percentages from the top of the canvas.
-            // E0 (Continuum) is at the top (lowest percentage), K-shell is at the bottom (highest percentage).
-            const levelYPosition = { 
-                E0: 0.08, Valence: 0.13, O: 0.20,
-                N5: 0.30, N4: 0.33, N3: 0.36, N2: 0.39, N1: 0.42,
-                M5: 0.54, M4: 0.57, M3: 0.60, M2: 0.63, M1: 0.66,
-                L3: 0.78, L2: 0.81, L1: 0.84,
-                K: 0.92
-            };
+            // Positive tabulated values are binding energies. The physical
+            // one-electron energies are negative, with the continuum at 0 eV.
+            const PLOT_TOP = 0.10;
+            const PLOT_BOTTOM = 0.91;
+            const POWER_EXPONENT = 0.55;
+            const LOG_KNEE_EV = 10;
 
             // --- Functions ---
             function setCanvasSize() {
@@ -271,6 +304,46 @@
                 elementSelect.value = "Cu"; 
             }
 
+            function normalizedEnergy(bindingEnergy, kBindingEnergy) {
+                const ratio = Math.max(0, bindingEnergy) / kBindingEnergy;
+                if (scaleSelect.value === "linear") return ratio;
+                if (scaleSelect.value === "log") {
+                    return Math.log1p(bindingEnergy / LOG_KNEE_EV) /
+                           Math.log1p(kBindingEnergy / LOG_KNEE_EV);
+                }
+                return Math.pow(ratio, POWER_EXPONENT);
+            }
+
+            function energyToY(bindingEnergy, kBindingEnergy, canvasHeight) {
+                const plotHeight = (PLOT_BOTTOM - PLOT_TOP) * canvasHeight;
+                return PLOT_TOP * canvasHeight +
+                    normalizedEnergy(bindingEnergy, kBindingEnergy) * plotHeight;
+            }
+
+            function formatEnergy(energyEV) {
+                return energyEV >= 1000
+                    ? `${(energyEV / 1000).toFixed(3)} keV`
+                    : `${energyEV.toFixed(1)} eV`;
+            }
+
+            function distributeLabels(items, minY, maxY, gap) {
+                const labels = items.map(item => ({ ...item, labelY: item.y }));
+                for (let i = 1; i < labels.length; i++) {
+                    labels[i].labelY = Math.max(labels[i].labelY, labels[i - 1].labelY + gap);
+                }
+                if (labels.length && labels[labels.length - 1].labelY > maxY) {
+                    labels[labels.length - 1].labelY = maxY;
+                    for (let i = labels.length - 2; i >= 0; i--) {
+                        labels[i].labelY = Math.min(labels[i].labelY, labels[i + 1].labelY - gap);
+                    }
+                }
+                if (labels.length && labels[0].labelY < minY) {
+                    const shift = minY - labels[0].labelY;
+                    labels.forEach(label => { label.labelY += shift; });
+                }
+                return labels;
+            }
+
             function drawDiagram() {
                 const selectedElementKey = elementSelect.value;
                 const selectedTransitionKey = transitionSelect.value;
@@ -278,8 +351,8 @@
 
                 const canvasWidth = canvas.parentElement.clientWidth;
                 const canvasHeight = canvas.parentElement.clientHeight;
-                const levelWidth = Math.min(300, canvasWidth * 0.4);
-                const levelXPosition = (canvasWidth - levelWidth) / 2;
+                const levelWidth = Math.min(320, canvasWidth * 0.38);
+                const levelXPosition = Math.max(130, (canvasWidth - levelWidth) / 2 - 25);
 
                 ctx.clearRect(0, 0, canvasWidth, canvasHeight);
                 ctx.font = "14px Inter";
@@ -287,52 +360,84 @@
                 transitionInfoDiv.innerHTML = "Select a transition to see its energy and wavelength."; 
                 hittableLevels = [];
 
-                const existingLevelsInElement = Object.keys(levels);
+                const kBindingEnergy = levels.K;
+                const plottedLevels = Object.entries(levels)
+                    .map(([key, energy]) => ({
+                        key,
+                        energy,
+                        y: energyToY(energy, kBindingEnergy, canvasHeight)
+                    }))
+                    .sort((a, b) => a.y - b.y);
+                const labels = distributeLabels(
+                    plottedLevels,
+                    PLOT_TOP * canvasHeight + 22,
+                    PLOT_BOTTOM * canvasHeight,
+                    18
+                );
 
-                for (const levelKey in levelYPosition) {
-                    if (levelKey === "E0" || existingLevelsInElement.includes(levelKey) || 
-                        (levelKey.startsWith("M") && existingLevelsInElement.some(elKey => elKey.startsWith("M"))) || 
-                        (levelKey.startsWith("N") && existingLevelsInElement.some(elKey => elKey.startsWith("N"))) || 
-                        (levelKey.startsWith("O") && existingLevelsInElement.some(elKey => elKey.startsWith("O"))) ) { 
-                        
-                        // Y position is now calculated directly from the top.
-                        const y = levelYPosition[levelKey] * canvasHeight;
+                // Continuum and scale direction.
+                const continuumY = energyToY(0, kBindingEnergy, canvasHeight);
+                ctx.beginPath();
+                ctx.moveTo(levelXPosition, continuumY);
+                ctx.lineTo(levelXPosition + levelWidth, continuumY);
+                ctx.strokeStyle = "#64748b";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.fillStyle = "#475569";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+                ctx.fillText("continuum (0 eV)", levelXPosition + levelWidth + 10, continuumY);
+                ctx.save();
+                ctx.translate(28, canvasHeight / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.fillStyle = "#64748b";
+                ctx.fillText("binding energy increases →", 0, 0);
+                ctx.restore();
 
+                for (const level of labels) {
+                    ctx.beginPath();
+                    ctx.moveTo(levelXPosition, level.y);
+                    ctx.lineTo(levelXPosition + levelWidth, level.y);
+                    ctx.strokeStyle = "#334155";
+                    ctx.lineWidth = level.key === "K" ? 2.75 : 2;
+                    ctx.stroke();
+
+                    const qn = levelQuantumNumbers[level.key];
+                    if (qn) {
                         ctx.beginPath();
-                        ctx.moveTo(levelXPosition, y);
-                        ctx.lineTo(levelXPosition + levelWidth, y);
-                        ctx.strokeStyle = "#555";
-                        ctx.lineWidth = (levelKey === "E0" || levelKey === "Valence") ? 1 : 2;
+                        ctx.moveTo(levelXPosition - 3, level.y);
+                        ctx.lineTo(levelXPosition - 9, level.labelY);
+                        ctx.strokeStyle = "#94a3b8";
+                        ctx.lineWidth = 1;
                         ctx.stroke();
-                        
-                        const config = levelConfigurations[levelKey];
-                        if (config) {
-                             hittableLevels.push({
-                                yMin: y - 5, yMax: y + 5, xMin: levelXPosition,
-                                xMax: levelXPosition + levelWidth, html: `Configuration: ${config}`
-                            });
-                        }
-
-                        const qn = levelQuantumNumbers[levelKey];
-                        if (qn) {
-                            ctx.fillStyle = "#4b5563";
-                            ctx.textAlign = "right";
-                            ctx.fillText(`n=${qn.n}, l=${qn.l}, j=${qn.j}`, levelXPosition - 15, y + 4);
-                        }
-                        
-                        ctx.textAlign = "left";
-                        ctx.fillStyle = "#1f2937";
-                        let labelText = levelKey;
-                        if (levels[levelKey] !== undefined) {
-                            let energyDisplay = levels[levelKey] > 1000 ? (levels[levelKey]/1000).toFixed(3) + " keV" : levels[levelKey].toFixed(1) + " eV";
-                            labelText += ` (${energyDisplay})`;
-                        } else if (levelKey === "E0") {
-                             labelText = "E=0 (Continuum)";
-                        } else if (levelKey === "Valence") {
-                             labelText = "Valence Band";
-                        }
-                        ctx.fillText(labelText, levelXPosition + levelWidth + 10, y + 4);
+                        ctx.fillStyle = "#4b5563";
+                        ctx.textAlign = "right";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(`n=${qn.n}, l=${qn.l}, j=${qn.j}`, levelXPosition - 15, level.labelY);
                     }
+
+                    // Leader lines keep labels legible while the energy lines stay exact.
+                    ctx.beginPath();
+                    ctx.moveTo(levelXPosition + levelWidth + 3, level.y);
+                    ctx.lineTo(levelXPosition + levelWidth + 9, level.labelY);
+                    ctx.strokeStyle = "#94a3b8";
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.textAlign = "left";
+                    ctx.fillStyle = "#1f2937";
+                    ctx.fillText(`${level.key} (${formatEnergy(level.energy)})`,
+                        levelXPosition + levelWidth + 12, level.labelY);
+
+                    const config = levelConfigurations[level.key];
+                    const qnText = qn ? `n=${qn.n}, l=${qn.l}, j=${qn.j}` : "";
+                    hittableLevels.push({
+                        yMin: level.y - 6,
+                        yMax: level.y + 6,
+                        xMin: levelXPosition,
+                        xMax: levelXPosition + levelWidth,
+                        html: `<strong>${level.key}</strong> · ${config || ""}<br>${qnText}<br>Binding energy: ${formatEnergy(level.energy)}`
+                    });
                 }
                 
                 if (selectedTransitionKey !== "none" && transitionsData[selectedTransitionKey]) {
@@ -341,10 +446,10 @@
                     const toLevelKey = transition.to;
 
                     if (levels[fromLevelKey] !== undefined && levels[toLevelKey] !== undefined && 
-                        levelYPosition[fromLevelKey] && levelYPosition[toLevelKey]) {
+                        kBindingEnergy > 0) {
                         
-                        const yFrom = levelYPosition[fromLevelKey] * canvasHeight;
-                        const yTo = levelYPosition[toLevelKey] * canvasHeight; 
+                        const yFrom = energyToY(levels[fromLevelKey], kBindingEnergy, canvasHeight);
+                        const yTo = energyToY(levels[toLevelKey], kBindingEnergy, canvasHeight); 
                         const arrowX = levelXPosition + levelWidth / 2 + (Object.keys(transitionsData).indexOf(selectedTransitionKey) -2) * 25 ;
 
                         // Draw arrow line
@@ -353,7 +458,7 @@
                         
                         // Draw arrowhead
                         const headlen = 10; 
-                        const angle = Math.atan2(yTo - yFrom, 0); // Angle for a downward vertical arrow
+                        const angle = Math.atan2(yTo - yFrom, 0);
                         ctx.beginPath();
                         ctx.moveTo(arrowX, yTo);
                         ctx.lineTo(arrowX - headlen * Math.cos(angle - Math.PI / 6), yTo - headlen * Math.sin(angle - Math.PI / 6));
@@ -378,7 +483,7 @@
                             }
                             
                             transitionInfoDiv.innerHTML = `<strong class="text-white">Transition ${transition.label}</strong><br>
-                                Energy: ${energyValueDisplay.toFixed(3)} ${energyDisplayUnit}<br>
+                                Photon energy: ${energyValueDisplay.toFixed(3)} ${energyDisplayUnit}<br>
                                 Wavelength (λ): ${wavelength_A.toFixed(4)} Å`;
                         }
                     } else {
@@ -421,6 +526,7 @@
             // --- Event Listeners ---
             elementSelect.addEventListener('change', drawDiagram);
             transitionSelect.addEventListener('change', drawDiagram);
+            scaleSelect.addEventListener('change', drawDiagram);
             canvas.addEventListener('mousemove', handleCanvasMouseMove);
             canvas.addEventListener('mouseout', handleCanvasMouseOut);
 
