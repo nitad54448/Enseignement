@@ -35,6 +35,30 @@
         #canvas-f-2d, #canvas-result-2d {
             aspect-ratio: 1 / 1;
         }
+        /* Keep the small kernel preview independent of full-width image cards. */
+        #kernel-controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+        #g-controls-2d {
+            flex: 1 1 160px;
+            min-width: 0;
+        }
+        #kernel-preview {
+            box-sizing: border-box;
+            flex: 0 0 112px;
+            width: 112px;
+            height: 112px;
+            padding: 4px;
+        }
+        #canvas-g-2d {
+            box-sizing: border-box;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
         select, input[type="range"], button {
             cursor: pointer;
         }
@@ -95,11 +119,11 @@
                     </div>
                     <div class="space-y-3">
                         <h3 class="text-lg font-semibold">Kernel g(x,y)</h3>
-                        <div class="flex items-start gap-4">
+                        <div id="kernel-controls-row" class="flex items-start gap-4">
                             <div class="flex-1 space-y-3" id="g-controls-2d">
                                 <!-- 2D g(x,y) controls are here -->
                             </div>
-                            <div class="canvas-wrapper p-1 w-28 h-28 flex-shrink-0">
+                            <div id="kernel-preview" class="canvas-wrapper">
                                  <canvas id="canvas-g-2d" width="100" height="100"></canvas>
                             </div>
                         </div>
@@ -136,6 +160,10 @@
     const SIZE_2D = 400;
     let webcamStream = null;
     let animationFrameId = null;
+    let webcamRequestId = 0;
+    let webcamRequestPending = false;
+    let imageLoadId = 0;
+    let uploadedImage = null;
     let activeSourceButton = null; // To track the active 2D source button
 
     const params = {
@@ -235,8 +263,8 @@
                 let r = 0, g = 0, b = 0; 
                 for (let ky = 0; ky < kernelSize; ky++) { 
                     for (let kx = 0; kx < kernelSize; kx++) { 
-                        const sy = y + ky - halfKernel; 
-                        const sx = x + kx - halfKernel; 
+                        const sy = y - ky + halfKernel; 
+                        const sx = x - kx + halfKernel; 
                         if (sy >= 0 && sy < height && sx >= 0 && sx < width) { 
                             const i = (sy * width + sx) * 4; 
                             const weight = kernel[ky][kx]; 
@@ -490,7 +518,7 @@
         if(vs) { vs.textContent = (t.step && String(t.step).includes('.')) ? parseFloat(v).toFixed(1) : v; }
         const p1D = params['1D'], p2D = params['2D'];
         switch(id) {
-            case 'mode-select': setupMode(v); return;
+            case 'mode-select': if (v !== MODE) setupMode(v); return;
             case 'f-type-1d': p1D.f.type = v; update1DParamSliders(); break;
             case 'g-type-1d': p1D.g.type = v; update1DParamSliders(); break;
             case 'f-spacing': p1D.f.spacing = v; break;
@@ -535,6 +563,7 @@
     
     function setupMode(newMode) {
         MODE = newMode;
+        imageLoadId++; // Invalidate image callbacks targeting the previous layout.
         stopWebcam();
         updateActiveButton(null);
         
@@ -582,46 +611,78 @@
     }
 
     function loadPreset(sourceType) {
+        if (MODE !== '2D') return;
         stopWebcam();
+        const requestId = ++imageLoadId;
+        // A webcam is restarted only by its button; uploads retain decoded pixels.
+        if (sourceType === 'upload' && uploadedImage) {
+            params['2D'].f.source = 'upload';
+            document.getElementById('preset-select-2d').value = '';
+            updateActiveButton(document.getElementById('use-upload-btn'));
+            drawSourceToCanvasCover(uploadedImage, canvasF, ctxF);
+            updateAndDraw();
+            return;
+        }
+        if (!Object.prototype.hasOwnProperty.call(SAMPLE_IMAGES, sourceType)) sourceType = 'grid';
         updateActiveButton(null);
         document.getElementById('preset-select-2d').value = sourceType;
         params['2D'].f.source = sourceType;
         const img = new Image();
-        img.crossOrigin = "anonymous";
         img.onload = () => {
-            if (canvasF && ctxF) {
-                drawSourceToCanvasCover(img, canvasF, ctxF);
-                updateAndDraw();
-            }
+            if (requestId !== imageLoadId || MODE !== '2D') return;
+            drawSourceToCanvasCover(img, canvasF, ctxF);
+            updateAndDraw();
         };
         img.onerror = () => {
+            if (requestId !== imageLoadId || MODE !== '2D') return;
             console.error('Failed to load sample image:', sourceType);
             if (statusEl) statusEl.textContent = 'Failed to load sample image.';
         };
         img.src = SAMPLE_IMAGES[sourceType];
     }
 
-    function startWebcam() {
-        if (webcamStream) return;
+    async function startWebcam() {
+        if (MODE !== '2D' || webcamStream || webcamRequestPending) return;
+        imageLoadId++; // A previous image load must not overwrite webcam frames.
+        params['2D'].f.source = 'webcam';
+        const requestId = ++webcamRequestId;
+        webcamRequestPending = true;
         if (statusEl) statusEl.textContent = 'Requesting webcam access...';
         updateActiveButton(document.getElementById('use-webcam-btn'));
-        navigator.mediaDevices.getUserMedia({ video: { width: { ideal: SIZE_2D }, height: { ideal: SIZE_2D } } })
-        .then(stream => {
+        document.getElementById('preset-select-2d').value = '';
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error('Webcam access is unavailable in this browser context.');
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: SIZE_2D }, height: { ideal: SIZE_2D } }
+            });
+            if (requestId !== webcamRequestId || MODE !== '2D' || params['2D'].f.source !== 'webcam') {
+                stream.getTracks().forEach(track => track.stop());
+                return;
+            }
+            webcamRequestPending = false;
             webcamStream = stream;
+            webcamVideo.onloadedmetadata = () => {
+                if (requestId !== webcamRequestId || webcamStream !== stream) return;
+                if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+                transformLoop2D();
+            };
             webcamVideo.srcObject = stream;
             webcamVideo.classList.remove('hidden');
             canvasF.classList.add('hidden');
             if (statusEl) statusEl.textContent = 'Webcam active.';
-            webcamVideo.addEventListener('loadedmetadata', transformLoop2D);
-        })
-        .catch(err => {
+        } catch (err) {
+            if (requestId !== webcamRequestId || MODE !== '2D') return;
             console.error('Webcam error:', err);
-            if (statusEl) statusEl.textContent = 'Could not access webcam.';
             loadPreset('grid');
-        });
+        }
     }
-    
+
     function stopWebcam() {
+        webcamRequestId++; // Late permission results must dispose of their stream.
+        webcamRequestPending = false;
+        if (webcamVideo) webcamVideo.onloadedmetadata = null;
         if (webcamStream) {
             webcamStream.getTracks().forEach(track => track.stop());
             webcamStream = null;
@@ -630,17 +691,15 @@
             webcamVideo.classList.add('hidden');
             webcamVideo.srcObject = null;
         }
-        if (canvasF) {
-            canvasF.classList.remove('hidden');
-        }
-        if (animationFrameId) {
+        if (canvasF) canvasF.classList.remove('hidden');
+        if (animationFrameId !== null) {
             cancelAnimationFrame(animationFrameId);
             animationFrameId = null;
         }
     }
-    
+
     function transformLoop2D() {
-        if (!webcamStream || !webcamVideo || !canvasF || !ctxF) return;
+        if (MODE !== '2D' || !webcamStream || !webcamVideo || !canvasF || !ctxF) return;
         try {
             drawSourceToCanvasCover(webcamVideo, canvasF, ctxF);
             updateAndDraw();
@@ -661,27 +720,30 @@
 
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) {
-                stopWebcam();
-                updateActiveButton(document.getElementById('use-upload-btn'));
-                params['2D'].f.source = 'upload';
-                const img = new Image();
-                img.onload = () => {
-                    if (canvasF && ctxF) {
-                        drawSourceToCanvasCover(img, canvasF, ctxF);
-                        updateAndDraw();
-                    }
-                    URL.revokeObjectURL(img.src);
-                };
-                img.onerror = () => {
-                    if (statusEl) statusEl.textContent = 'Failed to load uploaded image.';
-                    URL.revokeObjectURL(img.src);
-                    loadPreset('grid');
-                };
-                img.src = URL.createObjectURL(file);
-            }
+            if (!file || MODE !== '2D') return;
+            stopWebcam();
+            const requestId = ++imageLoadId;
+            updateActiveButton(document.getElementById('use-upload-btn'));
+            document.getElementById('preset-select-2d').value = '';
+            params['2D'].f.source = 'upload';
+            const img = new Image();
+            const objectUrl = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(objectUrl);
+                if (requestId !== imageLoadId || MODE !== '2D') return;
+                uploadedImage = img;
+                drawSourceToCanvasCover(img, canvasF, ctxF);
+                updateAndDraw();
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(objectUrl);
+                if (requestId !== imageLoadId || MODE !== '2D') return;
+                loadPreset('grid');
+            };
+            img.src = objectUrl;
+            fileInput.value = ''; // Permit choosing the same file again.
         });
-        
+
         mainHeader.addEventListener('change', handleHeaderChange);
         mainHeader.addEventListener('input', handleHeaderChange);
         setupMode('1D');
