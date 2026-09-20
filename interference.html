@@ -7,6 +7,8 @@
     <link href="./dist/output.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        * { box-sizing: border-box; }
+        .hidden { display: none !important; }
         body {
             font-family: 'Inter', sans-serif;
             margin: 0;
@@ -59,31 +61,33 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            gap: 12px;
             width: 100%;
-            height: 100%;
+            min-height: 100%;
         }
         .slits-view-container {
             width: 100%;
             max-width: 600px;
-            height: 80px;
+            height: 110px;
             background-color: #111827;
             border-radius: 0.5rem;
             padding: 8px;
-            margin-bottom: 2rem;
+            margin-bottom: 0;
         }
         .slits-view-container canvas {
             width: 100%;
             height: 100%;
         }
         .detector-and-scale-container {
+            padding: 0 15px;
             width: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
         }
         .detector-container {
-            width: calc(100% - 30px); /* Make container narrower to create padding */
-            margin: 0 15px; /* Add 15px margin on left and right */
+            width: 100%;
+            margin: 0;
             height: 150px;
             background-color: #000;
             border-radius: 0.5rem 0.5rem 0 0; /* Rounded top corners */
@@ -100,6 +104,20 @@
         .scale-container canvas {
             width: 100%;
             height: 100%;
+        }
+        #visualization-area { overflow-y: auto; align-items: flex-start; }
+        .geometry-view { width: 100%; height: 135px; flex-shrink: 0; }
+        .geometry-view canvas { display: block; width: 100%; height: 100%; }
+        .view-note { color: #d1d5db; font-size: 12px; text-align: center; margin: 0; }
+        .slits-view-container, .detector-and-scale-container { flex-shrink: 0; }
+        canvas { display: block; }
+        @media (max-width: 760px) {
+            body { height: auto; min-height: 100vh; overflow: auto; }
+            #app-container { flex-direction: column; }
+            #controls-panel { width: 100% !important; min-width: 0; max-width: none; overflow: visible; }
+            #drag-handle { display: none; }
+            #visualization-area { padding: 16px; overflow: visible; }
+            .simulation-container { min-height: 540px; }
         }
         /* Controls Styling */
         #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
@@ -181,7 +199,7 @@
             </div>
 
             <div class="control-group">
-                <label for="separation-slider">Slit Separation (d), μm</label>
+                <label for="separation-slider">Slit Centre-to-Centre Separation (d), μm</label>
                 <div class="control-row">
                     <input type="range" id="separation-slider" min="0.2" max="20" value="3" step="0.1">
                     <input type="number" id="separation-val" min="0.2" max="20" value="3" step="0.1">
@@ -197,6 +215,10 @@
                 <div class="slits-view-container">
                     <canvas id="slits-canvas"></canvas>
                 </div>
+                <p id="aperture-note" class="view-note"></p>
+                <div class="geometry-view"><canvas id="geometry-canvas"></canvas></div>
+                <p class="view-note">Detector: 20 cm wide. Fraunhofer far-field model; intensity normalized to the central maximum.</p>
+                <p id="model-note" class="view-note"></p>
                 <div class="detector-and-scale-container">
                     <div class="detector-container">
                         <canvas id="detector-canvas"></canvas>
@@ -232,6 +254,15 @@
             const scaleCtx = scaleCanvas.getContext('2d');
             const detectorScaleRadios = document.querySelectorAll('input[name="detector-scale"]');
             
+            const geometryCanvas = document.getElementById('geometry-canvas');
+            const geometryCtx = geometryCanvas.getContext('2d');
+            let redrawPending = false;
+            function scheduleUpdate() {
+                if (redrawPending) return;
+                redrawPending = true;
+                requestAnimationFrame(() => { redrawPending = false; update(); });
+            }
+
             const DETECTOR_WIDTH_PHYSICAL = 0.20; // 20 cm
 
             // --- UI & SIMULATION LOGIC ---
@@ -261,29 +292,32 @@
             }
 
             function calculatePattern(lambda, N, a, d, L, screenWidth_pixels, detectorWidth_physical) {
-                const numPoints = Math.round(screenWidth_pixels);
-                if (numPoints <= 0) return [];
-                const intensities = new Array(numPoints).fill(0);
-                const lambda_m = lambda * 1e-9;
-                const a_m = a * 1e-6;
-                const d_m = d * 1e-6;
-
-                for (let i = 0; i < numPoints; i++) {
-                    const x = (i / numPoints - 0.5) * detectorWidth_physical;
-                    const theta = Math.atan(x / L);
-
-                    const beta = (Math.PI * a_m / lambda_m) * Math.sin(theta);
-                    let diffraction_term = Math.abs(beta) < 1e-9 ? 1.0 : Math.pow(Math.sin(beta) / beta, 2);
-                    let interference_term = 1.0;
-                    if (N > 1) {
-                        const alpha = (Math.PI * d_m / lambda_m) * Math.sin(theta);
-                        interference_term = Math.abs(Math.sin(alpha)) < 1e-9 ? 1.0 : Math.pow(Math.sin(N * alpha) / (N * Math.sin(alpha)), 2);
+                const count = Math.max(0, Math.round(screenWidth_pixels));
+                if (!count || ![lambda, N, a, d, L, detectorWidth_physical].every(Number.isFinite) ||
+                    lambda <= 0 || L <= 0 || a <= 0 || d <= 0 || N < 1 || !Number.isInteger(N)) return [];
+                const lambda_m = lambda * 1e-9, a_m = a * 1e-6, d_m = d * 1e-6;
+                const pixelWidth = detectorWidth_physical / count;
+                // Integrate within each pixel to avoid missing narrow high-N fringes.
+                const samples = Math.max(1, Math.ceil(8 * Math.max(a_m, N * d_m) * pixelWidth / (lambda_m * L)));
+                const sinc = v => Math.abs(v) < 1e-8 ? 1 - v * v / 6 : Math.sin(v) / v;
+                const intensities = new Array(count);
+                for (let i = 0; i < count; i++) {
+                    let total = 0;
+                    for (let j = 0; j < samples; j++) {
+                        const x = ((i + (j + 0.5) / samples) / count - 0.5) * detectorWidth_physical;
+                        const sinTheta = x / Math.hypot(x, L);
+                        const beta = Math.PI * a_m * sinTheta / lambda_m;
+                        const alpha = Math.PI * d_m * sinTheta / lambda_m;
+                        // Reducing modulo pi handles every principal maximum stably.
+                        const delta = alpha - Math.round(alpha / Math.PI) * Math.PI;
+                        const arrayFactor = N === 1 ? 1 : sinc(N * delta) / sinc(delta);
+                        total += (sinc(beta) * arrayFactor) ** 2;
                     }
-                    intensities[i] = diffraction_term * interference_term;
+                    intensities[i] = Math.max(0, Math.min(1, total / samples));
                 }
                 return intensities;
             }
-            
+
             function setupCanvas(canvas, ctx) {
                 const dpr = window.devicePixelRatio || 1;
                 const rect = canvas.getBoundingClientRect();
@@ -304,9 +338,13 @@
                 slitsCtx.fillRect(0, 0, width, height);
                 
                 const totalSlitSystemWidth_um = (N > 1) ? (N - 1) * d + a : a;
-                const scale = (width * 0.8) / totalSlitSystemWidth_um;
-                const slitHeight_px = height * 0.8;
+                // Keep the aperture scale stable until a wider field is required.
+                const span = 20 * Math.pow(2, Math.max(0, Math.ceil(Math.log2(totalSlitSystemWidth_um / 16))));
+                const scale = width / span;
+                const slitHeight_px = height * 0.55;
                 const slitY_px = height * 0.1;
+                document.getElementById('aperture-note').textContent =
+                    `Magnified aperture: ${span} μm across; slit width ${a.toFixed(1)} μm; centre spacing ${d.toFixed(1)} μm.`;
                 const slitWidth_px = a * scale;
                 const totalSlitSystemWidth_px = (N > 1) ? (N - 1) * d * scale + a * scale : a * scale;
                 let currentX_px = (width - totalSlitSystemWidth_px) / 2;
@@ -316,6 +354,35 @@
                     slitsCtx.fillRect(currentX_px, slitY_px, slitWidth_px, slitHeight_px);
                     currentX_px += d * scale;
                 }
+                slitsCtx.strokeStyle = '#d1d5db';
+                slitsCtx.beginPath(); slitsCtx.moveTo(width * 0.1, height * 0.82);
+                slitsCtx.lineTo(width * 0.3, height * 0.82); slitsCtx.stroke();
+                slitsCtx.fillStyle = '#d1d5db'; slitsCtx.font = '11px Inter'; slitsCtx.textAlign = 'center';
+                slitsCtx.fillText(`${(span * 0.2).toFixed(1)} μm`, width * 0.2, height * 0.98);
+            }
+
+            function drawGeometry(L_cm, rgb) {
+                setupCanvas(geometryCanvas, geometryCtx);
+                const w = geometryCanvas.width / (window.devicePixelRatio || 1);
+                const h = geometryCanvas.height / (window.devicePixelRatio || 1);
+                const ctx = geometryCtx, left = 30, right = w - 30;
+                const detectorX = left + (right - left) * L_cm / 100;
+                ctx.clearRect(0, 0, w, h);
+                ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(left, 60); ctx.lineTo(right, 60); ctx.stroke();
+                ctx.strokeStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+                ctx.beginPath(); ctx.moveTo(left, 60); ctx.lineTo(detectorX, 30);
+                ctx.moveTo(left, 60); ctx.lineTo(detectorX, 90); ctx.stroke();
+                ctx.fillStyle = '#e5e7eb'; ctx.fillRect(left - 2, 40, 4, 15); ctx.fillRect(left - 2, 65, 4, 15);
+                ctx.fillRect(detectorX - 2, 30, 4, 60);
+                ctx.font = '12px Inter'; ctx.textAlign = 'center';
+                ctx.fillText(`Slits → detector: L = ${L_cm} cm`, w / 2, 16);
+                ctx.font = '10px Inter';
+                for (let cm = 0; cm <= 100; cm += 20) {
+                    const x = left + (right - left) * cm / 100;
+                    ctx.fillRect(x, 99, 1, 5); ctx.fillText(String(cm), x, 116);
+                }
+                ctx.fillText('Longitudinal scale (cm); transverse dimensions schematic', w / 2, 132, w - 8);
             }
             
             function drawScale(detectorWidth_physical) {
@@ -357,7 +424,7 @@
 
                     const abs_cm = Math.abs(cm);
                     // Draw labels for all integer values except for +/- 1 and +/- 9
-                    if (abs_cm !== 1 && abs_cm !== 9) {
+                    if (width >= 500 ? (abs_cm !== 1 && abs_cm !== 9) : isMajorTick) {
                         let label = cm.toString();
                         if (cm === 0) {
                             label += " (cm)";
@@ -381,7 +448,7 @@
                 const L_cm = parseFloat(controls.distance.input.value);
                 const L = L_cm / 100.0;
                 const lambda = parseFloat(controls.wavelength.input.value);
-                const N = parseInt(controls.slits.input.value, 10);
+                const N = Math.round(Number(controls.slits.input.value));
                 const a = parseFloat(controls.width.input.value);
                 let d = parseFloat(controls.separation.input.value);
 
@@ -397,7 +464,13 @@
                 controls.separation.slider.disabled = (N === 1);
                 controls.separation.input.disabled = (N === 1);
 
+                if (![L, lambda, N, a, d].every(Number.isFinite) || L <= 0 || a <= 0 || lambda <= 0 || N < 1) return;
                 const rgbColor = wavelengthToRgb(lambda);
+                drawGeometry(L_cm, rgbColor);
+                const aperture = ((N - 1) * d + a) * 1e-6;
+                const fresnelNumber = (aperture / 2) ** 2 / (lambda * 1e-9 * L);
+                document.getElementById('model-note').textContent = fresnelNumber >= 0.1
+                    ? 'Wide aperture / short distance: near-field effects may matter; this far-field pattern is approximate.' : '';
                 drawSlits(N, a, d, rgbColor);
                 
                 setupCanvas(detectorCanvas, detectorCtx);
@@ -405,7 +478,7 @@
                 const detectorHeight_pixels = detectorCanvas.height / (window.devicePixelRatio || 1);
                 if (detectorWidth_pixels === 0 || detectorHeight_pixels === 0) return;
                 
-                const intensities = calculatePattern(lambda, N, a, d, L, detectorWidth_pixels, DETECTOR_WIDTH_PHYSICAL);
+                const intensities = calculatePattern(lambda, N, a, d, L, detectorCanvas.width, DETECTOR_WIDTH_PHYSICAL);
                 detectorCtx.clearRect(0, 0, detectorWidth_pixels, detectorHeight_pixels);
                 
                 const detectorScale = document.querySelector('input[name="detector-scale"]:checked').value;
@@ -414,16 +487,17 @@
 
                 for (let i = 0; i < intensities.length; i++) {
                     const intensity = intensities[i];
-                    if (typeof intensity !== 'number') continue;
+                    if (!Number.isFinite(intensity)) continue;
                     let displayIntensity;
                     if (detectorScale === 'log') {
                         displayIntensity = (Math.log(intensity + logEpsilon) - logMin) / -logMin;
                     } else {
                         displayIntensity = intensity;
                     }
-                    const finalAlpha = Math.pow(displayIntensity, 0.5);
+                    const finalAlpha = Math.max(0, Math.min(1, displayIntensity));
                     detectorCtx.fillStyle = `rgba(${rgbColor.r}, ${rgbColor.g}, ${rgbColor.b}, ${finalAlpha})`;
-                    detectorCtx.fillRect(i, 0, 1, detectorHeight_pixels);
+                    const stripeWidth = detectorWidth_pixels / intensities.length;
+                    detectorCtx.fillRect(i * stripeWidth, 0, stripeWidth, detectorHeight_pixels);
                 }
                 
                 drawScale(DETECTOR_WIDTH_PHYSICAL);
@@ -453,30 +527,33 @@
                     slider.value = Math.log(parseFloat(input.value));
                     slider.addEventListener('input', () => {
                         const linearValue = Math.exp(parseFloat(slider.value));
-                        const dynamicPrecision = linearValue < 1 ? 2 : (linearValue < 10 ? 1 : 0);
-                        input.value = linearValue.toFixed(dynamicPrecision);
-                        requestAnimationFrame(update);
+                        const rounded = Math.round(linearValue / step) * step;
+                        input.value = Math.max(min, Math.min(max, rounded)).toFixed(precision);
+                        slider.value = Math.log(Number(input.value));
+                        scheduleUpdate();
                     });
                     input.addEventListener('change', () => {
                         let value = Math.max(min, Math.min(max, parseFloat(input.value) || min));
+                        value = Math.round(value / step) * step;
                         input.value = value.toFixed(precision);
                         slider.value = Math.log(value);
-                        requestAnimationFrame(update);
+                        scheduleUpdate();
                     });
                 } else { // Linear sliders
                     slider.addEventListener('input', () => {
                         input.value = parseFloat(slider.value).toFixed(precision);
-                        requestAnimationFrame(update);
+                        scheduleUpdate();
                     });
                     input.addEventListener('change', () => {
                         let value = Math.max(min, Math.min(max, parseFloat(input.value) || min));
+                        value = Math.round(value / step) * step;
                         input.value = value.toFixed(precision);
                         slider.value = value;
-                        requestAnimationFrame(update);
+                        scheduleUpdate();
                     });
                 }
             });
-            detectorScaleRadios.forEach(radio => radio.addEventListener('change', () => requestAnimationFrame(update)));
+            detectorScaleRadios.forEach(radio => radio.addEventListener('change', () => scheduleUpdate()));
 
             // --- Resizer Logic ---
             const resizer = document.getElementById('drag-handle');
@@ -493,7 +570,7 @@
                 const newLeftWidth = e.clientX - resizer.parentElement.getBoundingClientRect().left;
                 if (newLeftWidth > 300 && newLeftWidth < window.innerWidth - 400) {
                     leftPanel.style.width = `${newLeftWidth}px`;
-                    requestAnimationFrame(update);
+                    scheduleUpdate();
                 }
             }
             function stopResize() {
@@ -504,7 +581,7 @@
             }
             
             // --- INITIALIZATION ---
-            window.addEventListener('resize', () => requestAnimationFrame(update));
+            window.addEventListener('resize', () => scheduleUpdate());
             update();
         });
     </script>
