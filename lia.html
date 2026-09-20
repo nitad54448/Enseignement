@@ -7,6 +7,7 @@
     <link href="./dist/output.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        * { box-sizing: border-box; }
         body {
             font-family: 'Inter', sans-serif;
             margin: 0;
@@ -56,12 +57,14 @@
         #plots-grid {
             flex-grow: 1;
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            grid-template-rows: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-rows: repeat(2, minmax(0, 1fr));
             gap: 1.5rem;
             min-height: 0;
         }
         .plot-container {
+            min-width: 0;
+            min-height: 0;
             background-color: #ffffff;
             border-radius: 0.75rem;
             box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
@@ -69,10 +72,18 @@
             display: flex;
             flex-direction: column;
         }
-        .plot-container canvas {
-            flex-grow: 1;
-            width: 100%;
-            height: 100%;
+        .plot-surface { position: relative; flex: 1 1 0; min-height: 0; width: 100%; }
+        .plot-surface canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+        #measurement-note, #time-note { font-size: 12px; line-height: 1.5; }
+        #measurement-note { margin-top: 12px; color: #9ca3af; }
+        #time-note { margin: 0 0 12px; color: #4b5563; }
+        @media (max-width: 800px) {
+            body { height: auto; min-height: 100vh; overflow: auto; }
+            #app-container { flex-direction: column; }
+            #controls-panel { width: 100% !important; min-width: 0; max-width: none; overflow: visible; }
+            #drag-handle { display: none; }
+            #plots-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+            .plot-container { height: 280px; }
         }
         /* Controls Styling */
         #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
@@ -210,6 +221,7 @@
             
             <div class="control-group pt-4">
                 <h2>Measurement</h2>
+                <p id="measurement-note"></p>
                 <div class="grid grid-cols-2 gap-3 text-center mt-4">
                     <div class="bg-gray-800 p-3 rounded-md">
                         <p class="text-sm text-gray-400">Amplitude (R)</p>
@@ -234,22 +246,23 @@
         <div id="drag-handle"></div>
 
         <div id="visualization-area">
+            <p id="time-note"></p>
             <div id="plots-grid">
                 <div class="plot-container">
                     <h3 class="text-lg font-semibold mb-2 text-center">Input Signal (V<sub>in</sub>)</h3>
-                    <canvas id="input-canvas"></canvas>
+                    <div class="plot-surface"><canvas id="input-canvas"></canvas></div>
                 </div>
                 <div class="plot-container">
                     <h3 class="text-lg font-semibold mb-2 text-center">Reference Signal (V<sub>ref</sub>)</h3>
-                    <canvas id="ref-canvas"></canvas>
+                    <div class="plot-surface"><canvas id="ref-canvas"></canvas></div>
                 </div>
                 <div class="plot-container">
                     <h3 class="text-lg font-semibold mb-2 text-center">Multiplied Signal (V<sub>in</sub> &times; V<sub>ref</sub>)</h3>
-                    <canvas id="mixed-canvas"></canvas>
+                    <div class="plot-surface"><canvas id="mixed-canvas"></canvas></div>
                 </div>
                 <div class="plot-container">
                     <h3 class="text-lg font-semibold mb-2 text-center">Demodulated Output (LPF)</h3>
-                    <canvas id="output-canvas"></canvas>
+                    <div class="plot-surface"><canvas id="output-canvas"></canvas></div>
                 </div>
             </div>
         </div>
@@ -333,13 +346,12 @@
             // --- PLOTTING FUNCTIONS ---
             function setupCanvas(canvas, ctx) {
                 const dpr = window.devicePixelRatio || 1;
-                const rect = canvas.getBoundingClientRect();
+                const rect = canvas.parentElement.getBoundingClientRect();
                 if (rect.width === 0 || rect.height === 0) return;
                 canvas.width = rect.width * dpr;
                 canvas.height = rect.height * dpr;
                 ctx.scale(dpr, dpr);
-                canvas.style.width = `${rect.width}px`;
-                canvas.style.height = `${rect.height}px`;
+                // CSS controls display size; only the backing buffer is resized.
             }
 
             function drawGrid(ctx, width, height, yMin, yMax) {
@@ -441,13 +453,7 @@
                 const p = {};
                 for (const key in controls) {
                     if (controls[key].slider) {
-                        if (controls[key].isLog) {
-                            const min = parseFloat(controls[key].input.min);
-                            const max = parseFloat(controls[key].input.max);
-                            p[key] = logSliderUtils.positionToValue(parseFloat(controls[key].slider.value), min, max);
-                        } else {
-                            p[key] = parseFloat(controls[key].slider.value);
-                        }
+                        p[key] = controls[key].committedValue;
                     }
                 }
                 p.useS2 = controls.sig2Enable.checked;
@@ -461,6 +467,24 @@
                 const p = getControlValues();
                 
                 controls.sig2Controls.style.display = p.useS2 ? 'block' : 'none';
+                // Use whole reference cycles and allow ten time constants to settle.
+                const samplesPerCycle = Math.ceil(10000 / p.refFreq);
+                simParams.samplingRate = samplesPerCycle * p.refFreq;
+                simParams.dt = 1 / simParams.samplingRate;
+                const averageCycles = Math.max(1, Math.ceil(0.5 * p.refFreq));
+                const numStablePoints = averageCycles * samplesPerCycle;
+                const stableStart = Math.ceil(10 * p.tau / simParams.dt);
+                simParams.numPoints = stableStart + numStablePoints;
+                simParams.duration = simParams.numPoints * simParams.dt;
+                const averageSeconds = numStablePoints * simParams.dt;
+                const mismatched = Math.abs(p.sig1Freq - p.refFreq) > 1e-9 ||
+                    (p.useS2 && Math.abs(p.sig2Freq - p.refFreq) > 1e-9);
+                document.getElementById('measurement-note').textContent =
+                    `X/Y averaged over ${averageCycles} reference cycle(s), ${averageSeconds.toFixed(3)} s, after ${(stableStart * simParams.dt).toFixed(3)} s settling. ` +
+                    (mismatched ? 'Frequency mismatch: readouts are vector averages of a varying output, not a steady signal amplitude.' :
+                    'R and phase are calculated from the averaged X/Y components; the plot retains filter ripple.');
+                document.getElementById('time-note').textContent =
+                    `All plots: 0–${simParams.duration.toFixed(3)} s, left to right. Readout average: ${(stableStart * simParams.dt).toFixed(3)}–${simParams.duration.toFixed(3)} s.`;
 
                 const t = Array.from({ length: simParams.numPoints }, (_, i) => i * simParams.dt);
                 const vin = t.map(time => {
@@ -489,8 +513,6 @@
                     outY.push(outY[i-1] + alpha * (processedVin[i] * refQ[i] - outY[i-1]));
                 }
 
-                const stableStart = Math.floor(simParams.numPoints * 0.9);
-                const numStablePoints = simParams.numPoints - stableStart;
                 const finalX = outX.slice(stableStart).reduce((a, b) => a + b, 0) / numStablePoints;
                 const finalY = outY.slice(stableStart).reduce((a, b) => a + b, 0) / numStablePoints;
 
@@ -584,32 +606,25 @@
                 const step = parseFloat(input.step) || 0.1;
                 const precision = step < 1 ? (step.toString().split('.')[1] || '').length : 0;
 
-                // Sync slider to input
-                slider.addEventListener('input', () => {
-                    let value;
-                    if (isLog) {
-                        value = logSliderUtils.positionToValue(parseFloat(slider.value), min, max);
-                    } else {
-                        value = parseFloat(slider.value);
-                    }
-                    input.value = value.toFixed(precision);
-                    requestUpdate();
-                });
-
-                // Sync input to slider
-                input.addEventListener('change', () => {
-                    let value = parseFloat(input.value);
-                    if (isNaN(value)) value = min;
+                if (isLog) slider.step = 'any';
+                function commitValue(raw) {
+                    let value = Number(raw);
+                    if (!Number.isFinite(value)) value = min;
                     value = Math.max(min, Math.min(max, value));
+                    value = Math.max(min, Math.min(max, min + Math.round((value - min) / step) * step));
                     input.value = value.toFixed(precision);
-
-                    if (isLog) {
-                        slider.value = logSliderUtils.valueToPosition(value, min, max);
-                    } else {
-                        slider.value = value;
-                    }
+                    value = Number(input.value);
+                    control.committedValue = value; // Retain the last valid entry while a field is being edited.
+                    slider.value = isLog ? logSliderUtils.valueToPosition(value, min, max) : value;
                     requestUpdate();
+                }
+                slider.addEventListener('input', () => {
+                    commitValue(isLog
+                        ? logSliderUtils.positionToValue(Number(slider.value), min, max)
+                        : Number(slider.value));
                 });
+                input.addEventListener('change', () => commitValue(input.value));
+
             });
 
             // --- Resizer Logic ---
@@ -651,6 +666,10 @@
                     control.input.dispatchEvent(new Event('change'));
                 }
             });
+            if (typeof ResizeObserver !== 'undefined') {
+                const plotResizeObserver = new ResizeObserver(setupAllCanvases);
+                Object.values(canvases).forEach(canvas => plotResizeObserver.observe(canvas.parentElement));
+            }
             window.addEventListener('resize', setupAllCanvases);
             setupAllCanvases();
         });
