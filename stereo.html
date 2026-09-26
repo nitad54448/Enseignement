@@ -426,7 +426,7 @@
             const direction = normalizeDirection(h, k, l);
             if (!parent || !direction) return false;
             Object.assign(parent, direction, millerToSpherical(direction.h, direction.k, direction.l), {
-                isLowerHemisphere: direction.l < -1e-6
+                isLowerHemisphere: isLowerHemisphere(direction.l)
             });
             regenerateFamily(parent.id);
             return true;
@@ -477,6 +477,13 @@
         const lowerHemisphereColor = '#dc2626';
         let scene, camera, renderer, controls, sphere, poleMarkersGroup, intersectionLinesGroup, intersectionMarkersGroup, symmetryElementsGroup;
         const SPHERE_RADIUS = 12.6;
+        // Include the axis symbol and the corners of the displayed mirror planes.
+        const SPHERE_FRUSTUM_SIZE = SPHERE_RADIUS * 3.2;
+
+        function isLowerHemisphere(z) {
+            // The equator uses the upper symbol; every negative z is lower.
+            return z < 0;
+        }
 
         function createSphereGrid() {
             const gridGroup = new THREE.Group();
@@ -514,7 +521,7 @@
         function initThreeJS() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xf7fafc);
-            const frustumSize = 30;
+            const frustumSize = SPHERE_FRUSTUM_SIZE;
             camera = new THREE.OrthographicCamera(frustumSize / -2, frustumSize / 2, frustumSize / 2, frustumSize / -2, 0.1, 1000);
             camera.position.z = 32;
             camera.lookAt(0,0,0);
@@ -688,7 +695,7 @@
             const lineMaterial = new THREE.LineBasicMaterial({ color: 0x4b5563, transparent: true, opacity: 0.6, depthTest: false });
             poles.forEach(pole => {
                 const polePosition = new THREE.Vector3(SPHERE_RADIUS * pole.h, SPHERE_RADIUS * pole.l, -SPHERE_RADIUS * pole.k);
-                const targetPole = pole.l < 0 ? northPole : southPole;
+                const targetPole = isLowerHemisphere(pole.l) ? northPole : southPole;
                 const points = [polePosition, targetPole];
                 const geometry = new THREE.BufferGeometry().setFromPoints(points);
                 const line = new THREE.Line(geometry, lineMaterial);
@@ -703,7 +710,7 @@
             poles.forEach(pole => {
                 const polePosition = new THREE.Vector3(SPHERE_RADIUS * pole.h, SPHERE_RADIUS * pole.l, -SPHERE_RADIUS * pole.k);
                 let intersectionPoint;
-                if (pole.l < 0) {
+                if (isLowerHemisphere(pole.l)) {
                     const t = -pole.l / (1 - pole.l);
                     intersectionPoint = new THREE.Vector3(polePosition.x * (1 - t), 0, polePosition.z * (1 - t));
                 } else {
@@ -760,7 +767,7 @@
         function sphericalToMiller(phi, rho) { return { h: Math.sin(rho) * Math.cos(phi), k: Math.sin(rho) * Math.sin(phi), l: Math.cos(rho) }; }
         function millerToSpherical(h, k, l) { if (h === 0 && k === 0 && l === 0) return null; const mag = Math.sqrt(h*h + k*k + l*l); const h_norm = h / mag; const k_norm = k / mag; let l_norm = l / mag; const plot_l_norm = Math.abs(l_norm); const phi = Math.atan2(k_norm, h_norm); const rho = Math.acos(Math.max(-1, Math.min(1, plot_l_norm))); return { phi, rho }; }
 
-        function addPoleByValue(h, k, l, isLower = false) {
+        function addPoleByValue(h, k, l) {
             const mag = Math.sqrt(h*h + k*k + l*l);
             if (mag === 0) return;
             const h_norm = h / mag;
@@ -770,7 +777,7 @@
             if (!spherical) return;
             const parentPoleCount = poles.filter(p => p.parentId === null).length;
             const color = colorPalette[parentPoleCount % colorPalette.length];
-            const pole = { id: poleIdCounter++, h: h_norm, k: k_norm, l: l_norm, phi: spherical.phi, rho: spherical.rho, color: color, parentId: null, generatingOp: null, isLowerHemisphere: isLower ? true : (l_norm < -1e-6) };
+            const pole = { id: poleIdCounter++, h: h_norm, k: k_norm, l: l_norm, phi: spherical.phi, rho: spherical.rho, color: color, parentId: null, generatingOp: null, isLowerHemisphere: isLowerHemisphere(l_norm) };
             poles.push(pole);
             selectedPoleIndex = poles.length - 1;
             updateAllVisuals();
@@ -813,7 +820,7 @@
                 targetPoleSet = targetPoleHkl.map(p_hkl => { const mag = Math.sqrt(p_hkl.h*p_hkl.h + p_hkl.k*p_hkl.k + p_hkl.l*p_hkl.l); return { h: p_hkl.h / mag, k: p_hkl.k / mag, l: p_hkl.l / mag }; });
             } else {
                 const op = checkedOps[0]; const startPole = poles[selectedPoleIndex]; const potentialNewPoles = applySingleOperation(op, startPole); if (!potentialNewPoles || potentialNewPoles.length === 0) return; const newPoleHkl = potentialNewPoles[0]; const mag = Math.sqrt(newPoleHkl.h**2 + newPoleHkl.k**2 + newPoleHkl.l**2); if (mag > 1e-6) { newPoleHkl.h /= mag; newPoleHkl.k /= mag; newPoleHkl.l /= mag; } const existingPoleIndex = poles.findIndex(p => (p.id === parentPole.id || p.parentId === parentPole.id) && arePolesEqual(p, newPoleHkl));
-                if (existingPoleIndex !== -1) { selectedPoleIndex = existingPoleIndex; } else { const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l); const newPoleObject = { id: poleIdCounter++, h: newPoleHkl.h, k: newPoleHkl.k, l: newPoleHkl.l, phi: spherical.phi, rho: spherical.rho, color: parentPole.color, parentId: parentPole.id, generatingOp: op, isLowerHemisphere: newPoleHkl.l < -1e-6 }; poles.push(newPoleObject); selectedPoleIndex = poles.length - 1; }
+                if (existingPoleIndex !== -1) { selectedPoleIndex = existingPoleIndex; } else { const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l); const newPoleObject = { id: poleIdCounter++, h: newPoleHkl.h, k: newPoleHkl.k, l: newPoleHkl.l, phi: spherical.phi, rho: spherical.rho, color: parentPole.color, parentId: parentPole.id, generatingOp: op, isLowerHemisphere: isLowerHemisphere(newPoleHkl.l) }; poles.push(newPoleObject); selectedPoleIndex = poles.length - 1; }
                 updateAllVisuals(); return;
             }
             const familyPoles = poles.filter(p => p.id === parentPole.id || p.parentId === parentPole.id);
@@ -821,7 +828,7 @@
             for (const targetPole of targetPoleSet) { if (!findPoleInList(familyPoles, targetPole)) { nextPoleToAdd = targetPole; break; } }
             if (nextPoleToAdd) {
                 const spherical = millerToSpherical(nextPoleToAdd.h, nextPoleToAdd.k, nextPoleToAdd.l);
-                const newPoleObject = { id: poleIdCounter++, ...nextPoleToAdd, ...spherical, color: parentPole.color, parentId: parentPole.id, generatingOp: 'group', isLowerHemisphere: nextPoleToAdd.l < -1e-6 };
+                const newPoleObject = { id: poleIdCounter++, ...nextPoleToAdd, ...spherical, color: parentPole.color, parentId: parentPole.id, generatingOp: 'group', isLowerHemisphere: isLowerHemisphere(nextPoleToAdd.l) };
                 poles.push(newPoleObject); selectedPoleIndex = poles.length - 1;
             } else {
                 const orderedVisiblePoles = targetPoleSet.map(target => familyPoles.find(visible => arePolesEqual(target, visible))).filter(Boolean);
@@ -984,7 +991,7 @@
                 if (arePolesEqual(newPoleHkl, parentPole) || findPoleInList(poles.filter(p => p.id === parentPoleId || p.parentId === parentPoleId), newPoleHkl)) return;
                 const spherical = millerToSpherical(newPoleHkl.h, newPoleHkl.k, newPoleHkl.l);
                 if (!spherical) return;
-                const newPoleObject = { id: poleIdCounter++, ...newPoleHkl, ...spherical, color: parentPole.color, parentId: parentPole.id, generatingOp: 'group', isLowerHemisphere: newPoleHkl.l < -1e-6 };
+                const newPoleObject = { id: poleIdCounter++, ...newPoleHkl, ...spherical, color: parentPole.color, parentId: parentPole.id, generatingOp: 'group', isLowerHemisphere: isLowerHemisphere(newPoleHkl.l) };
                 poles.push(newPoleObject);
             });
         }
@@ -1096,7 +1103,7 @@
             
             if (renderer && camera) {
                 renderer.setSize(size, size);
-                const frustumSize = 30;
+                const frustumSize = SPHERE_FRUSTUM_SIZE;
                 camera.left   = frustumSize / -2; 
                 camera.right  = frustumSize / 2; 
                 camera.top    = frustumSize / 2; 
