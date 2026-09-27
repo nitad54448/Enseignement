@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Filtres Électroniques RC (1er Ordre)</title>
+    
+    <!-- Tailwind CSS for UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js for charting -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+        }
+        /* Custom scrollbar for control panel */
+        .sidebar-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .sidebar-scroll::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        /* Responsive plot container */
+        .plot-container {
+            width: 100%;
+            height: 100%;
+            min-height: 300px;
+        }
+    </style>
+</head>
+<body class="text-slate-800 h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- Control Panel -->
+    <aside class="w-full md:w-80 bg-white border-r border-slate-200 shadow-sm flex flex-col h-[40vh] md:h-screen z-10 shrink-0">
+        <div class="p-4 border-b border-slate-200 bg-slate-50">
+            <h1 class="text-xl font-bold text-slate-800 leading-tight">Filtres RC <br/><span class="text-sm font-normal text-slate-500">1er Ordre - Simulateur</span></h1>
+        </div>
+        
+        <div class="p-5 flex-1 overflow-y-auto sidebar-scroll space-y-6">
+            
+            <!-- Type de filtre -->
+            <div>
+                <label for="filterType" class="block text-sm font-semibold mb-1">Type de filtre</label>
+                <select id="filterType" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="lowpass">Passe-bas (Low Pass)</option>
+                    <option value="highpass">Passe-haut (High Pass)</option>
+                </select>
+            </div>
+
+            <!-- Résistance -->
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label for="resInput" class="text-sm font-semibold">Résistance (R)</label>
+                    <span class="text-xs text-slate-500 font-mono">Ω</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="range" id="resSlider" min="100" max="100000" step="100" value="22000" class="w-2/3 accent-blue-600">
+                    <input type="number" id="resInput" min="100" max="100000" step="100" value="22000" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <!-- Capacité -->
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label for="capInput" class="text-sm font-semibold">Capacité (C)</label>
+                    <span class="text-xs text-slate-500 font-mono">F</span>
+                </div>
+                <!-- Using nF internally for slider to avoid floating point slider issues, but displaying scientific/farads in input -->
+                <div class="flex items-center space-x-2">
+                    <input type="range" id="capSlider" min="1" max="1000" step="1" value="100" class="w-2/3 accent-blue-600" title="1 nF to 1000 nF">
+                    <input type="number" id="capInput" value="100e-9" step="1e-9" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <!-- Gain K -->
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label for="gainInput" class="text-sm font-semibold">Gain statique (K)</label>
+                    <span class="text-xs text-slate-500 font-mono">Linéaire</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="range" id="gainSlider" min="0.1" max="10" step="0.1" value="1" class="w-2/3 accent-blue-600">
+                    <input type="number" id="gainInput" min="0.1" max="10" step="0.1" value="1" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <hr class="border-slate-200">
+
+            <!-- Freq Entrée -->
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label for="freqInput" class="text-sm font-semibold text-emerald-700">Fréquence du signal</label>
+                    <span class="text-xs text-slate-500 font-mono">Hz</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="range" id="freqSlider" min="1" max="5000" step="1" value="70" class="w-2/3 accent-emerald-600">
+                    <input type="number" id="freqInput" min="1" max="100000" step="1" value="70" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            <!-- Amplitude Entrée -->
+            <div>
+                <div class="flex justify-between mb-1">
+                    <label for="ampInput" class="text-sm font-semibold text-emerald-700">Amplitude d'entrée</label>
+                    <span class="text-xs text-slate-500 font-mono">V</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="range" id="ampSlider" min="0.1" max="10" step="0.1" value="1" class="w-2/3 accent-emerald-600">
+                    <input type="number" id="ampInput" min="0.1" max="10" step="0.1" value="1" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+        </div>
+        
+        <!-- Display computed parameters -->
+        <div class="p-4 bg-slate-800 text-white shadow-inner">
+            <div class="text-sm text-slate-300 mb-1">Fréquence de coupure (fc)</div>
+            <div class="text-2xl font-mono font-bold text-blue-400" id="fcDisplay">72.34 Hz</div>
+        </div>
+    </aside>
+
+    <!-- Main Content - Plots -->
+    <main class="flex-1 bg-slate-100 overflow-y-auto h-[60vh] md:h-screen p-2 md:p-4">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
+                <div id="plotBodeGain" class="flex-1 plot-container"></div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
+                <div id="plotBodePhase" class="flex-1 plot-container"></div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
+                <div id="plotNyquist" class="flex-1 plot-container"></div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
+                <div id="plotTime" class="flex-1 plot-container"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Global variables for plots
+        const pltBodeGain = document.getElementById('plotBodeGain');
+        const pltBodePhase = document.getElementById('plotBodePhase');
+        const pltNyquist = document.getElementById('plotNyquist');
+        const pltTime = document.getElementById('plotTime');
+
+        // UI Elements
+        const filterType = document.getElementById('filterType');
+        
+        const resSlider = document.getElementById('resSlider');
+        const resInput = document.getElementById('resInput');
+        
+        const capSlider = document.getElementById('capSlider');
+        const capInput = document.getElementById('capInput');
+        
+        const gainSlider = document.getElementById('gainSlider');
+        const gainInput = document.getElementById('gainInput');
+        
+        const freqSlider = document.getElementById('freqSlider');
+        const freqInput = document.getElementById('freqInput');
+        
+        const ampSlider = document.getElementById('ampSlider');
+        const ampInput = document.getElementById('ampInput');
+
+        const fcDisplay = document.getElementById('fcDisplay');
+
+        // Layout Configuration for Plotly
+        const baseLayout = {
+            margin: { t: 40, r: 20, b: 40, l: 50 },
+            font: { family: 'Inter, sans-serif' },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            showlegend: false
+        };
+
+        
+        // Sync sliders and inputs
+        function syncInputs(slider, input, scale = 1) {
+            slider.addEventListener('input', (e) => {
+                input.value = Number(e.target.value) * scale;
+                updateAll();
+            });
+            input.addEventListener('input', (e) => {
+                let val = Number(e.target.value);
+                slider.value = val / scale;
+                updateAll();
+            });
+        }
+
+        syncInputs(resSlider, resInput);
+        syncInputs(gainSlider, gainInput);
+        syncInputs(freqSlider, freqInput);
+        syncInputs(ampSlider, ampInput);
+        
+        // Custom sync for Capacitor (Slider is nF, Input is F)
+        capSlider.addEventListener('input', (e) => {
+            capInput.value = (Number(e.target.value) * 1e-9).toExponential(2);
+            updateAll();
+        });
+        capInput.addEventListener('input', (e) => {
+            capSlider.value = Number(e.target.value) * 1e9;
+            updateAll();
+        });
+
+        filterType.addEventListener('change', updateAll);
+
+        // Resize observer to make plots truly responsive
+        window.addEventListener('resize', () => {
+            Plotly.Plots.resize(pltBodeGain);
+            Plotly.Plots.resize(pltBodePhase);
+            Plotly.Plots.resize(pltNyquist);
+            Plotly.Plots.resize(pltTime);
+        });
+
+        // Initialize empty plots
+        function initPlots() {
+            Plotly.newPlot(pltBodeGain, [], {}, {responsive: true});
+            Plotly.newPlot(pltBodePhase, [], {}, {responsive: true});
+            Plotly.newPlot(pltNyquist, [], {}, {responsive: true});
+            Plotly.newPlot(pltTime, [], {}, {responsive: true});
+        }
+
+        
+        // Generate logarithmic array
+        function logspace(start, stop, num) {
+            const arr = [];
+            const step = (stop - start) / (num - 1);
+            for (let i = 0; i < num; i++) {
+                arr.push(Math.pow(10, start + step * i));
+            }
+            return arr;
+        }
+
+        // Generate linear array
+        function linspace(start, stop, num) {
+            const arr = [];
+            const step = (stop - start) / (num - 1);
+            for (let i = 0; i < num; i++) {
+                arr.push(start + step * i);
+            }
+            return arr;
+        }
+
+        // Main Update function
+        function updateAll() {
+            // Get current values
+            const type = filterType.value; // 'lowpass' or 'highpass'
+            const R = Number(resInput.value);
+            const C = Number(capInput.value);
+            const K = Number(gainInput.value);
+            const f_in = Number(freqInput.value);
+            const A_in = Number(ampInput.value);
+
+            // Compute Cutoff Frequency
+            const fc = 1 / (2 * Math.PI * R * C);
+            fcDisplay.innerHTML = `${fc.toFixed(2)} Hz`;
+
+            // Prepare Frequency Range for Bode/Nyquist (0.1 Hz to 100,000 Hz)
+            // Using log10(0.1) = -1, log10(100000) = 5
+            const freqs = logspace(-1, 5, 300);
+            
+            const gdb = [];
+            const phi = [];
+            const real = [];
+            const imag = [];
+
+            // Calculate Transfer Function
+            for (let i = 0; i < freqs.length; i++) {
+                const f = freqs[i];
+                const x = f / fc;
+                let re, im;
+
+                if (type === 'lowpass') {
+                    re = K / (1 + x * x);
+                    im = -K * x / (1 + x * x);
+                } else {
+                    re = K * x * x / (1 + x * x);
+                    im = K * x / (1 + x * x);
+                }
+
+                real.push(re);
+                imag.push(im);
+
+                const magnitude = Math.sqrt(re * re + im * im);
+                gdb.push(20 * Math.log10(magnitude));
+                
+                // Phase in degrees
+                phi.push(Math.atan2(im, re) * (180 / Math.PI));
+            }
+
+            // --- 1. Bode Gain Plot ---
+            const K_db = 20 * Math.log10(K);
+            const cutoff_db = K_db - 3.0103; // -3dB point
+
+            const traceBodeGain = {
+                x: freqs,
+                y: gdb,
+                type: 'scatter',
+                mode: 'lines',
+                line: {color: '#2563eb', width: 3},
+                name: 'Gain (dB)'
+            };
+            const layoutBodeGain = {
+                ...baseLayout,
+                title: 'Bode en Gain',
+                xaxis: { title: 'Fréquence (Hz)', type: 'log', gridcolor: '#e2e8f0' },
+                yaxis: { title: 'Gain (dB)', gridcolor: '#e2e8f0' },
+                shapes: [
+                    { type: 'line', x0: fc, x1: fc, y0: Math.min(...gdb), y1: K_db + 5, line: { color: '#ef4444', width: 2, dash: 'dash' } },
+                    { type: 'line', x0: 0.1, x1: 100000, y0: cutoff_db, y1: cutoff_db, line: { color: '#ef4444', width: 2, dash: 'dash' } }
+                ],
+                annotations: [
+                    { x: Math.log10(fc), y: cutoff_db, xref: 'x', yref: 'y', text: 'fc, -3 dB', showarrow: true, arrowhead: 2, ax: 40, ay: 20 }
+                ]
+            };
+            Plotly.react(pltBodeGain, [traceBodeGain], layoutBodeGain);
+
+            // --- 2. Bode Phase Plot ---
+            const traceBodePhase = {
+                x: freqs,
+                y: phi,
+                type: 'scatter',
+                mode: 'lines',
+                line: {color: '#8b5cf6', width: 3},
+                name: 'Phase (°)'
+            };
+            
+            const phase_cutoff = type === 'lowpass' ? -45 : 45;
+
+            const layoutBodePhase = {
+                ...baseLayout,
+                title: 'Bode en Phase',
+                xaxis: { title: 'Fréquence (Hz)', type: 'log', gridcolor: '#e2e8f0' },
+                yaxis: { title: 'Phase (degré)', gridcolor: '#e2e8f0' },
+                shapes: [
+                    { type: 'line', x0: fc, x1: fc, y0: Math.min(...phi)-10, y1: Math.max(...phi)+10, line: { color: '#ef4444', width: 2, dash: 'dash' } },
+                    { type: 'line', x0: 0.1, x1: 100000, y0: phase_cutoff, y1: phase_cutoff, line: { color: '#ef4444', width: 2, dash: 'dash' } }
+                ],
+                annotations: [
+                    { x: Math.log10(fc), y: phase_cutoff, xref: 'x', yref: 'y', text: `fc, ${phase_cutoff}°`, showarrow: true, arrowhead: 2, ax: 40, ay: (type==='lowpass'?-20:20) }
+                ]
+            };
+            Plotly.react(pltBodePhase, [traceBodePhase], layoutBodePhase);
+
+            // --- 3. Nyquist Plot ---
+            const traceNyquist = {
+                x: real,
+                y: imag,
+                type: 'scatter',
+                mode: 'lines',
+                line: {color: '#f59e0b', width: 3},
+                name: 'Nyquist'
+            };
+            
+            const maxVal = Math.max(...real.map(Math.abs), ...imag.map(Math.abs), K) * 1.1;
+
+            const layoutNyquist = {
+                ...baseLayout,
+                title: 'Diagramme de Nyquist',
+                xaxis: { title: 'Partie réelle (V)', gridcolor: '#e2e8f0', zerolinecolor: '#94a3b8', range: [type === 'lowpass' ? -maxVal*0.1 : -maxVal*0.1, maxVal] },
+                yaxis: { title: 'Partie imaginaire (V)', scaleanchor: "x", scaleratio: 1, gridcolor: '#e2e8f0', zerolinecolor: '#94a3b8' }
+            };
+            Plotly.react(pltNyquist, [traceNyquist], layoutNyquist);
+
+            // --- 4. Time Response Plot ---
+            // Calculate specific response for the chosen f_in
+            const x_in = f_in / fc;
+            let re_in, im_in;
+            if (type === 'lowpass') {
+                re_in = K / (1 + x_in * x_in);
+                im_in = -K * x_in / (1 + x_in * x_in);
+            } else {
+                re_in = K * x_in * x_in / (1 + x_in * x_in);
+                im_in = K * x_in / (1 + x_in * x_in);
+            }
+            
+            const mag_in = Math.sqrt(re_in * re_in + im_in * im_in);
+            const phase_in = Math.atan2(im_in, re_in); // in radians
+
+            // 4 periods of the input frequency
+            const T = 1 / f_in;
+            const t_max = 4 * T; 
+            const time_arr = linspace(0, t_max, 300);
+
+            const v_in = [];
+            const v_out = [];
+            const time_ms = [];
+
+            for (let i = 0; i < time_arr.length; i++) {
+                const t = time_arr[i];
+                time_ms.push(t * 1000); // ms for display
+                
+                v_in.push(A_in * Math.sin(2 * Math.PI * f_in * t));
+                v_out.push(A_in * mag_in * Math.sin(2 * Math.PI * f_in * t + phase_in));
+            }
+
+            const traceVin = {
+                x: time_ms,
+                y: v_in,
+                type: 'scatter',
+                mode: 'lines',
+                line: {color: '#94a3b8', width: 2, dash: 'dot'},
+                name: 'V in'
+            };
+            const traceVout = {
+                x: time_ms,
+                y: v_out,
+                type: 'scatter',
+                mode: 'lines',
+                line: {color: '#10b981', width: 3},
+                name: 'V out'
+            };
+
+            const layoutTime = {
+                ...baseLayout,
+                title: 'Réponse temporelle',
+                xaxis: { title: 'Temps (ms)', gridcolor: '#e2e8f0' },
+                yaxis: { title: 'Tension (V)', gridcolor: '#e2e8f0' },
+                showlegend: true,
+                legend: { x: 0.8, y: 1 }
+            };
+            Plotly.react(pltTime, [traceVin, traceVout], layoutTime);
+        }
+
+        // Initialize and trigger first calculation
+        initPlots();
+        updateAll();
+
+    </script>
+</body>
+</html>
