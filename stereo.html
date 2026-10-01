@@ -292,7 +292,7 @@
 
         <div id="controls-panel">
             <h2>Symmetry Generators</h2>
-            <div id="symmetry-generators-list" class="space-y-2 max-h-98 overflow-y-auto pr-2">
+            <div id="symmetry-generators-list">
                 <label><input type="checkbox" value="inversion"> Inversion (ī)</label>
                 <label><input type="checkbox" value="mirror_xy"> Mirror plane (001) (m)</label>
                 <label><input type="checkbox" value="mirror_yz"> Mirror plane (100) (m)</label>
@@ -301,6 +301,7 @@
                 <label><input type="checkbox" value="rot3_z"> 3-fold axis || [001] (3)</label>
                 <label><input type="checkbox" value="rot4_z"> 4-fold axis || [001] (4)</label>
                 <label><input type="checkbox" value="rot6_z"> 6-fold axis || [001] (6)</label>
+                <label><input type="checkbox" value="rotoinv2_z"> 2-fold rotoinversion || [001] (-2 &equiv; m &perp; [001])</label>
                 <label><input type="checkbox" value="rotoinv3_z"> 3-fold rotoinversion || [001] (-3)</label>
                 <label><input type="checkbox" value="rotoinv4_z"> 4-fold rotoinversion || [001] (-4)</label>
                 <label><input type="checkbox" value="rotoinv6_z"> 6-fold rotoinversion || [001] (-6)</label>
@@ -322,7 +323,7 @@
             </form>
             <div id="info-panel" style="margin-top: 1.5rem;">
                 <div id="pole-info-table-wrapper">
-                    <p class="text-sm" style="color: #9ca3af;">Click on the projection to add a pole.</p>
+                    <p style="font-size: 0.875rem; color: #9ca3af;">Click on the projection to add a pole.</p>
                 </div>
             </div>
         </div>
@@ -468,6 +469,7 @@
         let poles = [];
         let selectedPoleIndex = -1;
         let projRadius, projCenterX, projCenterY;
+        let projCssSize = 0, projDpr = 1;
         let poleIdCounter = 0;
         let isDragging = false;
         let draggedPoleId = null;
@@ -584,106 +586,123 @@
             materials.forEach(material => material.dispose());
         }
 
-        function drawSymmetryElementsOnSphere() {
-            if (!symmetryElementsGroup) return;
-            // Always clear existing elements first
-            clearVisualGroup(symmetryElementsGroup);
+        // --- Combined z-axis symmetry (fixes overlapping symbols) ---
+        // Each z-axis operation is stored as (in-plane rotation in 1/12 turns, sign of z).
+        const Z_AXIS_OPS = {
+            rot2_z: [6, 1], rot3_z: [4, 1], rot4_z: [3, 1], rot6_z: [2, 1],
+            inversion: [6, -1], mirror_xy: [0, -1], rotoinv2_z: [0, -1],
+            rotoinv3_z: [10, -1], rotoinv4_z: [9, -1], rotoinv6_z: [8, -1]
+        };
 
-            // Only draw new elements if the checkbox is checked
-            if (!showSymmetryElements) return;
+        function getCheckedOps() {
+            return Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
+        }
 
-            const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
-            if (checkedOps.length === 0) return;
-
-            const elementMaterial = new THREE.MeshPhongMaterial({ color: 0xe11d48, shininess: 80 });
-            const planeMaterial = new THREE.MeshPhongMaterial({ color: 0xe11d48, side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false, shininess: 30 });
-
-            // --- Draw Axes and Symbols ---
-            // Find the highest-order axis to determine which symbol to draw
-            const axisOps = ['rotoinv6_z', 'rot6_z', 'rotoinv4_z', 'rot4_z', 'rotoinv3_z', 'rot3_z', 'rot2_z'];
-            const selectedAxisOp = axisOps.find(op => checkedOps.includes(op));
-
-            if (selectedAxisOp) {
-                // 1. Draw the axis cylinder
-                const axisGeom = new THREE.CylinderGeometry(0.1, 0.1, SPHERE_RADIUS * 2.4, 12);
-                const axisMesh = new THREE.Mesh(axisGeom, elementMaterial);
-                symmetryElementsGroup.add(axisMesh);
-
-                // 2. Create and add the symbol on top
-                const symbolSize = 1.2;
-                let symbolGeom;
-                const shape = new THREE.Shape();
-
-                switch (selectedAxisOp) {
-                    case 'rot2_z': {
-                        symbolGeom = new THREE.CircleGeometry(symbolSize, 32);
-                        symbolGeom.scale(1.0, 0.6, 1.0); // Make it elliptical
-                        break;
-                    }
-                    case 'rotoinv3_z':
-                    case 'rot3_z': {
-                        shape.moveTo(0, symbolSize);
-                        shape.lineTo(symbolSize * -0.866, symbolSize * -0.5);
-                        shape.lineTo(symbolSize * 0.866, symbolSize * -0.5);
-                        shape.closePath();
-                        symbolGeom = new THREE.ShapeGeometry(shape);
-                        break;
-                    }
-                    case 'rotoinv4_z':
-                    case 'rot4_z': {
-                        symbolGeom = new THREE.PlaneGeometry(symbolSize * 1.4, symbolSize * 1.4);
-                        break;
-                    }
-                    case 'rotoinv6_z':
-                    case 'rot6_z': {
-                        for (let i = 0; i < 6; i++) {
-                            const a = i * Math.PI / 3;
-                            const x = symbolSize * Math.cos(a);
-                            const y = symbolSize * Math.sin(a);
-                            if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
-                        }
-                        shape.closePath();
-                        symbolGeom = new THREE.ShapeGeometry(shape);
-                        break;
-                    }
-                }
-
-                if (symbolGeom) {
-                    const symbolMesh = new THREE.Mesh(symbolGeom, elementMaterial);
-                    symbolMesh.position.y = SPHERE_RADIUS * 1.25; // Place it just above the cylinder end
-                    symbolMesh.rotation.x = -Math.PI / 2; // Rotate to be flat
-                    symmetryElementsGroup.add(symbolMesh);
+        // Closes the selected z-axis operations into a group and returns the resulting axis symbol.
+        function getAxisInfo(ops) {
+            const gens = ops.filter(op => Z_AXIS_OPS[op]).map(op => Z_AXIS_OPS[op]);
+            const key = ([a, s]) => `${a},${s}`;
+            const elements = new Map([[key([0, 1]), [0, 1]]]);
+            let queue = [[0, 1]];
+            while (queue.length) {
+                const [a, s] = queue.pop();
+                for (const [ga, gs] of gens) {
+                    const e = [(a + ga) % 12, s * gs];
+                    if (!elements.has(key(e))) { elements.set(key(e), e); queue.push(e); }
                 }
             }
+            const list = [...elements.values()];
+            const n = list.filter(([, s]) => s === 1).length;
+            const improper = list.some(([, s]) => s === -1);
+            const hasMirror = elements.has('0,-1');
+            const hasInv = elements.has('6,-1');
+            let symbol = null; // { kind: 'proper' | 'roto', n, centro }
+            if (!improper) {
+                if (n > 1) symbol = { kind: 'proper', n };
+            } else if (hasMirror) {
+                if (n === 3) symbol = { kind: 'roto', n: 6 };            // 3/m = -6
+                else if (n > 1) symbol = { kind: 'proper', n, centro: hasInv }; // n/m
+            } else if (hasInv) {
+                symbol = { kind: 'roto', n };                            // -1 or -3
+            } else {
+                symbol = { kind: 'roto', n: 2 * n };                     // -4 (or -12)
+            }
+            return { symbol, hasMirror, hasInv };
+        }
 
-            // --- Draw Inversion and Mirror Planes ---
-            checkedOps.forEach(op => {
-                let mesh;
-                switch (op) {
-                    case 'inversion':
-                        const invGeom = new THREE.SphereGeometry(0.4, 16, 16);
-                        mesh = new THREE.Mesh(invGeom, elementMaterial);
-                        symmetryElementsGroup.add(mesh);
-                        break;
-                    case 'mirror_xy':
-                        const planeXYGeom = new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1);
-                        mesh = new THREE.Mesh(planeXYGeom, planeMaterial);
+        // Shape helpers (math orientation, y up). Each part is { outer, holes } filled with even-odd.
+        function polygonPts(n, r, rot = 0) {
+            return Array.from({ length: n }, (_, i) => { const a = rot + i * 2 * Math.PI / n; return [r * Math.cos(a), r * Math.sin(a)]; });
+        }
+        function ellipsePts(rx, ry) {
+            return Array.from({ length: 40 }, (_, i) => { const a = i * 2 * Math.PI / 40; return [rx * Math.cos(a), ry * Math.sin(a)]; });
+        }
+        function nGonPts(n, s) {
+            if (n === 2) return ellipsePts(s, s * 0.6);
+            if (n === 3) return polygonPts(3, s, Math.PI / 2);
+            if (n === 4) return polygonPts(4, s, Math.PI / 4);
+            return polygonPts(n, s, 0);
+        }
+
+        // International Tables style symbols, shared by the 2D and 3D views.
+        function getSymbolParts(symbol, s) {
+            if (!symbol) return [];
+            const { kind, n } = symbol;
+            if (kind === 'proper') {
+                return [{ outer: nGonPts(n, s), holes: symbol.centro ? [ellipsePts(s * 0.25, s * 0.25)] : [] }];
+            }
+            switch (n) {
+                case 1: return [{ outer: ellipsePts(s * 0.4, s * 0.4), holes: [ellipsePts(s * 0.25, s * 0.25)] }];
+                case 3: return [{ outer: nGonPts(3, s), holes: [ellipsePts(s * 0.22, s * 0.22)] }];
+                case 4: return [{ outer: polygonPts(4, s * 1.05, Math.PI / 4), holes: [ellipsePts(s * 0.5, s * 0.3)] }];
+                case 6: return [
+                    { outer: polygonPts(6, s * 1.1), holes: [polygonPts(6, s * 0.9)] },
+                    { outer: nGonPts(3, s * 0.75), holes: [] }
+                ];
+                default: return [{ outer: polygonPts(n, s * 1.1), holes: [polygonPts(n, s * 0.85)] }];
+            }
+        }
+
+        function drawSymmetryElementsOnSphere() {
+            if (!symmetryElementsGroup) return;
+            clearVisualGroup(symmetryElementsGroup);
+            if (!showSymmetryElements) return;
+
+            const checkedOps = getCheckedOps();
+            if (checkedOps.length === 0) return;
+            const { symbol, hasMirror, hasInv } = getAxisInfo(checkedOps);
+
+            const elementMaterial = new THREE.MeshPhongMaterial({ color: 0xe11d48, shininess: 80, side: THREE.DoubleSide });
+            const planeMaterial = new THREE.MeshPhongMaterial({ color: 0xe11d48, side: THREE.DoubleSide, transparent: true, opacity: 0.3, depthWrite: false, shininess: 30 });
+
+            // Axis and its symbol at both ends
+            if (symbol) {
+                symmetryElementsGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, SPHERE_RADIUS * 2.4, 12), elementMaterial));
+                getSymbolParts(symbol, 1.2).forEach(part => {
+                    const shape = new THREE.Shape(part.outer.map(([x, y]) => new THREE.Vector2(x, y)));
+                    part.holes.forEach(h => shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y)))));
+                    const geom = new THREE.ShapeGeometry(shape);
+                    [1, -1].forEach(sign => {
+                        const mesh = new THREE.Mesh(geom, elementMaterial);
+                        mesh.position.y = sign * SPHERE_RADIUS * 1.25;
                         mesh.rotation.x = -Math.PI / 2;
                         symmetryElementsGroup.add(mesh);
-                        break;
-                    case 'mirror_yz':
-                        const planeYZGeom = new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1);
-                        mesh = new THREE.Mesh(planeYZGeom, planeMaterial);
-                        mesh.rotation.y = Math.PI / 2;
-                        symmetryElementsGroup.add(mesh);
-                        break;
-                    case 'mirror_xz':
-                        const planeXZGeom = new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1);
-                        mesh = new THREE.Mesh(planeXZGeom, planeMaterial);
-                        symmetryElementsGroup.add(mesh);
-                        break;
-                }
-            });
+                    });
+                });
+            }
+
+            if (hasInv) {
+                symmetryElementsGroup.add(new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), elementMaterial));
+            }
+
+            const addPlane = (rotate) => {
+                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(SPHERE_RADIUS * 2.1, SPHERE_RADIUS * 2.1), planeMaterial);
+                rotate(mesh);
+                symmetryElementsGroup.add(mesh);
+            };
+            if (hasMirror) addPlane(m => { m.rotation.x = -Math.PI / 2; });          // (001), also from -2, 2/m...
+            if (checkedOps.includes('mirror_yz')) addPlane(m => { m.rotation.y = Math.PI / 2; });
+            if (checkedOps.includes('mirror_xz')) addPlane(() => {});
         }
         
         function drawIntersectionLines() {
@@ -790,6 +809,7 @@
             switch(op) {
                 case 'inversion': newPoles.push({ h: -h, k: -k, l: -l }); break;
                 case 'mirror_xy': newPoles.push({ h: h, k: k, l: -l }); break;
+                case 'rotoinv2_z': newPoles.push({ h: h, k: k, l: -l }); break; // -2 = m perpendicular to [001]
                 case 'mirror_yz': newPoles.push({ h: -h, k: k, l: l }); break;
                 case 'mirror_xz': newPoles.push({ h: h, k: -k, l: l }); break;
                 case 'rot2_z': newPoles.push({ h: -h, k: -k, l: l }); break;
@@ -856,34 +876,37 @@
 
         function drawSymmetryElements() {
             if (!showSymmetryElements) return;
-            const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
+            const checkedOps = getCheckedOps();
             if (checkedOps.length === 0) return;
-            const symbolSize = 14; const symbolColor = '#e11d48';
-            ctx.fillStyle = symbolColor; ctx.strokeStyle = symbolColor; ctx.lineWidth = 2.5;
-            checkedOps.forEach(op => {
+            const { symbol, hasMirror } = getAxisInfo(checkedOps);
+            const symbolColor = '#e11d48';
+            ctx.save();
+            ctx.fillStyle = symbolColor; ctx.strokeStyle = symbolColor; ctx.lineWidth = 3;
+            if (hasMirror) { ctx.beginPath(); ctx.arc(projCenterX, projCenterY, projRadius, 0, 2 * Math.PI); ctx.stroke(); }
+            if (checkedOps.includes('mirror_yz')) { ctx.beginPath(); ctx.moveTo(projCenterX, projCenterY - projRadius); ctx.lineTo(projCenterX, projCenterY + projRadius); ctx.stroke(); }
+            if (checkedOps.includes('mirror_xz')) { ctx.beginPath(); ctx.moveTo(projCenterX - projRadius, projCenterY); ctx.lineTo(projCenterX + projRadius, projCenterY); ctx.stroke(); }
+            // Single combined axis symbol at the centre (y up, like the projection)
+            ctx.translate(projCenterX, projCenterY);
+            ctx.scale(1, -1);
+            getSymbolParts(symbol, 14).forEach(part => {
                 ctx.beginPath();
-                switch(op) {
-                    case 'inversion': ctx.arc(projCenterX, projCenterY, symbolSize / 2.5, 0, 2 * Math.PI); ctx.stroke(); break;
-                    case 'mirror_xy': ctx.arc(projCenterX, projCenterY, projRadius, 0, 2 * Math.PI); ctx.stroke(); break;
-                    case 'mirror_yz': ctx.moveTo(projCenterX, projCenterY - projRadius); ctx.lineTo(projCenterX, projCenterY + projRadius); ctx.stroke(); break;
-                    case 'mirror_xz': ctx.moveTo(projCenterX - projRadius, projCenterY); ctx.lineTo(projCenterX + projRadius, projCenterY); ctx.stroke(); break;
-                    case 'rot2_z': ctx.ellipse(projCenterX, projCenterY, symbolSize, symbolSize * 0.6, 0, 0, 2 * Math.PI); ctx.fill(); break;
-                    case 'rot3_z': ctx.moveTo(projCenterX, projCenterY - symbolSize); ctx.lineTo(projCenterX - symbolSize * 0.866, projCenterY + symbolSize * 0.5); ctx.lineTo(projCenterX + symbolSize * 0.866, projCenterY + symbolSize * 0.5); ctx.closePath(); ctx.fill(); break;
-                    case 'rot4_z': ctx.rect(projCenterX - symbolSize / 1.4, projCenterY - symbolSize / 1.4, symbolSize * 1.4, symbolSize * 1.4); ctx.fill(); break;
-                    case 'rot6_z': for(let i=0;i<6;i++){ const a=i*Math.PI/3;const x=projCenterX+symbolSize*Math.cos(a);const y=projCenterY-symbolSize*Math.sin(a);(i===0)?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.closePath(); ctx.fill(); break;
-                    case 'rotoinv3_z': ctx.moveTo(projCenterX, projCenterY - symbolSize); ctx.lineTo(projCenterX - symbolSize * 0.866, projCenterY + symbolSize * 0.5); ctx.lineTo(projCenterX + symbolSize * 0.866, projCenterY + symbolSize * 0.5); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.arc(projCenterX, projCenterY, symbolSize / 3, 0, 2 * Math.PI); ctx.stroke(); break;
-                    case 'rotoinv4_z': { const s = symbolSize * 1.5; ctx.rect(projCenterX - s / 2, projCenterY - s / 2, s, s); ctx.stroke(); ctx.beginPath(); ctx.arc(projCenterX, projCenterY, symbolSize * 0.4, 0, 2 * Math.PI); ctx.stroke(); break; }
-                    case 'rotoinv6_z': { const hexPoints = []; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; hexPoints.push({x: projCenterX + symbolSize * Math.cos(a), y: projCenterY - symbolSize * Math.sin(a)}); } ctx.beginPath(); ctx.moveTo(hexPoints[0].x, hexPoints[0].y); for (let i = 1; i < 6; i++) ctx.lineTo(hexPoints[i].x, hexPoints[i].y); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(hexPoints[0].x, hexPoints[0].y); ctx.lineTo(hexPoints[2].x, hexPoints[2].y); ctx.lineTo(hexPoints[4].x, hexPoints[4].y); ctx.closePath(); ctx.stroke(); break; }
-                }
+                [part.outer, ...part.holes].forEach(pts => {
+                    pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+                    ctx.closePath();
+                });
+                ctx.fill('evenodd');
             });
+            ctx.restore();
         }
 
         function drawProjection() {
-            ctx.clearRect(0, 0, projectionCanvas.width, projectionCanvas.height);
+            ctx.setTransform(projDpr, 0, 0, projDpr, 0, 0);
+            ctx.clearRect(0, 0, projCssSize, projCssSize);
             drawGrid();
-            drawSymmetryElements();
+            // Primitive first, so a horizontal mirror drawn on top stays visible
             ctx.beginPath(); ctx.arc(projCenterX, projCenterY, projRadius, 0, 2 * Math.PI);
             ctx.strokeStyle = '#334155'; ctx.lineWidth = 2; ctx.stroke();
+            drawSymmetryElements();
             poles.forEach((pole, index) => {
                 const { x, y } = sphericalToCartesian(pole.phi, pole.rho);
                 ctx.strokeStyle = pole.isLowerHemisphere ? lowerHemisphereColor : pole.color;
@@ -909,49 +932,71 @@
             for (let i = 1; i <= 3; i++) { const rho = i * (Math.PI / 6); const r_proj = projRadius * Math.tan(rho / 2); ctx.beginPath(); ctx.arc(projCenterX, projCenterY, r_proj, 0, 2 * Math.PI); ctx.stroke(); }
         }
 
-        function getEventCoords(e) { if (e.touches && e.touches.length > 0) { return { x: e.touches[0].clientX, y: e.touches[0].clientY }; } return { x: e.clientX, y: e.clientY }; }
+        // --- Pointer input (mouse, touch, pen) ---
+        // Pointer events with preventDefault stop the browser from also firing a
+        // simulated mousedown after a tap, which used to run the handler twice.
+        let activePointerId = null;
+        let dragStartPoint = null;
+        let dragOffset = { x: 0, y: 0 };
+        let dragMoved = false;
 
-        function handleDragStart(e) {
-            const coords = getEventCoords(e);
+        function getCanvasPoint(e) {
             const rect = projectionCanvas.getBoundingClientRect();
-            const canvasX = coords.x - rect.left; 
-            const canvasY = coords.y - rect.top;
-            let clickedIndex = -1; let minDistance = 15;
+            const scale = projCssSize / (projectionCanvas.clientWidth || projCssSize);
+            return {
+                x: (e.clientX - rect.left - projectionCanvas.clientLeft) * scale,
+                y: (e.clientY - rect.top - projectionCanvas.clientTop) * scale
+            };
+        }
+
+        function handlePointerDown(e) {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            if (activePointerId !== null) return; // ignore extra fingers
+            e.preventDefault();
+            const { x: canvasX, y: canvasY } = getCanvasPoint(e);
+            // Fingers are imprecise: use a larger hit radius for touch so a tap near a pole selects it.
+            let minDistance = e.pointerType === 'mouse' ? 15 : 30;
+            let clickedIndex = -1;
             poles.forEach((pole, index) => {
                 const { x, y } = sphericalToCartesian(pole.phi, pole.rho);
-                const distance = Math.sqrt((canvasX - x)**2 + (canvasY - y)**2);
+                const distance = Math.hypot(canvasX - x, canvasY - y);
                 if (distance < minDistance) { minDistance = distance; clickedIndex = index; }
             });
             selectedPoleIndex = clickedIndex;
             if (clickedIndex !== -1 && poles[clickedIndex].parentId === null) {
+                const { x, y } = sphericalToCartesian(poles[clickedIndex].phi, poles[clickedIndex].rho);
                 isDragging = true;
+                dragMoved = false;
                 draggedPoleId = poles[clickedIndex].id;
+                dragStartPoint = { x: canvasX, y: canvasY };
+                dragOffset = { x: x - canvasX, y: y - canvasY }; // keep the pole under the finger, no jump
+                activePointerId = e.pointerId;
+                projectionCanvas.setPointerCapture(e.pointerId);
                 projectionCanvas.style.cursor = 'grabbing';
-                window.addEventListener('mousemove', handleDragMove);
-                window.addEventListener('mouseup', handleDragEnd);
-                window.addEventListener('touchmove', handleDragMove, { passive: false });
-                window.addEventListener('touchend', handleDragEnd);
-                window.addEventListener('touchcancel', handleDragEnd);
             } else if (clickedIndex === -1) {
-                const distFromCenter = Math.sqrt((canvasX - projCenterX)**2 + (canvasY - projCenterY)**2);
-                if (distFromCenter <= projRadius) { 
-                    addPoleByClick(canvasX, canvasY); 
+                if (Math.hypot(canvasX - projCenterX, canvasY - projCenterY) <= projRadius) {
+                    addPoleByClick(canvasX, canvasY);
                 }
             }
             updateAllVisuals();
         }
 
-        function handleDragMove(e) {
-            if (!isDragging) return;
+        function handlePointerMove(e) {
+            if (!isDragging || e.pointerId !== activePointerId) return;
             e.preventDefault();
-            const coords = getEventCoords(e);
-            const rect = projectionCanvas.getBoundingClientRect();
-            const canvasX = coords.x - rect.left;
-            const canvasY = coords.y - rect.top;
-            const dx = canvasX - projCenterX; 
+            const p = getCanvasPoint(e);
+            if (!dragMoved) {
+                // Small threshold so a simple tap/click doesn't nudge the pole
+                const threshold = e.pointerType === 'mouse' ? 3 : 8;
+                if (Math.hypot(p.x - dragStartPoint.x, p.y - dragStartPoint.y) < threshold) return;
+                dragMoved = true;
+            }
+            const canvasX = p.x + dragOffset.x;
+            const canvasY = p.y + dragOffset.y;
+            const dx = canvasX - projCenterX;
             const dy = canvasY - projCenterY;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            let constrainedX = canvasX; 
+            const dist = Math.hypot(dx, dy);
+            let constrainedX = canvasX;
             let constrainedY = canvasY;
             if (dist > projRadius) { constrainedX = projCenterX + (dx / dist) * projRadius; constrainedY = projCenterY + (dy / dist) * projRadius; }
             const spherical = cartesianToSpherical(constrainedX, constrainedY);
@@ -965,19 +1010,17 @@
             updateAllVisuals();
         }
 
-        function handleDragEnd() {
-            if (!isDragging) return;
-            isDragging = false; 
+        function handlePointerEnd(e) {
+            if (!isDragging || e.pointerId !== activePointerId) return;
+            isDragging = false;
             draggedPoleId = null;
+            activePointerId = null;
+            if (projectionCanvas.hasPointerCapture(e.pointerId)) projectionCanvas.releasePointerCapture(e.pointerId);
             projectionCanvas.style.cursor = 'crosshair';
-            window.removeEventListener('mousemove', handleDragMove);
-            window.removeEventListener('mouseup', handleDragEnd);
-            window.removeEventListener('touchmove', handleDragMove);
-            window.removeEventListener('touchend', handleDragEnd);
-            window.removeEventListener('touchcancel', handleDragEnd);
         }
 
         function regenerateFamily(parentPoleId) {
+
             const parentPole = poles.find(p => p.id === parentPoleId); if (!parentPole) return;
             const checkedOps = Array.from(generatorListDiv.querySelectorAll('input:checked')).map(cb => cb.value);
             poles = poles.filter(p => p.parentId !== parentPoleId);
@@ -994,6 +1037,14 @@
                 const newPoleObject = { id: poleIdCounter++, ...newPoleHkl, ...spherical, color: parentPole.color, parentId: parentPole.id, generatingOp: 'group', isLowerHemisphere: isLowerHemisphere(newPoleHkl.l) };
                 poles.push(newPoleObject);
             });
+        }
+
+        // Regenerate every family so all poles follow the current generators.
+        function regenerateAllFamilies() {
+            const selected = poles[selectedPoleIndex];
+            const selectedParentId = selected ? (selected.parentId ?? selected.id) : null;
+            poles.filter(p => p.parentId === null).map(p => p.id).forEach(regenerateFamily);
+            selectedPoleIndex = selectedParentId === null ? -1 : poles.findIndex(p => p.id === selectedParentId);
         }
 
         function setupEventListeners() {
@@ -1013,15 +1064,18 @@
                 parentEditStatus.textContent = 'Parent updated and family regenerated.';
             });
             generatePolesBtn.addEventListener('click', handleGenerateClick);
-            generatorListDiv.addEventListener('change', () => { if (selectedPoleIndex > -1) { const selectedPole = poles[selectedPoleIndex]; const parentId = selectedPole.parentId === null ? selectedPole.id : selectedPole.parentId; if (parentId !== null) { regenerateFamily(parentId); } } updateAllVisuals(); });
+            generatorListDiv.addEventListener('change', () => { regenerateAllFamilies(); updateAllVisuals(); });
             clearBtn.addEventListener('click', () => { poles = []; selectedPoleIndex = -1; generatorListDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; }); updateAllVisuals(); });
             document.addEventListener('selectPole', (e) => {
                 selectedPoleIndex = e.detail; 
                 updateAllVisuals();
 
             });
-            projectionCanvas.addEventListener('mousedown', handleDragStart);
-            projectionCanvas.addEventListener('touchstart', handleDragStart, { passive: true });
+            projectionCanvas.addEventListener('pointerdown', handlePointerDown);
+            projectionCanvas.addEventListener('pointermove', handlePointerMove);
+            projectionCanvas.addEventListener('pointerup', handlePointerEnd);
+            projectionCanvas.addEventListener('pointercancel', handlePointerEnd);
+            projectionCanvas.addEventListener('lostpointercapture', handlePointerEnd);
             showIntersectionsCheckbox.addEventListener('change', (e) => { showIntersectionLines = e.target.checked; updateSphereVisuals(); });
             showElementsCheckbox.addEventListener('change', (e) => { showSymmetryElements = e.target.checked; updateAllVisuals(); });
         }
@@ -1072,8 +1126,11 @@
             projectionCanvasWrapper.style.width = size + 'px';
             projectionCanvasWrapper.style.height = size + 'px';
             
-            projectionCanvas.width = size; 
-            projectionCanvas.height = size; 
+            // Back the canvas with device pixels so it stays sharp on high-DPI screens
+            projDpr = window.devicePixelRatio || 1;
+            projCssSize = size;
+            projectionCanvas.width = Math.round(size * projDpr);
+            projectionCanvas.height = Math.round(size * projDpr);
             projRadius = size * 0.42; 
             projCenterX = size / 2; 
             projCenterY = size / 2;
@@ -1102,6 +1159,7 @@
             sphereCanvasWrapper.style.height = size + 'px';
             
             if (renderer && camera) {
+                renderer.setPixelRatio(window.devicePixelRatio || 1);
                 renderer.setSize(size, size);
                 const frustumSize = SPHERE_FRUSTUM_SIZE;
                 camera.left   = frustumSize / -2; 
@@ -1119,7 +1177,15 @@
         updateAllVisuals();
         
         // Add window resize listener for proper responsive behavior
+        let wasMobile = window.innerWidth <= 768;
         window.addEventListener('resize', () => {
+            // Collapse/expand the panel when crossing the mobile breakpoint
+            const isMobile = window.innerWidth <= 768;
+            if (isMobile !== wasMobile) {
+                wasMobile = isMobile;
+                appContainer.classList.toggle('panel-collapsed', isMobile);
+                updateDrawerIcon();
+            }
             resizeProjectionCanvas();
             resizeSphereCanvas();
         });
