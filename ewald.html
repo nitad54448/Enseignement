@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>The Ewald construction</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; overflow: hidden; display: flex; height: 100vh; }
+        #appContainer { display: flex; width: 100%; height: 100%; }
+        #controlsPanel {
+            width: 380px; padding: 10px; background-color: #f7f7ff; overflow-y: auto; height: 100%;
+            box-sizing: border-box; display: flex; flex-direction: column; flex-shrink: 0;
+        }
+        #resizer {
+            width: 5px; cursor: col-resize; background-color: #2a3b74; flex-shrink: 0; touch-action: none;
+            border-left: 1px solid #fcfcfc; border-right: 1px solid #ccc;
+        }
+        #controlsContent { flex-grow: 1; overflow-y: auto; padding-right: 10px; }
+        #visualizationContainer { flex-grow: 1; position: relative; min-width: 0; }
+        h1 { font-size: 1.15em; margin: 0 0 6px 0; color: #2a3b74; }
+        .intro { font-size: 0.85em; color: #445; line-height: 1.45; margin: 0; }
+        label, input, select, button { font-size: 0.9em; }
+        input[type=number] { width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; text-align: center; }
+        input[type=range] { vertical-align: middle; width: 100%; }
+        select { padding: 6px; width: 100%; border: 1px solid #ccc; border-radius: 4px; background-color: white; }
+        button { padding: 6px 8px; border: 1px solid #2a3b74; border-radius: 4px; background: #fff; color: #2a3b74; cursor: pointer; }
+        button:hover { background: #e8ecfa; }
+        button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #2a3b74; outline-offset: 1px; }
+        .info-section { margin-bottom: 12px; padding: 12px; border: 1px solid #e0e0e0; border-radius: 6px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .block-label { display: block; margin-bottom: 10px; font-weight: 600; color: #333; }
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 15px; align-items: center; }
+        .grid-3 { grid-template-columns: auto 1fr auto; }
+        .grid-span-2 { grid-column: span 2; }
+        .grid-span-all { grid-column: 1 / -1; }
+        .grid-container label { text-align: left; font-weight: 500; }
+        .value { text-align: right; min-width: 52px; font-variant-numeric: tabular-nums; color: #333; }
+        .hint { font-size: 0.8em; color: #667; line-height: 1.4; margin-top: 8px; }
+        .check-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+        .button-row { display: flex; gap: 8px; margin-top: 10px; }
+        .button-row button { flex: 1; }
+        #status { display: none; font-size: 0.85em; color: #a01818; background: #fdecec; border: 1px solid #f2b8b8; border-radius: 4px; padding: 8px; margin-bottom: 12px; }
+        #hklInfo { font-size: 0.9em; line-height: 1.5; font-weight: bold; white-space: pre-line; min-height: 40px; background-color: #e8f0fe; padding: 8px; border-radius: 4px; border: 1px solid #cce; }
+        .footer-attribution { margin-top: auto; padding-top: 10px; font-size: 0.8em; text-align: center; color: #aaa; }
+        #inset {
+            position: absolute; top: 10px; right: 10px; width: 320px; height: 320px; z-index: 2;
+            background: #05060c; border: 1px solid #556; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        #insetCanvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+        #insetHandle {
+            position: absolute; left: -1px; bottom: -1px; width: 16px; height: 16px; cursor: nesw-resize; z-index: 3; touch-action: none;
+            background: linear-gradient(45deg, #8899cc 0 2px, transparent 2px 5px, #8899cc 5px 7px, transparent 7px 10px, #8899cc 10px 12px, transparent 12px);
+            border-bottom-left-radius: 4px;
+        }
+        .label { color: #ffffff; font-family: sans-serif; padding: 2px 4px; font-size: 0.9em; background: rgba(0,0,0,0.6); border-radius: 3px; }
+
+        .seg { display: flex; gap: 0; margin-bottom: 10px; }
+        .seg button { flex: 1; border-radius: 0; }
+        .seg button:first-child { border-radius: 4px 0 0 4px; }
+        .seg button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+        .seg button.active { background: #2a3b74; color: #fff; }
+        #stepBox { border-left: 4px solid #2a3b74; }
+        #stepCounter { font-size: 0.8em; color: #667; float: right; font-weight: normal; }
+        #stepTitle { font-size: 1.02em; color: #2a3b74; }
+        #stepText { font-size: 0.9em; line-height: 1.5; color: #223; margin: 8px 0 0 0; }
+        .dots { display: flex; gap: 5px; justify-content: center; margin-top: 10px; }
+        .dots span { width: 9px; height: 9px; border-radius: 50%; background: #cdd3ea; cursor: pointer; }
+        .dots span.on { background: #2a3b74; }
+        #view2d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    </style>
+</head>
+<body>
+    <div id="appContainer">
+        <div id="controlsPanel">
+            <div id="controlsContent">
+                <div class="info-section">
+                    <h1>The Ewald construction</h1>
+                    <p class="intro">How the Ewald sphere is built and why it tells which reflections are observed. Follow the steps, in 2D (a plane of the reciprocal lattice and the Ewald circle) or in 3D.</p>
+                </div>
+                <div id="status" role="alert"></div>
+
+                <div class="info-section" id="stepBox">
+                    <span class="block-label"><span id="stepTitle"></span><span id="stepCounter"></span></span>
+                    <p id="stepText"></p>
+                    <div class="button-row">
+                        <button type="button" id="prevStep">◀ Previous</button>
+                        <button type="button" id="nextStep">Next ▶</button>
+                    </div>
+                    <div class="dots" id="stepDots"></div>
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">View</span>
+                    <div class="seg">
+                        <button type="button" id="mode2d" class="active">2D: Ewald circle</button>
+                        <button type="button" id="mode3d">3D: Ewald sphere</button>
+                    </div>
+                    <div id="opts2d">
+                        <div class="check-row"><input type="checkbox" id="showLabels" checked><label for="showLabels">hkl labels</label></div>
+                        <div class="check-row"><input type="checkbox" id="showRows"><label for="showRows">Lattice rows</label></div>
+                        <div class="hint">2D shows the h0l plane of the reciprocal lattice, which contains the beam. Drag to pan, scroll to zoom, click a point to select it.</div>
+                    </div>
+                    <div id="opts3d" style="display: none;">
+                        <div class="check-row"><input type="checkbox" id="showSection"><label for="showSection">Show the 2D section (plane containing the beam)</label></div>
+                        <div class="hint">Drag to rotate the view, scroll to zoom, click a point to select it. The section is the h0l plane for orthogonal and monoclinic cells.</div>
+                    </div>
+                    <div class="button-row"><button type="button" id="resetView">Reset view</button></div>
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">Beam and crystal rotation</span>
+                    <div class="grid-container grid-3">
+                        <label for="lambda">λ (Å)</label>
+                        <input type="range" id="lambda" value="1.54" min="0.2" max="10" step="0.01">
+                        <span id="lambdaValue" class="value">1.54</span>
+                        <label for="omega">ω (°)</label>
+                        <input type="range" id="omega" value="0" min="-180" max="180" step="0.1">
+                        <span id="omegaValue" class="value">0.0°</span>
+                        <label for="speed">Speed</label>
+                        <input type="range" id="speed" value="10" min="1" max="60" step="1">
+                        <span id="speedValue" class="value">10°/s</span>
+                    </div>
+                    <div class="button-row">
+                        <button type="button" id="playBtn">▶ Rotate</button>
+                        <button type="button" id="braggBtn">Bring selected to Bragg position</button>
+                    </div>
+                    <div class="hint">ω rotates the crystal, and so its reciprocal lattice, about a vertical axis through the origin O. At ω = 0, c* is along the beam.</div>
+                </div>
+
+                <div class="info-section grid-container">
+                    <label for="crystalSystem" class="grid-span-2">Crystal system</label>
+                    <select id="crystalSystem" class="grid-span-2">
+                        <option value="cubic">Cubic</option>
+                        <option value="tetragonal">Tetragonal</option>
+                        <option value="orthorhombic" selected>Orthorhombic</option>
+                        <option value="hexagonal">Hexagonal</option>
+                        <option value="trigonal">Trigonal</option>
+                        <option value="monoclinic">Monoclinic (unique axis b)</option>
+                        <option value="triclinic">Triclinic</option>
+                    </select>
+                    <label for="bravaisLattice" class="grid-span-2">Bravais lattice</label>
+                    <select id="bravaisLattice" class="grid-span-2"></select>
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">Lattice parameters</span>
+                    <div class="grid-container">
+                        <div id="row_a" style="display: contents;"><label for="a">a (Å)</label><input type="number" id="a" value="4.0" step="0.1" min="1"></div>
+                        <div id="row_b" style="display: contents;"><label for="b">b (Å)</label><input type="number" id="b" value="5.0" step="0.1" min="1"></div>
+                        <div id="row_c" style="display: contents;"><label for="c">c (Å)</label><input type="number" id="c" value="6.0" step="0.1" min="1"></div>
+                        <div id="row_alpha" style="display: contents;"><label for="alpha">α (°)</label><input type="number" id="alpha" value="90.0" step="0.1" min="1" max="179"></div>
+                        <div id="row_beta" style="display: contents;"><label for="beta">β (°)</label><input type="number" id="beta" value="90.0" step="0.1" min="1" max="179"></div>
+                        <div id="row_gamma" style="display: contents;"><label for="gamma">γ (°)</label><input type="number" id="gamma" value="90.0" step="0.1" min="1" max="179"></div>
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <span class="block-label">Range (h, k, l): min, max</span>
+                    <div class="grid-container" style="grid-template-columns: auto 1fr 1fr;">
+                        <label for="h_min">h</label><input type="number" id="h_min" value="-4" step="1"><input type="number" id="h_max" value="4" step="1" aria-label="h max">
+                        <label for="k_min">k</label><input type="number" id="k_min" value="-3" step="1"><input type="number" id="k_max" value="3" step="1" aria-label="k max">
+                        <label for="l_min">l</label><input type="number" id="l_min" value="-4" step="1"><input type="number" id="l_max" value="4" step="1" aria-label="l max">
+                    </div>
+                    <div class="hint">Only lattice-centring extinctions are applied (no glide planes or screw axes).</div>
+                </div>
+
+                <div class="info-section" id="hklInfo" aria-live="polite"></div>
+            </div>
+            <div class="footer-attribution">NitaD, Univ Paris-Saclay</div>
+        </div>
+        <div id="resizer" role="separator" aria-orientation="vertical"></div>
+        <div id="visualizationContainer">
+            <canvas id="view2d"></canvas>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+        // ---------- Constants ----------
+        const MAX_HKL_COMBINATIONS = 10000;
+        const FLASH_TIME = 1.5;   // s a crossing stays highlighted
+        const C = {
+            bg: '#12131f', point: '#4fa3ff', diff: '#ff3333', flash: '#ffd23f', origin: '#ffffff',
+            k0: '#ff4dff', k: '#33e0ff', g: '#ffd23f', ewald: '#33ff66', limit: '#ffaa33', plane: '#c8a2ff',
+            a: '#ff5555', b: '#55dd55', c: '#8a7dff', text: '#c9cde0'
+        };
+        const BRAVAIS = {
+            triclinic: ['P'], monoclinic: ['P', 'C', 'A', 'I'], orthorhombic: ['P', 'A', 'B', 'C', 'I', 'F'],
+            tetragonal: ['P', 'I'], trigonal: ['P', 'R', 'Rrh'], hexagonal: ['P'], cubic: ['P', 'I', 'F']
+        };
+        const BRAVAIS_NAMES = {
+            P: 'Primitive (P)', A: 'A-base centred (A)', B: 'B-base centred (B)', C: 'C-base centred (C)',
+            I: 'Body centred (I)', F: 'Face centred (F)',
+            R: 'Rhombohedral, hexagonal axes (R)', Rrh: 'Rhombohedral, rhombohedral axes (R)'
+        };
+
+        // Construction steps: each one adds elements to the figure.
+        const STEPS = [
+            { title: 'Reciprocal lattice',
+              text: 'Each family of lattice planes (hkl) is represented by the end of the vector R* = h a* + k b* + l c*. Its length is |R*| = 1/d, where d is the spacing of the planes, and R* is perpendicular to the planes.' },
+            { title: 'Incident wave vector k₀',
+              text: 'Draw the incident wave vector k₀ along the beam, with length 1/λ, so that it ends at the origin O of the reciprocal lattice. Its starting point C represents the crystal.' },
+            { title: 'Ewald sphere',
+              text: 'Draw a sphere (a circle in 2D) of radius 1/λ centred on C. It passes through O. Every vector from C to its surface has length 1/λ: it is a possible scattered wave vector k, since scattering is elastic (|k| = |k₀|).' },
+            { title: 'Diffraction condition',
+              text: 'A reflection hkl is observed only when the end of its vector R* lies on the Ewald sphere. The scattered wave vector k then goes from C to that point, and the change of wave vector is a reciprocal-lattice vector: k − k₀ = R*. The triangle formed by k₀, k and R* is isosceles (|k| = |k₀| = 1/λ) with the angle 2θ at C. Cutting it in half gives two right triangles: |R*|/2 = (1/λ) sinθ. Since |R*| = 1/d, this is Bragg\'s law: λ = 2d sinθ. Click any point to test it.' },
+            { title: 'Reflecting planes',
+              text: 'The planes (hkl) are perpendicular to R*. Drawn through C, they lie along the bisector of the triangle: k₀ and k both make the angle θ with the planes. Diffraction looks like a mirror reflection on the planes, which is why θ is the Bragg angle and 2θ the deviation of the beam.' },
+            { title: 'Rotating the crystal',
+              text: 'Rotating the crystal rotates its reciprocal lattice about O, not about C. The sphere stays fixed while points cross it one after another: each crossing (yellow flash) is a reflection. A reflection crosses twice per full turn. Use ▶ Rotate, or select a point and bring it to its Bragg position.' },
+            { title: 'Limiting sphere',
+              text: 'Points farther than 2/λ from O can never touch the Ewald sphere, whatever the rotation: only reflections with d ≥ λ/2 can be measured. Increase λ to see the Ewald and limiting spheres shrink, decrease it to reach more reflections.' },
+            { title: 'Everything together',
+              text: 'All elements are shown. Change λ, the lattice or the view, rotate the crystal, and select points to explore. In 3D, points close to the rotation axis may never cross the sphere (blind region).' }
+        ];
+        const NSTEP = STEPS.length;
+
+        const $ = id => document.getElementById(id);
+        const deg = d => d * Math.PI / 180, rad2deg = r => r * 180 / Math.PI;
+        const hkl = p => `${p.h} ${p.k} ${p.l}`.replace(/-/g, '−');
+        const wrap = a => ((a + 180) % 360 + 360) % 360 - 180;
+
+        // ---------- State ----------
+        const state = {
+            mode: '2d', step: 1,
+            lambda: 1.54, R: 1 / 1.54, omega: 0,
+            playing: false, target: null, time: 0,
+            pts2: [], pts3: [], basis3: null, a2: null, c2: null, maxG: 1,
+            ranges: null, selectedKey: null, errors: { lattice: '' },
+            view: { s: 100, ox: 0, oy: 0 }
+        };
+        const show = minStep => state.step >= minStep;
+
+        // ---------- Crystal input and reciprocal lattice ----------
+        function populateBravais() {
+            const system = $('crystalSystem').value, sel = $('bravaisLattice'), current = sel.value;
+            sel.innerHTML = '';
+            BRAVAIS[system].forEach(opt => { const o = document.createElement('option'); o.value = opt; o.textContent = BRAVAIS_NAMES[opt]; sel.appendChild(o); });
+            if (BRAVAIS[system].includes(current)) sel.value = current;
+        }
+        function visibleRows(system, bravais) {
+            if (system === 'trigonal') return bravais === 'Rrh' ? ['a', 'alpha'] : ['a', 'c'];
+            return { triclinic: ['a', 'b', 'c', 'alpha', 'beta', 'gamma'], monoclinic: ['a', 'b', 'c', 'beta'],
+                orthorhombic: ['a', 'b', 'c'], tetragonal: ['a', 'c'], hexagonal: ['a', 'c'], cubic: ['a'] }[system];
+        }
+        function updateParamRows() {
+            const rows = visibleRows($('crystalSystem').value, $('bravaisLattice').value);
+            ['a', 'b', 'c', 'alpha', 'beta', 'gamma'].forEach(p => { $(`row_${p}`).style.display = rows.includes(p) ? 'contents' : 'none'; });
+        }
+
+        function readLattice() {
+            const system = $('crystalSystem').value, bravais = $('bravaisLattice').value, num = id => Number($(id).value);
+            let a = num('a'), b = num('b'), c = num('c'), alpha = num('alpha'), beta = num('beta'), gamma = num('gamma');
+            switch (system) {
+                case 'cubic': b = a; c = a; alpha = beta = gamma = 90; break;
+                case 'tetragonal': b = a; alpha = beta = gamma = 90; break;
+                case 'orthorhombic': alpha = beta = gamma = 90; break;
+                case 'hexagonal': b = a; alpha = beta = 90; gamma = 120; break;
+                case 'trigonal': if (bravais === 'Rrh') { b = a; c = a; beta = alpha; gamma = alpha; } else { b = a; alpha = beta = 90; gamma = 120; } break;
+                case 'monoclinic': alpha = gamma = 90; break;
+            }
+            const params = { a, b, c, alpha, beta, gamma };
+            if (!Object.values(params).every(Number.isFinite)) throw new Error('Enter complete, finite lattice parameters.');
+            if ([a, b, c].some(v => v < 1)) throw new Error('Lattice lengths must be at least 1 Å.');
+            if ([alpha, beta, gamma].some(v => v < 1 || v > 179)) throw new Error('Cell angles must be between 1° and 179°.');
+            const range = {};
+            let combinations = 1;
+            for (const axis of ['h', 'k', 'l']) {
+                for (const bound of ['min', 'max']) {
+                    const id = `${axis}_${bound}`, raw = $(id).value.trim(), value = Number(raw);
+                    if (raw === '' || !Number.isSafeInteger(value)) throw new Error('Enter integer bounds for h, k and l.');
+                    range[id] = value;
+                }
+                if (range[`${axis}_min`] > range[`${axis}_max`]) throw new Error(`${axis}: minimum must not exceed maximum.`);
+                combinations *= range[`${axis}_max`] - range[`${axis}_min`] + 1;
+                if (combinations > MAX_HKL_COMBINATIONS) throw new Error(`Reduce the ranges to at most ${MAX_HKL_COMBINATIONS.toLocaleString()} (h, k, l) combinations.`);
+            }
+            return { params, bravais, range };
+        }
+
+        // Reciprocal basis with a ∥ x and b in the xy plane, so c* ∥ z (the beam) at ω = 0.
+        function computeBasis(p) {
+            const cA = Math.cos(deg(p.alpha)), cB = Math.cos(deg(p.beta)), cG = Math.cos(deg(p.gamma));
+            const sG = Math.sin(deg(p.gamma));
+            const vt = 1 - cA * cA - cB * cB - cG * cG + 2 * cA * cB * cG;
+            if (!(vt > 1e-9) || sG < 1e-9) return null;
+            const V = p.a * p.b * p.c * Math.sqrt(vt);
+            const av = new THREE.Vector3(p.a, 0, 0);
+            const bv = new THREE.Vector3(p.b * cG, p.b * sG, 0);
+            const cv = new THREE.Vector3(p.c * cB, p.c * (cA - cB * cG) / sG, V / (p.a * p.b * sG));
+            return [new THREE.Vector3().crossVectors(bv, cv).divideScalar(V),
+                    new THREE.Vector3().crossVectors(cv, av).divideScalar(V),
+                    new THREE.Vector3().crossVectors(av, bv).divideScalar(V)];
+        }
+
+        function isReflectionAllowed(h, k, l, bravais) {
+            const odd = n => Math.abs(n % 2);
+            switch (bravais) {
+                case 'I': return (h + k + l) % 2 === 0;
+                case 'F': return odd(h) === odd(k) && odd(k) === odd(l);
+                case 'A': return (k + l) % 2 === 0;
+                case 'B': return (h + l) % 2 === 0;
+                case 'C': return (h + k) % 2 === 0;
+                case 'R': return (-h + k + l) % 3 === 0;
+                default: return true;
+            }
+        }
+
+        const makePoint = (h, k, l, p0) => ({ h, k, l, key: `${h},${k},${l}`, p0, g: p0.length(), w: p0.clone(), dev: 0, prev: null, flash: -1e9 });
+
+        function rebuildLattice() {
+            let cfg;
+            try { cfg = readLattice(); } catch (e) { setError(`${e.message} Display unchanged.`); return; }
+            const basis = computeBasis(cfg.params);
+            if (!basis) { setError('Invalid cell (zero volume). Display unchanged.'); return; }
+            setError('');
+            state.basis3 = basis;
+            const r = cfg.range;
+            // 3D lattice
+            const pts3 = [];
+            for (let h = r.h_min; h <= r.h_max; h++) for (let k = r.k_min; k <= r.k_max; k++) for (let l = r.l_min; l <= r.l_max; l++) {
+                if ((h || k || l) && isReflectionAllowed(h, k, l, cfg.bravais))
+                    pts3.push(makePoint(h, k, l, basis[0].clone().multiplyScalar(h).addScaledVector(basis[1], k).addScaledVector(basis[2], l)));
+            }
+            // 2D section: the h0l plane, placed in the plane of the beam (xz) with c* along the beam.
+            const as = basis[0].length(), cs = basis[2].length(), cosB = basis[0].dot(basis[2]) / (as * cs);
+            state.a2 = new THREE.Vector3(as * Math.sqrt(Math.max(0, 1 - cosB * cosB)), 0, as * cosB);
+            state.c2 = new THREE.Vector3(0, 0, cs);
+            const pts2 = [];
+            for (let h = r.h_min; h <= r.h_max; h++) for (let l = r.l_min; l <= r.l_max; l++) {
+                if ((h || l) && isReflectionAllowed(h, 0, l, cfg.bravais))
+                    pts2.push(makePoint(h, 0, l, state.a2.clone().multiplyScalar(h).addScaledVector(state.c2, l)));
+            }
+            state.pts3 = pts3; state.pts2 = pts2; state.ranges = r;
+            state.maxG = Math.max(...pts3.map(p => p.g), 0.1);
+            build3DLattice();
+            updatePositions(true);
+        }
+
+        function setError(msg) {
+            $('status').textContent = msg;
+            $('status').style.display = msg ? 'block' : 'none';
+        }
+
+        // ---------- Geometry ----------
+        const points = () => state.mode === '2d' ? state.pts2 : state.pts3;
+        const selected = () => state.selectedKey ? points().find(p => p.key === state.selectedKey) || null : null;
+        // Tolerance for "on the sphere": the drawn point touches the circle.
+        const tolerance = () => state.mode === '2d' ? 4.5 / state.view.s : point3Radius;
+
+        // Rotation by ω about the vertical axis y (x' = x cosω + z sinω, z' = −x sinω + z cosω).
+        function rotate(p0, out, om = state.omega) {
+            const c = Math.cos(deg(om)), s = Math.sin(deg(om));
+            return out.set(p0.x * c + p0.z * s, p0.y, -p0.x * s + p0.z * c);
+        }
+
+        function updatePositions(reset = false) {
+            const R = state.R, tol = tolerance();
+            for (const p of points()) {
+                rotate(p.p0, p.w);
+                p.dev = Math.hypot(p.w.x, p.w.y, p.w.z + R) - R;   // distance from the Ewald sphere (centre C = −R ẑ)
+                p.on = Math.abs(p.dev) <= tol;
+                if (!reset && p.prev !== null && (p.dev > 0) !== (p.prev > 0)) p.flash = state.time;   // crossed the sphere
+                p.prev = p.dev;
+            }
+            updateInfo();
+        }
+
+        // ω values that put point p exactly on the sphere: −x sinω + z cosω = −|g|²/(2R).
+        function braggOmegas(p) {
+            const A = p.p0.z, B = -p.p0.x, c = -p.g * p.g / (2 * state.R), rho = Math.hypot(A, B);
+            if (p.g > 2 * state.R) return { reason: 'outside the limiting sphere (d < λ/2)' };
+            if (rho < 1e-12 || Math.abs(c) > rho) return { reason: 'never reaches the sphere with this rotation axis (blind region)' };
+            const phi0 = rad2deg(Math.atan2(B, A)), d = rad2deg(Math.acos(c / rho));
+            return { omegas: [wrap(phi0 + d), wrap(phi0 - d)] };
+        }
+
+        // ---------- Steps ----------
+        function setStep(n) {
+            state.step = Math.min(Math.max(n, 1), NSTEP);
+            const st = STEPS[state.step - 1];
+            $('stepTitle').textContent = `${state.step}. ${st.title}`;
+            $('stepCounter').textContent = `step ${state.step} / ${NSTEP}`;
+            $('stepText').textContent = st.text;
+            $('prevStep').disabled = state.step === 1;
+            $('nextStep').disabled = state.step === NSTEP;
+            [...$('stepDots').children].forEach((d, i) => d.classList.toggle('on', i < state.step));
+            // Demonstrations: pick a reflection and bring it onto the sphere; start rotating at step 6.
+            if ((state.step === 4 || state.step === 5) && !selected()) {
+                // a clear example: 2θ close to 50°
+                const tth = p => 2 * rad2deg(Math.asin(Math.min(1, p.g * state.lambda / 2)));
+                const cand = points().filter(p => p.g < 2 * state.R && braggOmegas(p).omegas).sort((p, q) => Math.abs(tth(p) - 50) - Math.abs(tth(q) - 50))[0];
+                if (cand) { state.selectedKey = cand.key; goToBragg(); }
+            }
+            if (state.step === 6) setPlaying(true);
+            if (state.step < 6) setPlaying(false);
+            update3DVisibility();
+            updateInfo();
+        }
+
+        function goToBragg() {
+            const p = selected();
+            if (!p) { $('hklInfo').textContent = 'Select a point first (click on it).'; return; }
+            const b = braggOmegas(p);
+            if (!b.omegas) { updateInfo(); return; }
+            setPlaying(false);
+            // nearest of the two solutions
+            state.target = b.omegas.reduce((best, o) => Math.abs(wrap(o - state.omega)) < Math.abs(wrap(best - state.omega)) ? o : best);
+        }
+
+        function setPlaying(on) {
+            state.playing = on;
+            if (on) state.target = null;
+            $('playBtn').textContent = on ? '❚❚ Pause' : '▶ Rotate';
+        }
+
+        // ---------- Info ----------
+        function updateInfo() {
+            const p = selected(), nOn = points().filter(q => q.on).length;
+            let txt = `λ = ${state.lambda.toFixed(2)} Å, 1/λ = ${state.R.toFixed(3)} Å⁻¹, ω = ${state.omega.toFixed(1)}°`;
+            if (show(4)) txt += `\nPoints on the sphere now: ${nOn}`;
+            if (!p) { $('hklInfo').textContent = txt + '\nClick a point to select it.'; return; }
+            const sinT = p.g * state.lambda / 2;
+            txt += `\n\n(${hkl(p)})   d = ${(1 / p.g).toFixed(4)} Å   |R*| = ${p.g.toFixed(4)} Å⁻¹`;
+            if (sinT <= 1) txt += `\nBragg angle θ = ${rad2deg(Math.asin(sinT)).toFixed(2)}°, 2θ = ${(2 * rad2deg(Math.asin(sinT))).toFixed(2)}°`;
+            const b = braggOmegas(p);
+            txt += b.omegas ? `\nOn the sphere at ω = ${b.omegas[0].toFixed(1)}° and ω = ${b.omegas[1].toFixed(1)}°` : `\nThis point ${b.reason}.`;
+            txt += p.on ? '\n→ On the sphere: diffracting.' : `\n→ Distance to the sphere: ${p.dev.toFixed(4)} Å⁻¹`;
+            $('hklInfo').textContent = txt;
+        }
+
+        // ================= 2D view =================
+        const cv2 = () => $('view2d');
+        const toS = (z, x) => [state.view.ox + z * state.view.s, state.view.oy - x * state.view.s];   // beam (z) → right, x → up
+        const fromS = (sx, sy) => [(sx - state.view.ox) / state.view.s, (state.view.oy - sy) / state.view.s];
+
+        function fit2D() {
+            const cv = cv2(), W = cv.clientWidth, H = cv.clientHeight, R = state.R;
+            const gmax = Math.max(...state.pts2.map(p => p.g), 0.1);
+            const ext = Math.max(R, gmax);
+            const zmin = Math.min(-2.15 * R, -ext), zmax = Math.max(0.25 * R, ext), xmax = Math.max(1.1 * R, ext);
+            const s = Math.min((W - 40) / (zmax - zmin), (H - 40) / (2 * xmax));
+            state.view.s = s;
+            state.view.ox = 20 + (-zmin) * s + ((W - 40) - (zmax - zmin) * s) / 2;
+            state.view.oy = H / 2;
+        }
+
+        function arrow2D(ctx, x1, y1, x2, y2, color, width = 2, head = 10, dashed = false) {
+            const a = Math.atan2(y2 - y1, x2 - x1), len = Math.hypot(x2 - x1, y2 - y1);
+            const hh = Math.min(head, len * 0.4);
+            ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+            ctx.setLineDash(dashed ? [6, 5] : []);
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2 - hh * 0.8 * Math.cos(a), y2 - hh * 0.8 * Math.sin(a)); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath(); ctx.moveTo(x2, y2);
+            ctx.lineTo(x2 - hh * Math.cos(a - 0.4), y2 - hh * Math.sin(a - 0.4));
+            ctx.lineTo(x2 - hh * Math.cos(a + 0.4), y2 - hh * Math.sin(a + 0.4));
+            ctx.closePath(); ctx.fill();
+        }
+
+        function label2D(ctx, text, x, y, color, font = '13px') {
+            ctx.font = `${font} -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+            const w = ctx.measureText(text).width;
+            ctx.fillStyle = 'rgba(18, 19, 31, 0.75)';
+            ctx.fillRect(x - 3, y - 12, w + 6, 16);
+            ctx.fillStyle = color;
+            ctx.fillText(text, x, y);
+        }
+
+        function draw2D() {
+            const cv = cv2(), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+            if (!W || !H) return;
+            if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+            const ctx = cv.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+            const R = state.R, s = state.view.s;
+            const [Ox, Oy] = toS(0, 0), [Cx, Cy] = toS(-R, 0);
+            const pts = state.pts2, sel = selected(), r = state.ranges;
+
+            // Lattice rows
+            if ($('showRows').checked && r) {
+                ctx.strokeStyle = 'rgba(79, 163, 255, 0.18)'; ctx.lineWidth = 1;
+                const line = (p1, p2) => { const a = toS(...zx(p1)), b = toS(...zx(p2)); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); };
+                const zx = v => { const w = rotate(v, new THREE.Vector3()); return [w.z, w.x]; };
+                for (let h = r.h_min; h <= r.h_max; h++) line(state.a2.clone().multiplyScalar(h).addScaledVector(state.c2, r.l_min), state.a2.clone().multiplyScalar(h).addScaledVector(state.c2, r.l_max));
+                for (let l = r.l_min; l <= r.l_max; l++) line(state.a2.clone().multiplyScalar(r.h_min).addScaledVector(state.c2, l), state.a2.clone().multiplyScalar(r.h_max).addScaledVector(state.c2, l));
+            }
+
+            // Limiting circle
+            if (show(7)) {
+                ctx.strokeStyle = C.limit; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6]);
+                ctx.beginPath(); ctx.arc(Ox, Oy, 2 * R * s, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+                label2D(ctx, 'limiting circle, radius 2/λ', Ox + 2 * R * s * 0.71 + 4, Oy - 2 * R * s * 0.71, C.limit, '12px');
+            }
+            // Incident beam
+            if (show(2)) {
+                ctx.strokeStyle = 'rgba(255, 77, 255, 0.45)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+                ctx.beginPath(); ctx.moveTo(0, Cy); ctx.lineTo(Cx, Cy); ctx.stroke(); ctx.setLineDash([]);
+                label2D(ctx, 'incident beam', 10, Cy - 8, C.k0, '12px');
+            }
+            // Ewald circle
+            if (show(3)) {
+                ctx.strokeStyle = C.ewald; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(Cx, Cy, R * s, 0, 2 * Math.PI); ctx.stroke();
+                // radius indicator 1/λ
+                const ang = deg(-120), ex = Cx + R * s * Math.cos(ang), ey = Cy + R * s * Math.sin(ang);
+                ctx.strokeStyle = 'rgba(51, 255, 102, 0.6)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.moveTo(Cx, Cy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+                label2D(ctx, '1/λ', (Cx + ex) / 2 - 26, (Cy + ey) / 2, C.ewald);
+                label2D(ctx, 'Ewald circle', Cx - R * s * 0.35, Cy + R * s + 18, C.ewald);
+            }
+
+            // Points
+            const showLabels = $('showLabels').checked && s * Math.min(state.a2.length(), state.c2.length()) > 34;
+            for (const p of pts) {
+                const [x, y] = toS(p.w.z, p.w.x);
+                if (x < -10 || x > W + 10 || y < -10 || y > H + 10) continue;
+                const f = show(4) ? Math.max(0, 1 - (state.time - p.flash) / FLASH_TIME) : 0;
+                if (f > 0) { ctx.fillStyle = `rgba(255, 210, 63, ${(0.6 * f).toFixed(3)})`; ctx.beginPath(); ctx.arc(x, y, 5 + 12 * f, 0, 2 * Math.PI); ctx.fill(); }
+                const outside = show(7) && p.g > 2 * R;
+                ctx.fillStyle = show(4) && p.on ? C.diff : outside ? 'rgba(79, 163, 255, 0.35)' : C.point;
+                ctx.beginPath(); ctx.arc(x, y, p === sel ? 6 : 4, 0, 2 * Math.PI); ctx.fill();
+                if (p === sel) { ctx.strokeStyle = '#ffee00'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 9, 0, 2 * Math.PI); ctx.stroke(); }
+                if (showLabels) { ctx.font = '10px -apple-system, "Segoe UI", Roboto, Arial, sans-serif'; ctx.fillStyle = 'rgba(201, 205, 224, 0.75)'; ctx.fillText(`${p.h} 0 ${p.l}`.replace(/-/g, '−'), x + 6, y - 5); }
+            }
+            // Reciprocal axes a*, c* and origin
+            const aw = rotate(state.a2, new THREE.Vector3()), cw = rotate(state.c2, new THREE.Vector3());
+            arrow2D(ctx, Ox, Oy, ...toS(aw.z, aw.x), C.a, 2, 9);
+            arrow2D(ctx, Ox, Oy, ...toS(cw.z, cw.x), C.c, 2, 9);
+            label2D(ctx, 'a*', ...toS(aw.z * 1.15, aw.x * 1.15 + 0.01), C.a);
+            label2D(ctx, 'c*', ...toS(cw.z * 1.15 + 0.01, cw.x * 1.15 + 0.02), C.c);
+            ctx.fillStyle = C.origin; ctx.beginPath(); ctx.arc(Ox, Oy, 6, 0, 2 * Math.PI); ctx.fill();
+            label2D(ctx, 'O (000)', Ox + 8, Oy + 18, C.origin);
+
+            // k0 and C
+            if (show(2)) {
+                arrow2D(ctx, Cx, Cy, Ox, Oy, C.k0, 3, 13);
+                label2D(ctx, 'k₀', (Cx + Ox) / 2 - 6, Cy - 10, C.k0, 'bold 14px');
+                ctx.fillStyle = C.k0; ctx.beginPath(); ctx.arc(Cx, Cy, 5, 0, 2 * Math.PI); ctx.fill();
+                label2D(ctx, 'C (crystal)', Cx - 34, Cy + 22, C.k0);
+            }
+
+            // Selected point: g, k, 2θ, planes
+            if (sel && show(4)) {
+                const [Gx, Gy] = toS(sel.w.z, sel.w.x);
+                arrow2D(ctx, Ox, Oy, Gx, Gy, C.g, 2.5, 11);
+                label2D(ctx, sel.on ? 'R* = k − k₀' : 'R*', (Ox + Gx) / 2 + 8, (Oy + Gy) / 2 - 6, C.g, 'bold 14px');
+                const kAng = Math.atan2(Gy - Cy, Gx - Cx);   // screen angle of k
+                if (sel.on) {
+                    arrow2D(ctx, Cx, Cy, Gx, Gy, C.k, 3, 13);
+                    label2D(ctx, 'k', (Cx + Gx) / 2 - 14, (Cy + Gy) / 2 - 8, C.k, 'bold 14px');
+                    // diffracted beam beyond G
+                    ctx.strokeStyle = 'rgba(51, 224, 255, 0.4)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+                    ctx.beginPath(); ctx.moveTo(Gx, Gy); ctx.lineTo(Cx + Math.cos(kAng) * 3000, Cy + Math.sin(kAng) * 3000); ctx.stroke(); ctx.setLineDash([]);
+                    // 2θ arc between k0 (angle 0) and k
+                    const rr = Math.min(R * s * 0.28, 70);
+                    ctx.strokeStyle = C.text; ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.arc(Cx, Cy, rr, 0, kAng, kAng < 0); ctx.stroke();
+                    const tth = 2 * rad2deg(Math.asin(Math.min(1, sel.g * state.lambda / 2)));
+                    label2D(ctx, `2θ = ${tth.toFixed(1)}°`, Cx + rr * Math.cos(kAng / 2) + 6, Cy + rr * Math.sin(kAng / 2) + 4, C.text);
+                    // Half of the isosceles triangle C-O-G: bisector from C to the middle M of g.
+                    const Mx = (Ox + Gx) / 2, My = (Oy + Gy) / 2, pa = kAng / 2;
+                    ctx.strokeStyle = C.text; ctx.lineWidth = 1.2; ctx.setLineDash([5, 4]);
+                    ctx.beginPath(); ctx.moveTo(Cx, Cy); ctx.lineTo(Mx, My); ctx.stroke(); ctx.setLineDash([]);
+                    // right-angle mark at M
+                    const ux = (Cx - Mx), uy = (Cy - My), ul = Math.hypot(ux, uy) || 1, vx = (Gx - Mx), vy = (Gy - My), vl = Math.hypot(vx, vy) || 1, q = 9;
+                    ctx.beginPath(); ctx.moveTo(Mx + ux / ul * q, My + uy / ul * q); ctx.lineTo(Mx + (ux / ul + vx / vl) * q, My + (uy / ul + vy / vl) * q); ctx.lineTo(Mx + vx / vl * q, My + vy / vl * q); ctx.stroke();
+                    label2D(ctx, '|R*|/2', (Mx + Gx) / 2 + 8, (My + Gy) / 2 + 4, C.g, '12px');
+                    // θ between k₀ and the bisector, θ between the bisector and k
+                    const r2 = rr * 1.7;
+                    ctx.strokeStyle = C.plane; ctx.lineWidth = 1.2;
+                    ctx.beginPath(); ctx.arc(Cx, Cy, r2, 0, pa, pa < 0); ctx.stroke();
+                    ctx.beginPath(); ctx.arc(Cx, Cy, r2 * 1.12, pa, kAng, kAng < pa); ctx.stroke();
+                    label2D(ctx, 'θ', Cx + r2 * Math.cos(pa / 2) + 4, Cy + r2 * Math.sin(pa / 2) + 4, C.plane);
+                    label2D(ctx, 'θ', Cx + r2 * 1.12 * Math.cos(pa * 1.5) + 4, Cy + r2 * 1.12 * Math.sin(pa * 1.5) + 4, C.plane);
+                    // Derivation box
+                    const th = Math.asin(Math.min(1, sel.g * state.lambda / 2));
+                    const lines = [
+                        'k − k₀ = R*        |k| = |k₀| = 1/λ',
+                        `|R*|/2 = (1/λ) sinθ   →   |R*| = 2 sinθ / λ`,
+                        `|R*| = 1/d   →   λ = 2d sinθ`,
+                        `(${hkl(sel)}):  d = ${(1 / sel.g).toFixed(3)} Å,  θ = ${rad2deg(th).toFixed(2)}°,  2d sinθ = ${(2 / sel.g * Math.sin(th)).toFixed(3)} Å = λ`
+                    ];
+                    ctx.font = '13px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+                    const bw = Math.max(...lines.map(t => ctx.measureText(t).width)) + 20, bh = lines.length * 20 + 12, bx = 12, by = H - bh - 12;
+                    ctx.fillStyle = 'rgba(18, 19, 31, 0.88)'; ctx.fillRect(bx, by, bw, bh);
+                    ctx.strokeStyle = '#3a4270'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+                    lines.forEach((t, i) => { ctx.fillStyle = i === 2 ? '#ffffff' : C.text; ctx.fillText(t, bx + 10, by + 22 + i * 20); });
+                    if (show(5)) {
+                        // The planes (hkl) are perpendicular to g: through C they lie along the bisector.
+                        const L = R * s * 1.1;
+                        ctx.strokeStyle = C.plane; ctx.lineWidth = 2.5;
+                        for (const off of [-1, 0, 1]) {
+                            const dx = -Math.sin(pa) * off * 14, dy = Math.cos(pa) * off * 14;
+                            ctx.globalAlpha = off === 0 ? 1 : 0.35;
+                            ctx.beginPath(); ctx.moveTo(Cx + dx - L * Math.cos(pa), Cy + dy - L * Math.sin(pa)); ctx.lineTo(Cx + dx + L * Math.cos(pa), Cy + dy + L * Math.sin(pa)); ctx.stroke();
+                        }
+                        ctx.globalAlpha = 1;
+                        label2D(ctx, `(${hkl(sel)}) planes`, Cx - L * Math.cos(pa) - 20, Cy - L * Math.sin(pa) - 8, C.plane);
+                    }
+                } else {
+                    ctx.strokeStyle = 'rgba(201, 205, 224, 0.5)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+                    ctx.beginPath(); ctx.moveTo(Cx, Cy); ctx.lineTo(Gx, Gy); ctx.stroke(); ctx.setLineDash([]);
+                    label2D(ctx, `|C→R*| ≠ 1/λ: no diffraction`, (Cx + Gx) / 2 + 6, (Cy + Gy) / 2 + 16, C.text, '12px');
+                }
+            }
+
+            // Corner caption
+            label2D(ctx, `ω = ${state.omega.toFixed(1)}°   λ = ${state.lambda.toFixed(2)} Å   section h0l`, 12, 22, C.text, '12px');
+        }
+
+        function init2DInteraction() {
+            const cv = cv2();
+            let drag = null;
+            cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, ox: state.view.ox, oy: state.view.oy, moved: false }; cv.setPointerCapture(e.pointerId); });
+            cv.addEventListener('pointermove', e => {
+                if (!drag) return;
+                const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+                if (Math.hypot(dx, dy) > 4) drag.moved = true;
+                if (drag.moved) { state.view.ox = drag.ox + dx; state.view.oy = drag.oy + dy; }
+            });
+            cv.addEventListener('pointerup', e => {
+                if (drag && !drag.moved) {
+                    const rect = cv.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                    let best = null, bd = 12 * 12;
+                    for (const p of state.pts2) { const [x, y] = toS(p.w.z, p.w.x), d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = p; } }
+                    state.selectedKey = best ? best.key : null;
+                    updateInfo();
+                }
+                drag = null;
+            });
+            cv.addEventListener('wheel', e => {
+                e.preventDefault();
+                const rect = cv.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                const [z, x] = fromS(mx, my), f = Math.exp(-e.deltaY * 0.0015);
+                state.view.s *= f;
+                state.view.ox = mx - z * state.view.s;
+                state.view.oy = my + x * state.view.s;
+                updatePositions(true);   // tolerance depends on the zoom
+            }, { passive: false });
+        }
+
+        // ================= 3D view =================
+        let scene, camera, renderer, labelRenderer, controls, container;
+        const latticeGroup = new THREE.Group(), labGroup = new THREE.Group(), selGroup = new THREE.Group();
+        let pointMesh = null, point3Radius = 0.01, marker = null;
+        const lab = {};   // named lab-frame objects
+        const _m4 = new THREE.Matrix4(), _col = new THREE.Color(), _v = new THREE.Vector3();
+        const COL3 = { point: new THREE.Color(C.point), diff: new THREE.Color(C.diff), flash: new THREE.Color(C.flash), dim: new THREE.Color('#24406a') };
+
+        function makeLabel(text, color) {
+            const div = document.createElement('div');
+            div.className = 'label'; div.textContent = text; div.style.color = color;
+            return new CSS2DObject(div);
+        }
+
+        function disposeGroup(group) {
+            for (const child of [...group.children]) {
+                child.traverse(o => {
+                    const inArrow = o.parent && o.parent.type === 'ArrowHelper';
+                    if (o.geometry && !inArrow) o.geometry.dispose();
+                    if (o.material) [].concat(o.material).forEach(m => m.dispose());
+                    if (o.isInstancedMesh) o.dispose();
+                    if (o.isCSS2DObject) o.element.remove();
+                });
+                group.remove(child);
+            }
+        }
+
+        function init3D() {
+            container = $('visualizationContainer');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(C.bg);
+            camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100);
+            camera.position.set(2.2, 1.4, 1.2);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+            labelRenderer = new CSS2DRenderer();
+            Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0px', pointerEvents: 'none' });
+            container.appendChild(labelRenderer.domElement);
+            scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+            const dl = new THREE.DirectionalLight(0xffffff, 2.0); dl.position.set(5, 10, 7.5); scene.add(dl);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            scene.add(latticeGroup, labGroup, selGroup);
+
+            let down = null;
+            renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+            renderer.domElement.addEventListener('pointerup', e => {
+                if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+                const rect = renderer.domElement.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                let best = null, bd = 12 * 12, bz = Infinity;
+                for (const p of state.pts3) {
+                    _v.copy(p.w).project(camera);
+                    if (_v.z < -1 || _v.z > 1) continue;
+                    const d = ((_v.x + 1) / 2 * rect.width - mx) ** 2 + ((1 - _v.y) / 2 * rect.height - my) ** 2;
+                    if (d < bd - 4 || (d <= bd + 4 && _v.z < bz)) { best = p; bd = Math.min(d, bd); bz = _v.z; }
+                }
+                state.selectedKey = best ? best.key : null;
+                updateInfo();
+            });
+        }
+
+        function build3DLattice() {
+            disposeGroup(latticeGroup);
+            const b = state.basis3, pts = state.pts3;
+            point3Radius = 0.06 * Math.min(...b.map(v => v.length()));
+            pointMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(point3Radius, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }), Math.max(pts.length, 1));
+            pointMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            pts.forEach((p, i) => { pointMesh.setMatrixAt(i, _m4.makeTranslation(p.p0.x, p.p0.y, p.p0.z)); pointMesh.setColorAt(i, COL3.point); });
+            pointMesh.frustumCulled = false;
+            latticeGroup.add(pointMesh);
+            const origin = new THREE.Mesh(new THREE.SphereGeometry(point3Radius * 1.6, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+            latticeGroup.add(origin);
+            const oLabel = makeLabel('O', C.origin); oLabel.position.set(0, -point3Radius * 4, 0); latticeGroup.add(oLabel);
+            ['a', 'b', 'c'].forEach((key, i) => {
+                const v = b[i], mag = v.length();
+                latticeGroup.add(new THREE.ArrowHelper(v.clone().normalize(), new THREE.Vector3(), mag, new THREE.Color(C[key]), mag * 0.15, mag * 0.1));
+                const l = makeLabel(`${key}*`, C[key]); l.position.copy(v).multiplyScalar(1.15); latticeGroup.add(l);
+            });
+            marker = new THREE.Mesh(new THREE.SphereGeometry(point3Radius * 2.2, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffee00, wireframe: true }));
+            marker.visible = false;
+            latticeGroup.add(marker);
+            build3DLab();
+        }
+
+        function build3DLab() {
+            disposeGroup(labGroup);
+            const R = state.R, Cpos = new THREE.Vector3(0, 0, -R);
+            lab.sphere = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48),
+                new THREE.MeshPhongMaterial({ color: C.ewald, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
+            lab.sphere.position.copy(Cpos);
+            lab.limit = new THREE.Mesh(new THREE.SphereGeometry(2 * R, 32, 16),
+                new THREE.MeshBasicMaterial({ color: C.limit, wireframe: true, transparent: true, opacity: 0.18, depthWrite: false }));
+            lab.k0 = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), Cpos, R, new THREE.Color(C.k0), R * 0.1, R * 0.05);
+            lab.beam = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -2.3 * R), Cpos]), new THREE.LineDashedMaterial({ color: C.k0, dashSize: R * 0.06, gapSize: R * 0.05 }));
+            lab.beam.computeLineDistances();
+            lab.C = new THREE.Mesh(new THREE.SphereGeometry(point3Radius * 1.4, 12, 8), new THREE.MeshBasicMaterial({ color: C.k0 }));
+            lab.C.position.copy(Cpos);
+            lab.Clabel = makeLabel('C (crystal)', C.k0); lab.Clabel.position.copy(Cpos).add(new THREE.Vector3(0, -R * 0.08, 0));
+            lab.k0label = makeLabel('k₀', C.k0); lab.k0label.position.set(0, R * 0.05, -R / 2);
+            lab.limitLabel = makeLabel('limiting sphere 2/λ', C.limit); lab.limitLabel.position.set(0, 2 * R, 0);
+            // 2D section: plane y = 0 and its Ewald circle
+            const circ = [];
+            for (let i = 0; i <= 128; i++) { const t = 2 * Math.PI * i / 128; circ.push(new THREE.Vector3(R * Math.sin(t), 0, -R + R * Math.cos(t))); }
+            lab.section = new THREE.Group();
+            lab.section.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(circ), new THREE.LineBasicMaterial({ color: C.ewald })));
+            const disc = new THREE.Mesh(new THREE.CircleGeometry(2.3 * R, 64), new THREE.MeshBasicMaterial({ color: 0x8899cc, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }));
+            disc.rotation.x = Math.PI / 2; disc.position.z = -R / 2;
+            lab.section.add(disc);
+            labGroup.add(lab.sphere, lab.limit, lab.k0, lab.beam, lab.C, lab.Clabel, lab.k0label, lab.limitLabel, lab.section);
+
+            // Selected point: k, g, reflecting planes, labels (updated every frame)
+            disposeGroup(selGroup);
+            lab.g = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, new THREE.Color(C.g));
+            lab.k = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), Cpos, 1, new THREE.Color(C.k));
+            lab.plane = new THREE.Mesh(new THREE.PlaneGeometry(1.2 * R, 1.2 * R), new THREE.MeshBasicMaterial({ color: C.plane, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+            lab.plane.position.copy(Cpos);
+            lab.glabel = makeLabel('R*', C.g); lab.klabel = makeLabel('k', C.k); lab.tlabel = makeLabel('', C.text); lab.planeLabel = makeLabel('', C.plane);
+            selGroup.add(lab.g, lab.k, lab.plane, lab.glabel, lab.klabel, lab.tlabel, lab.planeLabel);
+            update3DVisibility();
+        }
+
+        function update3DVisibility() {
+            if (!lab.sphere) return;
+            lab.k0.visible = lab.beam.visible = lab.C.visible = lab.Clabel.visible = lab.k0label.visible = show(2);
+            lab.sphere.visible = show(3);
+            lab.limit.visible = lab.limitLabel.visible = show(7);
+            lab.section.visible = $('showSection').checked;
+            for (const o of [lab.Clabel, lab.k0label, lab.limitLabel]) o.element.style.display = o.visible ? '' : 'none';
+        }
+
+        function update3DFrame() {
+            if (!pointMesh) return;
+            latticeGroup.rotation.y = deg(state.omega);
+            const f4 = show(4);
+            state.pts3.forEach((p, i) => {
+                const f = f4 ? Math.max(0, 1 - (state.time - p.flash) / FLASH_TIME) : 0;
+                _col.copy(f4 && p.on ? COL3.diff : (show(7) && p.g > 2 * state.R ? COL3.dim : COL3.point));
+                if (f > 0) _col.lerp(COL3.flash, f);
+                pointMesh.setColorAt(i, _col);
+            });
+            if (pointMesh.instanceColor) pointMesh.instanceColor.needsUpdate = true;
+
+            const p = selected(), Cpos = new THREE.Vector3(0, 0, -state.R);
+            marker.visible = !!p;
+            if (p) marker.position.copy(p.p0);
+            const vis = !!p && f4;
+            selGroup.visible = vis;
+            for (const l of [lab.glabel, lab.klabel, lab.tlabel, lab.planeLabel]) l.element.style.display = vis ? '' : 'none';
+            if (!vis) return;
+            lab.g.setDirection(_v.copy(p.w).normalize()); lab.g.setLength(p.g, Math.min(p.g * 0.2, state.R * 0.08), Math.min(p.g * 0.1, state.R * 0.04));
+            lab.glabel.position.copy(p.w).multiplyScalar(0.5).add(new THREE.Vector3(0, state.R * 0.04, 0));
+            const kv = p.w.clone().sub(Cpos), kl = kv.length();
+            lab.k.setDirection(kv.clone().normalize()); lab.k.setLength(kl, state.R * 0.08, state.R * 0.04);
+            lab.k.visible = lab.klabel.visible = p.on;
+            lab.klabel.element.style.display = p.on ? '' : 'none';
+            lab.klabel.position.copy(Cpos).addScaledVector(kv, 0.5).add(new THREE.Vector3(0, state.R * 0.04, 0));
+            const sinT = p.g * state.lambda / 2;
+            lab.tlabel.element.textContent = p.on ? `2θ = ${(2 * rad2deg(Math.asin(Math.min(1, sinT)))).toFixed(1)}°` : '|C→R*| ≠ 1/λ: no diffraction';
+            lab.tlabel.position.copy(Cpos).add(new THREE.Vector3(0, -state.R * 0.2, 0));
+            lab.plane.visible = p.on && show(5);
+            lab.planeLabel.element.style.display = lab.plane.visible ? '' : 'none';
+            if (lab.plane.visible) {
+                lab.plane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), _v.copy(p.w).normalize());
+                lab.planeLabel.element.textContent = `(${hkl(p)}) planes`;
+                lab.planeLabel.position.copy(Cpos).add(new THREE.Vector3(0, state.R * 0.6, 0));
+            }
+        }
+
+        function fit3D() {
+            const R = state.R, target = new THREE.Vector3(0, 0, -R / 2);
+            const radius = Math.max(1.6 * R, state.maxG + R / 2, show(7) ? 2.2 * R : 0);
+            const dist = 1.1 * radius / Math.sin(deg(camera.fov / 2));
+            const dir = camera.position.clone().sub(controls.target);
+            if (dir.lengthSq() < 1e-12) dir.set(1, 0.6, 0.6);
+            controls.target.copy(target);
+            camera.position.copy(target).addScaledVector(dir.normalize(), dist);
+            camera.near = dist / 1000; camera.far = dist * 10;
+            camera.updateProjectionMatrix();
+            controls.update();
+        }
+
+        // ================= Common =================
+        function setMode(m) {
+            state.mode = m;
+            $('mode2d').classList.toggle('active', m === '2d');
+            $('mode3d').classList.toggle('active', m === '3d');
+            $('opts2d').style.display = m === '2d' ? 'block' : 'none';
+            $('opts3d').style.display = m === '3d' ? 'block' : 'none';
+            cv2().style.display = m === '2d' ? 'block' : 'none';
+            renderer.domElement.style.display = labelRenderer.domElement.style.display = m === '3d' ? 'block' : 'none';
+            if (state.selectedKey && !selected()) state.selectedKey = null;   // e.g. a k ≠ 0 point in 2D
+            updatePositions(true);
+            onResize();
+            resetView();
+        }
+
+        function resetView() { if (state.mode === '2d') fit2D(); else fit3D(); updatePositions(true); }
+
+        function onResize() {
+            const w = container.clientWidth, h = container.clientHeight;
+            if (!w || !h) return;
+            camera.aspect = w / h; camera.updateProjectionMatrix();
+            renderer.setSize(w, h); labelRenderer.setSize(w, h);
+        }
+
+        function setupUI() {
+            const dots = $('stepDots');
+            STEPS.forEach((st, i) => { const d = document.createElement('span'); d.title = st.title; d.addEventListener('click', () => setStep(i + 1)); dots.appendChild(d); });
+            $('prevStep').addEventListener('click', () => setStep(state.step - 1));
+            $('nextStep').addEventListener('click', () => setStep(state.step + 1));
+            $('mode2d').addEventListener('click', () => setMode('2d'));
+            $('mode3d').addEventListener('click', () => setMode('3d'));
+            $('resetView').addEventListener('click', resetView);
+            $('playBtn').addEventListener('click', () => setPlaying(!state.playing));
+            $('braggBtn').addEventListener('click', goToBragg);
+            $('showSection').addEventListener('change', update3DVisibility);
+            $('lambda').addEventListener('input', () => {
+                state.lambda = Number($('lambda').value); state.R = 1 / state.lambda;
+                $('lambdaValue').textContent = state.lambda.toFixed(2);
+                build3DLab();
+                updatePositions(true);
+            });
+            $('omega').addEventListener('input', () => { setPlaying(false); state.target = null; state.omega = Number($('omega').value); updatePositions(); });
+            $('speed').addEventListener('input', () => { $('speedValue').textContent = `${$('speed').value}°/s`; });
+            $('crystalSystem').addEventListener('change', () => { populateBravais(); updateParamRows(); rebuildLattice(); });
+            $('bravaisLattice').addEventListener('change', () => { updateParamRows(); rebuildLattice(); });
+            ['a', 'b', 'c', 'alpha', 'beta', 'gamma', 'h_min', 'h_max', 'k_min', 'k_max', 'l_min', 'l_max'].forEach(id => $(id).addEventListener('input', rebuildLattice));
+
+            const resizer = $('resizer'), panel = $('controlsPanel');
+            let startX = 0, startW = 0;
+            const move = e => { const w = startW + e.clientX - startX; if (w > 300 && w < 800) panel.style.width = w + 'px'; };
+            const up = e => { resizer.releasePointerCapture(e.pointerId); resizer.removeEventListener('pointermove', move); resizer.removeEventListener('pointerup', up); };
+            resizer.addEventListener('pointerdown', e => { e.preventDefault(); startX = e.clientX; startW = panel.getBoundingClientRect().width; resizer.setPointerCapture(e.pointerId); resizer.addEventListener('pointermove', move); resizer.addEventListener('pointerup', up); });
+            new ResizeObserver(onResize).observe(container);
+        }
+
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.1);
+            state.time += dt;
+            let moved = false;
+            if (state.playing) { state.omega = wrap(state.omega + Number($('speed').value) * dt); moved = true; }
+            else if (state.target !== null) {
+                const d = wrap(state.target - state.omega), stepMax = 90 * dt;
+                if (Math.abs(d) <= stepMax) { state.omega = state.target; state.target = null; } else state.omega = wrap(state.omega + Math.sign(d) * stepMax);
+                moved = true;
+            }
+            if (moved) { $('omega').value = state.omega; $('omegaValue').textContent = `${state.omega.toFixed(1)}°`; updatePositions(); }
+            else $('omegaValue').textContent = `${state.omega.toFixed(1)}°`;
+            if (state.mode === '2d') draw2D();
+            else { update3DFrame(); controls.update(); renderer.render(scene, camera); labelRenderer.render(scene, camera); }
+        }
+
+        // ---------- Start ----------
+        init3D();
+        setupUI();
+        populateBravais();
+        updateParamRows();
+        rebuildLattice();
+        setMode('2d');
+        setStep(1);
+        animate();
+    </script>
+</body>
+</html>
