@@ -81,6 +81,7 @@
                 <div class="info-section" id="stepBox">
                     <span class="block-label"><span id="stepTitle"></span><span id="stepCounter"></span></span>
                     <p id="stepText"></p>
+                    <div class="hint" id="refNode" style="color: #2a3b74;"></div>
                     <div class="button-row">
                         <button type="button" id="prevStep">◀ Previous</button>
                         <button type="button" id="nextStep">Next ▶</button>
@@ -96,7 +97,6 @@
                     </div>
                     <div id="opts2d">
                         <div class="check-row"><input type="checkbox" id="showLabels" checked><label for="showLabels">hkl labels</label></div>
-                        <div class="check-row"><input type="checkbox" id="showRows"><label for="showRows">Lattice rows</label></div>
                         <div class="hint">2D shows the h0l plane of the reciprocal lattice, which contains the beam. Drag to pan, scroll to zoom, click a point to select it.</div>
                     </div>
                     <div id="opts3d" style="display: none;">
@@ -207,7 +207,7 @@
         // Construction steps: each one adds elements to the figure.
         const STEPS = [
             { title: 'Reciprocal lattice',
-              text: 'Each family of lattice planes (hkl) is represented by the end of the vector R* = h a* + k b* + l c*. Its length is |R*| = 1/d, where d is the spacing of the planes, and R* is perpendicular to the planes.' },
+              text: 'Each family of lattice planes (hkl) is represented by the end of the vector R* = h a* + k b* + l c*. Its length is |R*| = 1/d, where d is the spacing of the planes, and R* is perpendicular to the planes. Click a node to choose it as the reference: it is kept for all the next steps.' },
             { title: 'Incident wave vector k₀',
               text: 'Draw the incident wave vector k₀ along the beam, with length 1/λ, so that it ends at the origin O of the reciprocal lattice. Its starting point C represents the crystal.' },
             { title: 'Ewald sphere',
@@ -396,7 +396,9 @@
             $('nextStep').disabled = state.step === NSTEP;
             [...$('stepDots').children].forEach((d, i) => d.classList.toggle('on', i < state.step));
             // Demonstrations: pick a reflection and bring it onto the sphere; start rotating at step 6.
-            if ((state.step === 4 || state.step === 5) && !selected()) {
+            if ((state.step === 4 || state.step === 5) && selected()) {
+                if (!selected().on && braggOmegas(selected()).omegas) goToBragg();   // your reference node, brought onto the sphere
+            } else if (state.step === 4 || state.step === 5) {
                 // a clear example: 2θ close to 50°
                 const tth = p => 2 * rad2deg(Math.asin(Math.min(1, p.g * state.lambda / 2)));
                 const cand = points().filter(p => p.g < 2 * state.R && braggOmegas(p).omegas).sort((p, q) => Math.abs(tth(p) - 50) - Math.abs(tth(q) - 50))[0];
@@ -425,7 +427,15 @@
         }
 
         // ---------- Info ----------
+        function updateRefNode() {
+            const p = selected();
+            $('refNode').textContent = p
+                ? `Reference node: (${hkl(p)}). Click another node to change it, or click an empty area to clear it.`
+                : 'Reference node: none. Click a node in the figure to choose it.';
+        }
+
         function updateInfo() {
+            updateRefNode();
             const p = selected(), nOn = points().filter(q => q.on).length;
             let txt = `λ = ${state.lambda.toFixed(2)} Å, 1/λ = ${state.R.toFixed(3)} Å⁻¹, ω = ${state.omega.toFixed(1)}°`;
             if (show(4)) txt += `\nPoints on the sphere now: ${nOn}`;
@@ -488,15 +498,6 @@
             const [Ox, Oy] = toS(0, 0), [Cx, Cy] = toS(-R, 0);
             const pts = state.pts2, sel = selected(), r = state.ranges;
 
-            // Lattice rows
-            if ($('showRows').checked && r) {
-                ctx.strokeStyle = 'rgba(79, 163, 255, 0.18)'; ctx.lineWidth = 1;
-                const line = (p1, p2) => { const a = toS(...zx(p1)), b = toS(...zx(p2)); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); };
-                const zx = v => { const w = rotate(v, new THREE.Vector3()); return [w.z, w.x]; };
-                for (let h = r.h_min; h <= r.h_max; h++) line(state.a2.clone().multiplyScalar(h).addScaledVector(state.c2, r.l_min), state.a2.clone().multiplyScalar(h).addScaledVector(state.c2, r.l_max));
-                for (let l = r.l_min; l <= r.l_max; l++) line(state.a2.clone().multiplyScalar(r.h_min).addScaledVector(state.c2, l), state.a2.clone().multiplyScalar(r.h_max).addScaledVector(state.c2, l));
-            }
-
             // Limiting circle
             if (show(7)) {
                 ctx.strokeStyle = C.limit; ctx.lineWidth = 1.5; ctx.setLineDash([8, 6]);
@@ -552,10 +553,13 @@
             }
 
             // Selected point: g, k, 2θ, planes
-            if (sel && show(4)) {
+            if (sel) {
                 const [Gx, Gy] = toS(sel.w.z, sel.w.x);
                 arrow2D(ctx, Ox, Oy, Gx, Gy, C.g, 2.5, 11);
-                label2D(ctx, sel.on ? 'R* = k − k₀' : 'R*', (Ox + Gx) / 2 + 8, (Oy + Gy) / 2 - 6, C.g, 'bold 14px');
+                label2D(ctx, show(4) && sel.on ? 'R* = k − k₀' : `R*(${hkl(sel)})`, (Ox + Gx) / 2 + 8, (Oy + Gy) / 2 - 6, C.g, 'bold 14px');
+            }
+            if (sel && show(4)) {
+                const [Gx, Gy] = toS(sel.w.z, sel.w.x);
                 const kAng = Math.atan2(Gy - Cy, Gx - Cx);   // screen angle of k
                 if (sel.on) {
                     arrow2D(ctx, Cx, Cy, Gx, Gy, C.k, 3, 13);
@@ -797,9 +801,16 @@
             const p = selected(), Cpos = new THREE.Vector3(0, 0, -state.R);
             marker.visible = !!p;
             if (p) marker.position.copy(p.p0);
+            selGroup.visible = !!p;
+            lab.glabel.element.style.display = p ? '' : 'none';
             const vis = !!p && f4;
-            selGroup.visible = vis;
-            for (const l of [lab.glabel, lab.klabel, lab.tlabel, lab.planeLabel]) l.element.style.display = vis ? '' : 'none';
+            lab.k.visible = lab.plane.visible = vis;
+            for (const l of [lab.klabel, lab.tlabel, lab.planeLabel]) l.element.style.display = vis ? '' : 'none';
+            if (p) {
+                lab.g.setDirection(_v.copy(p.w).normalize()); lab.g.setLength(p.g, Math.min(p.g * 0.2, state.R * 0.08), Math.min(p.g * 0.1, state.R * 0.04));
+                lab.glabel.position.copy(p.w).multiplyScalar(0.5).add(new THREE.Vector3(0, state.R * 0.04, 0));
+                lab.glabel.element.textContent = vis && p.on ? 'R* = k − k₀' : `R*(${hkl(p)})`;
+            }
             if (!vis) return;
             lab.g.setDirection(_v.copy(p.w).normalize()); lab.g.setLength(p.g, Math.min(p.g * 0.2, state.R * 0.08), Math.min(p.g * 0.1, state.R * 0.04));
             lab.glabel.position.copy(p.w).multiplyScalar(0.5).add(new THREE.Vector3(0, state.R * 0.04, 0));
@@ -908,6 +919,7 @@
 
         // ---------- Start ----------
         init3D();
+        init2DInteraction();
         setupUI();
         populateBravais();
         updateParamRows();
