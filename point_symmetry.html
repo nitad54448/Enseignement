@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Point Group Symmetry Tool</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -21,6 +21,10 @@
             width: 100%;
             height: calc(100vh - 32px);
         }
+        @supports (height: 100dvh) {
+            body { height: 100dvh; }
+            #app-container { height: calc(100dvh - 32px); }
+        }
         #controls-panel {
             width: 429px;
             min-width: 369px;
@@ -32,21 +36,26 @@
             overflow-y: auto;
             color: #d1d5db;
         }
-        #drag-handle {
+        #drag-handle, #side-handle {
             width: 6px;
             cursor: col-resize;
             background-color: #374151;
             flex-shrink: 0;
             transition: background-color 0.2s;
+            touch-action: none;
         }
-        #drag-handle:hover {
+        #drag-handle:hover, #side-handle:hover,
+        #drag-handle:focus-visible, #side-handle:focus-visible {
             background-color: #3b82f6;
+            outline: none;
         }
+        #side-handle[hidden] { display: none; }
         #visualization-area {
             flex-grow: 1;
             position: relative;
             background-color: #1a1a1a;
             min-width: 0;
+            overflow: hidden;
         }
         canvas {
             display: block;
@@ -85,13 +94,177 @@
         select { width: 100%; }
         #generated-coordinates-list { font-family: monospace; font-size: 0.9em; background-color: #1f2937; border: 1px solid #4b5563; border-radius: 0.5rem; padding: 0.75rem; max-height: 300px; overflow-y: auto; }
         input[aria-invalid="true"] { border-color: #ef4444; }
-        #info-box { font-size: 0.9em; color: #9ca3af; margin-top: 1rem; }
+        #info-box { font-size: 0.9em; color: #9ca3af; margin-top: 1rem; line-height: 1.6; }
+        #info-box span { color: #e5e7eb; }
+
+        /* ---- Shared math typography ---- */
+        .math, .ct, .ops, .tensor, .stereo-svg text, .hm, .sch { font-family: 'STIX Two Text', 'Cambria Math', 'Times New Roman', serif; }
+        .ov { text-decoration: overline; text-decoration-thickness: 0.06em; text-underline-offset: 0; }
+        sub, sup { font-size: 0.72em; line-height: 0; }
+
+        /* ---- Viewport overlays ---- */
+        #viewport-legend {
+            position: absolute; top: 10px; left: 10px; z-index: 2;
+            display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: calc(100% - 20px);
+            padding: 6px 10px; border-radius: 6px;
+            background: rgba(17, 24, 39, 0.78); border: 1px solid #374151;
+            font-size: 0.75rem; color: #9ca3af; pointer-events: none;
+        }
+        #viewport-legend span { display: inline-flex; align-items: center; gap: 4px; }
+        #viewport-legend svg { width: 14px; height: 14px; overflow: visible; }
+        #tint-banner {
+            position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 2;
+            display: flex; align-items: center; gap: 12px; padding: 6px 8px 6px 12px;
+            border-radius: 6px; background: rgba(17, 24, 39, 0.9); border: 1px solid #4b5563;
+            font-size: 0.8rem; color: #d1d5db; white-space: nowrap;
+        }
+        #tint-banner[hidden] { display: none; }
+        .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin: 0 2px 0 6px; }
+        .btn {
+            font: 500 0.78rem 'Inter', sans-serif; color: #e5e7eb; background: #374151;
+            border: 1px solid #4b5563; border-radius: 4px; padding: 3px 8px; cursor: pointer;
+        }
+        .btn:hover { background: #4b5563; }
+        .btn:focus-visible, .tab-btn:focus-visible, .side-toggle:focus-visible {
+            outline: 2px solid #3b82f6; outline-offset: -2px;
+        }
+        .cell-btn {
+            font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0;
+            cursor: pointer; text-align: inherit; white-space: nowrap;
+        }
+        .cell-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; border-radius: 2px; }
+
+        /* ---- Right-hand tabbed panel ---- */
+        #side-panel {
+            width: 440px; min-width: 320px; max-width: 760px; flex-shrink: 0;
+            display: flex; flex-direction: column; min-height: 0;
+            background-color: #111827; border-left: 1px solid #374151; color: #d1d5db;
+        }
+        .tablist {
+            display: flex; align-items: flex-end; gap: 2px;
+            padding: 8px 8px 0; border-bottom: 1px solid #374151; flex-shrink: 0;
+        }
+        .tab-btn {
+            font: 500 0.85rem 'Inter', sans-serif; color: #9ca3af; background: transparent;
+            border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+            padding: 8px 12px; margin-bottom: -1px; cursor: pointer; white-space: nowrap;
+        }
+        .tab-btn:hover { color: #e5e7eb; }
+        .tab-btn[aria-selected="true"] { color: #ffffff; background: #1f2937; border-color: #374151; }
+        .side-toggle {
+            margin-left: auto; align-self: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0;
+            color: #9ca3af; background: transparent;
+            border: 1px solid #374151; border-radius: 6px; cursor: pointer;
+        }
+        .side-toggle svg { display: block; width: 14px; height: 14px; margin: auto; transition: transform 0.15s; }
+        #side-panel.collapsed .side-toggle svg { transform: rotate(180deg); }
+        .side-toggle:hover { color: #ffffff; border-color: #4b5563; }
+        #side-panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #1f2937; }
+        .tab-panel { flex: 1; min-height: 0; overflow: auto; padding: 16px 16px 24px; }
+        .tab-panel[hidden] { display: none; }
+        #side-panel.collapsed { width: 44px !important; min-width: 44px; }
+        #side-panel.collapsed .tablist { flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; border-bottom: 0; }
+        #side-panel.collapsed .tab-btn { writing-mode: vertical-rl; padding: 12px 6px; margin: 0; border-radius: 6px; }
+        #side-panel.collapsed .tab-btn[aria-selected="true"] { background: transparent; border-color: transparent; color: #9ca3af; }
+        #side-panel.collapsed .side-toggle { order: -1; margin: 0 0 6px; }
+        #side-panel.collapsed #side-panel-body { display: none; }
+
+        .tab-head h2 { margin: 0 0 4px; font-size: 1.15rem; font-weight: 600; color: #ffffff; }
+        .tab-head h2 .hm, .tab-head h2 .sch { font-weight: 400; }
+        .tab-head p { margin: 0 0 14px; font-size: 0.82rem; color: #9ca3af; }
+        .tab-panel h3 { margin: 22px 0 8px; font-size: 0.95rem; font-weight: 600; color: #ffffff; }
+        .note { font-size: 0.8rem; line-height: 1.5; color: #9ca3af; margin: 10px 0 0; }
+        .note .math { color: #d1d5db; }
+        .scroll-x { overflow-x: auto; border: 1px solid #374151; border-radius: 6px; background: #111827; }
+
+        /* Character table */
+        .ct { border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; width: 100%; }
+        .ct th, .ct td { padding: 5px 7px; text-align: center; white-space: nowrap; font-weight: 400; }
+        .ct thead th { border-bottom: 1px solid #4b5563; color: #e5e7eb; }
+        .ct th.corner { text-align: left; font-weight: 600; color: #ffffff; }
+        .ct th.cls { cursor: pointer; border-radius: 4px 4px 0 0; }
+        .ct th.cls:hover { background: rgba(59, 130, 246, 0.15); }
+        .ct th.cls.active { background: rgba(253, 224, 71, 0.18); color: #fde047; }
+        .ct th.irrep { text-align: left; color: #ffffff; border-right: 1px solid #4b5563; }
+        .ct .fn { text-align: left; border-left: 1px solid #4b5563; color: #cbd5e1; font-size: 14px; }
+        .ct thead .fn { font-family: 'Inter', sans-serif; font-size: 0.72rem; color: #9ca3af; }
+        .ct tbody.irreps tr { cursor: pointer; }
+        .ct tbody.irreps tr:hover td, .ct tbody.irreps tr:hover th { background: rgba(59, 130, 246, 0.1); }
+        .ct tbody.irreps tr.tinted td, .ct tbody.irreps tr.tinted th { background: rgba(245, 158, 11, 0.16); }
+        .ct tr.pair-a th.irrep { box-shadow: inset 3px 0 0 #4b5563; }
+        .ct tr.pair-a td:not(.fn) { padding-bottom: 1px; }
+        .ct tr.pair-b td:not(.fn) { padding-top: 1px; }
+        .ct tbody.gamma tr:first-child th, .ct tbody.gamma tr:first-child td { border-top: 1px solid #4b5563; }
+        .ct tbody.gamma td { color: #d1d5db; }
+        .reductions { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 12px 0 0; font-size: 15px; }
+        .reductions dt { color: #e5e7eb; }
+        .reductions dd { margin: 0; color: #fde68a; }
+        .reductions dd.warn { color: #fca5a5; }
+        .reductions .hint { font-family: 'Inter', sans-serif; font-size: 0.8rem; color: #9ca3af; }
+        .chi-input {
+            width: 3.2em; padding: 2px 4px; text-align: center; font: inherit; font-size: 14px;
+            color: #e5e7eb; background: #374151; border: 1px solid #4b5563; border-radius: 4px;
+        }
+        #class-info { min-height: 1.5em; }
+
+        /* Operations */
+        .ops { border-collapse: collapse; width: 100%; font-size: 15px; }
+        .ops th, .ops td { padding: 4px 8px; text-align: left; white-space: nowrap; font-weight: 400; }
+        .ops thead th { font-family: 'Inter', sans-serif; font-size: 0.72rem; color: #9ca3af; border-bottom: 1px solid #4b5563; }
+        .ops tr.cls-row th { padding-top: 10px; color: #ffffff; border-bottom: 1px solid #374151; }
+        .ops tr[data-op] { cursor: pointer; }
+        .ops tr[data-op] .cell-btn { white-space: nowrap; }
+        .ops tr[data-op]:hover td { background: rgba(59, 130, 246, 0.1); }
+        .ops tr[data-op].selected td { background: rgba(253, 224, 71, 0.16); }
+        .ops td.num { color: #6b7280; font-family: 'Inter', sans-serif; font-size: 0.75rem; width: 2.5em; }
+        .ops .dir { color: #9ca3af; }
+        details.cayley { margin-top: 20px; }
+        details.cayley summary { cursor: pointer; font-weight: 600; color: #ffffff; font-size: 0.95rem; }
+        .cayley-table { border-collapse: collapse; font: 10px/1 'Inter', sans-serif; font-variant-numeric: tabular-nums; }
+        .cayley-table td, .cayley-table th { width: 20px; height: 18px; padding: 0; text-align: center; color: #f3f4f6; border: 1px solid #111827; }
+        .cayley-table th { color: #9ca3af; font-weight: 500; background: #111827; }
+
+        /* Stereogram */
+        .stereo-controls { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; margin-bottom: 10px; }
+        .stereo-controls label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+        .stereo-svg { display: block; width: 100%; max-width: 440px; margin: 0 auto; }
+
+        /* Properties */
+        .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 0.85rem; }
+        .facts dt { color: #9ca3af; }
+        .facts dd { margin: 0; color: #e5e7eb; }
+        .facts dd .math { font-size: 1.05em; }
+        .flag-list { list-style: none; padding: 0; margin: 0; font-size: 0.85rem; }
+        .flag-list li { display: grid; grid-template-columns: 1.4em 1fr; padding: 5px 0; border-bottom: 1px solid #374151; }
+        .flag-list .yes { color: #4ade80; }
+        .flag-list .no { color: #6b7280; }
+        .flag-list small { display: block; color: #9ca3af; font-size: 0.78rem; }
+        .tensor-block { margin-bottom: 16px; }
+        .tensor-block h4 { margin: 0 0 6px; font-size: 0.85rem; font-weight: 500; color: #e5e7eb; }
+        .tensor-block h4 small { color: #9ca3af; font-weight: 400; }
+        .tensor { border-collapse: separate; border-spacing: 0; font-size: 14px; border-left: 1.5px solid #9ca3af; border-right: 1.5px solid #9ca3af; border-radius: 4px; }
+        .tensor td { padding: 3px 7px; text-align: center; white-space: nowrap; }
+        .tensor .zero { color: #4b5563; }
+        .tensor .mirror { opacity: 0.45; }
+
         @media (max-width: 700px) {
             #app-container { flex-direction: column; }
-            #controls-panel { width: 100% !important; min-width: 0; max-width: none; height: 45%; padding: 12px; }
-            #drag-handle { display: none; }
-            #visualization-area { flex: 1; min-height: 0; }
+            #controls-panel { width: 100% !important; min-width: 0; max-width: none; height: 38%; padding: 12px; border-right: 0; }
+            #drag-handle, #side-handle { display: none; }
+            #visualization-area { flex: 1; min-height: 160px; }
+            #side-panel { width: 100% !important; min-width: 0; max-width: none; height: 42%; border-left: 0; border-top: 1px solid #374151; }
+            #side-panel.collapsed { height: auto; width: 100% !important; }
+            #side-panel.collapsed .tablist { flex-direction: row; padding: 6px 8px; }
+            #side-panel.collapsed .tab-btn { writing-mode: horizontal-tb; padding: 6px 10px; }
+            #side-panel.collapsed .side-toggle { order: 0; margin: 0 0 0 auto; }
+            .side-toggle svg { transform: rotate(90deg); }
+            #side-panel.collapsed .side-toggle svg { transform: rotate(-90deg); }
+            .tab-btn { padding: 6px 10px; font-size: 0.8rem; }
+            #viewport-legend { display: none; }
             footer { flex-wrap: wrap; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #drag-handle, #side-handle, .side-toggle svg { transition: none; }
         }
     </style>
 </head>
@@ -102,7 +275,7 @@
             <p>Select a point group to visualize its symmetry elements and generated atomic positions.</p>
             <div class="control-group">
                 <h2>Point Group Selection</h2>
-                <select id="point-group-select">
+                <select id="point-group-select" aria-label="Point group">
                     <optgroup label="Triclinic">
                         <option value="1">1 (C₁) </option>
                         <option value="-1">-1 (Cᵢ)</option>
@@ -157,21 +330,42 @@
                 <div id="info-box">
                     <div>Order: <span id="group-order"></span></div>
                     <div>Chiral: <span id="group-chiral"></span></div>
+                    <div>Site symmetry of the motif: <span id="site-symmetry" class="math"></span></div>
+                    <div>Distinct positions: <span id="multiplicity"></span></div>
                 </div>
             </div>
             <div id="parent-motif-controls" class="control-group">
                 <h2>Parent Motif Position</h2>
-                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="-1" max="1" value="0.25" step="0.01"><input type="number" id="parent-x-num" min="-1" max="1" value="0.25" step="0.01"></div>
-                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="-1" max="1" value="0.15" step="0.01"><input type="number" id="parent-y-num" min="-1" max="1" value="0.15" step="0.01"></div>
-                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="-1" max="1" value="0.40" step="0.01"><input type="number" id="parent-z-num" min="-1" max="1" value="0.40" step="0.01"></div>
+                <div class="input-row"><label for="parent-x-num">X</label><input type="range" id="parent-x-range" min="-1" max="1" value="0.25" step="0.01" aria-label="X"><input type="number" id="parent-x-num" min="-1" max="1" value="0.25" step="0.01"></div>
+                <div class="input-row"><label for="parent-y-num">Y</label><input type="range" id="parent-y-range" min="-1" max="1" value="0.15" step="0.01" aria-label="Y"><input type="number" id="parent-y-num" min="-1" max="1" value="0.15" step="0.01"></div>
+                <div class="input-row"><label for="parent-z-num">Z</label><input type="range" id="parent-z-range" min="-1" max="1" value="0.40" step="0.01" aria-label="Z"><input type="number" id="parent-z-num" min="-1" max="1" value="0.40" step="0.01"></div>
             </div>
             <div id="generated-coords-container"><h2>Generated Coordinates</h2><p style="font-size: 0.85rem;">Blue: original handedness. Red: reversed. Purple: both at the same center. Distinct orientations can overlap at special positions.</p><div id="generated-coordinates-list"></div></div>
         </div>
-        <div id="drag-handle"></div>
-        <div id="visualization-area"></div>
+        <div id="drag-handle" role="separator" aria-orientation="vertical" aria-label="Resize controls panel" tabindex="0"></div>
+        <div id="visualization-area">
+            <div id="viewport-legend" aria-hidden="true"></div>
+            <div id="tint-banner" role="status" hidden></div>
+        </div>
+        <div id="side-handle" role="separator" aria-orientation="vertical" aria-label="Resize tables panel" tabindex="0"></div>
+        <aside id="side-panel" aria-label="Group theory">
+            <div class="tablist" role="tablist" aria-label="Group theory views">
+                <button class="tab-btn" role="tab" id="tab-btn-characters" data-tab="characters" aria-controls="tab-characters" aria-selected="true">Characters</button>
+                <button class="tab-btn" role="tab" id="tab-btn-operations" data-tab="operations" aria-controls="tab-operations" aria-selected="false" tabindex="-1">Operations</button>
+                <button class="tab-btn" role="tab" id="tab-btn-stereogram" data-tab="stereogram" aria-controls="tab-stereogram" aria-selected="false" tabindex="-1">Stereogram</button>
+                <button class="tab-btn" role="tab" id="tab-btn-properties" data-tab="properties" aria-controls="tab-properties" aria-selected="false" tabindex="-1">Properties</button>
+                <button id="side-toggle" class="side-toggle" type="button" aria-expanded="true" aria-controls="side-panel-body" aria-label="Collapse panel" title="Collapse panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            </div>
+            <div id="side-panel-body">
+                <section class="tab-panel" role="tabpanel" id="tab-characters" aria-labelledby="tab-btn-characters" tabindex="0"></section>
+                <section class="tab-panel" role="tabpanel" id="tab-operations" aria-labelledby="tab-btn-operations" tabindex="0" hidden></section>
+                <section class="tab-panel" role="tabpanel" id="tab-stereogram" aria-labelledby="tab-btn-stereogram" tabindex="0" hidden></section>
+                <section class="tab-panel" role="tabpanel" id="tab-properties" aria-labelledby="tab-btn-properties" tabindex="0" hidden></section>
+            </div>
+        </aside>
     </div>
     <footer style="position: fixed; bottom: 0; left: 0; width: 100%; background-color: #111827; padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #9ca3af; border-top: 1px solid #374151; z-index: 10;">
-        <div style="padding: 0 1rem;">Interactive Point Group Visualizer v2.3</div>
+        <div style="padding: 0 1rem;">Interactive Point Group Visualizer v3.0</div>
         <div style="padding: 0 1rem;">NitaD, Univ Paris-Saclay, 18 August 2025</div>
     </footer>
     
@@ -179,46 +373,276 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
     <script>
         // --- DATA: Point Group Definitions ---
+        // Symmetry elements are no longer listed by hand: they are derived from the generated operations.
         const pointGroups = {
             // Triclinic
-            '1':    { order: 1,  chiral: true,  generators: ['1'],       elements: [] },
-            '-1':   { order: 2,  chiral: false, generators: ['i'],       elements: ['i'] },
-            // Monoclinic
-            '2':    { order: 2,  chiral: true,  generators: ['2z'],      elements: ['2z'] },
-            'm':    { order: 2,  chiral: false, generators: ['mz'],      elements: ['mz'] },
-            '2/m':  { order: 4,  chiral: false, generators: ['2z', 'mz'], elements: ['2z', 'mz', 'i'] },
+            '1':    { order: 1,  chiral: true,  generators: ['1'] },
+            '-1':   { order: 2,  chiral: false, generators: ['i'] },
+            // Monoclinic (unique axis z)
+            '2':    { order: 2,  chiral: true,  generators: ['2z'] },
+            'm':    { order: 2,  chiral: false, generators: ['mz'] },
+            '2/m':  { order: 4,  chiral: false, generators: ['2z', 'mz'] },
             // Orthorhombic
-            '222':  { order: 4,  chiral: true,  generators: ['2x', '2y'], elements: ['2x', '2y', '2z'] },
-            'mm2':  { order: 4,  chiral: false, generators: ['2z', 'mx'], elements: ['2z', 'mx', 'my'] },
-            'mmm':  { order: 8,  chiral: false, generators: ['2x', '2y', 'mz'], elements: ['2x', '2y', '2z', 'mx', 'my', 'mz', 'i'] },
+            '222':  { order: 4,  chiral: true,  generators: ['2x', '2y'] },
+            'mm2':  { order: 4,  chiral: false, generators: ['2z', 'mx'] },
+            'mmm':  { order: 8,  chiral: false, generators: ['2x', '2y', 'mz'] },
             // Tetragonal
-            '4':    { order: 4,  chiral: true,  generators: ['4z'],      elements: ['4z', '2z'] },
-            '-4':   { order: 4,  chiral: false, generators: ['-4z'],     elements: ['-4z', '2z'] },
-            '4/m':  { order: 8,  chiral: false, generators: ['4z', 'mz'], elements: ['4z', '2z', 'mz', 'i', '-4z'] },
-            '422':  { order: 8,  chiral: true,  generators: ['4z', '2x'], elements: ['4z', '2z', '2x', '2y', '2xy', '2-xy'] },
-            '4mm':  { order: 8,  chiral: false, generators: ['4z', 'mx'], elements: ['4z', '2z', 'mx', 'my', 'mxy', 'm-xy'] },
-            '-42m': { order: 8,  chiral: false, generators: ['-4z', '2x'], elements: ['-4z', '2z', '2x', '2y', 'mxy', 'm-xy'] },
-            '4/mmm':{ order: 16, chiral: false, generators: ['4z', '2x', 'mz'], elements: ['4z', '-4z', '2z', '2x', '2y', '2xy', '2-xy', 'mx', 'my', 'mxy', 'm-xy', 'mz', 'i'] },
-            // Trigonal
-            '3':    { order: 3,  chiral: true,  generators: ['3z'],      elements: ['3z'] },
-            '-3':   { order: 6,  chiral: false, generators: ['-3z'],     elements: ['3z', 'i'] },
-            '32':   { order: 6,  chiral: true,  generators: ['3z', '2_100'], elements: ['3z', '2_100', '2_010', '2_1-10'] },
-            '3m':   { order: 6,  chiral: false, generators: ['3z', 'm_100'], elements: ['3z', 'm_100', 'm_010', 'm_1-10'] },
-            '-3m':  { order: 12, chiral: false, generators: ['-3z', '2_100'], elements: ['3z', 'i', '2_100', '2_010', '2_1-10', 'm_100', 'm_010', 'm-110'] },
+            '4':    { order: 4,  chiral: true,  generators: ['4z'] },
+            '-4':   { order: 4,  chiral: false, generators: ['-4z'] },
+            '4/m':  { order: 8,  chiral: false, generators: ['4z', 'mz'] },
+            '422':  { order: 8,  chiral: true,  generators: ['4z', '2x'] },
+            '4mm':  { order: 8,  chiral: false, generators: ['4z', 'mx'] },
+            '-42m': { order: 8,  chiral: false, generators: ['-4z', '2x'] },
+            '4/mmm':{ order: 16, chiral: false, generators: ['4z', '2x', 'mz'] },
+            // Trigonal (hexagonal axes, x ∥ a)
+            '3':    { order: 3,  chiral: true,  generators: ['3z'] },
+            '-3':   { order: 6,  chiral: false, generators: ['-3z'] },
+            '32':   { order: 6,  chiral: true,  generators: ['3z', '2_100'] },
+            '3m':   { order: 6,  chiral: false, generators: ['3z', 'm_100'] },
+            '-3m':  { order: 12, chiral: false, generators: ['-3z', '2_100'] },
             // Hexagonal
-            '6':    { order: 6,  chiral: true,  generators: ['6z'],      elements: ['6z', '3z', '2z'] },
-            '-6':   { order: 6,  chiral: false, generators: ['-6z'],     elements: ['3z', 'mz'] },
-            '6/m':  { order: 12, chiral: false, generators: ['6z', 'mz'], elements: ['6z', '3z', '2z', 'mz', 'i'] },
-            '622':  { order: 12, chiral: true,  generators: ['6z', '2_100'], elements: ['6z', '3z', '2z', '2_100', '2_010', '2_1-10', '2_110', '2_120', '2_210'] },
-            '6mm':  { order: 12, chiral: false, generators: ['6z', 'm_100'], elements: ['6z', '3z', '2z', 'm_100', 'm_010', 'm_1-10', 'm_110', 'm_120', 'm_210'] },
-            '-6m2': { order: 12, chiral: false, generators: ['-6z', 'm_100'], elements: ['-6z', '3z', '2_110', '2_120', '2_210', 'mz', 'm_100', 'm_010', 'm_1-10'] },
-            '6/mmm':{ order: 24, chiral: false, generators: ['6z', '2_100', 'mz'], elements: ['6z', '3z', '2z', 'mz', 'i', '2_100', '2_010', '2_1-10', '2_110', '2_120', '2_210', 'm_100', 'm_010', 'm_1-10', 'm_110', 'm_120', 'm_210'] },
+            '6':    { order: 6,  chiral: true,  generators: ['6z'] },
+            '-6':   { order: 6,  chiral: false, generators: ['-6z'] },
+            '6/m':  { order: 12, chiral: false, generators: ['6z', 'mz'] },
+            '622':  { order: 12, chiral: true,  generators: ['6z', '2_100'] },
+            '6mm':  { order: 12, chiral: false, generators: ['6z', 'm_100'] },
+            '-6m2': { order: 12, chiral: false, generators: ['-6z', 'm_100'] },
+            '6/mmm':{ order: 24, chiral: false, generators: ['6z', '2_100', 'mz'] },
             // Cubic
-            '23':   { order: 12, chiral: true,  generators: ['2z', '3_111'], elements: ['2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11'] },
-            'm-3':  { order: 24, chiral: false, generators: ['2z', '3_111', 'i'], elements: ['2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', 'i', 'mx', 'my', 'mz', '-3_111'] },
-            '432':  { order: 24, chiral: true,  generators: ['4z', '3_111'], elements: ['4x', '4y', '4z', '2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', '2xy', '2-xy', '2xz', '2-xz', '2yz', '2-yz'] },
-            '-43m': { order: 24, chiral: false, generators: ['-4z', '3_111'], elements: ['-4x', '-4y', '-4z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', '2x', '2y', '2z', 'mxy', 'm-xy', 'mxz', 'm-xz', 'myz', 'm-yz'] },
-            'm-3m': { order: 48, chiral: false, generators: ['4z', '3_111', 'i'], elements: ['4x', '-4x', '4y', '-4y', '4z', '-4z', '2x', '2y', '2z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11', '2xy', '2-xy', '2xz', '2-xz', '2yz', '2-yz', 'i', 'mx', 'my', 'mz', 'mxy', 'm-xy', 'mxz', 'm-xz', 'myz', 'm-yz', '-3_111'] }
+            '23':   { order: 12, chiral: true,  generators: ['2z', '3_111'] },
+            'm-3':  { order: 24, chiral: false, generators: ['2z', '3_111', 'i'] },
+            '432':  { order: 24, chiral: true,  generators: ['4z', '3_111'] },
+            '-43m': { order: 24, chiral: false, generators: ['-4z', '3_111'] },
+            'm-3m': { order: 48, chiral: false, generators: ['4z', '3_111', 'i'] }
+        };
+
+        // --- DATA: Character tables of the 32 crystallographic point groups ---
+        // Each class is [label, representative operation]; representatives are products of the operator keys
+        // below (e.g. 'i*3z^2'), so every column is tied to the actual operations generated in this tool.
+        // Characters: numbers, 'i'/'-i', or 'e', 'e*', '-e', '-e*' with ε = exp(2πi/eps).
+        // Complex-conjugate pairs are given as two rows under one label.
+        const CHAR_TABLES = {
+            "1": { "sch": "C1", "classes": [["E", "1"]], "irreps": [
+                ["A", [1], "x, y, z, R_x, R_y, R_z", "x^2, y^2, z^2, xy, xz, yz"]
+            ] },
+            "-1": { "sch": "Ci", "classes": [["E", "1"], ["i", "i"]], "irreps": [
+                ["Ag", [1, 1], "R_x, R_y, R_z", "x^2, y^2, z^2, xy, xz, yz"],
+                ["Au", [1, -1], "x, y, z", ""]
+            ] },
+            "2": { "sch": "C2", "classes": [["E", "1"], ["C_2", "2z"]], "irreps": [
+                ["A", [1, 1], "z, R_z", "x^2, y^2, z^2, xy"],
+                ["B", [1, -1], "x, y, R_x, R_y", "yz, xz"]
+            ] },
+            "m": { "sch": "Cs", "classes": [["E", "1"], ["σ_h", "mz"]], "irreps": [
+                ["A'", [1, 1], "x, y, R_z", "x^2, y^2, z^2, xy"],
+                ["A''", [1, -1], "z, R_x, R_y", "yz, xz"]
+            ] },
+            "2/m": { "sch": "C2h", "classes": [["E", "1"], ["C_2", "2z"], ["i", "i"], ["σ_h", "mz"]], "irreps": [
+                ["Ag", [1, 1, 1, 1], "R_z", "x^2, y^2, z^2, xy"],
+                ["Bg", [1, -1, 1, -1], "R_x, R_y", "xz, yz"],
+                ["Au", [1, 1, -1, -1], "z", ""],
+                ["Bu", [1, -1, -1, 1], "x, y", ""]
+            ] },
+            "222": { "sch": "D2", "classes": [["E", "1"], ["C_2(z)", "2z"], ["C_2(y)", "2y"], ["C_2(x)", "2x"]], "irreps": [
+                ["A", [1, 1, 1, 1], "", "x^2, y^2, z^2"],
+                ["B1", [1, 1, -1, -1], "z, R_z", "xy"],
+                ["B2", [1, -1, 1, -1], "y, R_y", "xz"],
+                ["B3", [1, -1, -1, 1], "x, R_x", "yz"]
+            ] },
+            "mm2": { "sch": "C2v", "classes": [["E", "1"], ["C_2", "2z"], ["σ_v(xz)", "my"], ["σ_v′(yz)", "mx"]], "irreps": [
+                ["A1", [1, 1, 1, 1], "z", "x^2, y^2, z^2"],
+                ["A2", [1, 1, -1, -1], "R_z", "xy"],
+                ["B1", [1, -1, 1, -1], "x, R_y", "xz"],
+                ["B2", [1, -1, -1, 1], "y, R_x", "yz"]
+            ] },
+            "mmm": { "sch": "D2h", "classes": [["E", "1"], ["C_2(z)", "2z"], ["C_2(y)", "2y"], ["C_2(x)", "2x"], ["i", "i"], ["σ(xy)", "mz"], ["σ(xz)", "my"], ["σ(yz)", "mx"]], "irreps": [
+                ["Ag", [1, 1, 1, 1, 1, 1, 1, 1], "", "x^2, y^2, z^2"],
+                ["B1g", [1, 1, -1, -1, 1, 1, -1, -1], "R_z", "xy"],
+                ["B2g", [1, -1, 1, -1, 1, -1, 1, -1], "R_y", "xz"],
+                ["B3g", [1, -1, -1, 1, 1, -1, -1, 1], "R_x", "yz"],
+                ["Au", [1, 1, 1, 1, -1, -1, -1, -1], "", ""],
+                ["B1u", [1, 1, -1, -1, -1, -1, 1, 1], "z", ""],
+                ["B2u", [1, -1, 1, -1, -1, 1, -1, 1], "y", ""],
+                ["B3u", [1, -1, -1, 1, -1, 1, 1, -1], "x", ""]
+            ] },
+            "4": { "sch": "C4", "classes": [["E", "1"], ["C_4", "4z"], ["C_2", "2z"], ["C_4^3", "4z^3"]], "irreps": [
+                ["A", [1, 1, 1, 1], "z, R_z", "x^2+y^2, z^2"],
+                ["B", [1, -1, 1, -1], "", "x^2-y^2, xy"],
+                ["E", [[1, "i", -1, "-i"], [1, "-i", -1, "i"]], "(x, y), (R_x, R_y)", "(xz, yz)"]
+            ] },
+            "-4": { "sch": "S4", "classes": [["E", "1"], ["S_4", "mz*4z"], ["C_2", "2z"], ["S_4^3", "mz*4z^3"]], "irreps": [
+                ["A", [1, 1, 1, 1], "R_z", "x^2+y^2, z^2"],
+                ["B", [1, -1, 1, -1], "z", "x^2-y^2, xy"],
+                ["E", [[1, "i", -1, "-i"], [1, "-i", -1, "i"]], "(x, y), (R_x, R_y)", "(xz, yz)"]
+            ] },
+            "4/m": { "sch": "C4h", "classes": [["E", "1"], ["C_4", "4z"], ["C_2", "2z"], ["C_4^3", "4z^3"], ["i", "i"], ["S_4^3", "i*4z"], ["σ_h", "mz"], ["S_4", "i*4z^3"]], "irreps": [
+                ["Ag", [1, 1, 1, 1, 1, 1, 1, 1], "R_z", "x^2+y^2, z^2"],
+                ["Bg", [1, -1, 1, -1, 1, -1, 1, -1], "", "x^2-y^2, xy"],
+                ["Eg", [[1, "i", -1, "-i", 1, "i", -1, "-i"], [1, "-i", -1, "i", 1, "-i", -1, "i"]], "(R_x, R_y)", "(xz, yz)"],
+                ["Au", [1, 1, 1, 1, -1, -1, -1, -1], "z", ""],
+                ["Bu", [1, -1, 1, -1, -1, 1, -1, 1], "", ""],
+                ["Eu", [[1, "i", -1, "-i", -1, "-i", 1, "i"], [1, "-i", -1, "i", -1, "i", 1, "-i"]], "(x, y)", ""]
+            ] },
+            "422": { "sch": "D4", "classes": [["E", "1"], ["2C_4", "4z"], ["C_2", "2z"], ["2C_2′", "2x"], ["2C_2″", "2xy"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2", [1, 1, 1, -1, -1], "z, R_z", ""],
+                ["B1", [1, -1, 1, 1, -1], "", "x^2-y^2"],
+                ["B2", [1, -1, 1, -1, 1], "", "xy"],
+                ["E", [2, 0, -2, 0, 0], "(x, y), (R_x, R_y)", "(xz, yz)"]
+            ] },
+            "4mm": { "sch": "C4v", "classes": [["E", "1"], ["2C_4", "4z"], ["C_2", "2z"], ["2σ_v", "mx"], ["2σ_d", "mxy"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1], "z", "x^2+y^2, z^2"],
+                ["A2", [1, 1, 1, -1, -1], "R_z", ""],
+                ["B1", [1, -1, 1, 1, -1], "", "x^2-y^2"],
+                ["B2", [1, -1, 1, -1, 1], "", "xy"],
+                ["E", [2, 0, -2, 0, 0], "(x, y), (R_x, R_y)", "(xz, yz)"]
+            ] },
+            "-42m": { "sch": "D2d", "classes": [["E", "1"], ["2S_4", "-4z"], ["C_2", "2z"], ["2C_2′", "2x"], ["2σ_d", "mxy"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2", [1, 1, 1, -1, -1], "R_z", ""],
+                ["B1", [1, -1, 1, 1, -1], "", "x^2-y^2"],
+                ["B2", [1, -1, 1, -1, 1], "z", "xy"],
+                ["E", [2, 0, -2, 0, 0], "(x, y), (R_x, R_y)", "(xz, yz)"]
+            ] },
+            "4/mmm": { "sch": "D4h", "classes": [["E", "1"], ["2C_4", "4z"], ["C_2", "2z"], ["2C_2′", "2x"], ["2C_2″", "2xy"], ["i", "i"], ["2S_4", "-4z"], ["σ_h", "mz"], ["2σ_v", "mx"], ["2σ_d", "mxy"]], "irreps": [
+                ["A1g", [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2g", [1, 1, 1, -1, -1, 1, 1, 1, -1, -1], "R_z", ""],
+                ["B1g", [1, -1, 1, 1, -1, 1, -1, 1, 1, -1], "", "x^2-y^2"],
+                ["B2g", [1, -1, 1, -1, 1, 1, -1, 1, -1, 1], "", "xy"],
+                ["Eg", [2, 0, -2, 0, 0, 2, 0, -2, 0, 0], "(R_x, R_y)", "(xz, yz)"],
+                ["A1u", [1, 1, 1, 1, 1, -1, -1, -1, -1, -1], "", ""],
+                ["A2u", [1, 1, 1, -1, -1, -1, -1, -1, 1, 1], "z", ""],
+                ["B1u", [1, -1, 1, 1, -1, -1, 1, -1, -1, 1], "", ""],
+                ["B2u", [1, -1, 1, -1, 1, -1, 1, -1, 1, -1], "", ""],
+                ["Eu", [2, 0, -2, 0, 0, -2, 0, 2, 0, 0], "(x, y)", ""]
+            ] },
+            "3": { "sch": "C3", "eps": 3, "classes": [["E", "1"], ["C_3", "3z"], ["C_3^2", "3z^2"]], "irreps": [
+                ["A", [1, 1, 1], "z, R_z", "x^2+y^2, z^2"],
+                ["E", [[1, "e", "e*"], [1, "e*", "e"]], "(x, y), (R_x, R_y)", "(x^2-y^2, xy), (yz, xz)"]
+            ] },
+            "-3": { "sch": "C3i", "eps": 3, "classes": [["E", "1"], ["C_3", "3z"], ["C_3^2", "3z^2"], ["i", "i"], ["S_6^5", "i*3z"], ["S_6", "i*3z^2"]], "irreps": [
+                ["Ag", [1, 1, 1, 1, 1, 1], "R_z", "x^2+y^2, z^2"],
+                ["Eg", [[1, "e", "e*", 1, "e", "e*"], [1, "e*", "e", 1, "e*", "e"]], "(R_x, R_y)", "(x^2-y^2, xy), (xz, yz)"],
+                ["Au", [1, 1, 1, -1, -1, -1], "z", ""],
+                ["Eu", [[1, "e", "e*", -1, "-e", "-e*"], [1, "e*", "e", -1, "-e*", "-e"]], "(x, y)", ""]
+            ] },
+            "32": { "sch": "D3", "classes": [["E", "1"], ["2C_3", "3z"], ["3C_2′", "2_100"]], "irreps": [
+                ["A1", [1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2", [1, 1, -1], "z, R_z", ""],
+                ["E", [2, -1, 0], "(x, y), (R_x, R_y)", "(x^2-y^2, xy), (xz, yz)"]
+            ] },
+            "3m": { "sch": "C3v", "classes": [["E", "1"], ["2C_3", "3z"], ["3σ_v", "m_100"]], "irreps": [
+                ["A1", [1, 1, 1], "z", "x^2+y^2, z^2"],
+                ["A2", [1, 1, -1], "R_z", ""],
+                ["E", [2, -1, 0], "(x, y), (R_x, R_y)", "(x^2-y^2, xy), (xz, yz)"]
+            ] },
+            "-3m": { "sch": "D3d", "classes": [["E", "1"], ["2C_3", "3z"], ["3C_2′", "2_100"], ["i", "i"], ["2S_6", "i*3z"], ["3σ_d", "m_100"]], "irreps": [
+                ["A1g", [1, 1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2g", [1, 1, -1, 1, 1, -1], "R_z", ""],
+                ["Eg", [2, -1, 0, 2, -1, 0], "(R_x, R_y)", "(x^2-y^2, xy), (xz, yz)"],
+                ["A1u", [1, 1, 1, -1, -1, -1], "", ""],
+                ["A2u", [1, 1, -1, -1, -1, 1], "z", ""],
+                ["Eu", [2, -1, 0, -2, 1, 0], "(x, y)", ""]
+            ] },
+            "6": { "sch": "C6", "eps": 6, "classes": [["E", "1"], ["C_6", "6z"], ["C_3", "6z^2"], ["C_2", "6z^3"], ["C_3^2", "6z^4"], ["C_6^5", "6z^5"]], "irreps": [
+                ["A", [1, 1, 1, 1, 1, 1], "z, R_z", "x^2+y^2, z^2"],
+                ["B", [1, -1, 1, -1, 1, -1], "", ""],
+                ["E1", [[1, "e", "-e*", -1, "-e", "e*"], [1, "e*", "-e", -1, "-e*", "e"]], "(x, y), (R_x, R_y)", "(xz, yz)"],
+                ["E2", [[1, "-e*", "-e", 1, "-e*", "-e"], [1, "-e", "-e*", 1, "-e", "-e*"]], "", "(x^2-y^2, xy)"]
+            ] },
+            "-6": { "sch": "C3h", "eps": 3, "classes": [["E", "1"], ["C_3", "3z"], ["C_3^2", "3z^2"], ["σ_h", "mz"], ["S_3", "mz*3z"], ["S_3^5", "mz*3z^2"]], "irreps": [
+                ["A'", [1, 1, 1, 1, 1, 1], "R_z", "x^2+y^2, z^2"],
+                ["E'", [[1, "e", "e*", 1, "e", "e*"], [1, "e*", "e", 1, "e*", "e"]], "(x, y)", "(x^2-y^2, xy)"],
+                ["A''", [1, 1, 1, -1, -1, -1], "z", ""],
+                ["E''", [[1, "e", "e*", -1, "-e", "-e*"], [1, "e*", "e", -1, "-e*", "-e"]], "(R_x, R_y)", "(xz, yz)"]
+            ] },
+            "6/m": { "sch": "C6h", "eps": 6, "classes": [["E", "1"], ["C_6", "6z"], ["C_3", "6z^2"], ["C_2", "6z^3"], ["C_3^2", "6z^4"], ["C_6^5", "6z^5"], ["i", "i"], ["S_3^5", "i*6z"], ["S_6^5", "i*6z^2"], ["σ_h", "i*6z^3"], ["S_6", "i*6z^4"], ["S_3", "i*6z^5"]], "irreps": [
+                ["Ag", [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "R_z", "x^2+y^2, z^2"],
+                ["Bg", [1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1], "", ""],
+                ["E1g", [[1, "e", "-e*", -1, "-e", "e*", 1, "e", "-e*", -1, "-e", "e*"], [1, "e*", "-e", -1, "-e*", "e", 1, "e*", "-e", -1, "-e*", "e"]], "(R_x, R_y)", "(xz, yz)"],
+                ["E2g", [[1, "-e*", "-e", 1, "-e*", "-e", 1, "-e*", "-e", 1, "-e*", "-e"], [1, "-e", "-e*", 1, "-e", "-e*", 1, "-e", "-e*", 1, "-e", "-e*"]], "", "(x^2-y^2, xy)"],
+                ["Au", [1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1], "z", ""],
+                ["Bu", [1, -1, 1, -1, 1, -1, -1, 1, -1, 1, -1, 1], "", ""],
+                ["E1u", [[1, "e", "-e*", -1, "-e", "e*", -1, "-e", "e*", 1, "e", "-e*"], [1, "e*", "-e", -1, "-e*", "e", -1, "-e*", "e", 1, "e*", "-e"]], "(x, y)", ""],
+                ["E2u", [[1, "-e*", "-e", 1, "-e*", "-e", -1, "e*", "e", -1, "e*", "e"], [1, "-e", "-e*", 1, "-e", "-e*", -1, "e", "e*", -1, "e", "e*"]], "", ""]
+            ] },
+            "622": { "sch": "D6", "classes": [["E", "1"], ["2C_6", "6z"], ["2C_3", "3z"], ["C_2", "2z"], ["3C_2′", "2_100"], ["3C_2″", "2_120"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2", [1, 1, 1, 1, -1, -1], "z, R_z", ""],
+                ["B1", [1, -1, 1, -1, 1, -1], "", ""],
+                ["B2", [1, -1, 1, -1, -1, 1], "", ""],
+                ["E1", [2, 1, -1, -2, 0, 0], "(x, y), (R_x, R_y)", "(xz, yz)"],
+                ["E2", [2, -1, -1, 2, 0, 0], "", "(x^2-y^2, xy)"]
+            ] },
+            "6mm": { "sch": "C6v", "classes": [["E", "1"], ["2C_6", "6z"], ["2C_3", "3z"], ["C_2", "2z"], ["3σ_v", "m_120"], ["3σ_d", "m_100"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1, 1], "z", "x^2+y^2, z^2"],
+                ["A2", [1, 1, 1, 1, -1, -1], "R_z", ""],
+                ["B1", [1, -1, 1, -1, 1, -1], "", ""],
+                ["B2", [1, -1, 1, -1, -1, 1], "", ""],
+                ["E1", [2, 1, -1, -2, 0, 0], "(x, y), (R_x, R_y)", "(xz, yz)"],
+                ["E2", [2, -1, -1, 2, 0, 0], "", "(x^2-y^2, xy)"]
+            ] },
+            "-6m2": { "sch": "D3h", "classes": [["E", "1"], ["2C_3", "3z"], ["3C_2′", "2_120"], ["σ_h", "mz"], ["2S_3", "mz*3z"], ["3σ_v", "m_100"]], "irreps": [
+                ["A1'", [1, 1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2'", [1, 1, -1, 1, 1, -1], "R_z", ""],
+                ["E'", [2, -1, 0, 2, -1, 0], "(x, y)", "(x^2-y^2, xy)"],
+                ["A1''", [1, 1, 1, -1, -1, -1], "", ""],
+                ["A2''", [1, 1, -1, -1, -1, 1], "z", ""],
+                ["E''", [2, -1, 0, -2, 1, 0], "(R_x, R_y)", "(xz, yz)"]
+            ] },
+            "6/mmm": { "sch": "D6h", "classes": [["E", "1"], ["2C_6", "6z"], ["2C_3", "3z"], ["C_2", "2z"], ["3C_2′", "2_100"], ["3C_2″", "2_120"], ["i", "i"], ["2S_3", "i*6z"], ["2S_6", "i*3z"], ["σ_h", "mz"], ["3σ_d", "m_100"], ["3σ_v", "m_120"]], "irreps": [
+                ["A1g", [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "", "x^2+y^2, z^2"],
+                ["A2g", [1, 1, 1, 1, -1, -1, 1, 1, 1, 1, -1, -1], "R_z", ""],
+                ["B1g", [1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1], "", ""],
+                ["B2g", [1, -1, 1, -1, -1, 1, 1, -1, 1, -1, -1, 1], "", ""],
+                ["E1g", [2, 1, -1, -2, 0, 0, 2, 1, -1, -2, 0, 0], "(R_x, R_y)", "(xz, yz)"],
+                ["E2g", [2, -1, -1, 2, 0, 0, 2, -1, -1, 2, 0, 0], "", "(x^2-y^2, xy)"],
+                ["A1u", [1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1], "", ""],
+                ["A2u", [1, 1, 1, 1, -1, -1, -1, -1, -1, -1, 1, 1], "z", ""],
+                ["B1u", [1, -1, 1, -1, 1, -1, -1, 1, -1, 1, -1, 1], "", ""],
+                ["B2u", [1, -1, 1, -1, -1, 1, -1, 1, -1, 1, 1, -1], "", ""],
+                ["E1u", [2, 1, -1, -2, 0, 0, -2, -1, 1, 2, 0, 0], "(x, y)", ""],
+                ["E2u", [2, -1, -1, 2, 0, 0, -2, 1, 1, -2, 0, 0], "", ""]
+            ] },
+            "23": { "sch": "T", "eps": 3, "classes": [["E", "1"], ["4C_3", "3_111"], ["4C_3^2", "3_111^2"], ["3C_2", "2z"]], "irreps": [
+                ["A", [1, 1, 1, 1], "", "x^2+y^2+z^2"],
+                ["E", [[1, "e", "e*", 1], [1, "e*", "e", 1]], "", "(2z^2-x^2-y^2, x^2-y^2)"],
+                ["T", [3, 0, 0, -1], "(R_x, R_y, R_z), (x, y, z)", "(xy, xz, yz)"]
+            ] },
+            "m-3": { "sch": "Th", "eps": 3, "classes": [["E", "1"], ["4C_3", "3_111"], ["4C_3^2", "3_111^2"], ["3C_2", "2z"], ["i", "i"], ["4S_6", "i*3_111^2"], ["4S_6^5", "i*3_111"], ["3σ_h", "mz"]], "irreps": [
+                ["Ag", [1, 1, 1, 1, 1, 1, 1, 1], "", "x^2+y^2+z^2"],
+                ["Eg", [[1, "e", "e*", 1, 1, "e*", "e", 1], [1, "e*", "e", 1, 1, "e", "e*", 1]], "", "(2z^2-x^2-y^2, x^2-y^2)"],
+                ["Tg", [3, 0, 0, -1, 3, 0, 0, -1], "(R_x, R_y, R_z)", "(xy, xz, yz)"],
+                ["Au", [1, 1, 1, 1, -1, -1, -1, -1], "", ""],
+                ["Eu", [[1, "e", "e*", 1, -1, "-e*", "-e", -1], [1, "e*", "e", 1, -1, "-e", "-e*", -1]], "", ""],
+                ["Tu", [3, 0, 0, -1, -3, 0, 0, 1], "(x, y, z)", ""]
+            ] },
+            "432": { "sch": "O", "classes": [["E", "1"], ["8C_3", "3_111"], ["6C_2", "2xy"], ["6C_4", "4z"], ["3C_2(=C_4^2)", "2z"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1], "", "x^2+y^2+z^2"],
+                ["A2", [1, 1, -1, -1, 1], "", ""],
+                ["E", [2, -1, 0, 0, 2], "", "(2z^2-x^2-y^2, x^2-y^2)"],
+                ["T1", [3, 0, -1, 1, -1], "(R_x, R_y, R_z), (x, y, z)", ""],
+                ["T2", [3, 0, 1, -1, -1], "", "(xy, xz, yz)"]
+            ] },
+            "-43m": { "sch": "Td", "classes": [["E", "1"], ["8C_3", "3_111"], ["3C_2", "2z"], ["6S_4", "-4z"], ["6σ_d", "mxy"]], "irreps": [
+                ["A1", [1, 1, 1, 1, 1], "", "x^2+y^2+z^2"],
+                ["A2", [1, 1, 1, -1, -1], "", ""],
+                ["E", [2, -1, 2, 0, 0], "", "(2z^2-x^2-y^2, x^2-y^2)"],
+                ["T1", [3, 0, -1, 1, -1], "(R_x, R_y, R_z)", ""],
+                ["T2", [3, 0, -1, -1, 1], "(x, y, z)", "(xy, xz, yz)"]
+            ] },
+            "m-3m": { "sch": "Oh", "classes": [["E", "1"], ["8C_3", "3_111"], ["6C_2", "2xy"], ["6C_4", "4z"], ["3C_2(=C_4^2)", "2z"], ["i", "i"], ["6S_4", "i*4z"], ["8S_6", "i*3_111"], ["3σ_h", "mz"], ["6σ_d", "mxy"]], "irreps": [
+                ["A1g", [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], "", "x^2+y^2+z^2"],
+                ["A2g", [1, 1, -1, -1, 1, 1, -1, 1, 1, -1], "", ""],
+                ["Eg", [2, -1, 0, 0, 2, 2, 0, -1, 2, 0], "", "(2z^2-x^2-y^2, x^2-y^2)"],
+                ["T1g", [3, 0, -1, 1, -1, 3, 1, 0, -1, -1], "(R_x, R_y, R_z)", ""],
+                ["T2g", [3, 0, 1, -1, -1, 3, -1, 0, -1, 1], "", "(xy, xz, yz)"],
+                ["A1u", [1, 1, 1, 1, 1, -1, -1, -1, -1, -1], "", ""],
+                ["A2u", [1, 1, -1, -1, 1, -1, 1, -1, -1, 1], "", ""],
+                ["Eu", [2, -1, 0, 0, 2, -2, 0, 1, -2, 0], "", ""],
+                ["T1u", [3, 0, -1, 1, -1, -3, -1, 0, 1, 1], "(x, y, z)", ""],
+                ["T2u", [3, 0, 1, -1, -1, -3, 1, 0, 1, -1], "", ""]
+            ] }
         };
 
         // --- DATA: Symmetry Operator Definitions (as THREE.Matrix4) ---
@@ -257,20 +681,20 @@
             ops['2yz'] = R([0, 1, 1], Math.PI); ops['2-yz'] = R([0, 1, -1], Math.PI);
             ops['myz'] = M([0, 1, 1]); ops['m-yz'] = M([0, 1, -1]);
 
-            ops['2_100'] = R([1, 0, 0], Math.PI);
-            ops['2_010'] = R([-0.5, Math.sqrt(3)/2, 0], Math.PI);
-            ops['2_1-10'] = R([0.5, Math.sqrt(3)/2, 0], Math.PI);
-            ops['m_100'] = M([1, 0, 0]);
-            ops['m_010'] = M([-0.5, Math.sqrt(3)/2, 0]);
-            ops['m_1-10'] = M([0.5, Math.sqrt(3)/2, 0]);
-            ops['m-110'] = M([-0.5, -Math.sqrt(3)/2, 0]); 
-
-            ops['2_110'] = R([Math.sqrt(3)/2, 0.5, 0], Math.PI);
-            ops['2_120'] = R([0, 1, 0], Math.PI);
-            ops['2_210'] = R([Math.sqrt(3)/2, -0.5, 0], Math.PI);
-            ops['m_110'] = M([Math.sqrt(3)/2, 0.5, 0]);
-            ops['m_120'] = M([0, 1, 0]);
-            ops['m_210'] = M([Math.sqrt(3)/2, -0.5, 0]);
+            // Hexagonal directions [uvw] with a = (1, 0, 0), b = (-1/2, √3/2, 0).
+            // (Earlier versions had the [110], [210] and [1-10] keys attached to the wrong angles.)
+            const hexDirections = {
+                '100': [1, 0, 0],                       //   0°
+                '210': [Math.sqrt(3) / 2, 0.5, 0],      //  30°
+                '110': [0.5, Math.sqrt(3) / 2, 0],      //  60°
+                '120': [0, 1, 0],                       //  90°
+                '010': [-0.5, Math.sqrt(3) / 2, 0],     // 120°
+                '1-10': [Math.sqrt(3) / 2, -0.5, 0]     // 150° (≡ -30°)
+            };
+            Object.entries(hexDirections).forEach(([name, v]) => {
+                ops[`2_${name}`] = R(v, Math.PI);
+                ops[`m_${name}`] = M(v);
+            });
             
             [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]].forEach(axis => {
                 const name = `3_${axis[0]}${axis[1]}${axis[2]}`;
@@ -279,72 +703,478 @@
             });
             return ops;
         }
-        
-        const elementDefinitions = {
-            'i': { type: 'inversion', color: 0x00ff00 },
-            '2x': { type: 'axis', vector: [1, 0, 0], color: 0xffaa00 },
-            '2y': { type: 'axis', vector: [0, 1, 0], color: 0xffaa00 },
-            '2z': { type: 'axis', vector: [0, 0, 1], color: 0xffaa00 },
-            '2xy': { type: 'axis', vector: [1, 1, 0], color: 0xffaa00 },
-            '2-xy': { type: 'axis', vector: [1, -1, 0], color: 0xffaa00 },
-            '2xz': { type: 'axis', vector: [1, 0, 1], color: 0xffaa00 },
-            '2-xz': { type: 'axis', vector: [1, 0, -1], color: 0xffaa00 },
-            '2yz': { type: 'axis', vector: [0, 1, 1], color: 0xffaa00 },
-            '2-yz': { type: 'axis', vector: [0, 1, -1], color: 0xffaa00 },
-            '2_100': { type: 'axis', vector: [1, 0, 0], color: 0xffaa00 },
-            '2_010': { type: 'axis', vector: [-0.5, Math.sqrt(3)/2, 0], color: 0xffaa00 },
-            '2_1-10': { type: 'axis', vector: [0.5, Math.sqrt(3)/2, 0], color: 0xffaa00 },
-            '2_110': { type: 'axis', vector: [Math.sqrt(3)/2, 0.5, 0], color: 0xffaa00 },
-            '2_120': { type: 'axis', vector: [0, 1, 0], color: 0xffaa00 },
-            '2_210': { type: 'axis', vector: [Math.sqrt(3)/2, -0.5, 0], color: 0xffaa00 },
-            '3z': { type: 'axis', vector: [0, 0, 1], color: 0xcc0000 },
-            '3_111': { type: 'axis', vector: [1, 1, 1], color: 0xcc0000 },
-            '3_1-1-1': { type: 'axis', vector: [1, -1, -1], color: 0xcc0000 },
-            '3_-11-1': { type: 'axis', vector: [-1, 1, -1], color: 0xcc0000 },
-            '3_-1-11': { type: 'axis', vector: [-1, -1, 1], color: 0xcc0000 },
-            '4x': { type: 'axis', vector: [1, 0, 0], color: 0x00cc00 },
-            '4y': { type: 'axis', vector: [0, 1, 0], color: 0x00cc00 },
-            '4z': { type: 'axis', vector: [0, 0, 1], color: 0x00cc00 },
-            '6z': { type: 'axis', vector: [0, 0, 1], color: 0x0000cc },
-            'mx': { type: 'plane', vector: [1, 0, 0], color: 0x00aaff },
-            'my': { type: 'plane', vector: [0, 1, 0], color: 0x00aaff },
-            'mz': { type: 'plane', vector: [0, 0, 1], color: 0x00aaff },
-            'mxy': { type: 'plane', vector: [1, 1, 0], color: 0x00aaff },
-            'm-xy': { type: 'plane', vector: [1, -1, 0], color: 0x00aaff },
-            'mxz': { type: 'plane', vector: [1, 0, 1], color: 0x00aaff },
-            'm-xz': { type: 'plane', vector: [1, 0, -1], color: 0x00aaff },
-            'myz': { type: 'plane', vector: [0, 1, 1], color: 0x00aaff },
-            'm-yz': { type: 'plane', vector: [0, 1, -1], color: 0x00aaff },
-            'm_100': { type: 'plane', vector: [1, 0, 0], color: 0x00aaff },
-            'm_010': { type: 'plane', vector: [-0.5, Math.sqrt(3)/2, 0], color: 0x00aaff },
-            'm_1-10': { type: 'plane', vector: [0.5, Math.sqrt(3)/2, 0], color: 0x00aaff },
-            'm-110': { type: 'plane', vector: [-0.5, -Math.sqrt(3)/2, 0], color: 0x00aaff },
-            'm_110': { type: 'plane', vector: [Math.sqrt(3)/2, 0.5, 0], color: 0x00aaff },
-            'm_120': { type: 'plane', vector: [0, 1, 0], color: 0x00aaff },
-            'm_210': { type: 'plane', vector: [Math.sqrt(3)/2, -0.5, 0], color: 0x00aaff },
-        };
-        // Rotoinversion axes share their geometric direction with rotation axes.
-        ['3z', '4x', '4y', '4z', '6z', '3_111', '3_1-1-1', '3_-11-1', '3_-1-11']
-            .forEach(el => elementDefinitions[`-${el}`] = elementDefinitions[el]);
+
+        // --- Colours shared by the 3D view, the stereogram and the legend ---
+        const AXIS_COLORS = { 2: 0xffaa00, 3: 0xcc0000, 4: 0x00cc00, 6: 0x7c83ff };
+        const MIRROR_COLOR = 0x00aaff;
+        const INVERSION_COLOR = 0x00ff00;
+        const HIGHLIGHT_COLOR = 0xfde047;
+        const HANDEDNESS_COLORS = { same: 0x3b82f6, reversed: 0xef4444 };
+        const TINT_COLORS = { positive: 0xf59e0b, negative: 0x14b8a6, zero: 0x6b7280 };
+        const cssColor = hex => `#${hex.toString(16).padStart(6, '0')}`;
 
         const operators = getSymmetryOperators();
         let scene, camera, renderer, controls, parentMotif;
         const generatedMotifs = new THREE.Group();
         const symmetryVisuals = new THREE.Group();
+        const highlightVisuals = new THREE.Group();
         const EPSILON = 1e-4;
 
+        // ===================================================================
+        // Small 3×3 linear algebra on row-major arrays [a11, a12, a13, a21, ...]
+        // ===================================================================
+        const M3 = {
+            identity: () => [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            fromMatrix4: m => { const e = m.elements; return [e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]]; },
+            mul: (a, b) => {
+                const r = new Array(9);
+                for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+                    r[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
+                }
+                return r;
+            },
+            apply: (a, v) => [
+                a[0] * v[0] + a[1] * v[1] + a[2] * v[2],
+                a[3] * v[0] + a[4] * v[1] + a[5] * v[2],
+                a[6] * v[0] + a[7] * v[1] + a[8] * v[2]
+            ],
+            det: a => a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) + a[2] * (a[3] * a[7] - a[4] * a[6]),
+            trace: a => a[0] + a[4] + a[8],
+            key: a => a.map(v => Math.round(v * 1e4) || 0).join(',')
+        };
+        const vec = {
+            norm: v => Math.hypot(v[0], v[1], v[2]),
+            unit: v => { const n = Math.hypot(v[0], v[1], v[2]); return v.map(c => c / n); },
+            cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+            key: v => v.map(c => Math.round(c * 1e4) || 0).join(',')
+        };
+        // Hexagonal basis (columns a, b, c) and its inverse, for integer coordinate triplets.
+        const HEX_BASIS = [1, -0.5, 0, 0, Math.sqrt(3) / 2, 0, 0, 0, 1];
+        const HEX_BASIS_INV = [1, 1 / Math.sqrt(3), 0, 0, 2 / Math.sqrt(3), 0, 0, 0, 1];
+        const HEX_GROUPS = new Set(['3', '-3', '32', '3m', '-3m', '6', '-6', '6/m', '622', '6mm', '-6m2', '6/mmm']);
+
+        // ===================================================================
+        // HTML formatting helpers (crystallographic notation)
+        // ===================================================================
+        const MINUS = '\u2212';
+        const bar = s => `<span class="ov">${s}</span>`;
+        const hmHTML = s => s.replace(/-(\d)/g, (_, d) => bar(d));
+        const schHTML = s => (s.length > 1 ? `${s[0]}<sub>${s.slice(1)}</sub>` : s);
+        const classHTML = s => s.replace(/\(([xyz]+)\)/g, '(<i>$1</i>)').replace(/_(.)/g, '<sub>$1</sub>').replace(/\^(\d)/g, '<sup>$1</sup>');
+        const irrepHTML = l => {
+            const m = l.match(/^([ABET])(\d?[gu]?)('*)$/);
+            return m[1] + (m[2] ? `<sub>${m[2]}</sub>` : '') + ['', '′', '″'][m[3].length];
+        };
+        const fnHTML = s => (s ? s.replace(/[xyz]/g, '<i>$&</i>')
+            .replace(/R_(<i>[xyz]<\/i>)/g, 'R<sub>$1</sub>')
+            .replace(/\^(\d)/g, '<sup>$1</sup>')
+            .replace(/-/g, MINUS) : '');
+        const CHAR_SYMBOLS = { 'e': 'ε', 'e*': 'ε*', '-e': `${MINUS}ε`, '-e*': `${MINUS}ε*`, 'i': '<i>i</i>', '-i': `${MINUS}<i>i</i>` };
+        const charHTML = t => (typeof t === 'number' ? (t < 0 ? MINUS + (-t) : String(t)) : CHAR_SYMBOLS[t]);
+        const intHTML = k => (k < 0 ? bar(-k) : String(k));
+        const dirHTML = ints => (ints ? `[${ints.map(intHTML).join('')}]` : '');
+        const numHTML = x => { const r = Math.round(x * 1000) / 1000; return r < 0 ? MINUS + (-r) : String(r); };
+        const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+        // ===================================================================
+        // Group theory: operation analysis, classes, character tables
+        // ===================================================================
+        // Canonical direction for an axis or plane normal: integer indices in the crystal basis,
+        // with the sign chosen so that symbols read like the International Tables.
+        function canonicalDirection(v, hex) {
+            const c = hex ? [v[0] + v[1] / Math.sqrt(3), 2 * v[1] / Math.sqrt(3), v[2]] : v.slice();
+            const maxAbs = Math.max(...c.map(Math.abs));
+            let ints = null;
+            for (let k = 1; k <= 6 && !ints; k++) {
+                const t = c.map(x => x / maxAbs * k);
+                if (t.every(x => Math.abs(x - Math.round(x)) < 1e-4)) ints = t.map(x => Math.round(x) || 0);
+            }
+            const ref = ints || c;
+            const flip = (!hex && ints && ints.every(x => x !== 0))
+                ? ints[0] * ints[1] * ints[2] < 0                                   // body diagonals: [111], [1̄1̄1], …
+                : ref.find(x => Math.abs(x) > 1e-6) < 0;                            // otherwise first index positive
+            return {
+                unit: flip ? v.map(x => -x || 0) : v,
+                indices: ints && (flip ? ints.map(x => -x || 0) : ints),
+                flipped: flip
+            };
+        }
+
+        function describeOperation(m, hex) {
+            const det = M3.det(m) < 0 ? -1 : 1;
+            const p = m.map(v => v * det); // proper rotation part
+            const theta = Math.acos(Math.max(-1, Math.min(1, (M3.trace(p) - 1) / 2)));
+            if (theta < 1e-6) {
+                return { m, det, kind: det > 0 ? '1' : '-1', n: 1, axis: null, indices: null, sense: '' };
+            }
+            const n = Math.round(2 * Math.PI / theta);
+            let axis;
+            if (Math.abs(theta - Math.PI) < 1e-6) {
+                // p = 2uuᵀ − I: take the largest column of (p + I)/2.
+                const d = [p[0], p[4], p[8]];
+                const k = d.indexOf(Math.max(...d));
+                axis = vec.unit([p[k] + (k === 0 ? 1 : 0), p[3 + k] + (k === 1 ? 1 : 0), p[6 + k] + (k === 2 ? 1 : 0)]);
+            } else {
+                axis = vec.unit([p[7] - p[5], p[2] - p[6], p[3] - p[1]]); // counter-clockwise rotation by θ about axis
+            }
+            const dir = canonicalDirection(axis, hex);
+            return {
+                m, det, n,
+                kind: det > 0 ? String(n) : (n === 2 ? 'm' : `-${n}`),
+                axis: dir.unit,
+                indices: dir.indices,
+                sense: n > 2 ? (dir.flipped ? MINUS : '+') : ''
+            };
+        }
+
+        // Within a class, list counter-clockwise (+) operations before clockwise (−) ones.
+        const displayOrder = (A, cls) => cls.slice().sort((a, b) => (A.ops[a].sense === MINUS) - (A.ops[b].sense === MINUS) || a - b);
+
+        function opSymbolHTML(op) {
+            if (op.kind === '1') return '1';
+            if (op.kind === '-1') return bar('1');
+            const base = op.kind === 'm' ? '<i>m</i>' : op.kind.startsWith('-') ? bar(op.kind.slice(1)) : op.kind;
+            return `${base}${op.sense ? `<sup>${op.sense}</sup>` : ''} <span class="dir">${dirHTML(op.indices)}</span>`;
+        }
+
+        // ITA-style coordinate triplet (x, y, z → x′, y′, z′) in the crystal basis.
+        function tripletHTML(op, hex) {
+            const W = hex ? M3.mul(M3.mul(HEX_BASIS_INV, op.m), HEX_BASIS) : op.m;
+            const vars = ['x', 'y', 'z'];
+            return [0, 1, 2].map(r => {
+                const terms = [0, 1, 2].map(c => [Math.round(W[r * 3 + c]), vars[c]]).filter(([k]) => k !== 0);
+                if (terms.length === 1 && terms[0][0] === -1) return bar(`<i>${terms[0][1]}</i>`);
+                return terms.map(([k, v], i) => {
+                    const sign = k < 0 ? MINUS : (i ? '+' : '');
+                    const mag = Math.abs(k) === 1 ? '' : Math.abs(k);
+                    return `${sign}${mag}<i>${v}</i>`;
+                }).join('');
+            }).join(', ');
+        }
+
+        function parseRepresentative(spec) {
+            return spec.split('*').reduce((acc, token) => {
+                const match = token.match(/^(.+?)(?:\^(\d+))?$/);
+                const base = operators[match[1]];
+                if (!base) throw new Error(`Unknown operator in character table: ${match[1]}`);
+                const m = M3.fromMatrix4(base);
+                let power = M3.identity();
+                for (let k = 0; k < Number(match[2] || 1); k++) power = M3.mul(power, m);
+                return M3.mul(acc, power);
+            }, M3.identity());
+        }
+
+        function characterValue(token, eps) {
+            if (typeof token === 'number') return [token, 0];
+            const a = eps ? 2 * Math.PI / eps : 0;
+            switch (token) {
+                case 'i': return [0, 1];
+                case '-i': return [0, -1];
+                case 'e': return [Math.cos(a), Math.sin(a)];
+                case 'e*': return [Math.cos(a), -Math.sin(a)];
+                case '-e': return [-Math.cos(a), -Math.sin(a)];
+                case '-e*': return [-Math.cos(a), Math.sin(a)];
+            }
+            throw new Error(`Unknown character ${token}`);
+        }
+
+        const analysisCache = new Map();
+        function analyzeGroup(key) {
+            if (analysisCache.has(key)) return analysisCache.get(key);
+            const hex = HEX_GROUPS.has(key);
+            const ops = getFullOperatorSet(pointGroups[key].generators)
+                .map((matrix, index) => ({ index, ...describeOperation(M3.fromMatrix4(matrix), hex) }));
+            const n = ops.length;
+            const lookup = new Map(ops.map((op, i) => [M3.key(op.m), i]));
+            const find = m => {
+                const i = lookup.get(M3.key(m));
+                if (i === undefined) throw new Error(`Operation outside group ${key}`);
+                return i;
+            };
+            const mult = ops.map(a => ops.map(b => find(M3.mul(a.m, b.m)))); // mult[a][b] = a∘b (b applied first)
+            const inv = mult.map(row => row.indexOf(0));
+
+            // Conjugacy classes {g a g⁻¹}
+            const rawClassOf = new Array(n).fill(-1);
+            const rawClasses = [];
+            for (let a = 0; a < n; a++) {
+                if (rawClassOf[a] >= 0) continue;
+                const members = [...new Set(ops.map((_, g) => mult[mult[g][a]][inv[g]]))].sort((p, q) => p - q);
+                members.forEach(i => { rawClassOf[i] = rawClasses.length; });
+                rawClasses.push(members);
+            }
+
+            // Tie each character-table column to a computed class through its representative operation.
+            const table = CHAR_TABLES[key];
+            const columnClass = table.classes.map(([, rep]) => rawClassOf[find(parseRepresentative(rep))]);
+            if (columnClass.length !== rawClasses.length || new Set(columnClass).size !== rawClasses.length) {
+                throw new Error(`Character table columns do not match the classes of ${key}`);
+            }
+            table.classes.forEach(([label], c) => {
+                const expected = parseInt(label, 10) || 1;
+                if (rawClasses[columnClass[c]].length !== expected) throw new Error(`Class ${label} of ${key} has the wrong size`);
+            });
+            const classes = columnClass.map(rc => rawClasses[rc]);
+            const colOfOp = new Array(n);
+            classes.forEach((cls, c) => cls.forEach(i => { colOfOp[i] = c; }));
+
+            const chars = [];
+            const irreps = table.irreps.map(([label, ch, lin, quad]) => {
+                const tokens = Array.isArray(ch[0]) ? ch : [ch];
+                const rows = tokens.map(row => { chars.push(row.map(t => characterValue(t, table.eps))); return chars.length - 1; });
+                return { label, tokens, rows, dim: tokens.reduce((s, row) => s + row[0], 0), lin, quad };
+            });
+
+            const result = { key, hex, ops, n, mult, inv, classes, colOfOp, table, chars, irreps };
+            result.elements = symmetryElementsOf(result);
+            analysisCache.set(key, result);
+            return result;
+        }
+
+        // Real character of an irrep (complex pairs summed) for operation index i.
+        function irrepCharacter(A, irrep, i) {
+            return irrep.rows.reduce((s, r) => s + A.chars[r][A.colOfOp[i]][0], 0);
+        }
+
+        // Symmetry elements derived from the operations themselves.
+        function axisSymbolFor(p, roto) {
+            if (p === 6) return roto.has(6) ? '6/m' : '6';
+            if (p === 4) return roto.has(4) ? '4/m' : '4';
+            if (p === 3) return roto.has(6) ? '-6' : roto.has(3) ? '-3' : '3';
+            if (p === 2) return roto.has(4) ? '-4' : roto.has(2) ? '2/m' : '2';
+            return null;
+        }
+        const symbolOrder = s => Number(s.replace(/[^0-9]/g, '').charAt(0));
+        function symmetryElementsOf(A) {
+            const axes = new Map();
+            const planes = new Map();
+            let inversion = false;
+            A.ops.forEach(op => {
+                if (op.kind === '1') return;
+                if (op.kind === '-1') { inversion = true; return; }
+                const k = vec.key(op.axis);
+                if (!axes.has(k)) axes.set(k, { dir: op.axis, indices: op.indices, proper: 1, roto: new Set() });
+                const entry = axes.get(k);
+                if (op.det > 0) entry.proper = Math.max(entry.proper, op.n); else entry.roto.add(op.n);
+                if (op.kind === 'm') planes.set(k, { normal: op.axis, indices: op.indices });
+            });
+            const axisList = [...axes.values()]
+                .map(a => ({ ...a, symbol: axisSymbolFor(a.proper, a.roto) }))
+                .filter(a => a.symbol)
+                .map(a => ({ ...a, color: AXIS_COLORS[symbolOrder(a.symbol)] }));
+            return { axes: axisList, planes: [...planes.values()], inversion };
+        }
+
+        // Point-group type of any set of operations, from the counts of each kind of operation.
+        let signatureRegistry = null;
+        const signatureOf = kinds => kinds.slice().sort().join(' ');
+        function identifyGroup(kinds) {
+            if (!signatureRegistry) {
+                signatureRegistry = new Map();
+                Object.keys(pointGroups).forEach(k => {
+                    const ks = getFullOperatorSet(pointGroups[k].generators).map(m => describeOperation(M3.fromMatrix4(m), false).kind);
+                    signatureRegistry.set(signatureOf(ks), k);
+                });
+            }
+            return signatureRegistry.get(signatureOf(kinds)) || null;
+        }
+        const groupLabelHTML = k => (k ? `${hmHTML(k)} (${schHTML(CHAR_TABLES[k].sch)})` : '?');
+
+        // Reduction formula n_i = (1/|G|) Σ_C |C| χ(C) χ_i(C)*, as [re, im] per irrep
+        // (for a complex pair the first row; both rows occur equally often in a real representation).
+        function reduce(A, chiByCol) {
+            return A.irreps.map(ir => {
+                const row = A.chars[ir.rows[0]];
+                let re = 0, im = 0;
+                A.classes.forEach((cls, c) => {
+                    re += cls.length * chiByCol[c] * row[c][0];
+                    im -= cls.length * chiByCol[c] * row[c][1];
+                });
+                return [re / A.n, im / A.n];
+            });
+        }
+        function decompositionHTML(A, coeffs) {
+            const valid = coeffs.every(([re, im]) => Math.abs(im) < 1e-6 && Math.abs(re - Math.round(re)) < 1e-6 && re > -1e-6);
+            if (!valid) return { html: `Not a representation (n = ${coeffs.map(([re]) => numHTML(re)).join(', ')})`, valid };
+            const terms = A.irreps.map((ir, k) => [Math.round(coeffs[k][0]), ir]).filter(([c]) => c > 0)
+                .map(([c, ir]) => `${c > 1 ? c : ''}${irrepHTML(ir.label)}`);
+            return { html: terms.length ? terms.join(' + ') : '0', valid };
+        }
+
+        // ===================================================================
+        // Tensor forms (Neumann's principle): invariant tensors by group averaging
+        // ===================================================================
+        const VOIGT = [[0, 0], [1, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
+        const SYM2 = [[0, 0], [1, 1], [2, 2], [1, 2], [0, 2], [0, 1]].map(([i, j]) => ({ name: `${i + 1}${j + 1}`, idx: [i, j], factor: 1 }));
+        const PIEZO_ORDER = [[1, 1], [2, 2], [3, 3], [1, 2], [1, 3], [2, 1], [2, 3], [3, 1], [3, 2], [1, 4], [2, 5], [3, 6], [1, 5], [1, 6], [2, 4], [2, 6], [3, 4], [3, 5]];
+        const ELASTIC = [];
+        for (let a = 1; a <= 6; a++) for (let b = a; b <= 6; b++) ELASTIC.push({ name: `${a}${b}`, idx: [...VOIGT[a - 1], ...VOIGT[b - 1]], factor: 1, ab: [a, b] });
+        const TENSOR_SPECS = [
+            { id: 'p', letter: 'p', title: 'Pyroelectric coefficients', rank: 1, axial: false, perms: [[0]],
+              comps: [0, 1, 2].map(i => ({ name: `${i + 1}`, idx: [i], factor: 1 })),
+              rows: 1, cols: 3, cell: (r, c) => ({ comp: c }) },
+            { id: 'eps', letter: 'ε', title: 'Dielectric permittivity', rank: 2, axial: false, perms: [[0, 1], [1, 0]],
+              comps: SYM2, rows: 3, cols: 3,
+              cell: (r, c) => ({ comp: SYM2.findIndex(s => s.idx[0] === Math.min(r, c) && s.idx[1] === Math.max(r, c)), mirror: r > c }) },
+            { id: 'd', letter: 'd', title: 'Piezoelectric moduli', rank: 3, axial: false, perms: [[0, 1, 2], [0, 2, 1]],
+              comps: PIEZO_ORDER.map(([i, mu]) => ({ name: `${i}${mu}`, idx: [i - 1, ...VOIGT[mu - 1]], factor: mu > 3 ? 2 : 1 })),
+              rows: 3, cols: 6, cell: (r, c) => ({ comp: PIEZO_ORDER.findIndex(([i, mu]) => i === r + 1 && mu === c + 1) }) },
+            { id: 'g', letter: 'g', title: 'Optical activity (gyration)', rank: 2, axial: true, perms: [[0, 1], [1, 0]],
+              comps: SYM2, rows: 3, cols: 3,
+              cell: (r, c) => ({ comp: SYM2.findIndex(s => s.idx[0] === Math.min(r, c) && s.idx[1] === Math.max(r, c)), mirror: r > c }) },
+            { id: 'c', letter: 'c', title: 'Elastic stiffness', rank: 4, axial: false,
+              perms: [[0, 1, 2, 3], [1, 0, 2, 3], [0, 1, 3, 2], [1, 0, 3, 2], [2, 3, 0, 1], [3, 2, 0, 1], [2, 3, 1, 0], [3, 2, 1, 0]],
+              comps: ELASTIC, rows: 6, cols: 6,
+              cell: (r, c) => ({ comp: ELASTIC.findIndex(e => e.ab[0] === Math.min(r, c) + 1 && e.ab[1] === Math.max(r, c) + 1), mirror: r > c }) }
+        ];
+
+        function applyMode(t, m, mode, rank) {
+            const out = new Float64Array(t.length);
+            const stride = 3 ** (rank - 1 - mode);
+            for (let f = 0; f < t.length; f++) {
+                const i = Math.floor(f / stride) % 3;
+                const base = f - i * stride;
+                out[f] = m[i * 3] * t[base] + m[i * 3 + 1] * t[base + stride] + m[i * 3 + 2] * t[base + 2 * stride];
+            }
+            return out;
+        }
+        function rref(rows, tol = 1e-8) {
+            const M = rows.map(r => r.slice());
+            const pivots = [];
+            let r = 0;
+            const cols = M[0].length;
+            for (let c = 0; c < cols && r < M.length; c++) {
+                let best = r;
+                for (let i = r + 1; i < M.length; i++) if (Math.abs(M[i][c]) > Math.abs(M[best][c])) best = i;
+                if (Math.abs(M[best][c]) < tol) continue;
+                [M[r], M[best]] = [M[best], M[r]];
+                const pv = M[r][c];
+                M[r] = M[r].map(v => v / pv);
+                for (let i = 0; i < M.length; i++) {
+                    if (i === r || Math.abs(M[i][c]) < 1e-15) continue;
+                    const f = M[i][c];
+                    M[i] = M[i].map((v, j) => v - f * M[r][j]);
+                }
+                pivots.push(c);
+                r++;
+            }
+            return { rows: M.slice(0, r), pivots };
+        }
+        const tensorCache = new Map();
+        function tensorForm(A, spec) {
+            const cacheKey = `${A.key}|${spec.id}`;
+            if (tensorCache.has(cacheKey)) return tensorCache.get(cacheKey);
+            const rank = spec.rank, size = 3 ** rank;
+            const flat = idx => idx.reduce((s, i) => s * 3 + i, 0);
+            const rows = spec.comps.map(comp => {
+                const sym = new Float64Array(size);
+                spec.perms.forEach(p => { sym[flat(p.map(k => comp.idx[k]))] += 1 / spec.perms.length; });
+                const avg = new Float64Array(size);
+                A.ops.forEach(op => {
+                    let t = sym;
+                    for (let mode = 0; mode < rank; mode++) t = applyMode(t, op.m, mode, rank);
+                    const w = spec.axial ? op.det : 1;
+                    for (let f = 0; f < size; f++) avg[f] += w * t[f];
+                });
+                return spec.comps.map(c => c.factor * avg[flat(c.idx)] / A.n);
+            });
+            const { rows: R, pivots } = rref(rows);
+            const exprs = spec.comps.map((_, j) => R.map((row, m) => [row[j], pivots[m]]).filter(([v]) => Math.abs(v) > 1e-9));
+            const result = { count: pivots.length, pivots, exprs };
+            tensorCache.set(cacheKey, result);
+            return result;
+        }
+        function fractionOf(x) {
+            for (let q = 1; q <= 12; q++) {
+                const p = Math.round(x * q);
+                if (Math.abs(p / q - x) < 1e-6) return [p, q];
+            }
+            return null;
+        }
+        function coefficientHTML(p, q) {
+            p = Math.abs(p);
+            if (q === 1) return p === 1 ? '' : String(p);
+            if (p === 1 && q === 2) return '½';
+            return `${p}/${q}`;
+        }
+        function termsHTML(terms, spec) {
+            if (!terms.length) return null;
+            const parts = terms.map(([v, j]) => ({ v, f: fractionOf(v), name: `${spec.letter}<sub>${spec.comps[j].name}</sub>` }));
+            if (parts.some(p => !p.f)) return parts.map(p => `${numHTML(p.v)}${p.name}`).join(' + ');
+            const mags = parts.map(p => Math.abs(p.f[0]) / p.f[1]);
+            if (parts.length > 1 && mags.every(m => Math.abs(m - mags[0]) < 1e-9) && Math.abs(mags[0] - 1) > 1e-9) {
+                const lead = parts[0].f[0] < 0 ? -1 : 1;
+                const inner = parts.map((p, i) => {
+                    const s = Math.sign(p.f[0]) * lead;
+                    return (i === 0 ? '' : s < 0 ? ` ${MINUS} ` : ' + ') + p.name;
+                }).join('');
+                return `${lead < 0 ? MINUS : ''}${coefficientHTML(parts[0].f[0], parts[0].f[1])}(${inner})`;
+            }
+            return parts.map((p, i) => {
+                const neg = p.f[0] < 0;
+                const sign = i === 0 ? (neg ? MINUS : '') : (neg ? ` ${MINUS} ` : ' + ');
+                return sign + coefficientHTML(p.f[0], p.f[1]) + p.name;
+            }).join('');
+        }
+
+        // ===================================================================
+        // Glyphs: International Tables symbols for axes (shared by SVG and 3D)
+        // ===================================================================
+        function glyphParts(symbol) {
+            switch (symbol) {
+                case '2': return [{ shape: 'lens', r: 1, fill: true }];
+                case '3': return [{ shape: 'poly', n: 3, r: 1, fill: true }];
+                case '4': return [{ shape: 'poly', n: 4, r: 1, fill: true }];
+                case '6': return [{ shape: 'poly', n: 6, r: 1, fill: true }];
+                case '2/m': return [{ shape: 'lens', r: 1, fill: true }, { shape: 'circle', r: 0.3 }];
+                case '4/m': return [{ shape: 'poly', n: 4, r: 1, fill: true }, { shape: 'circle', r: 0.3 }];
+                case '6/m': return [{ shape: 'poly', n: 6, r: 1, fill: true }, { shape: 'circle', r: 0.3 }];
+                case '-3': return [{ shape: 'poly', n: 3, r: 1, fill: true }, { shape: 'circle', r: 0.28 }];
+                case '-4': return [{ shape: 'poly', n: 4, r: 1, fill: false }, { shape: 'lens', r: 0.62, fill: true }];
+                case '-6': return [{ shape: 'poly', n: 6, r: 1, fill: false }, { shape: 'poly', n: 3, r: 0.6, fill: true }];
+                case '-1': return [{ shape: 'circle', r: 0.42 }];
+                default: return [];
+            }
+        }
+        const POLY_START = { 3: -Math.PI / 2, 4: Math.PI / 4, 6: 0 };
+        const polyPoints = (n, r) => Array.from({ length: n }, (_, k) => {
+            const a = POLY_START[n] + 2 * Math.PI * k / n;
+            return [r * Math.cos(a), r * Math.sin(a)];
+        });
+        const fmt = x => (Math.abs(x) < 1e-9 ? 0 : x).toFixed(4);
+        function glyphSVG(symbol, x, y, rotationDeg, color, size) {
+            const parts = glyphParts(symbol).map(p => {
+                const r = size * p.r;
+                if (p.shape === 'lens') {
+                    return `<path d="M${fmt(-r)} 0Q0 ${fmt(-0.9 * r)} ${fmt(r)} 0Q0 ${fmt(0.9 * r)} ${fmt(-r)} 0Z" fill="${p.fill ? color : '#111827'}" stroke="${color}" stroke-width="${fmt(size * 0.12)}"/>`;
+                }
+                if (p.shape === 'poly') {
+                    const pts = polyPoints(p.n, r).map(([a, b]) => `${fmt(a)},${fmt(b)}`).join(' ');
+                    return `<polygon points="${pts}" fill="${p.fill ? color : '#111827'}" stroke="${color}" stroke-width="${fmt(size * (p.fill ? 0.08 : 0.2))}" stroke-linejoin="round"/>`;
+                }
+                return `<circle r="${fmt(r)}" fill="#111827" stroke="#f9fafb" stroke-width="${fmt(size * 0.12)}"/>`;
+            }).join('');
+            return `<g transform="translate(${fmt(x)} ${fmt(y)}) rotate(${fmt(rotationDeg)})">${parts}</g>`;
+        }
+
+        // ===================================================================
+        // Three.js scene
+        // ===================================================================
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a1a);
             scene.add(generatedMotifs);
             scene.add(symmetryVisuals);
+            scene.add(highlightVisuals);
+            scene.add(createReferenceAxes());
             const viewport = document.getElementById('visualization-area');
-            const aspect = viewport.clientWidth / viewport.clientHeight;
+            const aspect = Math.max(1, viewport.clientWidth) / Math.max(1, viewport.clientHeight);
             camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 100);
             camera.position.set(2.5, -3.5, 2.5);
             camera.up.set(0, 0, 1);
             renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(Math.max(1, viewport.clientWidth), Math.max(1, viewport.clientHeight));
             viewport.appendChild(renderer.domElement);
             scene.add(new THREE.AmbientLight(0xffffff, 0.7));
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
@@ -353,7 +1183,9 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.set(0, 0, 0);
             parentMotif = createAsymmetricObject();
+            buildLegend();
             setupEventListeners();
+            setupSidePanel();
             updatePointGroup();
             animate();
         }
@@ -374,6 +1206,35 @@
 			group.add(cylinder1, cylinder2, sphere);
 			return group;
 		}
+
+        // Neutral reference axes with labels (the old AxesHelper used red/green/blue,
+        // the same colours as the 3-, 4- and 6-fold axes).
+        function createReferenceAxes() {
+            const group = new THREE.Group();
+            const L = 1.6;
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, L, 0, 0, 0, 0, 0, 0, L, 0, 0, 0, 0, 0, 0, L], 3));
+            group.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0x9ca3af })));
+            [['x', [L + 0.12, 0, 0]], ['y', [0, L + 0.12, 0]], ['z', [0, 0, L + 0.12]]].forEach(([text, p]) => {
+                const sprite = makeTextSprite(text);
+                sprite.position.set(...p);
+                group.add(sprite);
+            });
+            return group;
+        }
+        function makeTextSprite(text) {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#d1d5db';
+            ctx.font = 'italic 96px "Times New Roman", serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, 64, 58);
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false }));
+            sprite.scale.set(0.2, 0.2, 1);
+            return sprite;
+        }
 
         const getMatrixKey = (matrix) => Array.from(matrix.elements).map(n => Math.round(n * 1e4) || 0).join(',');
 
@@ -424,7 +1285,34 @@
             });
             group.clear();
             geometries.forEach(geometry => geometry.dispose());
-            materials.forEach(material => material.dispose());
+            materials.forEach(material => {
+                if (material.map) material.map.dispose();
+                material.dispose();
+            });
+        }
+
+        // --- Shared state for the side panel and 3D highlighting ---
+        const state = {
+            groupKey: null,
+            positions: [],        // unique positions [{pos, parities, count}]
+            posOfOp: [],          // op index → index into positions
+            highlightOps: new Set(),
+            selection: null,      // { kind: 'class' | 'op', index }
+            tintIrrep: null
+        };
+        const currentAnalysis = () => analyzeGroup(state.groupKey);
+
+        function mixHex(a, b, t) {
+            const ch = (x, s) => (x >> s) & 255;
+            const mix = s => Math.round(ch(a, s) + (ch(b, s) - ch(a, s)) * t);
+            return (mix(16) << 16) | (mix(8) << 8) | mix(0);
+        }
+        function motifColor(A, opIndex, chiralFlip) {
+            if (state.tintIrrep === null) return chiralFlip ? HANDEDNESS_COLORS.reversed : HANDEDNESS_COLORS.same;
+            const ir = A.irreps[state.tintIrrep];
+            const w = irrepCharacter(A, ir, opIndex) / ir.dim;
+            if (Math.abs(w) < 1e-9) return TINT_COLORS.zero;
+            return mixHex(TINT_COLORS.zero, w > 0 ? TINT_COLORS.positive : TINT_COLORS.negative, Math.min(1, Math.abs(w)));
         }
 
         function updateScene() {
@@ -434,27 +1322,31 @@
             if (!values.every(value => Number.isFinite(value) && value >= -1 && value <= 1)) return;
 
             const groupKey = document.getElementById('point-group-select').value;
+            const A = analyzeGroup(groupKey);
             const operatorSet = getFullOperatorSet(pointGroups[groupKey].generators);
             const parentPos = new THREE.Vector3(...values);
             const uniquePositionsData = [];
+            const posOfOp = [];
             clearRenderedGroup(generatedMotifs, false);
 
             // Keep every orientation, including distinct motifs at coincident centers.
-            operatorSet.forEach(matrix => {
+            operatorSet.forEach((matrix, opIndex) => {
                 const newPos = parentPos.clone().applyMatrix4(matrix);
                 const chiralFlip = matrix.determinant() < 0;
-                let positionData = uniquePositionsData.find(p => p.pos.distanceTo(newPos) < EPSILON);
-                if (!positionData) {
-                    positionData = { pos: newPos, parities: new Set(), count: 0 };
-                    uniquePositionsData.push(positionData);
+                let positionIndex = uniquePositionsData.findIndex(p => p.pos.distanceTo(newPos) < EPSILON);
+                if (positionIndex < 0) {
+                    positionIndex = uniquePositionsData.length;
+                    uniquePositionsData.push({ pos: newPos, parities: new Set(), count: 0 });
                 }
+                const positionData = uniquePositionsData[positionIndex];
                 positionData.parities.add(chiralFlip);
                 positionData.count += 1;
+                posOfOp.push(positionIndex);
 
                 const motif = parentMotif.clone();
                 motif.position.copy(parentPos);
                 motif.applyMatrix4(matrix);
-                const color = chiralFlip ? 0xef4444 : 0x3b82f6;
+                const color = motifColor(A, opIndex, chiralFlip);
                 motif.traverse(child => {
                     if (child.isMesh) {
                         child.material = child.material.clone();
@@ -463,7 +1355,12 @@
                 });
                 generatedMotifs.add(motif);
             });
+            state.positions = uniquePositionsData;
+            state.posOfOp = posOfOp;
             updateCoordinateList(uniquePositionsData);
+            updateSiteSymmetry(A);
+            applyMotifHighlight();
+            onPositionsChanged();
         }
 
         function updateCoordinateList(positionsData) {
@@ -477,17 +1374,32 @@
             }).join('');
         }
 
+        // Stabilizer of the parent position → site-symmetry group and multiplicity.
+        function updateSiteSymmetry(A) {
+            const parentIndex = state.posOfOp[0];
+            const kinds = A.ops.filter((_, i) => state.posOfOp[i] === parentIndex).map(op => op.kind);
+            document.getElementById('site-symmetry').innerHTML = groupLabelHTML(identifyGroup(kinds));
+            document.getElementById('multiplicity').textContent = `${state.positions.length} (= ${A.n} / ${kinds.length})`;
+        }
+
         function updatePointGroup() {
             try {
                 const groupKey = document.getElementById('point-group-select').value;
                 const groupInfo = pointGroups[groupKey];
+                state.groupKey = groupKey;
+                state.selection = null;
+                state.highlightOps = new Set();
+                state.tintIrrep = null;
+                updateTintBanner();
 
                 document.getElementById('group-order').textContent = groupInfo.order;
                 document.getElementById('group-chiral').textContent = groupInfo.chiral ? "Yes" : "No";
                 
-                drawSymmetryElements(groupInfo.elements);
+                drawSymmetryElements(analyzeGroup(groupKey).elements);
+                drawHighlightElements();
                 updateSymmetryElementsVisibility();
                 updateScene();
+                refreshSidePanel(true);
             } catch (error) {
                 console.error("A critical error occurred:", error);
             }
@@ -497,67 +1409,567 @@
             const isVisible = document.getElementById('show-elements-checkbox').checked;
             symmetryVisuals.visible = isVisible;
         }
-        
-        function drawSymmetryElements(elements) {
-            clearRenderedGroup(symmetryVisuals, true);
-            symmetryVisuals.add(new THREE.AxesHelper(1.5));
-            
-            const createAxis = (axisArray, color) => {
-                const length = 2.8;
-                const geom = new THREE.CylinderGeometry(0.015, 0.015, length, 8);
-                const mat = new THREE.MeshBasicMaterial({color});
-                const cyl = new THREE.Mesh(geom, mat);
-                
-                // The default orientation of a THREE.CylinderGeometry is along the Y-axis.
-                const defaultAxis = new THREE.Vector3(0, 1, 0); 
-                const targetAxis = new THREE.Vector3(...axisArray).normalize();
 
-                // We use a quaternion to rotate the cylinder from its default orientation
-                // to the target orientation. setFromUnitVectors handles all cases robustly.
-                cyl.quaternion.setFromUnitVectors(defaultAxis, targetAxis);
-                
-                return cyl;
+        const axisMesh = (dir, color, radius, length) => {
+            const cyl = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 12), new THREE.MeshBasicMaterial({ color }));
+            // CylinderGeometry is built along +y; rotate it onto the target direction.
+            cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...dir).normalize());
+            return cyl;
+        };
+        const planeMesh = (normal, color, opacity) => {
+            const plane = new THREE.Mesh(
+                new THREE.PlaneGeometry(2.5, 2.5),
+                new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })
+            );
+            plane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...normal).normalize());
+            return plane;
+        };
+
+        // Flat ITA glyph placed perpendicular to an axis.
+        function glyphMesh(symbol, color, size) {
+            const group = new THREE.Group();
+            const polyShape = (n, r) => {
+                const s = new THREE.Shape();
+                polyPoints(n, r).forEach(([x, y], k) => (k ? s.lineTo(x, y) : s.moveTo(x, y)));
+                s.closePath();
+                return s;
             };
-
-            const createPlane = (normalArray, color) => {
-                const plane = new THREE.Mesh(
-                    new THREE.PlaneGeometry(2.5, 2.5),
-                    new THREE.MeshBasicMaterial({color, transparent: true, opacity: 0.3, side: THREE.DoubleSide})
-                );
-                const normal = new THREE.Vector3(...normalArray).normalize();
-                plane.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-                return plane;
+            const polyHole = (n, r) => {
+                const h = new THREE.Path();
+                polyPoints(n, r).forEach(([x, y], k) => (k ? h.lineTo(x, y) : h.moveTo(x, y)));
+                h.closePath();
+                return h;
             };
-
-            const drawnKeys = new Set();
-            (elements || []).forEach(el => {
-                const def = elementDefinitions[el];
-                if (!def) return;
-                let key;
-                if (def.type === 'inversion') {
-                    key = 'inversion';
-                } else if (def.vector) {
-                    const direction = new THREE.Vector3(...def.vector).normalize();
-                    const components = [direction.x, direction.y, direction.z];
-                    const sign = components.find(c => Math.abs(c) > EPSILON) < 0 ? -1 : 1;
-                    key = `${def.type}_${components.map(c => Math.round(c * sign * 1e4) || 0).join('_')}`;
-                } else { return; }
-                if (drawnKeys.has(key)) return;
-                drawnKeys.add(key);
-                if (def.type === 'axis') {
-                    symmetryVisuals.add(createAxis(def.vector, def.color));
-                } else if (def.type === 'plane') {
-                    symmetryVisuals.add(createPlane(def.vector, def.color));
-                } else if (def.type === 'inversion') {
-                    symmetryVisuals.add(new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color: def.color})));
+            const lensShape = r => new THREE.Shape().moveTo(-r, 0).quadraticCurveTo(0, 0.9 * r, r, 0).quadraticCurveTo(0, -0.9 * r, -r, 0);
+            const circleShape = r => new THREE.Shape().absarc(0, 0, r, 0, Math.PI * 2, false);
+            const add = (shape, hexColor, back) => {
+                const material = new THREE.MeshBasicMaterial({ color: hexColor, side: THREE.DoubleSide });
+                if (back) Object.assign(material, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+                group.add(new THREE.Mesh(new THREE.ShapeGeometry(shape, 24), material));
+            };
+            glyphParts(symbol).forEach((part, k) => {
+                const r = size * part.r;
+                if (part.shape === 'lens') add(lensShape(r), color, k === 0);
+                else if (part.shape === 'poly' && part.fill) add(polyShape(part.n, r), color, k === 0);
+                else if (part.shape === 'poly') {
+                    const frame = polyShape(part.n, r);
+                    frame.holes.push(polyHole(part.n, r * 0.74));
+                    add(frame, color, k === 0);
+                } else {
+                    const ring = circleShape(r);
+                    ring.holes.push(new THREE.Path().absarc(0, 0, r * 0.6, 0, Math.PI * 2, true));
+                    add(ring, 0xf9fafb, false);
                 }
             });
+            return group;
         }
 
+        function drawSymmetryElements(elements) {
+            clearRenderedGroup(symmetryVisuals, true);
+            const zAxis = new THREE.Vector3(0, 0, 1);
+            elements.axes.forEach(axis => {
+                symmetryVisuals.add(axisMesh(axis.dir, axis.color, 0.015, 2.8));
+                [1, -1].forEach(sign => {
+                    const glyph = glyphMesh(axis.symbol, axis.color, 0.075);
+                    const d = new THREE.Vector3(...axis.dir).multiplyScalar(sign);
+                    glyph.quaternion.setFromUnitVectors(zAxis, d);
+                    glyph.position.copy(d.multiplyScalar(1.45));
+                    symmetryVisuals.add(glyph);
+                });
+            });
+            elements.planes.forEach(plane => symmetryVisuals.add(planeMesh(plane.normal, MIRROR_COLOR, 0.3)));
+            if (elements.inversion) {
+                symmetryVisuals.add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 24, 16), new THREE.MeshBasicMaterial({ color: INVERSION_COLOR })));
+            }
+        }
+
+        // Highlight the element and the motifs of the selected operation(s).
+        function drawHighlightElements() {
+            clearRenderedGroup(highlightVisuals, true);
+            if (!state.groupKey || !state.highlightOps.size) return;
+            const A = currentAnalysis();
+            const seen = new Set();
+            // Build each element once; several operations of a class can share an axis or plane.
+            const add = (key, make) => { if (!seen.has(key)) { seen.add(key); highlightVisuals.add(make()); } };
+            const centre = () => new THREE.Mesh(new THREE.SphereGeometry(0.09, 24, 16), new THREE.MeshBasicMaterial({ color: HIGHLIGHT_COLOR, transparent: true, opacity: 0.9 }));
+            state.highlightOps.forEach(i => {
+                const op = A.ops[i];
+                if (op.kind === '1') return;
+                if (op.kind === '-1') { add('centre', centre); return; }
+                if (op.kind === 'm') { add(`m${vec.key(op.axis)}`, () => planeMesh(op.axis, HIGHLIGHT_COLOR, 0.32)); return; }
+                add(`a${vec.key(op.axis)}`, () => axisMesh(op.axis, HIGHLIGHT_COLOR, 0.032, 3.1));
+                if (op.det < 0) add('centre', centre); // rotoinversion: rotation followed by inversion through the centre
+            });
+        }
+        function applyMotifHighlight() {
+            generatedMotifs.children.forEach((motif, i) => {
+                const on = state.highlightOps.has(i);
+                motif.traverse(child => {
+                    if (child.isMesh && child.material.emissive) child.material.emissive.setHex(on ? 0x6b5a00 : 0x000000);
+                });
+            });
+        }
+        function setHighlight(selection) {
+            state.selection = selection;
+            const A = currentAnalysis();
+            state.highlightOps = new Set(!selection ? [] : selection.kind === 'class' ? A.classes[selection.index] : [selection.index]);
+            drawHighlightElements();
+            applyMotifHighlight();
+            syncSelectionUI();
+        }
+        function setTint(irrepIndex) {
+            state.tintIrrep = irrepIndex;
+            updateScene();
+            updateTintBanner();
+            syncSelectionUI();
+        }
+        function updateTintBanner() {
+            const banner = document.getElementById('tint-banner');
+            if (state.tintIrrep === null || !state.groupKey) { banner.hidden = true; banner.innerHTML = ''; return; }
+            const ir = currentAnalysis().irreps[state.tintIrrep];
+            const sw = c => `<span class="swatch" style="background:${cssColor(c)}"></span>`;
+            banner.innerHTML = `<span>Motifs tinted by <span class="math">χ(${irrepHTML(ir.label)})</span> of their operation:${sw(TINT_COLORS.positive)}+${sw(TINT_COLORS.negative)}${MINUS}${sw(TINT_COLORS.zero)}0</span><button type="button" class="btn" id="tint-clear">Show handedness</button>`;
+            banner.hidden = false;
+            document.getElementById('tint-clear').addEventListener('click', () => setTint(null));
+        }
+
+        function buildLegend() {
+            const items = [['2', '2-fold'], ['3', '3-fold'], ['4', '4-fold'], ['6', '6-fold'], ['-4', bar('4')], ['-1', 'centre']];
+            const svg = (inner) => `<svg viewBox="-1.2 -1.2 2.4 2.4">${inner}</svg>`;
+            const legend = document.getElementById('viewport-legend');
+            legend.innerHTML = items.map(([s, label]) => {
+                const color = s === '-1' ? cssColor(INVERSION_COLOR) : cssColor(AXIS_COLORS[symbolOrder(s)]);
+                return `<span>${svg(glyphSVG(s, 0, 0, 0, color, 1))}${label}</span>`;
+            }).join('') + `<span>${svg(`<rect x="-1" y="-0.7" width="2" height="1.4" fill="${cssColor(MIRROR_COLOR)}" opacity="0.6"/>`)}mirror</span>`;
+        }
+
+        // ===================================================================
+        // Right-hand panel
+        // ===================================================================
+        const sidePanel = () => document.getElementById('side-panel');
+        const side = { active: 'characters', rendered: {}, collapsed: false };
+        const RENDERERS = {
+            characters: renderCharactersTab,
+            operations: renderOperationsTab,
+            stereogram: renderStereogramTab,
+            properties: renderPropertiesTab
+        };
+
+        function setupSidePanel() {
+            const tabs = [...document.querySelectorAll('#side-panel [role="tab"]')];
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    if (side.collapsed) setSideCollapsed(false);
+                    selectTab(tab.dataset.tab);
+                });
+                tab.addEventListener('keydown', e => {
+                    const i = tabs.indexOf(tab);
+                    const next = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+                    if (next === undefined) return;
+                    e.preventDefault();
+                    const target = tabs[(next + tabs.length) % tabs.length];
+                    target.focus();
+                    selectTab(target.dataset.tab);
+                });
+            });
+            document.getElementById('side-toggle').addEventListener('click', () => setSideCollapsed(!side.collapsed));
+            if (window.innerWidth < 1100) setSideCollapsed(true);
+        }
+        function selectTab(id) {
+            side.active = id;
+            document.querySelectorAll('#side-panel [role="tab"]').forEach(tab => {
+                const selected = tab.dataset.tab === id;
+                tab.setAttribute('aria-selected', String(selected));
+                tab.tabIndex = selected ? 0 : -1;
+                document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
+            });
+            refreshSidePanel(false);
+        }
+        function setSideCollapsed(collapsed) {
+            side.collapsed = collapsed;
+            const panel = sidePanel();
+            panel.classList.toggle('collapsed', collapsed);
+            document.getElementById('side-handle').hidden = collapsed;
+            const toggle = document.getElementById('side-toggle');
+            toggle.setAttribute('aria-expanded', String(!collapsed));
+            toggle.setAttribute('aria-label', collapsed ? 'Expand panel' : 'Collapse panel');
+            toggle.title = collapsed ? 'Expand panel' : 'Collapse panel';
+            if (!collapsed) refreshSidePanel(false);
+        }
+        // Render the active tab if it shows another group; otherwise refresh position-dependent parts.
+        function refreshSidePanel(groupChanged) {
+            if (groupChanged) side.rendered = {};
+            if (side.collapsed || !state.groupKey) return;
+            const id = side.active;
+            if (side.rendered[id] !== state.groupKey) {
+                RENDERERS[id]();
+                side.rendered[id] = state.groupKey;
+            } else {
+                onPositionsChanged();
+            }
+        }
+        function onPositionsChanged() {
+            if (side.collapsed || side.rendered[side.active] !== state.groupKey) return;
+            if (side.active === 'characters') updateGammaRows();
+            if (side.active === 'stereogram') drawStereogram();
+        }
+        function syncSelectionUI() {
+            const press = (el, on) => { const b = el.querySelector('.cell-btn'); if (b) b.setAttribute('aria-pressed', String(on)); };
+            document.querySelectorAll('#tab-characters th.cls').forEach(th => {
+                const on = state.selection?.kind === 'class' && state.selection.index === Number(th.dataset.col);
+                th.classList.toggle('active', on);
+                press(th, on);
+            });
+            document.querySelectorAll('#tab-characters tbody.irreps tr').forEach(tr => {
+                const on = state.tintIrrep === Number(tr.dataset.irrep);
+                tr.classList.toggle('tinted', on);
+                press(tr, on);
+            });
+            document.querySelectorAll('#tab-operations tr[data-op]').forEach(tr => {
+                const on = state.selection?.kind === 'op' && state.selection.index === Number(tr.dataset.op);
+                tr.classList.toggle('selected', on);
+                press(tr, on);
+            });
+            const info = document.getElementById('class-info');
+            if (info) {
+                const A = currentAnalysis();
+                if (state.selection?.kind === 'class') {
+                    const c = state.selection.index;
+                    info.innerHTML = `<span class="math">${classHTML(A.table.classes[c][0])}</span> = { <span class="math">${displayOrder(A, A.classes[c]).map(i => opSymbolHTML(A.ops[i])).join(', ')}</span> }`;
+                } else {
+                    info.textContent = 'Select a class to highlight its operations in 3D, or a representation to tint each motif by χ of its operation.';
+                }
+            }
+        }
+
+        // ---------- Characters tab ----------
+        function renderCharactersTab() {
+            const A = currentAnalysis();
+            const T = A.table;
+            const el = document.getElementById('tab-characters');
+            let html = `<div class="tab-head"><h2>Character table <span class="sch">${schHTML(T.sch)}</span> <span class="hm">(${hmHTML(A.key)})</span></h2>`
+                + `<p>Order ${A.n}, ${plural(A.classes.length, 'class', 'classes')}.</p></div>`;
+            html += '<div class="scroll-x"><table class="ct"><thead><tr>'
+                + `<th class="corner" scope="col">${schHTML(T.sch)}</th>`
+                + T.classes.map(([label], c) => `<th class="cls" scope="col" data-col="${c}"><button type="button" class="cell-btn" aria-pressed="false" title="Highlight this class in 3D">${classHTML(label)}</button></th>`).join('')
+                + '<th class="fn" scope="col">linear, rotations</th><th class="fn" scope="col">quadratic</th></tr></thead><tbody class="irreps">';
+            A.irreps.forEach((ir, k) => {
+                ir.tokens.forEach((row, r) => {
+                    const pair = ir.tokens.length > 1 ? (r ? ' class="pair-b"' : ' class="pair-a"') : '';
+                    html += `<tr data-irrep="${k}"${pair}>`;
+                    if (r === 0) html += `<th scope="row" class="irrep" rowspan="${ir.tokens.length}"><button type="button" class="cell-btn" aria-pressed="false" title="Tint the motifs by this representation">${irrepHTML(ir.label)}</button></th>`;
+                    html += row.map(t => `<td>${charHTML(t)}</td>`).join('');
+                    if (r === 0) html += `<td class="fn" rowspan="${ir.tokens.length}">${fnHTML(ir.lin)}</td><td class="fn" rowspan="${ir.tokens.length}">${fnHTML(ir.quad)}</td>`;
+                    html += '</tr>';
+                });
+            });
+            const GAMMAS = [['pos', 'Γ<sub>pos</sub>'], ['full', 'Γ<sub>3<i>N</i></sub>'], ['vib', 'Γ<sub>vib</sub>']];
+            html += '</tbody><tbody class="gamma">';
+            GAMMAS.forEach(([id, label]) => {
+                html += `<tr data-gamma="${id}"><th scope="row" class="irrep">${label}</th>`
+                    + A.classes.map(() => '<td></td>').join('')
+                    + '<td class="fn" colspan="2"></td></tr>';
+            });
+            html += '<tr data-gamma="custom"><th scope="row" class="irrep">Γ</th>'
+                + T.classes.map(([label], c) => `<td><input class="chi-input" data-col="${c}" inputmode="decimal" autocomplete="off" placeholder="χ" aria-label="Character of class ${label.replace(/[_^]/g, '')}"></td>`).join('')
+                + '<td class="fn" colspan="2"></td></tr>';
+            html += '</tbody></table></div>';
+            html += '<dl class="reductions">'
+                + GAMMAS.map(([id, label]) => `<dt class="math">${label} =</dt><dd class="math" data-reduction="${id}"></dd>`).join('')
+                + '<dt class="math">Γ =</dt><dd class="math" data-reduction="custom"><span class="hint">type characters in the last row</span></dd></dl>';
+
+            const notes = [];
+            if (T.eps) notes.push(`<span class="math">ε = exp(2π<i>i</i>/${T.eps})</span>.`);
+            if (A.irreps.some(ir => ir.tokens.length > 1)) notes.push('Complex-conjugate rows that share a label form one real two-dimensional representation; their basis functions apply to the pair.');
+            notes.push(`<span class="math">Γ<sub>pos</sub></span>: the ${state.positions.length > 1 ? 'generated positions' : 'generated position'} as atoms. <span class="math">Γ<sub>3<i>N</i></sub></span>: their displacements. <span class="math">Γ<sub>vib</sub></span>: <span class="math">Γ<sub>3<i>N</i></sub></span> without rigid translations and rotations.`);
+            html += `<p class="note">${notes.join(' ')}</p><p class="note" id="class-info"></p>`;
+            el.innerHTML = html;
+
+            // Clicks on the header buttons (mouse or keyboard) bubble up to these cell/row handlers.
+            el.querySelectorAll('th.cls').forEach(th => th.addEventListener('click', () => {
+                const c = Number(th.dataset.col);
+                const same = state.selection?.kind === 'class' && state.selection.index === c;
+                setHighlight(same ? null : { kind: 'class', index: c });
+            }));
+            el.querySelectorAll('tbody.irreps tr').forEach(tr => tr.addEventListener('click', () => {
+                const k = Number(tr.dataset.irrep);
+                setTint(state.tintIrrep === k ? null : k);
+            }));
+            el.querySelectorAll('.chi-input').forEach(input => input.addEventListener('input', updateCustomReduction));
+            updateGammaRows();
+            syncSelectionUI();
+        }
+
+        // Γ_pos, Γ_3N and Γ_vib for the current set of positions.
+        function computeGammas(A) {
+            const N = state.positions.length;
+            const P = state.positions.map(({ pos }) => [pos.x, pos.y, pos.z]);
+            const repOp = [];
+            state.posOfOp.forEach((k, i) => { if (repOp[k] === undefined) repOp[k] = i; });
+            const permutationOf = g => repOp.map(h => state.posOfOp[A.mult[g][h]]);
+
+            // Orthonormal basis of rigid motions (translations + rotations) in the 3N displacement space.
+            const raw = [];
+            for (let a = 0; a < 3; a++) {
+                const t = new Float64Array(3 * N);
+                for (let k = 0; k < N; k++) t[3 * k + a] = 1;
+                raw.push(t);
+            }
+            for (let a = 0; a < 3; a++) {
+                const e = [0, 0, 0]; e[a] = 1;
+                const r = new Float64Array(3 * N);
+                P.forEach((p, k) => { const c = vec.cross(e, p); r.set(c, 3 * k); });
+                raw.push(r);
+            }
+            const basis = [];
+            raw.forEach(v => {
+                const w = Float64Array.from(v);
+                const n0 = Math.sqrt(w.reduce((s, x) => s + x * x, 0));
+                basis.forEach(q => {
+                    const d = q.reduce((s, x, j) => s + x * w[j], 0);
+                    for (let j = 0; j < w.length; j++) w[j] -= d * q[j];
+                });
+                const n = Math.sqrt(w.reduce((s, x) => s + x * x, 0));
+                if (n > 1e-9 + 1e-7 * n0) basis.push(w.map(x => x / n));
+            });
+
+            const pos = [], full = [], vib = [];
+            A.classes.forEach(cls => {
+                const g = cls[0];
+                const op = A.ops[g];
+                const perm = permutationOf(g);
+                const fixed = perm.filter((k2, k) => k2 === k).length;
+                let rigid = 0;
+                basis.forEach(q => {
+                    for (let k = 0; k < N; k++) {
+                        const v = M3.apply(op.m, [q[3 * k], q[3 * k + 1], q[3 * k + 2]]);
+                        const t = 3 * perm[k];
+                        rigid += q[t] * v[0] + q[t + 1] * v[1] + q[t + 2] * v[2];
+                    }
+                });
+                const chi3N = fixed * M3.trace(op.m);
+                pos.push(fixed);
+                full.push(Math.round(chi3N));
+                vib.push(Math.round(chi3N - rigid));
+            });
+            return { pos, full, vib, N };
+        }
+        function updateGammaRows() {
+            const el = document.getElementById('tab-characters');
+            if (!el || !state.positions.length) return;
+            const A = currentAnalysis();
+            const gam = computeGammas(A);
+            ['pos', 'full', 'vib'].forEach(id => {
+                const row = el.querySelector(`tr[data-gamma="${id}"]`);
+                const out = el.querySelector(`[data-reduction="${id}"]`);
+                if (!row || !out) return;
+                const cells = row.querySelectorAll('td:not(.fn)');
+                gam[id].forEach((x, c) => { cells[c].innerHTML = numHTML(x); });
+                const result = decompositionHTML(A, reduce(A, gam[id]));
+                out.innerHTML = result.html;
+                out.classList.toggle('warn', !result.valid);
+            });
+        }
+        function updateCustomReduction() {
+            const el = document.getElementById('tab-characters');
+            const A = currentAnalysis();
+            const inputs = [...el.querySelectorAll('.chi-input')];
+            const values = inputs.map(input => input.value.trim().replace(MINUS, '-'));
+            const decomp = el.querySelector('[data-reduction="custom"]');
+            if (values.every(v => v === '')) {
+                decomp.innerHTML = '<span class="hint">type characters in the last row</span>';
+                decomp.classList.remove('warn');
+                inputs.forEach(i => i.removeAttribute('aria-invalid'));
+                return;
+            }
+            const numbers = values.map(Number);
+            inputs.forEach((input, c) => input.setAttribute('aria-invalid', String(values[c] === '' || !Number.isFinite(numbers[c]))));
+            if (numbers.some((x, c) => values[c] === '' || !Number.isFinite(x))) {
+                decomp.textContent = 'Enter a number for every class';
+                decomp.classList.add('warn');
+                return;
+            }
+            const result = decompositionHTML(A, reduce(A, numbers));
+            decomp.innerHTML = result.html;
+            decomp.classList.toggle('warn', !result.valid);
+        }
+
+        // ---------- Operations tab ----------
+        function renderOperationsTab() {
+            const A = currentAnalysis();
+            const el = document.getElementById('tab-operations');
+            const basis = A.hex ? 'hexagonal axes <i>a</i>, <i>b</i>, <i>c</i> (<i>a</i> ∥ <i>x</i>)' : 'the <i>x</i>, <i>y</i>, <i>z</i> axes of the 3D view';
+            let html = `<div class="tab-head"><h2>Symmetry operations</h2><p>${plural(A.n, 'operation')} grouped by class. Coordinates refer to ${basis}. Select a row to show the operation in 3D.</p></div>`;
+            html += '<div class="scroll-x"><table class="ops"><thead><tr><th scope="col">#</th><th scope="col">Operation</th><th scope="col">Coordinates</th></tr></thead><tbody>';
+            A.classes.forEach((cls, c) => {
+                html += `<tr class="cls-row"><th colspan="3" scope="rowgroup">${classHTML(A.table.classes[c][0])}</th></tr>`;
+                displayOrder(A, cls).forEach(i => {
+                    const op = A.ops[i];
+                    html += `<tr data-op="${i}"><td class="num">${i + 1}</td><td><button type="button" class="cell-btn" aria-pressed="false" title="Show this operation in 3D">${opSymbolHTML(op)}</button></td><td>${tripletHTML(op, A.hex)}</td></tr>`;
+                });
+            });
+            html += '</tbody></table></div>';
+            html += '<details class="cayley"><summary>Multiplication table</summary><p class="note">Entry in row <i>g</i>, column <i>h</i> is the number of <i>g</i>∘<i>h</i> (apply <i>h</i> first). Colours mark classes.</p><div class="scroll-x" id="cayley-wrap"></div></details>';
+            el.innerHTML = html;
+            el.querySelectorAll('tr[data-op]').forEach(tr => tr.addEventListener('click', () => {
+                const i = Number(tr.dataset.op);
+                const same = state.selection?.kind === 'op' && state.selection.index === i;
+                setHighlight(same ? null : { kind: 'op', index: i });
+            }));
+            el.querySelector('details.cayley').addEventListener('toggle', e => { if (e.target.open) renderCayley(A); });
+            syncSelectionUI();
+        }
+        function renderCayley(A) {
+            const wrap = document.getElementById('cayley-wrap');
+            if (!wrap || wrap.dataset.group === A.key) return;
+            const order = A.classes.flatMap(cls => displayOrder(A, cls));
+            const hue = c => `hsl(${Math.round(210 + c * 360 / A.classes.length) % 360} 40% 30%)`;
+            let html = '<table class="cayley-table"><thead><tr><th scope="col">∘</th>' + order.map(j => `<th scope="col">${j + 1}</th>`).join('') + '</tr></thead><tbody>';
+            order.forEach(i => {
+                html += `<tr><th scope="row">${i + 1}</th>` + order.map(j => {
+                    const k = A.mult[i][j];
+                    return `<td style="background:${hue(A.colOfOp[k])}">${k + 1}</td>`;
+                }).join('') + '</tr>';
+            });
+            wrap.innerHTML = html + '</tbody></table>';
+            wrap.dataset.group = A.key;
+        }
+
+        // ---------- Stereogram tab ----------
+        const stereoOptions = { elements: true, points: true };
+        function renderStereogramTab() {
+            const el = document.getElementById('tab-stereogram');
+            el.innerHTML = '<div class="tab-head"><h2>Stereographic projection</h2><p>Projection along <i>z</i> with <i>x</i> to the right. Dots lie above the equator, rings below.</p></div>'
+                + '<div class="stereo-controls">'
+                + `<label><input type="checkbox" id="stereo-elements" ${stereoOptions.elements ? 'checked' : ''}> Symmetry elements</label>`
+                + `<label><input type="checkbox" id="stereo-points" ${stereoOptions.points ? 'checked' : ''}> Generated positions</label></div>`
+                + '<div id="stereo-svg"></div><p class="note" id="stereo-note"></p>';
+            el.querySelector('#stereo-elements').addEventListener('change', e => { stereoOptions.elements = e.target.checked; drawStereogram(); });
+            el.querySelector('#stereo-points').addEventListener('change', e => { stereoOptions.points = e.target.checked; drawStereogram(); });
+            drawStereogram();
+        }
+        const project = d => [d[0] / (1 + Math.abs(d[2])), d[1] / (1 + Math.abs(d[2]))];
+        function greatCirclePath(n) {
+            let t = [-n[1], n[0], 0];
+            const tl = Math.hypot(t[0], t[1]);
+            if (tl < 1e-9) return null; // horizontal plane: the primitive circle itself
+            t = t.map(v => v / tl);
+            let h = vec.cross(n, t);
+            if (h[2] < 0) h = h.map(v => -v);
+            const pts = [];
+            for (let k = 0; k <= 120; k++) {
+                const a = Math.PI * k / 120;
+                const [X, Y] = project([0, 1, 2].map(j => Math.cos(a) * t[j] + Math.sin(a) * h[j]));
+                pts.push(`${fmt(X)} ${fmt(-Y)}`);
+            }
+            return `M${pts.join('L')}`;
+        }
+        function drawStereogram() {
+            const host = document.getElementById('stereo-svg');
+            if (!host) return;
+            const A = currentAnalysis();
+            const E = A.elements;
+            const horizontalMirror = E.planes.some(p => Math.abs(Math.abs(p.normal[2]) - 1) < 1e-6);
+            const parts = [];
+            parts.push(`<circle r="1" fill="#111827" stroke="${horizontalMirror && stereoOptions.elements ? cssColor(MIRROR_COLOR) : '#6b7280'}" stroke-width="${horizontalMirror && stereoOptions.elements ? 0.02 : 0.008}"/>`);
+            parts.push('<g stroke="#4b5563" stroke-width="0.006"><line x1="1.03" y1="0" x2="1.1" y2="0"/><line x1="0" y1="-1.03" x2="0" y2="-1.1"/></g>');
+            parts.push('<g fill="#9ca3af" font-size="0.1" font-style="italic" text-anchor="middle"><text x="1.17" y="0.035">x</text><text x="0" y="-1.14">y</text></g>');
+            if (stereoOptions.elements) {
+                E.planes.forEach(p => {
+                    const path = greatCirclePath(p.normal);
+                    if (path) parts.push(`<path d="${path}" fill="none" stroke="${cssColor(MIRROR_COLOR)}" stroke-width="0.018" stroke-linejoin="round"/>`);
+                });
+                E.axes.forEach(a => {
+                    const color = cssColor(a.color);
+                    if (Math.abs(a.dir[2]) < 1e-6) {
+                        // In-plane axis: draw its trace unless a vertical mirror already draws that diameter.
+                        const onMirror = E.planes.some(pl => Math.abs(pl.normal[2]) < 1e-6 && Math.abs(pl.normal[0] * a.dir[0] + pl.normal[1] * a.dir[1]) < 1e-6);
+                        if (!onMirror) parts.push(`<line x1="${fmt(-a.dir[0])}" y1="${fmt(a.dir[1])}" x2="${fmt(a.dir[0])}" y2="${fmt(-a.dir[1])}" stroke="${color}" stroke-width="0.007" stroke-dasharray="0.03 0.02" opacity="0.8"/>`);
+                        [1, -1].forEach(s => {
+                            const X = s * a.dir[0], Y = s * a.dir[1];
+                            parts.push(glyphSVG(a.symbol, X, -Y, -Math.atan2(Y, X) * 180 / Math.PI, color, 0.068));
+                        });
+                    } else {
+                        const d = a.dir[2] > 0 ? a.dir : a.dir.map(v => -v);
+                        const [X, Y] = project(d);
+                        const centred = Math.hypot(X, Y) < 1e-6;
+                        parts.push(glyphSVG(a.symbol, X, -Y, centred ? 0 : -Math.atan2(Y, X) * 180 / Math.PI, color, 0.068));
+                    }
+                });
+                const centreTaken = E.axes.some(a => Math.abs(Math.abs(a.dir[2]) - 1) < 1e-6);
+                if (E.inversion && !centreTaken) parts.push(glyphSVG('-1', 0, 0, 0, '#f9fafb', 0.065));
+            }
+            let note = '';
+            if (stereoOptions.points) {
+                let skipped = 0;
+                state.positions.forEach(({ pos, parities }) => {
+                    const L = Math.hypot(pos.x, pos.y, pos.z);
+                    if (L < 1e-6) { skipped++; return; }
+                    const d = [pos.x / L, pos.y / L, pos.z / L];
+                    const [X, Y] = project(d);
+                    const color = parities.size > 1 ? '#c084fc' : parities.has(true) ? '#ef4444' : '#3b82f6';
+                    if (d[2] > -1e-6) parts.push(`<circle cx="${fmt(X)}" cy="${fmt(-Y)}" r="0.03" fill="${color}"/>`);
+                    if (d[2] < 1e-6) parts.push(`<circle cx="${fmt(X)}" cy="${fmt(-Y)}" r="0.047" fill="none" stroke="${color}" stroke-width="0.013"/>`);
+                });
+                if (skipped) note = 'The motif sits at the origin, so its direction is undefined and nothing is projected.';
+            }
+            host.innerHTML = `<svg class="stereo-svg" viewBox="-1.25 -1.25 2.5 2.5" role="img" aria-label="Stereographic projection of ${A.key}">${parts.join('')}</svg>`;
+            document.getElementById('stereo-note').textContent = note || 'Colours follow the 3D view: symmetry axes by order, mirrors in blue, positions by handedness.';
+        }
+
+        // ---------- Properties tab ----------
+        function renderPropertiesTab() {
+            const A = currentAnalysis();
+            const el = document.getElementById('tab-properties');
+            const select = document.getElementById('point-group-select');
+            const system = select.selectedOptions[0].parentElement.label;
+            const laueKinds = [...new Map(A.ops.flatMap(op => [op.m, op.m.map(v => -v || 0)]).map(m => [M3.key(m), describeOperation(m, false).kind])).values()];
+            const laue = identifyGroup(laueKinds);
+            const forms = Object.fromEntries(TENSOR_SPECS.map(spec => [spec.id, tensorForm(A, spec)]));
+            const centro = A.ops.some(op => op.kind === '-1');
+            const pyroComps = forms.p.exprs.map((t, j) => (t.length ? `<i>p</i><sub>${j + 1}</sub>` : null)).filter(Boolean);
+            const yes = (on, title, detail) => `<li><span class="${on ? 'yes' : 'no'}" aria-hidden="true">${on ? '✓' : '·'}</span><span>${title}: ${on ? 'yes' : 'no'}${detail ? `<small>${detail}</small>` : ''}</span></li>`;
+
+            let html = `<div class="tab-head"><h2>${hmHTML(A.key)} <span class="sch">(${schHTML(A.table.sch)})</span></h2><p>Physical consequences of the point-group symmetry.</p></div>`;
+            html += '<dl class="facts">'
+                + `<dt>Crystal system</dt><dd>${system}</dd>`
+                + `<dt>Laue class</dt><dd class="math">${groupLabelHTML(laue)}</dd>`
+                + `<dt>Order</dt><dd>${plural(A.n, 'operation')} in ${plural(A.classes.length, 'class', 'classes')}</dd>`
+                + `<dt>Generators</dt><dd class="math">${pointGroups[A.key].generators.map(g => opSymbolHTML(describeOperation(M3.fromMatrix4(operators[g]), A.hex))).join(', ')}</dd>`
+                + '</dl>';
+            html += '<h3>Symmetry-allowed effects</h3><ul class="flag-list">'
+                + yes(centro, 'Centrosymmetric', centro ? 'Odd-rank polar tensors vanish.' : '')
+                + yes(pointGroups[A.key].chiral, 'Enantiomorphic', pointGroups[A.key].chiral ? 'Only proper rotations, so the crystal can exist in left- and right-handed forms.' : '')
+                + yes(forms.p.count > 0, 'Polar, pyroelectric', forms.p.count ? `Allowed components: <span class="math">${pyroComps.join(', ')}</span>.` : '')
+                + yes(forms.d.count > 0, 'Piezoelectric', forms.d.count ? `${forms.d.count} independent moduli.` : (centro ? '' : 'Non-centrosymmetric, but the cubic symmetry of 432 cancels every modulus.'))
+                + yes(forms.d.count > 0, 'Second-harmonic generation', forms.d.count ? 'Same tensor symmetry as the piezoelectric moduli (contraction factors differ for shear indices).' : '')
+                + yes(forms.g.count > 0, 'Optical activity', forms.g.count ? `${forms.g.count} independent gyration component${forms.g.count > 1 ? 's' : ''}.` : '')
+                + '</ul>';
+            html += '<h3>Tensor forms</h3><p class="note" style="margin:0 0 12px">Neumann\'s principle: averaging over the group leaves only the invariant combinations. Axes as in the 3D view.</p>';
+            TENSOR_SPECS.forEach(spec => {
+                const form = forms[spec.id];
+                let table = '<table class="tensor math"><tbody>';
+                for (let r = 0; r < spec.rows; r++) {
+                    table += '<tr>';
+                    for (let c = 0; c < spec.cols; c++) {
+                        const { comp, mirror } = spec.cell(r, c);
+                        const expr = termsHTML(form.exprs[comp], spec);
+                        table += `<td class="${expr ? '' : 'zero'}${mirror ? ' mirror' : ''}">${expr || '·'}</td>`;
+                    }
+                    table += '</tr>';
+                }
+                table += '</tbody></table>';
+                html += `<div class="tensor-block"><h4>${spec.title} <span class="math">${spec.letter}</span> <small>${form.count} independent</small></h4><div class="scroll-x" style="display:inline-block;max-width:100%;border:0;background:none">${table}</div></div>`;
+            });
+            el.innerHTML = html;
+        }
+
+        // ===================================================================
+        // Events, resizing, render loop
+        // ===================================================================
         function setupEventListeners() {
             document.getElementById('point-group-select').addEventListener('change', updatePointGroup);
             document.getElementById('show-elements-checkbox').addEventListener('change', updateSymmetryElementsVisibility);
-            window.addEventListener('resize', onWindowResize);
             const motifControls = document.getElementById('parent-motif-controls');
             const lastValid = { x: 0.25, y: 0.15, z: 0.40 };
             const syncCoordinate = (event, commit) => {
@@ -587,6 +1999,14 @@
             motifControls.addEventListener('input', event => syncCoordinate(event, false));
             motifControls.addEventListener('change', event => syncCoordinate(event, true));
             motifControls.addEventListener('focusout', event => syncCoordinate(event, true));
+
+            // The canvas follows its container (window resize, panel drags, collapsing the side panel).
+            const viewport = document.getElementById('visualization-area');
+            if ('ResizeObserver' in window) new ResizeObserver(onWindowResize).observe(viewport);
+            else window.addEventListener('resize', onWindowResize);
+
+            setupResizer(document.getElementById('drag-handle'), document.getElementById('controls-panel'), 'left', 369, 749);
+            setupResizer(document.getElementById('side-handle'), document.getElementById('side-panel'), 'right', 320, 760);
         }
         function onWindowResize() {
             if (!camera || !renderer) return;
@@ -598,17 +2018,59 @@
             renderer.setSize(width, height);
         }
 
+        // Pointer (mouse, touch, pen) and keyboard resizing; the 3D view keeps at least 300 px.
+        function setupResizer(handle, panel, edge, min, max) {
+            const container = document.getElementById('app-container');
+            const clamp = width => {
+                const other = edge === 'left' ? document.getElementById('side-panel') : document.getElementById('controls-panel');
+                const room = container.clientWidth - other.getBoundingClientRect().width - 2 * handle.offsetWidth - 300;
+                return Math.max(min, Math.min(max, room, width));
+            };
+            const setWidth = width => {
+                const w = clamp(width);
+                panel.style.width = `${w}px`;
+                handle.setAttribute('aria-valuenow', String(Math.round(w)));
+            };
+            handle.setAttribute('aria-valuemin', String(min));
+            handle.setAttribute('aria-valuemax', String(max));
+            let dragging = false, startX = 0, startWidth = 0;
+            handle.addEventListener('pointerdown', e => {
+                dragging = true;
+                startX = e.clientX;
+                startWidth = panel.getBoundingClientRect().width;
+                handle.setPointerCapture(e.pointerId);
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+            handle.addEventListener('pointermove', e => {
+                if (!dragging) return;
+                const dx = e.clientX - startX; // keep the grab offset so the edge does not jump
+                setWidth(edge === 'left' ? startWidth + dx : startWidth - dx);
+            });
+            const stop = e => {
+                if (!dragging) return;
+                dragging = false;
+                if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            };
+            handle.addEventListener('pointerup', stop);
+            handle.addEventListener('pointercancel', stop);
+            handle.addEventListener('keydown', e => {
+                const step = e.shiftKey ? 64 : 16;
+                const grow = edge === 'left' ? { ArrowRight: step, ArrowLeft: -step } : { ArrowLeft: step, ArrowRight: -step };
+                if (!(e.key in grow)) return;
+                e.preventDefault();
+                setWidth(panel.getBoundingClientRect().width + grow[e.key]);
+            });
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
             renderer.render(scene, camera);
         }
-        const resizer = document.getElementById('drag-handle');
-        const leftPanel = document.getElementById('controls-panel');
-        let isResizing = false;
-        resizer.addEventListener('mousedown', e => { e.preventDefault(); isResizing = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', stopResize); });
-        function handleMouseMove(e) { if (!isResizing) return; const newLeftWidth = e.clientX - leftPanel.parentElement.getBoundingClientRect().left; if (newLeftWidth >= 369 && newLeftWidth <= Math.min(749, document.body.clientWidth - 300)) { leftPanel.style.width = `${newLeftWidth}px`; onWindowResize(); } }
-        function stopResize() { isResizing = false; document.body.style.cursor = 'default'; document.body.style.userSelect = 'auto'; window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', stopResize); }
         init();
     </script>
 </body>
