@@ -67,9 +67,9 @@
                 <div class="info-section grid-container">
                     <label for="crystalSystem" class="grid-span-2">Crystal system</label>
                     <select id="crystalSystem" class="grid-span-2">
-                        <option value="cubic">Cubic</option>
+                        <option value="cubic" selected>Cubic</option>
                         <option value="tetragonal">Tetragonal</option>
-                        <option value="orthorhombic" selected>Orthorhombic</option>
+                        <option value="orthorhombic">Orthorhombic</option>
                         <option value="hexagonal">Hexagonal</option>
                         <option value="trigonal">Trigonal</option>
                         <option value="monoclinic">Monoclinic (unique axis b)</option>
@@ -107,7 +107,7 @@
                         <label for="lambda">λ (Å)</label>
                         <input type="number" id="lambda" value="1.54" step="0.01" min="0.1" class="grid-span-2">
                         <label for="numCrystallites">Crystallites</label>
-                        <input type="number" id="numCrystallites" value="30" min="1" max="500" step="1" class="grid-span-2">
+                        <input type="number" id="numCrystallites" value="1000" min="1" max="5000" step="1" class="grid-span-2">
                         <label for="mosaic">Mosaic</label>
                         <input type="range" id="mosaic" value="1" min="0" max="5" step="0.05">
                         <span id="mosaicValue" class="value">1.00°</span>
@@ -123,7 +123,7 @@
 
                 <div class="info-section">
                     <span class="block-label">Display</span>
-                    <div class="check-row"><input type="checkbox" id="showOnlyDiffracting"><label for="showOnlyDiffracting">Show only diffracting points</label></div>
+                    <div class="check-row"><input type="checkbox" id="showOnlyDiffracting" checked><label for="showOnlyDiffracting">Show only diffracting points</label></div>
                     <div class="check-row"><input type="checkbox" id="showRays" checked><label for="showRays">Diffracted beams</label></div>
                     <div class="check-row"><input type="checkbox" id="showLimiting"><label for="showLimiting">Limiting sphere</label></div>
                     <div class="button-row"><button type="button" id="resetView">Reset view</button></div>
@@ -228,7 +228,6 @@
             errors: { lattice: '', lab: '' },
             insetWidth: 320,
             exposure: { active: false, elapsed: 0, T: 0, spots: new Map(), dirty: false },
-            keepExposure: false   // set before a rebuild that should not erase the detector
         };
 
         const _m4 = new THREE.Matrix4(), _m4b = new THREE.Matrix4(), _m4c = new THREE.Matrix4();
@@ -239,7 +238,7 @@
         const _hit = { x: 0, y: 0, t: 0 };
 
         // ================= Powder method =================
-        const MAX_ITEMS = 100000;   // crystallites × reflections
+        const MAX_ITEMS = 2000000;   // crystallites × reflections
         const DET_IDS = ['detDist', 'detWidth', 'detArm'];
         const METHOD_LATTICE_IDS = ['numCrystallites', 'lambda', ...DET_IDS];   // the reflection set depends on λ and on the detector
         const METHOD_BEAM_IDS = ['showRings'];
@@ -252,24 +251,8 @@
             $('h_min').closest('.info-section').style.display = 'none';   // the range is automatic
             $('reseedBtn').addEventListener('click', () => {
                 state.seed = (Math.imul(state.seed, 1103515245) + 12345) >>> 0;
-                state.keepExposure = true;   // new crystallites add to the same exposure
-                rebuildLattice();
+                rebuildLattice({ keepExposure: true });
             });
-            // Capture phase: set the range before the lattice is rebuilt. Moving the detector keeps the exposure.
-            const AUTO_IDS = new Set(['lambda', 'crystalSystem', 'bravaisLattice', 'a', 'b', 'c', 'alpha', 'beta', 'gamma', ...DET_IDS]);
-            for (const evt of ['input', 'change']) {
-                $('controlsContent').addEventListener(evt, e => {
-                    if (!AUTO_IDS.has(e.target.id)) return;
-                    applyAutoRange();
-                    if (DET_IDS.includes(e.target.id)) state.keepExposure = true;
-                }, true);
-            }
-            document.querySelectorAll('button[data-arm]').forEach(btn => btn.addEventListener('click', () => {
-                applyAutoRange();
-                state.keepExposure = true;
-                rebuildLattice();
-            }));
-            applyAutoRange();
         }
 
         // 2θ range [lo, hi] (degrees) covered by a detector at distance L, width W, angle arm.
@@ -293,12 +276,7 @@
         // 2θ ≤ 2θmax(detector)  ⇔  |g| ≤ (2/λ) sin(θmax). Since h = g·a, |h| ≤ |g|max·a (same for k, l).
         function applyAutoRange() {
             const lambda = Number($('lambda').value), L = Number($('detDist').value), W = Number($('detWidth').value), arm = Number($('detArm').value);
-            let params;
-            try { params = readLattice().params; } catch (e) { if (!/combinations/.test(e.message)) return; params = null; }
-            if (!params) {
-                const num = id => Number($(id).value);
-                params = { a: num('a'), b: num('b'), c: num('c') };
-            }
+            const params = readLattice(false).params;
             if (![lambda, L, W, arm].every(Number.isFinite) || lambda < 0.1 || L <= 0 || W <= 0) return;
             const hi = detectorCoverage(L, W, arm)[1];
             state.gmax = 2 / lambda * Math.sin(deg(hi) / 2);
@@ -329,7 +307,7 @@
 
         function makeItems(base) {
             const N = Number($('numCrystallites').value);
-            if (!Number.isInteger(N) || N < 1 || N > 500) throw new Error('Number of crystallites must be an integer from 1 to 500.');
+            if (!Number.isInteger(N) || N < 1 || N > 5000) throw new Error('Number of crystallites must be an integer from 1 to 5000.');
             if (state.gmax) base = base.filter(p => p.g <= state.gmax * (1 + 1e-9));   // others cannot reach the detector
             if (N * base.length > MAX_ITEMS) throw new Error(`Crystallites × reflections (${(N * base.length).toLocaleString()}) must stay below ${MAX_ITEMS.toLocaleString()}: use fewer crystallites, a longer λ, a smaller cell or a smaller detector.`);
             // Shells of equal |g| with their multiplicity (within the chosen hkl range).
@@ -410,15 +388,21 @@
                 if (p.diff) {
                     nDiff++;
                     _u.set(w.x, w.y, w.z + R).normalize();
-                    const spot = { ux: _u.x, uy: _u.y, uz: _u.z, ang: 0, w: p.I * p.part, key: p.key };   // small dots: real powder spots are narrow across the ring
+                    const spot = { ux: _u.x, uy: _u.y, uz: _u.z, ang: 0, w: p.I * p.part, key: p.key, details: selectionDetails(p), intensity: p.I };   // small dots: real powder spots are narrow across the ring
                     state.live.push(spot);
-                    if (state.exposure.active) recordSpot({ ...spot });
                     onDet = detProject(_u, _hit);
+                    if (state.exposure.active && onDet) recordSpot({ ...spot });
                 }
                 if (onlyDiff && !p.diff) return;
                 p.scale = Math.max(1, p.tol / state.pointRadius);
-                mesh.setMatrixAt(n, _m4b.makeScale(p.scale, p.scale, p.scale).setPosition(p.pos));
-                mesh.setColorAt(n, _color.copy(COLOR_BG).lerp(p.diff ? COLOR_DIFF : COLOR_POWDER, 0.2 + 0.8 * p.I));
+                _color.copy(COLOR_BG).lerp(p.diff ? COLOR_DIFF : COLOR_POWDER, 0.2 + 0.8 * p.I);
+                if (state.pointCloud) {
+                    mesh.geometry.attributes.position.setXYZ(n, p.pos.x, p.pos.y, p.pos.z);
+                    mesh.geometry.attributes.color.setXYZ(n, _color.r, _color.g, _color.b);
+                } else {
+                    mesh.setMatrixAt(n, _m4b.makeScale(p.scale, p.scale, p.scale).setPosition(p.pos));
+                    mesh.setColorAt(n, _color);
+                }
                 state.visible.push(i);
                 n++;
                 if (p.diff && showRays) {
@@ -513,7 +497,7 @@
             container.appendChild(renderer.domElement);
             labelRenderer = new CSS2DRenderer();
             labelRenderer.setSize(container.clientWidth, container.clientHeight);
-            Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0px', pointerEvents: 'none' });
+            Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0px', pointerEvents: 'none', zIndex: '1' });
             container.appendChild(labelRenderer.domElement);
             scene.add(new THREE.AmbientLight(0xffffff, 1.0));
             const dl = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -581,7 +565,9 @@
                     const id = el.id;
                     if (id === 'crystalSystem') { populateBravais(); updateParamRows(); rebuildLattice(); }
                     else if (id === 'bravaisLattice') { updateParamRows(); rebuildLattice(); }
-                    else if (LATTICE.has(id)) rebuildLattice();
+                    else if (LATTICE.has(id)) {
+                        if (rebuildLattice({ keepExposure: DET_IDS.includes(id) }) && DET_IDS.includes(id)) fitCamera();
+                    }
                     else if (LAB.has(id)) {
                         if (rebuildLab()) {
                             if (METHOD_BEAM_IDS.includes(id) && id !== 'showRings') clearExposure();   // new wavelength, new pattern
@@ -592,14 +578,21 @@
                     else if (id === 'showInset') $('inset').style.display = el.checked ? 'block' : 'none';
                     else if (id === 'integrate') { if (el.checked) startExposure(); else stopExposure(); }
                     else if (id === 'integTime') state.exposure.T = Math.max(0, Number(el.value) || 0);
-                    else onMethodInput(id, el);
+                    else if (['showRays', 'showOnlyDiffracting', 'mosaic', 'disorder'].includes(id)) updateDiffraction();
                 });
             });
             document.querySelectorAll('button[data-arm]').forEach(btn => {
-                btn.addEventListener('click', () => { $('detArm').value = btn.dataset.arm; if (rebuildLab()) { updateDiffraction(); fitCamera(); } });
+                btn.addEventListener('click', () => {
+                    $('detArm').value = btn.dataset.arm;
+                    if (rebuildLattice({ keepExposure: true })) fitCamera();
+                });
             });
-            $('resetView').addEventListener('click', fitCamera);
-            $('clearBtn').addEventListener('click', clearExposure);
+            $('resetView').addEventListener('click', () => {
+                controls.target.set(0, 0, 0);
+                camera.position.set(1.5, 1.5, 3);
+                fitCamera();
+            });
+            $('clearBtn').addEventListener('click', () => { clearExposure(); updateSelection(); });
             let downX = 0, downY = 0;
             renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
             renderer.domElement.addEventListener('pointerup', e => { if (Math.hypot(e.clientX - downX, e.clientY - downY) <= 5) pick(e); });
@@ -621,9 +614,9 @@
         }
 
         // ---------- Input ----------
-        function readLattice() {
+        function readLattice(includeRange = true) {
             const system = $('crystalSystem').value, bravais = $('bravaisLattice').value;
-            const num = id => Number($(id).value);
+            const num = id => $(id).value.trim() === '' ? NaN : Number($(id).value);
             let a = num('a'), b = num('b'), c = num('c'), alpha = num('alpha'), beta = num('beta'), gamma = num('gamma');
             switch (system) {
                 case 'cubic': b = a; c = a; alpha = beta = gamma = 90; break;
@@ -640,6 +633,7 @@
             if (!Object.values(params).every(Number.isFinite)) throw new Error('Enter complete, finite lattice parameters.');
             if ([a, b, c].some(v => v < 1)) throw new Error('Lattice lengths must be at least 1 Å.');
             if ([alpha, beta, gamma].some(v => v < 1 || v > 179)) throw new Error('Cell angles must be between 1° and 179°.');
+            if (!includeRange) return { params, bravais };
             const range = {};
             let combinations = 1;
             for (const axis of ['h', 'k', 'l']) {
@@ -659,7 +653,7 @@
             const L = Number($('detDist').value), W = Number($('detWidth').value), arm = Number($('detArm').value);
             if (!Number.isFinite(L) || L < 10 || L > 1000) throw new Error('Detector distance must be between 10 and 1000 mm.');
             if (!Number.isFinite(W) || W < 10 || W > 2000) throw new Error('Detector width must be between 10 and 2000 mm.');
-            if (!Number.isFinite(arm) || arm < -180 || arm > 180) throw new Error('Detector angle must be between −180° and 180°.');
+            if ($('detArm').value.trim() === '' || !Number.isFinite(arm) || arm < -180 || arm > 180) throw new Error('Detector angle must be between −180° and 180°.');
             return { L, W, arm, show3D: $('show3DDet') ? $('show3DDet').checked : false };
         }
 
@@ -768,10 +762,17 @@
             });
         }
 
-        function rebuildLattice() {
+        function rebuildLattice({ keepExposure = false } = {}) {
             let cfg;
-            try { cfg = readLattice(); }
-            catch (e) { setError('lattice', `${e.message} Display unchanged.`); return; }
+            // Validate everything before replacing any part of the current scene.
+            try {
+                const lambda = Number($('lambda').value);
+                if (!Number.isFinite(lambda) || lambda < 0.1) throw new Error('Wavelength must be at least 0.1 Å.');
+                readDetector();
+                applyAutoRange();
+                cfg = readLattice();
+            }
+            catch (e) { setError('lattice', `${e.message} Display unchanged.`); return false; }
             const basis = computeBasis(cfg.params, CONVENTION());
             if (!basis) { setError('lattice', 'Invalid cell (zero volume). Display unchanged.'); return; }
             const M = new THREE.Matrix3().set(
@@ -793,11 +794,22 @@
 
             state.items = items;
             state.worldPos = items.map(() => new THREE.Vector3());
-            state.maxG = base.reduce((m, p) => Math.max(m, p.g), 0) || 1;
+            state.maxG = items.reduce((m, p) => Math.max(m, p.g), 0) || 1;
             state.pointRadius = POINT_SCALE * Math.min(...basis.map(v => v.length()));
 
             disposeGroup(latticeGroup);
-            state.pointMesh = makeInstanced(new THREE.SphereGeometry(state.pointRadius, 10, 8), items.length);
+            // Large powders use one GPU point per reflection instead of a sphere mesh.
+            state.pointCloud = items.length > 100000;
+            if (state.pointCloud) {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(items.length * 3), 3).setUsage(THREE.DynamicDrawUsage));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(items.length * 3), 3).setUsage(THREE.DynamicDrawUsage));
+                geometry.setDrawRange(0, 0);
+                state.pointMesh = new THREE.Points(geometry, new THREE.PointsMaterial({ size: state.pointRadius * 2, vertexColors: true }));
+                state.pointMesh.frustumCulled = false;
+            } else {
+                state.pointMesh = makeInstanced(new THREE.SphereGeometry(state.pointRadius, 10, 8), items.length);
+            }
             latticeGroup.add(state.pointMesh);
             if (SHOW_RECIPROCAL_AXES) addReciprocalAxes(basis);
             state.marker = new THREE.Mesh(new THREE.SphereGeometry(state.pointRadius * 2.2, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffee00, wireframe: true }));
@@ -807,18 +819,19 @@
             state.selected = null;
             if (state.selectedKey) {
                 const idx = items.findIndex(p => p.key === state.selectedKey);
-                if (idx >= 0) state.selected = idx; else state.selectedKey = null;
+                if (idx >= 0) state.selected = idx;
+                else if (!state.exposure.spots.has(state.selectedKey)) state.selectedKey = null;
             }
             rebuildLab();
-            if (!state.keepExposure) clearExposure();
-            state.keepExposure = false;
+            if (!keepExposure) clearExposure();
             onLatticeChanged();
             updateDiffraction();
+            return true;
         }
 
         function rebuildLab() {
             let det;
-            try { readBeam(); det = readDetector(); }
+            try { det = readDetector(); readBeam(); }
             catch (e) { setError('lab', `${e.message} Display unchanged.`); return false; }
             setError('lab', '');
             const R = state.R;
@@ -906,7 +919,7 @@
             if (!mesh) return;
             let i = 0;
             for (const sp of spots) {
-                if (i >= det.cap) break;
+                if (i >= mesh.instanceMatrix.count) break;
                 if (!placeSpot(sp)) continue;
                 detTo3D(_pl.x, _pl.y, _P).addScaledVector(det.n, -det.half * det.s3 * 0.002);
                 const ss = _pl.r / det.spotR;
@@ -921,13 +934,30 @@
 
         function finishPointMesh(n, nDiff, kout, koutCol, ext) {
             const mesh = state.pointMesh;
-            mesh.count = n;
-            mesh.instanceMatrix.needsUpdate = true;
-            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            if (state.pointCloud) {
+                mesh.geometry.setDrawRange(0, n);
+                mesh.geometry.attributes.position.needsUpdate = true;
+                mesh.geometry.attributes.color.needsUpdate = true;
+            } else {
+                mesh.count = n;
+                mesh.instanceMatrix.needsUpdate = true;
+                if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            }
             setLineSegments(koutLines, kout, koutCol);
             setLineSegments(extLines, ext);
             const exp = state.exposure;
-            if (exp.dirty && state.det) { exp.dirty = false; fillDetectorMesh(state.det.accumMesh, exp.spots.values(), recordedColor); }
+            if (exp.dirty && state.det) {
+                const det = state.det;
+                if (det.accumMesh && exp.spots.size > det.accumMesh.instanceMatrix.count) {
+                    const old = det.accumMesh;
+                    det.accumMesh = makeInstanced(old.geometry.clone(), Math.max(exp.spots.size, old.instanceMatrix.count * 2));
+                    labGroup.remove(old);
+                    old.geometry.dispose(); old.material.dispose(); old.dispose();
+                    labGroup.add(det.accumMesh);
+                }
+                exp.dirty = false;
+                fillDetectorMesh(det.accumMesh, exp.spots.values(), recordedColor);
+            }
             state.nShown = n;
             state.nDiff = nDiff;
             updateSelection();
@@ -958,6 +988,7 @@
             exp.elapsed = 0;
             exp.dirty = false;
             if (state.det) fillDetectorMesh(state.det.accumMesh, [], recordedColor);
+            if (state.selected == null) state.selectedKey = null;
         }
 
         // Keep the strongest occurrence of each reflection.
@@ -1013,7 +1044,7 @@
                 if (!bestKey) return;
                 const idx = state.items.findIndex(p => p.key === bestKey);
                 state.selected = idx >= 0 ? idx : null;
-                state.selectedKey = idx >= 0 ? bestKey : null;
+                state.selectedKey = bestKey;
                 updateSelection();
             });
         }
@@ -1132,6 +1163,10 @@
                     marker.scale.setScalar(p.scale || 1);
                     marker.visible = state.visible.includes(state.selected);
                 }
+            } else if (state.exposure.spots.has(state.selectedKey)) {
+                const sp = state.exposure.spots.get(state.selectedKey);
+                text += '\nRecorded spot: ' + sp.details + `\nDebye–Waller factor = ${sp.intensity.toFixed(3)}`;
+                if (marker) marker.visible = false;
             } else {
                 text += '\nClick a reciprocal lattice point or a detector spot.';
                 if (marker) marker.visible = false;
@@ -1144,8 +1179,9 @@
             const R = state.R, target = new THREE.Vector3(0, 0, -R / 2);
             let radius = Math.max(1.6 * R, state.maxG + R / 2);
             const det = state.det;
-            if (det && det.show3D) radius = Math.max(radius, detTo3D(0, 0, _P).distanceTo(target) + Math.min(det.half, det.L) * det.s3);
-            const dist = 1.05 * radius / Math.sin(deg(camera.fov / 2));
+            if (det && det.show3D) radius = Math.max(radius, detTo3D(0, 0, _P).distanceTo(target) + Math.SQRT2 * det.half * det.s3);
+            const halfFov = Math.min(deg(camera.fov / 2), Math.atan(Math.tan(deg(camera.fov / 2)) * camera.aspect));
+            const dist = 1.05 * radius / Math.sin(halfFov);
             const dir = camera.position.clone().sub(controls.target);
             if (dir.lengthSq() < 1e-12) dir.set(1, 1, 2);
             dir.normalize();
@@ -1164,6 +1200,7 @@
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
             labelRenderer.setSize(w, h);
+            setInsetSize(state.insetWidth);
         }
 
         function animate() {
