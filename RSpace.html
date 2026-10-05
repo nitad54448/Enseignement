@@ -321,8 +321,10 @@
                         </select>
                      </div>
                      <div>
-                        <label for="nodeSize">Node Size</label>
-                        <input type="range" id="nodeSize" min="0.005" max="0.05" step="0.001" value="0.015">
+                        <label for="mosaicity">Mosaicity (angular FWHM): <output id="mosaicity-value" for="mosaicity">1.0°</output></label>
+                        <input type="range" id="mosaicity" min="0" max="12" step="0.1" value="1" aria-describedby="mosaicity-help">
+                        <p id="mosaicity-help" class="text-xs mt-2">More orientational disorder gives wider, shallower Gaussian nodes. Broadening is tangential and increases with |G|; radial width stays fixed. The origin is unaffected.</p>
+                        <p class="text-xs">Illustrative equal-integrated-intensity model; no structure factors. A fixed display gain keeps weak peaks visible.</p>
                      </div>
                 </div>
                  <div id="ortho-views" style="display: none;" class="mt-2">
@@ -374,6 +376,13 @@
     }
 </script>
 
+    <script>
+    window.addEventListener('error', (event) => {
+        if (event.target instanceof HTMLScriptElement || /module|fetch|WebGL/i.test(event.message || '')) {
+            document.getElementById('status').textContent = 'The 3D view could not load. Check your internet connection and WebGL support.';
+        }
+    }, true);
+</script>
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -397,7 +406,8 @@
             status: document.getElementById('status'),
             system: document.getElementById('crystalSystem'),
             centering: document.getElementById('centering'),
-            nodeSize: document.getElementById('nodeSize'),
+            mosaicity: document.getElementById('mosaicity'),
+            mosaicityValue: document.getElementById('mosaicity-value'),
             projection: document.getElementById('projection'),
             orthoViews: document.getElementById('ortho-views'),
             showDirectVectors: document.getElementById('showDirectVectors'),
@@ -495,7 +505,7 @@ window.addEventListener('resize', () => {
                 });
             });
 
-            dom.nodeSize.addEventListener('input', generateLattice);
+            dom.mosaicity.addEventListener('input', updateMosaicity);
             dom.projection.addEventListener('change', setProjection);
             dom.orthoViews.addEventListener('click', (e) => {
                 if(e.target.matches('.view-btn')) setOrthographicView(e.target.dataset.axis);
@@ -561,8 +571,10 @@ window.addEventListener('resize', () => {
                 -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1
             );
             const raycaster = new THREE.Raycaster();
+            scene.updateMatrixWorld(true);
+            currentCamera.updateMatrixWorld(true);
             raycaster.setFromCamera(mouse, currentCamera);
-            const intersects = raycaster.intersectObjects(latticePoints.children.filter(node => node.isMesh), false);
+            const intersects = raycaster.intersectObjects(latticePoints.children.filter(node => node.userData.isNode), false);
 
             resetSelection();
 
@@ -572,11 +584,11 @@ window.addEventListener('resize', () => {
                 const system = dom.system.value;
                 const clickedFamilyId = getFamilyId(h, k, l, system);
                 
-                latticePoints.children.filter(node => node.isMesh).forEach(node => {
+                latticePoints.children.filter(node => node.userData.isNode).forEach(node => {
                     const { h, k, l } = node.userData;
                     const nodeFamilyId = getFamilyId(h, k, l, system);
                     if (nodeFamilyId === clickedFamilyId) {
-                        node.material.color.setHex(0xffa500); // Highlight color
+                        setNodeColor(node, true);
                         selectedNodes.push(node);
                     }
                 });
@@ -624,7 +636,108 @@ window.addEventListener('resize', () => {
             brillouinZone.children.forEach(obj => {
                 if (obj.isLineSegments) obj.material.color.setHex(dark ? 0x9cb9df : 0x2e3440);
             });
-            latticePoints.children.forEach(obj => obj.userData.redrawLabel?.());
+            latticePoints.children.forEach(obj => {
+                obj.userData.redrawLabel?.();
+                if (obj.userData.isNode) setNodeColor(obj, selectedNodes.includes(obj));
+            });
+        }
+
+        function makeNodeMaterial() {
+            return new THREE.ShaderMaterial({
+                uniforms: {
+                    nodeColor: { value: new THREE.Color() },
+                    baseSigma: { value: 1 }
+                },
+                transparent: true,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                vertexShader: `
+                    varying vec2 gaussianPosition;
+                    varying float projectedPeak;
+                    uniform float baseSigma;
+                    void main() {
+                        // C = A A^T is the projected 3D Gaussian covariance.
+                        vec3 rowX = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
+                        vec3 rowY = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
+                        float cxx = dot(rowX, rowX);
+                        float cxy = dot(rowX, rowY);
+                        float cyy = dot(rowY, rowY);
+                        float lxx = sqrt(max(cxx, 1e-20));
+                        float lyx = cxy / lxx;
+                        float lyy = sqrt(max(cyy - lyx * lyx, 1e-20));
+                        gaussianPosition = position.xy;
+                        // Equal integrated intensity: peak falls as projected area grows.
+                        projectedPeak = baseSigma * baseSigma / (lxx * lyy);
+                        vec4 center = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                        center.xy += vec2(lxx * position.x, lyx * position.x + lyy * position.y);
+                        gl_Position = projectionMatrix * center;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec2 gaussianPosition;
+                    varying float projectedPeak;
+                    uniform vec3 nodeColor;
+                    void main() {
+                        float r2 = dot(gaussianPosition, gaussianPosition);
+                        if (r2 > 9.0) discard;
+                        float intensity = projectedPeak * exp(-0.5 * r2);
+                        // Fixed exposure, monotonic in intensity, with no opacity floor.
+                        float alpha = 1.0 - exp(-3.0 * intensity);
+                        gl_FragColor = vec4(nodeColor, alpha);
+                        #include <tonemapping_fragment>
+                        #include <colorspace_fragment>
+                    }
+                `
+            });
+        }
+
+        function setNodeColor(node, selected = false) {
+            const dark = document.documentElement.dataset.theme === 'dark';
+            const color = selected ? (dark ? 0xffd166 : 0x8a3900)
+                : node.userData.isOrigin ? (dark ? 0xff7185 : 0xbc1035)
+                : (dark ? 0x65caff : 0x003ca6);
+            node.material.uniforms.nodeColor.value.setHex(color);
+        }
+
+        function updateMosaicity() {
+            const fwhmDegrees = Number(dom.mosaicity.value);
+            dom.mosaicityValue.textContent = fwhmDegrees.toFixed(1) + '°';
+            const angularSigma = THREE.MathUtils.degToRad(fwhmDegrees) / Math.sqrt(8 * Math.log(2));
+            latticePoints.children.forEach(node => {
+                if (!node.userData.isNode) return;
+                const radialSigma = node.userData.baseSigma;
+                const tangentialSigma = Math.hypot(radialSigma, node.position.length() * angularSigma);
+                node.scale.set(tangentialSigma, tangentialSigma, radialSigma);
+                node.material.uniforms.baseSigma.value = radialSigma;
+                node.userData.tangentialSigma = tangentialSigma;
+                // Normalized intrinsic 3D peak height, before projection/display gain.
+                node.userData.peakIntensity = (radialSigma / tangentialSigma) ** 2;
+            });
+            updateInfo();
+        }
+
+        function raycastGaussianNode(raycaster, intersections) {
+            // Match the camera-facing ellipse drawn by the shader, rather than
+            // raycasting the original (radially oriented) plane geometry.
+            const viewModel = new THREE.Matrix4().multiplyMatrices(currentCamera.matrixWorldInverse, this.matrixWorld);
+            const e = viewModel.elements;
+            const cxx = e[0] ** 2 + e[4] ** 2 + e[8] ** 2;
+            const cxy = e[0] * e[1] + e[4] * e[5] + e[8] * e[9];
+            const cyy = e[1] ** 2 + e[5] ** 2 + e[9] ** 2;
+            const lxx = Math.sqrt(cxx), lyx = cxy / lxx;
+            const lyy = Math.sqrt(Math.max(cyy - lyx * lyx, 1e-20));
+            const center = new THREE.Vector3().setFromMatrixPosition(this.matrixWorld);
+            const normal = currentCamera.getWorldDirection(new THREE.Vector3());
+            const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, center);
+            const point = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+            if (!point) return;
+            const offset = point.clone().applyMatrix4(currentCamera.matrixWorldInverse);
+            const x = (offset.x - e[12]) / lxx;
+            const y = (offset.y - e[13] - lyx * x) / lyy;
+            const distance = raycaster.ray.origin.distanceTo(point);
+            if (x * x + y * y <= 6.25 && distance >= raycaster.near && distance <= raycaster.far) {
+                intersections.push({ distance, point, object: this });
+            }
         }
 
         function makeHKLSprite(h, k, l, nodeRadius) {
@@ -713,6 +826,7 @@ window.addEventListener('resize', () => {
     
     if (!b1 || !a1) {
         reciprocalBasis = {};
+        dom.status.textContent = 'Cell dimensions exceed the supported numerical range.';
         return;
     }
 
@@ -751,35 +865,36 @@ window.addEventListener('resize', () => {
         generateBrillouinZone(rb1, rb2, rb3);
     }
 
-    // 5. Render Nodes
-    const nodeRadius = parseFloat(dom.nodeSize.value);
-    const baseGeo = new THREE.SphereGeometry(nodeRadius, 12, 12);
+    // Gaussian peak covariance: two mosaic-broadened tangential axes,
+    // one fixed radial axis. The shader projects this ellipsoid onto the view.
+    const baseGeo = new THREE.PlaneGeometry(6, 6);
+    const baseSigma = Math.min(rb1.length(), rb2.length(), rb3.length()) * 0.032;
     const centering = dom.centering.value;
 
     for (let h = hkl.h_min; h <= hkl.h_max; h++) {
         for (let k = hkl.k_min; k <= hkl.k_max; k++) {
             for (let l = hkl.l_min; l <= hkl.l_max; l++) {
                 if (!isAllowed(h, k, l, centering)) continue;
-                const isOrigin = (h === 0 && k === 0 && l === 0);
-                const material = new THREE.MeshStandardMaterial({
-                    color: isOrigin ? 0xff0000 : 0x007bff, 
-                    metalness: 0.2, 
-                    roughness: 0.6
-                });
-                const sphere = new THREE.Mesh(baseGeo, material);
-                sphere.userData = { h, k, l, params: p, isOrigin };
-                sphere.position.addScaledVector(rb1, h).addScaledVector(rb2, k).addScaledVector(rb3, l);
-                latticePoints.add(sphere);
+                const node = new THREE.Mesh(baseGeo, makeNodeMaterial());
+                const isOrigin = h === 0 && k === 0 && l === 0;
+                node.userData = { h, k, l, params: p, isOrigin, isNode: true, baseSigma };
+                node.position.addScaledVector(rb1, h).addScaledVector(rb2, k).addScaledVector(rb3, l);
+                if (!isOrigin) node.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), node.position.clone().normalize());
+                // Billboard vertices extend beyond the untransformed plane bounds.
+                node.frustumCulled = false;
+                node.raycast = raycastGaussianNode;
+                latticePoints.add(node);
                 if (dom.showHKL.checked) {
-                    const sprite = makeHKLSprite(h, k, l, nodeRadius);
-                    sprite.position.copy(sphere.position);
-                    sprite.position.y += nodeRadius * 2.2;
+                    const sprite = makeHKLSprite(h, k, l, baseSigma * 2);
+                    sprite.position.copy(node.position);
+                    sprite.position.y += baseSigma * 5;
                     latticePoints.add(sprite);
                 }
             }
         }
     }
     if (!latticePoints.children.length) baseGeo.dispose();
+    updateMosaicity();
     applySceneTheme();
     updateInfo();
 }
@@ -835,6 +950,7 @@ function generateBrillouinZone(b1, b2, b3) {
         if (!bzGeometry) return;
 
         const mat = new THREE.MeshPhongMaterial({
+            depthWrite: false,
             color: 0x5e81ac,
             transparent: true,
             opacity: 0.4,
@@ -950,13 +1066,28 @@ function buildConvexFromPlanes(planes, seed) {
 
 function setProjection() {
             const previous = currentCamera;
-            currentCamera = dom.projection.value === 'orthographic' ? orthographicCamera : perspectiveCamera;
+            const targetCamera = dom.projection.value === 'orthographic' ? orthographicCamera : perspectiveCamera;
+            if (previous === targetCamera) return;
+            const distance = previous.position.distanceTo(controls.target);
+            const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov) / 2);
+            const visibleHeight = previous.isPerspectiveCamera
+                ? 2 * distance * tanHalfFov / previous.zoom
+                : (previous.top - previous.bottom) / previous.zoom;
+            currentCamera = targetCamera;
             currentCamera.position.copy(previous.position);
             currentCamera.quaternion.copy(previous.quaternion);
             currentCamera.up.copy(previous.up);
-            controls.object = currentCamera;
-            dom.orthoViews.style.display = currentCamera === orthographicCamera ? 'block' : 'none';
             onWindowResize();
+            if (currentCamera.isOrthographicCamera) {
+                currentCamera.zoom = (currentCamera.top - currentCamera.bottom) / visibleHeight;
+            } else {
+                currentCamera.zoom = 1;
+                const direction = previous.position.clone().sub(controls.target).normalize();
+                currentCamera.position.copy(controls.target).addScaledVector(direction, visibleHeight / (2 * tanHalfFov));
+            }
+            currentCamera.updateProjectionMatrix();
+            controls.object = currentCamera;
+            dom.orthoViews.style.display = currentCamera.isOrthographicCamera ? 'block' : 'none';
             controls.update();
         }
 
@@ -965,7 +1096,7 @@ function setProjection() {
         function resetSelection() { 
             selectedNodes.forEach(node => { 
                 if (node.material) { 
-                    node.material.color.setHex(node.userData.isOrigin ? 0xff0000 : 0x007bff); 
+                    setNodeColor(node, false); 
                 } 
             }); 
             selectedNodes = []; 
@@ -988,6 +1119,10 @@ function setProjection() {
                     hkl: (${h}, ${k}, ${l})<br>
                     R*: ${R_star.toFixed(4)} Å⁻¹<br>
                     d: ${isFinite(d) ? `${d.toFixed(4)} Å` : `&infin;`}<hr>
+                    <b>Mosaic profile</b><br>
+                    Angular FWHM: ${Number(dom.mosaicity.value).toFixed(1)}°<br>
+                    Tangential FWHM: ${(primaryNode.userData.tangentialSigma * Math.sqrt(8 * Math.log(2))).toFixed(4)} Å⁻¹<br>
+                    Relative 3D peak: ${(primaryNode.userData.peakIntensity * 100).toFixed(1)}%<hr>
                     <b>Multiplicity</b><br>
                     Family: ${hkl_family}<br>
                     Visible: ${visibleNodes}<br>
@@ -1008,7 +1143,7 @@ function setProjection() {
             const sin_g = Math.sin(gammaRad);
             if (Math.abs(sin_g) < 1e-9) return {}; 
             const V_sq = a**2 * b**2 * c**2 * (1 - cos_a**2 - cos_b**2 - cos_g**2 + 2 * cos_a * cos_b * cos_g);
-            if (isNaN(V_sq) || V_sq < 1e-9) return {}; 
+            if (!Number.isFinite(V_sq) || V_sq < 1e-9) return {}; 
             const V = Math.sqrt(V_sq);
             const a1 = new THREE.Vector3(a, 0, 0);
             const a2 = new THREE.Vector3(b * cos_g, b * sin_g, 0);
