@@ -325,9 +325,6 @@
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
-            axisLabels.children.forEach(label => {
-                label.quaternion.copy(camera.quaternion);
-            });
             renderer.render(scene, camera);
         }
 
@@ -465,40 +462,78 @@
             if (!b1) return;
             const g = new THREE.Vector3().addScaledVector(b1, h).addScaledVector(b2, k).addScaledVector(b3, l);
             if (g.length() < 1e-9) return;
-            const d = 2 * Math.PI / g.length();
-            const dv = g.clone().normalize().multiplyScalar(d);
-            let V = [];
-            if (h !== 0) V.push(v_a.clone().divideScalar(h));
-            if (k !== 0) V.push(v_b.clone().divideScalar(k));
-            if (l !== 0) V.push(v_c.clone().divideScalar(l));
+            const normal = g.clone().normalize();
 
-            if (V.length < 3) {
-                const o=new THREE.Vector3(0,0,0);
-                let p1,p2,p3,p4;
-                if(h===0&&k===0){p1=o;p2=v_a.clone();p3=v_a.clone().add(v_b);p4=v_b.clone();if(l!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_c.clone().divideScalar(l)))}
-                else if(h===0&&l===0){p1=o;p2=v_a.clone();p3=v_a.clone().add(v_c);p4=v_c.clone();if(k!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_b.clone().divideScalar(k)))}
-                else if(k===0&&l===0){p1=o;p2=v_b.clone();p3=v_b.clone().add(v_c);p4=v_c.clone();if(h!==0)[p1,p2,p3,p4].forEach(pt=>pt.add(v_a.clone().divideScalar(h)))}
-                else if(h===0){p1=v_b.clone().divideScalar(k);p2=v_c.clone().divideScalar(l);p3=p2.clone().add(v_a);p4=p1.clone().add(v_a)}
-                else if(k===0){p1=v_a.clone().divideScalar(h);p2=v_c.clone().divideScalar(l);p3=p2.clone().add(v_b);p4=p1.clone().add(v_b)}
-                else{p1=v_a.clone().divideScalar(h);p2=v_b.clone().divideScalar(k);p3=p2.clone().add(v_c);p4=p1.clone().add(v_c)}
-                V=[p1,p2,p3,p4];
-            }
-            if (V.length < 3) return;
+            const corners = [
+                [0,0,0], [1,0,0], [0,1,0], [0,0,1],
+                [1,1,0], [1,0,1], [0,1,1], [1,1,1]
+            ];
+            const edges = [
+                [0,1], [0,2], [0,3], [1,4], [1,5], [2,4],
+                [2,6], [3,5], [3,6], [4,7], [5,7], [6,7]
+            ];
+
+            // Shift main plane into the cell by offsetting negative indices to a shifted origin
+            const cMain = 1 + (h < 0 ? h : 0) + (k < 0 ? k : 0) + (l < 0 ? l : 0);
+
+            const getClippedPolygon = (C) => {
+                const pts = [];
+                const addUnique = (x, y, z) => {
+                    if (!pts.some(pt => Math.hypot(pt[0] - x, pt[1] - y, pt[2] - z) < 1e-6)) {
+                        pts.push([x, y, z]);
+                    }
+                };
+                edges.forEach(([i, j]) => {
+                    const p1 = corners[i], p2 = corners[j];
+                    const v1 = h * p1[0] + k * p1[1] + l * p1[2] - C;
+                    const v2 = h * p2[0] + k * p2[1] + l * p2[2] - C;
+                    if (Math.abs(v1) < 1e-7) addUnique(p1[0], p1[1], p1[2]);
+                    if (Math.abs(v2) < 1e-7) addUnique(p2[0], p2[1], p2[2]);
+                    if ((v1 < -1e-7 && v2 > 1e-7) || (v1 > 1e-7 && v2 < -1e-7)) {
+                        const t = -v1 / (v2 - v1);
+                        addUnique(p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]), p1[2] + t * (p2[2] - p1[2]));
+                    }
+                });
+                if (pts.length < 3) return null;
+
+                const verts = pts.map(([x, y, z]) =>
+                    new THREE.Vector3().addScaledVector(v_a, x).addScaledVector(v_b, y).addScaledVector(v_c, z)
+                );
+                const center = verts.reduce((acc, v) => acc.add(v), new THREE.Vector3()).divideScalar(verts.length);
+                const ref = verts[0].clone().sub(center).normalize();
+                const inPlaneY = new THREE.Vector3().crossVectors(normal, ref).normalize();
+                verts.sort((a, b) => {
+                    const da = a.clone().sub(center);
+                    const db = b.clone().sub(center);
+                    return Math.atan2(da.dot(inPlaneY), da.dot(ref)) - Math.atan2(db.dot(inPlaneY), db.dot(ref));
+                });
+                return verts;
+            };
 
             const createPlane = (verts, mat) => {
                 const geom = new THREE.BufferGeometry().setFromPoints(verts);
-                geom.setIndex([0, 1, 2, ...(verts.length === 4 ? [0, 2, 3] : [])]);
+                const indices = [];
+                for (let i = 1; i < verts.length - 1; i++) indices.push(0, i, i + 1);
+                geom.setIndex(indices);
                 geom.computeVertexNormals();
                 return new THREE.Mesh(geom, mat);
             };
+
             const mainMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
             const neighborMat = new THREE.MeshPhongMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
-            
-            const mainPlane = createPlane(V, mainMat);
-            mainPlane.userData = { h, k, l, params: p, isClickable: true };
-            hklPlanes.add(mainPlane);
-            hklPlanes.add(createPlane(V.map(v => v.clone().sub(dv)), neighborMat));
-            hklPlanes.add(createPlane(V.map(v => v.clone().add(dv)), neighborMat));
+
+            const cValues = corners.map(([x, y, z]) => h * x + k * y + l * z);
+            const cMin = Math.ceil(Math.min(...cValues));
+            const cMax = Math.floor(Math.max(...cValues));
+
+            for (let C = cMin; C <= cMax; C++) {
+                const verts = getClippedPolygon(C);
+                if (!verts) continue;
+                const isMain = (C === cMain);
+                const mesh = createPlane(verts, isMain ? mainMat.clone() : neighborMat.clone());
+                if (isMain) mesh.userData = { h, k, l, params: p, isClickable: true };
+                hklPlanes.add(mesh);
+            }
         }
         
         function getEventCoords(e) {
@@ -558,7 +593,7 @@
 
         function updateParameterFields() {
             const system = dom.system.value;
-            Object.values(dom.params).forEach(input => { input.parentElement.style.display = 'flex'; input.disabled = false; });
+            Object.values(dom.params).forEach(input => { input.parentElement.style.display = 'block'; input.disabled = false; });
             const hide = keys => keys.forEach(key => dom.params[key].parentElement.style.display = 'none');
             
             switch (system) {
