@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XRR Simulator</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -254,6 +254,13 @@
         const CLASSICAL_ELECTRON_RADIUS=2.81794e-5,PI=Math.PI;
         // Lowest allowed AUTO bound, not a fixed axis minimum.
         const INTENSITY_FLOOR = 1e-10;
+        const MIN_Q_STEPS = 2000, MAX_Q_STEPS = 20000;
+        // Névot-Croce factor exp(-2 kz_a kz_b σ²). With two evanescent media the
+        // complex product is negative real and would amplify, so clamp to <= 1.
+        function roughnessFactor(kzAbove, kzBelow, sigma) {
+            const product = Complex.multiply(kzAbove, kzBelow);
+            return Complex.exp(Complex.create(Math.min(0, -2 * product.re * sigma * sigma), -2 * product.im * sigma * sigma));
+        }
         const isDecade = value => value > 0 &&
             Math.abs(Math.log10(value) - Math.round(Math.log10(value))) < 1e-9;
         const logTickLabel = value => isDecade(value) ? Number(value).toExponential(0) : '';
@@ -417,7 +424,9 @@
             }));
             const data = [];
             const qMax = 2.0;
-            const qSteps = 2000;
+            // Keep at least ~10 points per Kiessig fringe (period 2π/D) for thick stacks.
+            const totalThickness = layers.reduce((sum, l) => sum + l.thickness, 0);
+            const qSteps = Math.min(MAX_Q_STEPS, Math.max(MIN_Q_STEPS, Math.ceil(10 * qMax * totalThickness / (2 * PI))));
             for (let i = 1; i <= qSteps; i++) {
                 const Q = i / qSteps * qMax;
                 const theta_sq = (Q / (2 * k0)) * (Q / (2 * k0));
@@ -432,11 +441,7 @@
                 // which made that one slider drive two interfaces at once).
                 const sigma_sub = subParams.roughness || 0;
                 if (sigma_sub > 0) {
-                    // Névot-Croce: exp(-2 * k_z,above * k_z,below * sigma^2) with complex k_z product
-                    const kz_prod_sub = Complex.multiply(kz[N], kz[N + 1]);
-                    const rough_arg_sub = Complex.create(-2 * kz_prod_sub.re * sigma_sub * sigma_sub, -2 * kz_prod_sub.im * sigma_sub * sigma_sub);
-                    const rough_factor_sub = Complex.exp(rough_arg_sub);
-                    R = Complex.multiply(R, rough_factor_sub);
+                    R = Complex.multiply(R, roughnessFactor(kz[N], kz[N + 1], sigma_sub));
                 }
                 for (let j = N - 1; j >= 0; j--) {
                     const k_z_layer = kz[j+1], d_layer = layers[j].thickness;
@@ -444,11 +449,7 @@
                     const k_z_above = kz[j];
                     const r_j_ideal = Complex.divide(Complex.subtract(k_z_above, k_z_layer), Complex.add(k_z_above, k_z_layer));
                     const sigma_j = layers[j].roughness;
-                    // Névot-Croce: exp(-2 * k_z,above * k_z,below * sigma^2) with complex k_z product
-                    const kz_prod_j = Complex.multiply(k_z_above, k_z_layer);
-                    const rough_arg_j = Complex.create(-2 * kz_prod_j.re * sigma_j * sigma_j, -2 * kz_prod_j.im * sigma_j * sigma_j);
-                    const rough_factor = Complex.exp(rough_arg_j);
-                    const r_j_rough = Complex.multiply(r_j_ideal, rough_factor);
+                    const r_j_rough = Complex.multiply(r_j_ideal, roughnessFactor(k_z_above, k_z_layer, sigma_j));
                     const numerator = Complex.add(r_j_rough, Complex.multiply(R, phaseFactor));
                     const denominator = Complex.add(Complex.create(1, 0), Complex.multiply(r_j_rough, Complex.multiply(R, phaseFactor)));
                     R = Complex.divide(numerator, denominator);
@@ -634,7 +635,8 @@
             if (!xrrChart.customManualView) {
                 if (yIsLog) {
                     const intensityMinimum = automaticIntensityMinimum(calculatedData);
-                    const minimum = isAmplitude ? Math.sqrt(intensityMinimum) : intensityMinimum;
+                    // Amplitude views round to a decade in |R| units so the axis starts on a labeled tick.
+                    const minimum = isAmplitude ? 10 ** Math.floor(Math.log10(Math.sqrt(intensityMinimum))) : intensityMinimum;
                     options.scales.y.min = minimum;
                     // Keep a valid range even when all values are zero/below the floor.
                     options.scales.y.suggestedMax = minimum * 10;
