@@ -69,7 +69,7 @@
                             <option value="tetragonal-lattice">Rectangular Lattice (2D)</option>
                             <option value="hexagonal-lattice">Hexagonal Lattice (2D)</option>
                             <option value="diffraction-grating">Diffraction Grating</option>
-                            <option value="powder-rings">Randomly Oriented Motifs</option>
+                            <option value="powder-rings">Powder (randomly oriented crystallites)</option>
                         </optgroup>
                         <optgroup label="Mathematical Functions">
                             <option value="128 * Math.sin(x * 20) + 128">Sine Wave (Vertical)</option>
@@ -103,7 +103,7 @@
                         <select id="motif-type" class="bg-white border border-gray-300 text-sm rounded-md p-1">
                             <option value="point">Point</option>
                             <option value="duck">Duck</option>
-                            <option value="circle"selected>Circle</option>
+                            <option value="circle" selected>Circle</option>
                             <option value="square">Square</option>
                         </select>
                     </div>
@@ -319,7 +319,6 @@
             }
             setupMode('function');
             functionPresets.value = value;
-            cellSizeSlider.disabled = value === 'powder-rings';
             crystalControls.classList.add('hidden');
 
             if (CRYSTAL_PRESETS.includes(value)) {
@@ -415,16 +414,19 @@
                     break;
                 }
                 case 'powder-rings': {
-                    const numSquares = 250;
-                    const size = parseInt(motifSizeSlider.value);
-                    for (let i = 0; i < numSquares; i++) {
-                        const x = (Math.random() - 0.5) * (FFT_SIZE - size * 2);
-                        const y = (Math.random() - 0.5) * (FFT_SIZE - size * 2);
-                        const angle = Math.random() * 2 * Math.PI;
+                    // Many tiny crystals (square lattice, spacing = cell size), each rotated at random:
+                    // the lattice peaks of all orientations smear into rings of radius 1/d.
+                    const patchCells = Math.max(2, Math.min(6, Math.round(120 / cellSize)));
+                    const reach = Math.ceil(patchCells / 2);
+                    for (let c = 0; c < 60; c++) {
+                        const cx = (Math.random() - 0.5) * (FFT_SIZE - 2 * reach * cellSize);
+                        const cy = (Math.random() - 0.5) * (FFT_SIZE - 2 * reach * cellSize);
                         sourceCtx.save();
-                        sourceCtx.translate(x, y);
-                        sourceCtx.rotate(angle);
-                        drawMotif(sourceCtx, motifType, 0, 0, size);
+                        sourceCtx.translate(cx, cy);
+                        sourceCtx.rotate(Math.random() * 2 * Math.PI);
+                        for (let i = -reach; i <= reach; i++) {
+                            for (let j = -reach; j <= reach; j++) drawMotif(sourceCtx, motifType, i * cellSize, j * cellSize, motifSize);
+                        }
                         sourceCtx.restore();
                     }
                     break;
@@ -435,18 +437,49 @@
             sourceReady = true;
             performTransform();
         }
+        // Annotates the real-space lattice vectors a1, a2 (red arrows, top-left of the image) and the
+        // matching reciprocal vectors b1, b2 (arrows from the centre of the transform).
+        // Convention here: b_i . a_j = delta_ij, in cycles per pixel; a peak at frequency f lies
+        // FFT_SIZE * f pixels from the centre of the transform.
+        function latticeVectors(type, d) {
+            switch (type) {
+                case 'cubic-lattice': return [[d, 0], [0, d]];
+                case 'tetragonal-lattice': return [[d, 0], [0, Math.round(d * 0.7)]];   // same spacing as the generator
+                case 'hexagonal-lattice': return [[d, 0], [d * 0.5, d * Math.sqrt(3) / 2]];
+                default: return [[d, 0]];   // grating and powder: only the spacing d is meaningful
+            }
+        }
+        function reciprocalVectors(v) {
+            if (v.length === 1) { const len2 = v[0][0] ** 2 + v[0][1] ** 2; return [[v[0][0] / len2, v[0][1] / len2]]; }
+            const det = v[0][0] * v[1][1] - v[0][1] * v[1][0];
+            return [[v[1][1] / det, -v[1][0] / det], [-v[0][1] / det, v[0][0] / det]];   // rows of the inverse matrix
+        }
+        function arrow(ctx, x0, y0, dx, dy, label) {
+            const len = Math.hypot(dx, dy); if (len < 1e-6) return;
+            const ux = dx / len, uy = dy / len, head = Math.min(8, len * 0.5);
+            ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + dx, y0 + dy);
+            ctx.moveTo(x0 + dx, y0 + dy); ctx.lineTo(x0 + dx - head * (ux + 0.5 * uy), y0 + dy - head * (uy - 0.5 * ux));
+            ctx.moveTo(x0 + dx, y0 + dy); ctx.lineTo(x0 + dx - head * (ux - 0.5 * uy), y0 + dy - head * (uy + 0.5 * ux));
+            ctx.stroke();
+            ctx.fillText(label, x0 + dx + (dx >= 0 ? 4 : -22), y0 + dy + (dy > 0 ? 14 : -6));
+        }
         function drawScaleBars() {
             const d = parseInt(cellSizeSlider.value);
-            if (d === 0 || !d) return;
-            const k = FFT_SIZE / d;
-            const y_pos = FFT_SIZE - 20;
-            const x_pos = 20;
-            sourceCtx.strokeStyle = 'red'; sourceCtx.fillStyle = 'red'; sourceCtx.font = '14px Inter';
-            sourceCtx.beginPath(); sourceCtx.moveTo(x_pos, y_pos); sourceCtx.lineTo(x_pos + d, y_pos); sourceCtx.stroke();
-            sourceCtx.fillText('d', x_pos + d / 2 - 4, y_pos - 8);
-            fftCtx.strokeStyle = 'red'; fftCtx.fillStyle = 'red'; fftCtx.font = '14px Inter';
-            fftCtx.beginPath(); fftCtx.moveTo(FFT_SIZE / 2, y_pos); fftCtx.lineTo(FFT_SIZE / 2 + k, y_pos); fftCtx.stroke();
-            fftCtx.fillText('1/d', FFT_SIZE / 2 + k / 2 - 8, y_pos - 8);
+            if (!d) return;
+            const type = functionPresets.value;
+            const a = latticeVectors(type, d), b = reciprocalVectors(a);
+            const origin = 30, centre = FFT_SIZE / 2;
+            for (const ctx of [sourceCtx, fftCtx]) { ctx.strokeStyle = 'red'; ctx.fillStyle = 'red'; ctx.lineWidth = 1.5; ctx.font = '14px Inter'; }
+            a.forEach((v, i) => arrow(sourceCtx, origin, origin, v[0], v[1], a.length > 1 ? `a${i + 1}` : 'd'));
+            if (type === 'powder-rings') {
+                // Randomly oriented crystals: the diffraction peaks of every orientation fall on a ring of radius 1/d.
+                fftCtx.setLineDash([5, 4]);
+                fftCtx.beginPath(); fftCtx.arc(centre, centre, FFT_SIZE * b[0][0], 0, 2 * Math.PI); fftCtx.stroke();
+                fftCtx.setLineDash([]);
+                fftCtx.fillText('1/d', centre + FFT_SIZE * b[0][0] + 4, centre - 6);
+            } else {
+                b.forEach((v, i) => arrow(fftCtx, centre, centre, FFT_SIZE * v[0], FFT_SIZE * v[1], b.length > 1 ? `b${i + 1}` : '1/d'));
+            }
         }
         function drawMotif(ctx, type, x, y, size) {
             switch(type) {
@@ -526,7 +559,6 @@
         }
         function performTransform() {
             if (!sourceReady) return;
-            statusEl.textContent = 'Processing...';
             if (currentMode === 'webcam') {
                 if (!drawSourceToCanvas(webcamVideo)) return;
             } else if (currentMode === 'upload') {
@@ -539,42 +571,42 @@
             
             const imageData = sourceCtx.getImageData(0, 0, FFT_SIZE, FFT_SIZE);
             const sigma = parseFloat(sigmaSlider.value);
-            const grayscaleMatrix = new Array(FFT_SIZE).fill(0).map(() => new Array(FFT_SIZE));
-            for (let y = 0; y < FFT_SIZE; y++) {
-                for (let x = 0; x < FFT_SIZE; x++) {
-                    const i = (y * FFT_SIZE + x) * 4;
+            const N = FFT_SIZE, re = new Float64Array(N * N), im = new Float64Array(N * N);
+            for (let y = 0; y < N; y++) {
+                const ny = (y - N / 2) / (N / 2);
+                for (let x = 0; x < N; x++) {
+                    const i = (y * N + x) * 4;
                     const gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
-                    const nx = (x - FFT_SIZE / 2) / (FFT_SIZE / 2), ny = (y - FFT_SIZE / 2) / (FFT_SIZE / 2);
-                    const gauss = Math.exp(-(nx * nx + ny * ny) / (2 * sigma * sigma));
-                    grayscaleMatrix[y][x] = gray * gauss;
+                    const nx = (x - N / 2) / (N / 2);
+                    // Gaussian window: suppresses the streaks caused by the abrupt image edges
+                    re[y * N + x] = gray * Math.exp(-(nx * nx + ny * ny) / (2 * sigma * sigma));
                 }
             }
-            
-            const complexMatrix = fft2d(grayscaleMatrix);
-            fftshift(complexMatrix);
-            
+
+            fft2d(re, im);
+
+            // Magnitude with the zero frequency moved to the centre (fftshift): the sample at
+            // (x, y) is displayed at ((x + N/2) mod N, (y + N/2) mod N).
+            const mag = new Float64Array(N * N);
             let maxMag = 0;
-            for (let y = 0; y < FFT_SIZE; y++) {
-                for (let x = 0; x < FFT_SIZE; x++) {
-                    const mag = complexMatrix[y][x].magnitude();
-                    if (mag > maxMag) maxMag = mag;
+            const half = N / 2;
+            for (let y = 0; y < N; y++) {
+                for (let x = 0; x < N; x++) {
+                    const m = Math.hypot(re[y * N + x], im[y * N + x]);
+                    mag[((y + half) % N) * N + ((x + half) % N)] = m;
+                    if (m > maxMag) maxMag = m;
                 }
             }
-            
-            const fftImageData = fftCtx.createImageData(FFT_SIZE, FFT_SIZE);
-            for (let y = 0; y < FFT_SIZE; y++) {
-                for (let x = 0; x < FFT_SIZE; x++) {
-                    const i = (y * FFT_SIZE + x) * 4;
-                    const mag = complexMatrix[y][x].magnitude();
-                    const logMag = Math.log(1 + mag);
-                    const maxLogMag = Math.log(1 + maxMag);
-                    const intensity = maxLogMag > 0 ? (logMag / maxLogMag) * 255 : 0;
-                    fftImageData.data.set([intensity, intensity, intensity, 255], i);
-                }
+
+            const fftImageData = fftCtx.createImageData(N, N);
+            const maxLogMag = Math.log(1 + maxMag);
+            for (let p = 0; p < N * N; p++) {
+                const intensity = maxLogMag > 0 ? (Math.log(1 + mag[p]) / maxLogMag) * 255 : 0;
+                fftImageData.data.set([intensity, intensity, intensity, 255], p * 4);
             }
             fftCtx.putImageData(fftImageData, 0, 0);
 
-            if (currentMode === 'function' && CRYSTAL_PRESETS.includes(functionPresets.value) && functionPresets.value !== 'powder-rings') {
+            if (currentMode === 'function' && CRYSTAL_PRESETS.includes(functionPresets.value)) {
                 drawScaleBars();
             }
             statusEl.textContent = currentMode === 'webcam' ? 'Live transform running...' : 'Transform complete.';
@@ -584,46 +616,51 @@
             debouncedGenerate.cancel(); debouncedTransform.cancel();
             stopTransformLoop(); stopWebcam();
         });
-        class Complex {
-            constructor(re = 0, im = 0) { this.re = re; this.im = im; }
-            add(other) { return new Complex(this.re + other.re, this.im + other.im); }
-            sub(other) { return new Complex(this.re - other.re, this.im - other.im); }
-            mul(other) { return new Complex(this.re * other.re - this.im * other.im, this.re * other.im + this.im * other.re); }
-            magnitude() { return Math.sqrt(this.re * this.re + this.im * this.im); }
-        }
-        function fft1d(x) {
-            const N = x.length; if (N <= 1) return x;
-            const even = new Array(N / 2), odd = new Array(N / 2);
-            for (let i = 0; i < N / 2; i++) { even[i] = x[i*2]; odd[i] = x[i*2 + 1]; }
-            const fftEven = fft1d(even), fftOdd = fft1d(odd);
-            const result = new Array(N);
-            for (let k = 0; k < N / 2; k++) {
-                const angle = -2 * Math.PI * k / N;
-                const twiddle = new Complex(Math.cos(angle), Math.sin(angle));
-                const t = twiddle.mul(fftOdd[k]);
-                result[k] = fftEven[k].add(t); result[k + N / 2] = fftEven[k].sub(t);
-            } return result;
-        }
-        function fft2d(matrix) {
-            const size = matrix.length; let data = matrix.map(row => row.map(val => new Complex(val, 0)));
-            for (let i = 0; i < size; i++) { data[i] = fft1d(data[i]); }
-            data = transpose(data);
-            for (let i = 0; i < size; i++) { data[i] = fft1d(data[i]); }
-            data = transpose(data); return data;
-        }
-        function transpose(matrix) {
-            const size = matrix.length; const newMatrix = Array.from({ length: size }, () => new Array(size));
-            for (let i = 0; i < size; i++) { for (let j = 0; j < size; j++) { newMatrix[j][i] = matrix[i][j]; } }
-            return newMatrix;
-        }
-        function fftshift(matrix) {
-            const half = Math.floor(matrix.length / 2);
-            for (let y = 0; y < half; y++) {
-                for (let x = 0; x < half; x++) {
-                    [matrix[y][x], matrix[y + half][x + half]] = [matrix[y + half][x + half], matrix[y][x]];
-                    [matrix[y][x + half], matrix[y + half][x]] = [matrix[y + half][x], matrix[y][x + half]];
+        // --- Fast Fourier transform (iterative radix-2, in place, typed arrays) ---
+        // Tables are computed once: bit-reversal permutation and the twiddle factors exp(-2*pi*i*m/N).
+        const FFT_REV = new Uint32Array(FFT_SIZE);
+        const FFT_COS = new Float64Array(FFT_SIZE / 2), FFT_SIN = new Float64Array(FFT_SIZE / 2);
+        (function initFftTables() {
+            const bits = Math.log2(FFT_SIZE);
+            for (let i = 0; i < FFT_SIZE; i++) {
+                let r = 0;
+                for (let b = 0; b < bits; b++) if (i & (1 << b)) r |= 1 << (bits - 1 - b);
+                FFT_REV[i] = r;
+            }
+            for (let m = 0; m < FFT_SIZE / 2; m++) {
+                FFT_COS[m] = Math.cos(2 * Math.PI * m / FFT_SIZE);
+                FFT_SIN[m] = -Math.sin(2 * Math.PI * m / FFT_SIZE);
+            }
+        })();
+        // Transforms the FFT_SIZE samples re[off + i*stride], im[off + i*stride].
+        function fft1d(re, im, off, stride) {
+            const n = FFT_SIZE;
+            for (let i = 0; i < n; i++) {
+                const j = FFT_REV[i];
+                if (j > i) {
+                    const a = off + i * stride, b = off + j * stride;
+                    let t = re[a]; re[a] = re[b]; re[b] = t;
+                    t = im[a]; im[a] = im[b]; im[b] = t;
                 }
             }
+            for (let size = 2; size <= n; size <<= 1) {
+                const half = size >> 1, tstep = n / size;
+                for (let start = 0; start < n; start += size) {
+                    for (let k = 0; k < half; k++) {
+                        const wr = FFT_COS[k * tstep], wi = FFT_SIN[k * tstep];
+                        const a = off + (start + k) * stride, b = off + (start + k + half) * stride;
+                        const tr = wr * re[b] - wi * im[b], ti = wr * im[b] + wi * re[b];
+                        re[b] = re[a] - tr; im[b] = im[a] - ti;
+                        re[a] += tr; im[a] += ti;
+                    }
+                }
+            }
+        }
+        // 2D transform of an FFT_SIZE x FFT_SIZE image stored row by row: rows first, then columns.
+        function fft2d(re, im) {
+            const n = FFT_SIZE;
+            for (let y = 0; y < n; y++) fft1d(re, im, y * n, 1);
+            for (let x = 0; x < n; x++) fft1d(re, im, x, n);
         }
     </script>
 </body>

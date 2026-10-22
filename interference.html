@@ -485,20 +485,25 @@
                 const logEpsilon = 1e-6;
                 const logMin = Math.log(logEpsilon);
 
-                for (let i = 0; i < intensities.length; i++) {
+                // One device pixel per sample, written straight into an ImageData buffer so
+                // adjacent translucent stripes cannot blend twice at their edges.
+                const count = intensities.length, rows = detectorCanvas.height;
+                if (!count || !rows) return;
+                const image = detectorCtx.createImageData(count, rows);
+                for (let i = 0; i < count; i++) {
                     const intensity = intensities[i];
                     if (!Number.isFinite(intensity)) continue;
-                    let displayIntensity;
-                    if (detectorScale === 'log') {
-                        displayIntensity = (Math.log(intensity + logEpsilon) - logMin) / -logMin;
-                    } else {
-                        displayIntensity = intensity;
+                    const displayIntensity = detectorScale === 'log'
+                        ? (Math.log(intensity + logEpsilon) - logMin) / -logMin
+                        : intensity;
+                    const alpha = Math.round(255 * Math.max(0, Math.min(1, displayIntensity)));
+                    for (let y = 0; y < rows; y++) {
+                        const k = 4 * (y * count + i);
+                        image.data[k] = rgbColor.r; image.data[k + 1] = rgbColor.g;
+                        image.data[k + 2] = rgbColor.b; image.data[k + 3] = alpha;
                     }
-                    const finalAlpha = Math.max(0, Math.min(1, displayIntensity));
-                    detectorCtx.fillStyle = `rgba(${rgbColor.r}, ${rgbColor.g}, ${rgbColor.b}, ${finalAlpha})`;
-                    const stripeWidth = detectorWidth_pixels / intensities.length;
-                    detectorCtx.fillRect(i * stripeWidth, 0, stripeWidth, detectorHeight_pixels);
                 }
+                detectorCtx.putImageData(image, 0, 0);
                 
                 drawScale(DETECTOR_WIDTH_PHYSICAL);
             }

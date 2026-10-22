@@ -254,6 +254,10 @@
             const f_in = Number(freqInput.value);
             const A_in = Number(ampInput.value);
 
+            // An empty or non-positive field (e.g. while typing) would give NaN or infinite
+            // plots: keep the previous figures until the values are valid again.
+            if (![R, C, K, f_in, A_in].every(v => Number.isFinite(v) && v > 0)) return;
+
             // Compute Cutoff Frequency
             const fc = 1 / (2 * Math.PI * R * C);
             fcDisplay.innerHTML = `${fc.toFixed(2)} Hz`;
@@ -291,6 +295,24 @@
                 phi.push(Math.atan2(im, re) * (180 / Math.PI));
             }
 
+            // Transfer function H(j f/fc) = re + j im, (also used for the Nyquist plot)
+            const transferAt = x => type === 'lowpass'
+                ? { re: K / (1 + x * x),     im: -K * x / (1 + x * x) }
+                : { re: K * x * x / (1 + x * x), im: K * x / (1 + x * x) };
+            const Hin = transferAt(f_in / fc);   // point for the chosen signal frequency
+            const Hfc = transferAt(1);           // point at the cutoff frequency (|H| = K/√2)
+
+            const gain_in_db = 20 * Math.log10(Math.hypot(Hin.re, Hin.im));
+            const phase_in_deg = Math.atan2(Hin.im, Hin.re) * 180 / Math.PI;
+            const freqLabel = f_in >= 1000 ? (f_in / 1000).toPrecision(3) + ' kHz' : f_in.toPrecision(3) + ' Hz';
+            // Red marker for the chosen signal frequency (same colour on every plot)
+            const bodeMarker = (y, text, pos, hover) => ({
+                x: [f_in], y: [y], type: 'scatter', mode: 'markers+text',
+                marker: {color: '#ef4444', size: 12, line: {color: '#ffffff', width: 2}},
+                text: [text], textposition: pos, textfont: {color: '#ef4444'},
+                hovertemplate: hover + '<extra></extra>', name: 'f in'
+            });
+
             // --- 1. Bode Gain Plot ---
             const K_db = 20 * Math.log10(K);
             const cutoff_db = K_db - 3.0103; // -3dB point
@@ -316,7 +338,7 @@
                     { x: Math.log10(fc), y: cutoff_db, xref: 'x', yref: 'y', text: 'fc, -3 dB', showarrow: true, arrowhead: 2, ax: 40, ay: 20 }
                 ]
             };
-            Plotly.react(pltBodeGain, [traceBodeGain], layoutBodeGain);
+            Plotly.react(pltBodeGain, [traceBodeGain, bodeMarker(gain_in_db, freqLabel, type === 'lowpass' ? 'top right' : 'bottom right', `f = ${f_in} Hz<br>G = ${gain_in_db.toFixed(2)} dB`)], layoutBodeGain);
 
             // --- 2. Bode Phase Plot ---
             const traceBodePhase = {
@@ -343,18 +365,55 @@
                     { x: Math.log10(fc), y: phase_cutoff, xref: 'x', yref: 'y', text: `fc, ${phase_cutoff}°`, showarrow: true, arrowhead: 2, ax: 40, ay: (type==='lowpass'?-20:20) }
                 ]
             };
-            Plotly.react(pltBodePhase, [traceBodePhase], layoutBodePhase);
+            Plotly.react(pltBodePhase, [traceBodePhase, bodeMarker(phase_in_deg, freqLabel, type === 'lowpass' ? 'top right' : 'bottom right', `f = ${f_in} Hz<br>φ = ${phase_in_deg.toFixed(1)}°`)], layoutBodePhase);
 
             // --- 3. Nyquist Plot ---
             const traceNyquist = {
                 x: real,
                 y: imag,
+                customdata: freqs,
                 type: 'scatter',
                 mode: 'lines',
                 line: {color: '#f59e0b', width: 3},
+                hovertemplate: 'f = %{customdata:.3g} Hz<br>Re = %{x:.3f} V<br>Im = %{y:.3f} V<extra></extra>',
                 name: 'Nyquist'
             };
-            
+            // Vector from the origin to the operating point: its length is |H|, its angle is the phase
+            const traceNyquistVector = {
+                x: [0, Hin.re],
+                y: [0, Hin.im],
+                type: 'scatter',
+                mode: 'lines',
+                line: {color: '#ef4444', width: 1.5, dash: 'dot'},
+                hoverinfo: 'skip',
+                name: 'H(f)'
+            };
+            const traceNyquistFc = {
+                x: [Hfc.re],
+                y: [Hfc.im],
+                type: 'scatter',
+                mode: 'markers+text',
+                marker: {color: '#ffffff', size: 9, symbol: 'diamond', line: {color: '#64748b', width: 2}},
+                text: ['fc'],
+                textposition: type === 'lowpass' ? 'bottom left' : 'top left',
+                textfont: {color: '#64748b'},
+                hovertemplate: 'fc = ' + fc.toFixed(2) + ' Hz<extra></extra>',
+                name: 'fc'
+            };
+            // Marker that moves along the curve when the signal frequency changes
+            const traceNyquistMarker = {
+                x: [Hin.re],
+                y: [Hin.im],
+                type: 'scatter',
+                mode: 'markers+text',
+                marker: {color: '#ef4444', size: 12, line: {color: '#ffffff', width: 2}},
+                text: [`f = ${freqLabel}`],
+                textposition: type === 'lowpass' ? 'bottom right' : 'top right',
+                textfont: {color: '#ef4444'},
+                hovertemplate: `f = ${f_in} Hz<br>|H| = ${Math.hypot(Hin.re, Hin.im).toFixed(3)}<br>φ = ${(Math.atan2(Hin.im, Hin.re) * 180 / Math.PI).toFixed(1)}°<extra></extra>`,
+                name: 'f in'
+            };
+
             const maxVal = Math.max(...real.map(Math.abs), ...imag.map(Math.abs), K) * 1.1;
 
             const layoutNyquist = {
@@ -363,7 +422,7 @@
                 xaxis: { title: 'Partie réelle (V)', gridcolor: '#e2e8f0', zerolinecolor: '#94a3b8', range: [type === 'lowpass' ? -maxVal*0.1 : -maxVal*0.1, maxVal] },
                 yaxis: { title: 'Partie imaginaire (V)', scaleanchor: "x", scaleratio: 1, gridcolor: '#e2e8f0', zerolinecolor: '#94a3b8' }
             };
-            Plotly.react(pltNyquist, [traceNyquist], layoutNyquist);
+            Plotly.react(pltNyquist, [traceNyquist, traceNyquistVector, traceNyquistFc, traceNyquistMarker], layoutNyquist);
 
             // --- 4. Time Response Plot ---
             // Calculate specific response for the chosen f_in
