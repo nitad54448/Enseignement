@@ -13,11 +13,11 @@
         }
 
         body {
-            font-family: system-ui, sans-serif; margin: 0; background-color: #f0f0f0; color: #333; display: flex; height: 100vh; overflow: hidden;
+            font-family: system-ui, sans-serif; margin: 0; background-color: #f0f0f0; color: #333; display: flex; flex-direction: column; height: 100vh; overflow: hidden;
         }
         #app-container {
             display: flex; background-color: #ffffff; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); border-radius: 12px;
-            overflow: hidden; width: 98%; max-width: 1800px; height: 92vh; margin: 2vh auto;
+            overflow: hidden; width: 98%; max-width: 1800px; flex: 1; min-height: 0; margin: 1.5vh auto;
         }
         #controls-panel {
             width: 320px; min-width: 240px; max-width: 600px; flex-shrink: 0; padding: 15px;
@@ -33,7 +33,7 @@
             background-color: var(--accent-color);
         }
         #visualization-area {
-            flex-grow: 1; position: relative; background-color: #111827; min-width: 0;
+            flex-grow: 1; position: relative; background-color: #111827; min-width: 0; container-type: inline-size;
         }
         #controls-panel h1 {
             font-size: 1.5em; margin-top: 0; margin-bottom: 20px; color: var(--accent-color);
@@ -80,7 +80,7 @@
 
 
         footer {
-            position: fixed; left: 0; bottom: 0; width: 100%;
+            flex-shrink: 0; width: 100%; box-sizing: border-box;
             background-color: #f8f9fa; color: #555; text-align: left;
             padding: 8px 12px; font-size: 0.8em; border-top: 1px solid #e0e0e0; z-index: 100;
         }
@@ -192,6 +192,27 @@
         .scene-annotation { position: absolute; display: none; transform: translate(-50%, -50%);
             padding: 3px 5px; background: rgba(17,24,39,.8); border-radius: 4px;
             font: 12px system-ui; color: #fff; white-space: nowrap; }
+        #legend { position: absolute; left: 15px; bottom: 15px; display: none; flex-direction: column; gap: 4px;
+            padding: 8px 10px; background: rgba(20, 30, 50, 0.8); border: 1px solid var(--border-color);
+            border-radius: 8px; font: 12px Arial, sans-serif; color: #d0d0d0; z-index: 5; pointer-events: none; }
+        #legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+        .axis-title { font-size: 12px; font-style: italic; color: #cbd5e1; }
+        #axis-title-x { left: 50%; bottom: 8px; transform: translateX(-50%); }
+        #axis-title-y { left: 6px; top: 50%; writing-mode: vertical-rl; transform: translateY(-50%) rotate(180deg); }
+        /* Narrow plot area: let the HUD wrap and move the insets below it. */
+        @container (max-width: 720px) {
+            #hud-bar { flex-wrap: wrap; max-width: calc(100% - 30px); }
+            #phasor-canvas, #polar-canvas { top: 95px; }
+            #aff-graph-canvas { top: 290px; }
+        }
+        /* Phones and narrow windows: controls above the plot. */
+        @media (max-width: 800px) {
+            #app-container { flex-direction: column; width: 100%; margin: 0; border-radius: 0; }
+            #controls-panel { width: auto !important; max-width: none; min-width: 0; max-height: 42%;
+                border-right: none; border-bottom: 1px solid var(--border-color); }
+            #drag-handle { display: none; }
+            #visualization-area { flex: 1; min-height: 0; }
+        }
     </style>
 </head>
 <body>
@@ -208,6 +229,7 @@
                     <option value="beats">Beats</option>
                     <option value="standing_waves">Standing Waves</option>
                     <option value="attenuation">Attenuation (Damping)</option>
+                    <option value="doppler_effect">Doppler Effect</option>
                     <option value="reflection_transmission">Reflection & Transmission</option>
                     <option value="snell">Refraction (Snell's Law)</option>
                     <option value="polarization">Polarization</option>
@@ -238,10 +260,11 @@
                 <span class="hud-sep"></span>
                 <span>Speed</span>
                 <input type="range" id="hud-speed" min="0" max="2" step="0.05" value="1">
-                <span id="hud-speed-value">1.0×</span>
+                <span id="hud-speed-value">1.00×</span>
                 <span class="hud-sep"></span>
                 <button id="hud-reset-view" title="Reset camera zoom/pan">⟳ Reset zoom</button>
             </div>
+            <div id="legend" aria-hidden="true"></div>
             <div id="scale-container"></div>
             <div id="scene-annotations">
                 <span id="psi-axis-label" class="scene-annotation"></span>
@@ -289,7 +312,10 @@
         let groupWaveComp1, groupWaveComp2, groupWaveSuperposition, groupWaveEnvelopeUpper, groupWaveEnvelopeLower; 
         let particleSystemViz = []; 
         let wavefrontObjects = [];
-        const wavefrontCutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0); 
+        const wavefrontCutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+        const compressionColor = new THREE.Color(0xff5a4a), rarefactionColor = new THREE.Color(0x4aa3ff);
+        const SNELL_MAX_FRONTS = 40;
+        let snellFrontsIncident, snellFrontsReflected, snellFrontsRefracted, snellMedia = [];
         let interferenceSuperposition, standingWaveFwd, standingWaveBwd, standingWaveResult, dopplerSourceViz;
         // NEW: extra visualization objects for new features
         let standingNodeMarkers = [], standingAntinodeMarkers = [];
@@ -311,6 +337,8 @@
         // --- Parameters for all concepts ---
         const waveParams = { 
             wavelength: 2.0, amplitude: 1.0, points: 500, extent: 10,  phaseShift: 0,
+            // The "Wavelength & Amplitude" concept keeps its own values; other concepts overwrite wavelength/amplitude.
+            waWavelength: 2.0, waAmplitude: 1.0,
             polarizationType: 'linear_vertical', polarizationViewMode: 'temporal', Ey_amplitude: 1.0, Ez_amplitude: 0.5, 
             packet_delta_k_factor: 0.15, dispersionFactor: 0.1, poyntingShow: true, velocityDisplayType: 'phase', 
             waveComparisonType: 'transverse', wavefrontType: 'plane', wavefrontHalf: false, wavefrontShowE: false, particleCount: 30,
@@ -635,6 +663,7 @@
                 case 'wavelength_amplitude': {
                     const wlMin = 0.2, wlMax = 8.0, wlStep = 0.01;
                     const ampMin = 0.1, ampMax = 3.0, ampStep = 0.05;
+                    waveParams.wavelength = waveParams.waWavelength; waveParams.amplitude = waveParams.waAmplitude;
                     parameterControlsContainer.innerHTML = `
                         <div class="control-group">
                             <label for="wavelength-slider">Wavelength (λ)</label>
@@ -650,8 +679,10 @@
                             </div>
                             <input type="number" class="value-input" id="amplitude-value" min="${ampMin}" max="${ampMax}" step="${ampStep}" value="${waveParams.amplitude.toFixed(2)}" style="margin-top: 8px;">
                         </div>`;
-                    connectSliderAndNumberInput('wavelength-slider', 'wavelength-value', 'wavelength', true, updateConceptVisualization);
-                    connectSliderAndNumberInput('amplitude-slider', 'amplitude-value', 'amplitude', true, updateConceptVisualization);
+                    connectSliderAndNumberInput('wavelength-slider', 'wavelength-value', 'wavelength', true,
+                        concept => { waveParams.waWavelength = waveParams.wavelength; updateConceptVisualization(concept); });
+                    connectSliderAndNumberInput('amplitude-slider', 'amplitude-value', 'amplitude', true,
+                        concept => { waveParams.waAmplitude = waveParams.amplitude; updateConceptVisualization(concept); });
                     break;
                 }
 
@@ -779,7 +810,7 @@
                             </div>
                             <input type="number" class="value-input" id="attenuation-value" min="0" max="1" step="0.01" value="${waveParams.attenuationFactor.toFixed(2)}" style="margin-top: 8px;">
                         </div>
-                        <div class="param-info">Amplitude decreases exponentially with distance from the center.</div>
+                        <div class="param-info">A source at the center emits waves outward on both sides; the amplitude decreases exponentially with distance from it.</div>
                         <div class="param-info" style="margin-top: 8px;">A₀=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
                     connectSliderAndNumberInput('attenuation-slider', 'attenuation-value', 'attenuationFactor', true, updateConceptVisualization); // Added updateFn
                     break;
@@ -809,9 +840,9 @@
                             <div class="radio-options-container">
                                 <div><label><input type="radio" name="p_type" value="linear_vertical" ${waveParams.polarizationType === 'linear_vertical' ? 'checked' : ''}> Linear Vertical</label></div>
                                 <div><label><input type="radio" name="p_type" value="linear_horizontal" ${waveParams.polarizationType === 'linear_horizontal' ? 'checked' : ''}> Linear Horizontal</label></div>
-                                <div><label><input type="radio" name="p_type" value="circular_right_expected" ${waveParams.polarizationType === 'circular_right_expected' ? 'checked' : ''}> Circular Right</label></div>
-                                <div><label><input type="radio" name="p_type" value="circular_left_expected" ${waveParams.polarizationType === 'circular_left_expected' ? 'checked' : ''}> Circular Left</label></div>
-                                <div><label><input type="radio" name="p_type" value="elliptical" ${waveParams.polarizationType === 'elliptical' ? 'checked' : ''}> Elliptical</label></div>
+                                <div><label><input type="radio" name="p_type" value="circular_right_expected" ${waveParams.polarizationType === 'circular_right_expected' ? 'checked' : ''}> Circular, right-handed</label></div>
+                                <div><label><input type="radio" name="p_type" value="circular_left_expected" ${waveParams.polarizationType === 'circular_left_expected' ? 'checked' : ''}> Circular, left-handed</label></div>
+                                <div><label><input type="radio" name="p_type" value="elliptical" ${waveParams.polarizationType === 'elliptical' ? 'checked' : ''}> Elliptical, right-handed</label></div>
                                 <div><label><input type="radio" name="p_type" value="unpolarized" ${waveParams.polarizationType === 'unpolarized' ? 'checked' : ''}> Unpolarized</label></div>
                             </div></div>
                         <div id="polarization_dynamic_controls"></div>
@@ -819,7 +850,8 @@
                             <div class="radio-options-container">
                                 <div><label><input type="radio" name="p_view_mode" value="temporal" ${waveParams.polarizationViewMode === 'temporal' ? 'checked' : ''}> Temporal (at x=0)</label></div>
                                 <div><label><input type="radio" name="p_view_mode" value="spatial" ${waveParams.polarizationViewMode === 'spatial' ? 'checked' : ''}> Spatial (snapshot)</label></div>
-                            </div></div>`;
+                            </div></div>
+                        <div class="param-info" style="text-align:left; margin-top: 10px;">Handedness convention: right-handed means E rotates from y toward z, following the right-hand rule with the thumb along the propagation direction (+x). Optics textbooks that look toward the source call this left-circular.</div>`;
                     const updateDynamicControls = () => {
                         const dynContainer = document.getElementById('polarization_dynamic_controls');
                         if (waveParams.polarizationType === 'elliptical') {
@@ -894,7 +926,7 @@
                                 <div><label><input type="radio" name="comp_type" value="longitudinal" ${waveParams.waveComparisonType === 'longitudinal' ? 'checked' : ''}> Longitudinal</label></div>
                             </div></div><div class="param-info">A=${waveParams.amplitude.toFixed(1)}, λ=${waveParams.wavelength.toFixed(1)} (Fixed)</div>`;
                     parameterControlsContainer.innerHTML = typeContent;
-                    document.getElementsByName('comp_type').forEach(r => r.addEventListener('change', e => { waveParams.waveComparisonType = e.target.value; animationTime = 0; }));
+                    document.getElementsByName('comp_type').forEach(r => r.addEventListener('change', e => { waveParams.waveComparisonType = e.target.value; animationTime = 0; updateLegend(); }));
                     break;
                 }
 
@@ -1143,7 +1175,40 @@
             updateScales();
         }
 
+// On-canvas legends: [colour, label] per visible curve.
+const legends = {
+    phase: [['#3498db', 'Reference wave'], ['#e67e22', 'Shifted wave'], ['#00ffff', 'Spatial shift']],
+    interference: [['#3498db', 'Source 1'], ['#e67e22', 'Source 2'], ['#ffffff', 'Sum']],
+    standing_waves: [['#3498db', 'Right-going wave'], ['#e67e22', 'Left-going wave'], ['#ffffff', 'Sum']],
+    attenuation: [['#1abc9c', 'Wave'], ['#e74c3c', 'Envelope']],
+    beats: [['#3498db', 'Wave f₁'], ['#9b59b6', 'Wave f₂'], ['#ffffff', 'Sum'], ['#e74c3c', 'Envelope']],
+    reflection_transmission: [['#3498db', 'Incident'], ['#e67e22', 'Reflected'], ['#2ecc71', 'Transmitted'], ['#ffffff', 'Sum (left side)']],
+    snell: [['#3498db', 'Incident'], ['#e67e22', 'Reflected'], ['#2ecc71', 'Refracted']],
+    phase_group_velocity: () => waveParams.velocityDisplayType === 'group'
+        ? [['#3498db', 'Wave 1'], ['#9b59b6', 'Wave 2'], ['#ffffff', 'Packet'], ['#e74c3c', 'Envelope'], ['#f1c40f', 'Phase marker'], ['#00ffff', 'Group marker']]
+        : [['#1abc9c', 'Wave'], ['#f1c40f', 'Phase marker']],
+    wave_type_comparison: () => waveParams.waveComparisonType === 'longitudinal'
+        ? [['#ff5a4a', 'Compression'], ['#4aa3ff', 'Rarefaction']] : []
+};
+function updateLegend() {
+    const element = document.getElementById('legend');
+    let entries = legends[currentConcept] || [];
+    if (typeof entries === 'function') entries = entries();
+    element.style.display = entries.length ? 'flex' : 'none';
+    element.innerHTML = entries.map(([color, label]) => `<span><i style="background:${color}"></i>${label}</span>`).join('');
+}
+// Planar concepts pan with the left button; only the 3D concepts can be rotated.
+function applyControlsMode() {
+    if (!controls) return;
+    const rotatable = ['polarization', 'wavefront', 'wave_scattering'].includes(currentConcept);
+    controls.enableRotate = rotatable;
+    controls.mouseButtons.LEFT = rotatable ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+    controls.touches.ONE = rotatable ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN;
+}
+
 function setupConceptVisualization(concept) {
+            updateLegend();
+            applyControlsMode();
             switch (concept) {
                 case 'wavelength_amplitude': {
                     waveLine1 = createSingleWaveObject(0x2ecc71);
@@ -1364,8 +1429,8 @@ function setupConceptVisualization(concept) {
                         for (let i = 0; i < numFronts; i++) {
                             const plane = new THREE.Mesh(planeGeom, wfMat.clone());
                             plane.rotation.y = Math.PI / 2;
-                            plane.userData.initialX = -waveParams.extent / 2 - i * 1.5;
-                            plane.position.x = plane.userData.initialX;
+                            plane.userData.index = i;
+                            plane.position.x = -waveParams.extent / 2 - i * 1.5;
                             addWavefrontFieldProbes(plane, false);
                             wavefrontObjects.push(plane);
                             scene.add(plane);
@@ -1375,6 +1440,7 @@ function setupConceptVisualization(concept) {
                         for (let i = 0; i < numFronts - 2; i++) {
                             const sphere = new THREE.Mesh(sphereGeom, wfMat.clone());
                             sphere.material.wireframe = false;
+                            sphere.userData.index = i;
                             sphere.userData.currentRadius = 0.1 + i * 1.2;
                             sphere.scale.setScalar(sphere.userData.currentRadius);
                             addWavefrontFieldProbes(sphere, true);
@@ -1487,6 +1553,26 @@ function setupConceptVisualization(concept) {
                     scene.add(snellIncidentRay);
                     scene.add(snellReflectedRay);
                     scene.add(snellRefractedRay);
+                    // Wavefronts (phase fronts) of each wave and shaded media show why the ray bends.
+                    const makeFronts = color => {
+                        const geometry = new THREE.BufferGeometry();
+                        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SNELL_MAX_FRONTS * 6), 3));
+                        geometry.setDrawRange(0, 0);
+                        const fronts = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 }));
+                        fronts.frustumCulled = false;
+                        scene.add(fronts);
+                        return fronts;
+                    };
+                    snellFrontsIncident = makeFronts(0x3498db);
+                    snellFrontsReflected = makeFronts(0xe67e22);
+                    snellFrontsRefracted = makeFronts(0x2ecc71);
+                    snellMedia = [0x1c3a5e, 0x3a1c5e].map((color, i) => {
+                        const medium = new THREE.Mesh(new THREE.PlaneGeometry(waveParams.extent * 2, waveParams.extent),
+                            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthWrite: false }));
+                        medium.position.set(0, (i === 0 ? 1 : -1) * waveParams.extent / 2, -0.1);
+                        scene.add(medium);
+                        return medium;
+                    });
                     break;
                 }
                 case 'atomic_form_factor':
@@ -1631,7 +1717,8 @@ function setupConceptVisualization(concept) {
                 case 'attenuation': {
                     if (!waveLine1) return;
                     updateWaveGeometry(waveLine1, L, A, phaseOffset, {
-                        attenuation: waveParams.attenuationFactor
+                        attenuation: waveParams.attenuationFactor,
+                        outgoing: true // sin(k|x| − ωt): propagates away from the central source on both sides
                     });
                     // Draw the analytic envelope ±A₀ e^{-α|x|} as static smooth curves
                     if (attenuationEnvelopeUpper && attenuationEnvelopeLower) {
@@ -1800,12 +1887,16 @@ function setupConceptVisualization(concept) {
                     const omega_comp = omegaAnimation;
                     particleSystemViz.forEach(particle => {
                         const x_i = particle.userData.initialX;
+                        const wavePhase = k_comp * x_i - omega_comp * animationTime;
                         if (waveParams.waveComparisonType === 'transverse') {
-                            particle.position.y = waveParams.amplitude * Math.sin(k_comp * x_i - omega_comp * animationTime);
+                            particle.position.y = waveParams.amplitude * Math.sin(wavePhase);
                             particle.position.x = x_i;
+                            particle.material.color.set(0xffffff);
                         } else {
-                            particle.position.x = x_i + waveParams.amplitude * 0.5 * Math.sin(k_comp * x_i - omega_comp * animationTime);
+                            particle.position.x = x_i + waveParams.amplitude * 0.5 * Math.sin(wavePhase);
                             particle.position.y = 0;
+                            // Local strain du/dx0 ∝ cos(phase): negative strain means compression.
+                            particle.material.color.copy(rarefactionColor).lerp(compressionColor, (1 - Math.cos(wavePhase)) / 2);
                         }
                     });
                     break;
@@ -1813,13 +1904,12 @@ function setupConceptVisualization(concept) {
                 case 'wavefront': {
                     wavefrontObjects.forEach(wf => {
                         if (waveParams.wavefrontType === 'plane') {
-                            const width = wf.geometry.parameters.width;
-                            const minX = -waveParams.extent / 2 - width / 2 - 1;
-                            const maxX = waveParams.extent / 2 + width / 2 + 1;
-                            wf.position.x = minX + positiveModulo(wf.userData.initialX - minX + 1.2 * animationTime, maxX - minX);
+                            // The loop length is a whole number of spacings, so the wavelength stays uniform when fronts wrap.
+                            const spacing = 1.5, period = 7 * spacing;
+                            wf.position.x = -waveParams.extent / 2 - 0.25 + positiveModulo(wf.userData.index * spacing + 1.2 * animationTime, period);
                         } else {
-                            const maxRadius = waveParams.extent / 1.8;
-                            const radius = 0.1 + positiveModulo(wf.userData.currentRadius - 0.1 + 0.36 * animationTime, maxRadius - 0.1);
+                            const spacing = 1.2, period = 5 * spacing;
+                            const radius = 0.1 + positiveModulo(wf.userData.index * spacing + 0.36 * animationTime, period);
                             wf.scale.setScalar(radius);
                             wf.material.clippingPlanes = waveParams.wavefrontHalf ? [wavefrontCutPlane] : null;
                         }
@@ -2010,6 +2100,15 @@ function setupConceptVisualization(concept) {
                         const ref_end = new THREE.Vector3(L * Math.sin(theta_t), -L * Math.cos(theta_t), 0.1);
                         setLinePoints(snellRefractedRay, origin, ref_end);
                     }
+                    // Phase fronts: d·p = v t + m λ. Phase continuity at the origin gives Snell's law, and λ scales as 1/n.
+                    const lambda0 = 1.6, speed0 = 1.2;
+                    const lambda1 = lambda0 / n1, lambda2 = lambda0 / n2;
+                    updateSnellFronts(snellFrontsIncident, Math.sin(theta_i), -Math.cos(theta_i), lambda1, speed0 / n1, true);
+                    updateSnellFronts(snellFrontsReflected, Math.sin(theta_i), Math.cos(theta_i), lambda1, speed0 / n1, true);
+                    if (totalInternal) snellFrontsRefracted.geometry.setDrawRange(0, 0);
+                    else updateSnellFronts(snellFrontsRefracted, Math.sin(theta_t), -Math.cos(theta_t), lambda2, speed0 / n2, false);
+                    snellMedia[0].material.opacity = Math.min(0.6, 0.12 + 0.14 * (n1 - 1));
+                    snellMedia[1].material.opacity = Math.min(0.6, 0.12 + 0.14 * (n2 - 1));
                     const info = document.getElementById('snell-readout');
                     if (info) {
                         const t_deg = totalInternal ? '— (TIR)' : (theta_t * 180 / Math.PI).toFixed(1) + '°';
@@ -2210,6 +2309,31 @@ function setupConceptVisualization(concept) {
 
         function positiveModulo(value, period) { return ((value % period) + period) % period; }
 
+        // Phase fronts d·p = speed·t + m·wavelength for a wave travelling along (dx, dy), clipped to one medium.
+        function updateSnellFronts(fronts, dx, dy, wavelength, speed, upper) {
+            const positions = fronts.geometry.attributes.position.array;
+            const reach = waveParams.extent * 0.7, half = waveParams.extent * 0.8;
+            const nx = -dy, ny = dx; // front direction (perpendicular to travel)
+            const shift = speed * animationTime;
+            const first = Math.ceil((-reach - shift) / wavelength), last = Math.floor((reach - shift) / wavelength);
+            let count = 0;
+            for (let m = first; m <= last && count < SNELL_MAX_FRONTS; m++) {
+                const s = shift + m * wavelength, cx = s * dx, cy = s * dy;
+                let u0 = -half, u1 = half;
+                if (Math.abs(ny) < 1e-9) {
+                    if (upper ? cy < 0 : cy > 0) continue;
+                } else {
+                    const crossing = -cy / ny; // where this front meets the interface
+                    if ((ny > 0) === upper) u0 = Math.max(u0, crossing); else u1 = Math.min(u1, crossing);
+                }
+                if (u1 <= u0) continue;
+                positions.set([cx + u0 * nx, cy + u0 * ny, 0.08, cx + u1 * nx, cy + u1 * ny, 0.08], count * 6);
+                count++;
+            }
+            fronts.geometry.setDrawRange(0, count * 2);
+            fronts.geometry.attributes.position.needsUpdate = true;
+        }
+
         function dopplerState(time) {
             const c = 3, velocity = waveParams.sourceVelocity * c;
             const span = waveParams.extent * 0.8;
@@ -2376,6 +2500,7 @@ function setupConceptVisualization(concept) {
              reflectionWaveIncident, reflectionWaveReflected, reflectionWaveTransmitted,
              beatsWave1, beatsWave2, beatsSuperposition, beatsEnvelopeUpper, beatsEnvelopeLower,
              snellIncidentRay, snellRefractedRay, snellReflectedRay, snellInterfaceLine, snellNormalLine,
+             snellFrontsIncident, snellFrontsReflected, snellFrontsRefracted,
              polarizationHelixPath].forEach(o => {
                 if (o) { scene.remove(o); if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }
             });
@@ -2397,6 +2522,9 @@ function setupConceptVisualization(concept) {
             beatsEnvelopeUpper = null; beatsEnvelopeLower = null;
             snellIncidentRay = null; snellRefractedRay = null; snellReflectedRay = null;
             snellInterfaceLine = null; snellNormalLine = null;
+            snellFrontsIncident = null; snellFrontsReflected = null; snellFrontsRefracted = null;
+            snellMedia.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+            snellMedia = [];
             polarizationHelixPath = null;
             // Hide insets
             if (polarCanvas) polarCanvas.style.display = 'none';
@@ -2467,7 +2595,7 @@ function setupConceptVisualization(concept) {
 
         // --- CORE APP LOGIC ---
         function createSingleWaveObject(color, opacity = 1) { const material = new THREE.LineBasicMaterial({ color: color, transparent: opacity < 1, opacity: opacity }); const geometry = new THREE.BufferGeometry(); const positions = new Float32Array(waveParams.points * 3); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); return new THREE.Line(geometry, material); }
-        function updateWaveGeometry(lineObject, wavelength, amplitude, phase, options = {}) { if (!lineObject) { return; } const positions = lineObject.geometry.attributes.position.array; if (wavelength <= 0.001) wavelength = 0.001; const k = (2 * Math.PI) / wavelength; for (let i = 0; i < waveParams.points; i++) { const x_base = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const x = x_base - (options.x_offset || 0); let currentAmplitude = amplitude; if(options.attenuation) { currentAmplitude *= Math.exp(-options.attenuation * Math.abs(x_base)); } let y = (options.isEnvelope) ? currentAmplitude * Math.cos(k * x + phase) : currentAmplitude * Math.sin(k * x + phase); positions[i * 3] = x_base; positions[i * 3 + 1] = y; positions[i * 3 + 2] = 0; } lineObject.geometry.attributes.position.needsUpdate = true; lineObject.geometry.computeBoundingSphere(); }
+        function updateWaveGeometry(lineObject, wavelength, amplitude, phase, options = {}) { if (!lineObject) { return; } const positions = lineObject.geometry.attributes.position.array; if (wavelength <= 0.001) wavelength = 0.001; const k = (2 * Math.PI) / wavelength; for (let i = 0; i < waveParams.points; i++) { const x_base = (i / (waveParams.points - 1)) * waveParams.extent - (waveParams.extent / 2); const x = x_base - (options.x_offset || 0); let currentAmplitude = amplitude; if(options.attenuation) { currentAmplitude *= Math.exp(-options.attenuation * Math.abs(x_base)); } const xPhase = options.outgoing ? Math.abs(x_base) : x; let y = (options.isEnvelope) ? currentAmplitude * Math.cos(k * xPhase + phase) : currentAmplitude * Math.sin(k * xPhase + phase); positions[i * 3] = x_base; positions[i * 3 + 1] = y; positions[i * 3 + 2] = 0; } lineObject.geometry.attributes.position.needsUpdate = true; lineObject.geometry.computeBoundingSphere(); }
         
         function update3DWaveGeometry(lineObject, origin, direction, magnitude, wavelength, phase, numPoints = 100) {
             if (!lineObject) return;
@@ -2733,23 +2861,40 @@ function setupConceptVisualization(concept) {
                     const step = line.isLineSegments ? 2 : 1;
                     const start = source.drawRange.start;
                     const end = Math.min(count, start + source.drawRange.count);
-                    const positions = [], others = [], sides = [], colors = [], distances = [];
+                    let segments = 0;
+                    for (let i = start; i + 1 < end; i += step) segments++;
                     const c = source.attributes.color, ld = source.attributes.lineDistance;
+                    const vertices = segments * 6, layout = vertices + (c ? 'c' : '');
+                    if (entry.layout !== layout) {
+                        // Reallocate only when the segment count changes; otherwise the typed arrays are reused.
+                        mesh.geometry.dispose();
+                        const g = mesh.geometry = new THREE.BufferGeometry();
+                        entry.buffers = {position: new Float32Array(vertices * 3), other: new Float32Array(vertices * 3),
+                            side: new Float32Array(vertices), distanceAlong: new Float32Array(vertices),
+                            color: c ? new Float32Array(vertices * 3) : null};
+                        g.setAttribute('position', new THREE.BufferAttribute(entry.buffers.position, 3));
+                        g.setAttribute('other', new THREE.BufferAttribute(entry.buffers.other, 3));
+                        g.setAttribute('side', new THREE.BufferAttribute(entry.buffers.side, 1));
+                        g.setAttribute('distanceAlong', new THREE.BufferAttribute(entry.buffers.distanceAlong, 1));
+                        if (c) g.setAttribute('color', new THREE.BufferAttribute(entry.buffers.color, 3));
+                        entry.layout = layout;
+                    }
+                    const buf = entry.buffers;
+                    // Quad = two triangles; ROLE 0 uses the segment start as the vertex, 1 uses the end.
+                    const SIDES = [1, -1, -1, -1, -1, 1], ROLES = [0, 0, 1, 1, 0, 1];
+                    let v = 0;
                     for (let i = start; i + 1 < end; i += step) {
-                        const a = index ? index.getX(i) : i, b = index ? index.getX(i + 1) : i + 1;
-                        for (const [j,k,side] of [[a,b,1],[a,b,-1],[b,a,-1],[b,a,-1],[a,b,-1],[b,a,1]]) {
-                            positions.push(pos.getX(j),pos.getY(j),pos.getZ(j));
-                            others.push(pos.getX(k),pos.getY(k),pos.getZ(k)); sides.push(side);
-                            distances.push(ld ? ld.getX(j) * (mat.scale || 1) : 0);
-                            if(c) colors.push(c.getX(j),c.getY(j),c.getZ(j));
+                        const first = index ? index.getX(i) : i, second = index ? index.getX(i + 1) : i + 1;
+                        for (let q = 0; q < 6; q++, v++) {
+                            const j = ROLES[q] ? second : first, k = ROLES[q] ? first : second;
+                            buf.position[v * 3] = pos.getX(j); buf.position[v * 3 + 1] = pos.getY(j); buf.position[v * 3 + 2] = pos.getZ(j);
+                            buf.other[v * 3] = pos.getX(k); buf.other[v * 3 + 1] = pos.getY(k); buf.other[v * 3 + 2] = pos.getZ(k);
+                            buf.side[v] = SIDES[q];
+                            buf.distanceAlong[v] = ld ? ld.getX(j) * (mat.scale || 1) : 0;
+                            if (buf.color) { buf.color[v * 3] = c.getX(j); buf.color[v * 3 + 1] = c.getY(j); buf.color[v * 3 + 2] = c.getZ(j); }
                         }
                     }
-                    const g = mesh.geometry;
-                    for(const [name,array,size] of [['position',positions,3],['other',others,3],['side',sides,1],['distanceAlong',distances,1],...(c ? [['color',colors,3]] : [])]) {
-                        const existing = g.getAttribute(name);
-                        if(existing && existing.array.length === array.length) { existing.array.set(array); existing.needsUpdate = true; }
-                        else g.setAttribute(name,new THREE.Float32BufferAttribute(array,size));
-                    }
+                    for (const attribute of Object.values(mesh.geometry.attributes)) attribute.needsUpdate = true;
                     entry.source = source; entry.version = pos.version;
                 }
             }
@@ -2862,7 +3007,7 @@ function setupConceptVisualization(concept) {
                 case 'linear_horizontal': return new THREE.Vector3(0, 0, A * Math.cos(phase));
                 case 'circular_right_expected': return new THREE.Vector3(0, A * Math.cos(phase), -A * Math.sin(phase));
                 case 'circular_left_expected': return new THREE.Vector3(0, A * Math.cos(phase), A * Math.sin(phase));
-                case 'elliptical': return new THREE.Vector3(0, waveParams.Ey_amplitude * Math.cos(phase), waveParams.Ez_amplitude * Math.sin(phase));
+                case 'elliptical': return new THREE.Vector3(0, waveParams.Ey_amplitude * Math.cos(phase), -waveParams.Ez_amplitude * Math.sin(phase));
                 case 'unpolarized': {
                     // Smooth illustrative broadband mixture, propagated at the same speed.
                     let y = 0, z = 0;
@@ -3139,65 +3284,78 @@ function setupConceptVisualization(concept) {
         }
 
         function worldToScreen(worldVector, camera, canvas) { const screenVector = worldVector.clone().project(camera); const x = Math.round((screenVector.x * 0.5 + 0.5) * canvas.clientWidth); const y = Math.round((-screenVector.y * 0.5 + 0.5) * canvas.clientHeight); return { x, y }; }
-        function updateScales() { 
-            if (!scaleContainerElement || !renderer || currentConcept === 'wave_scattering') { if(scaleContainerElement) scaleContainerElement.innerHTML = ''; return; } 
-            while (scaleContainerElement.firstChild) scaleContainerElement.removeChild(scaleContainerElement.firstChild); 
-            const canvas = renderer.domElement; 
-            if (!canvas || canvas.clientWidth === 0 || canvas.clientHeight === 0) return; 
-            let xAxisZeroScreenPos = null; 
-            const xAxisYOffset = 30; 
-            const numXTicks = 11; 
-            const xMin = -waveParams.extent / 2; 
-            for (let i = 0; i < numXTicks; i++) { 
-                const value = xMin + i * (waveParams.extent / (numXTicks - 1)); 
-                const worldPos = new THREE.Vector3(value, 0, 0); 
-                const currentScreenPos = worldToScreen(worldPos, camera, canvas); 
-                const projectedVecForCheck = worldPos.clone().project(camera); 
-                if (Math.abs(projectedVecForCheck.x) > 1.1 || Math.abs(projectedVecForCheck.y) > 1.1) { 
-                    if (!(Math.abs(value) < 0.001 && Math.abs(projectedVecForCheck.x) <= 1.1)) continue; 
-                } 
-                const label = document.createElement('span'); 
-                label.classList.add('scale-label', 'x-axis-label'); 
-                label.textContent = value.toFixed(Math.abs(value) < 0.01 && value !==0 ? 2 : 0); 
-                label.style.left = `${currentScreenPos.x}px`; 
-                label.style.top = `${currentScreenPos.y + xAxisYOffset}px`; 
-                label.style.transform = 'translateX(-50%)'; 
-                scaleContainerElement.appendChild(label); 
-                if (Math.abs(value) < 0.001) xAxisZeroScreenPos = { x: currentScreenPos.x, y: currentScreenPos.y + xAxisYOffset }; 
-            } 
-            const yAxisXOffset = -20; 
-            let amplitudeValues = []; 
-            let displayAmplitude = waveParams.amplitude; 
-            if (Math.abs(displayAmplitude) > 0.01) amplitudeValues.push(-displayAmplitude, displayAmplitude); 
-            if (amplitudeValues.indexOf(0) === -1 || amplitudeValues.length === 0 || (amplitudeValues.length > 0 && Math.abs(displayAmplitude) > 0.01) ) amplitudeValues.push(0); 
-            else if (amplitudeValues.length === 0 && Math.abs(displayAmplitude) < 0.01) amplitudeValues.push(0);  
-            amplitudeValues.sort((a, b) => a - b); 
-            const uniqueAmplitudeValues = [...new Set(amplitudeValues)]; 
-            for (const value of uniqueAmplitudeValues) { 
-                let skipLabel = false; 
-                if (Math.abs(value) < 0.001 && xAxisZeroScreenPos) { 
-                    const yZeroWorldPos = new THREE.Vector3(0, 0, 0); 
-                    const yZeroScreenPos = worldToScreen(yZeroWorldPos, camera, canvas); 
-                    const distBetweenZeros = Math.hypot( (yZeroScreenPos.x + yAxisXOffset) - xAxisZeroScreenPos.x,  yZeroScreenPos.y - (xAxisZeroScreenPos.y - xAxisYOffset)); 
-                    if (distBetweenZeros < 25 && Math.abs(displayAmplitude) > 0.01) skipLabel = true; 
-                } 
-                if (skipLabel) continue; 
-                const worldPos = new THREE.Vector3(0, value, 0); 
-                const currentYScreenPos = worldToScreen(worldPos, camera, canvas); 
-                const projectedVecForCheck = worldPos.clone().project(camera); 
-                if (Math.abs(projectedVecForCheck.y) > 1.1 || Math.abs(projectedVecForCheck.x) > 1.1) { 
-                    if (!(Math.abs(value) < 0.001 && Math.abs(projectedVecForCheck.y) <= 1.1)) continue; 
-                } 
-                const label = document.createElement('span'); 
-                label.classList.add('scale-label', 'y-axis-label'); 
-                label.textContent = value.toFixed(1); 
-                label.style.left = `${currentYScreenPos.x + yAxisXOffset}px`; 
-                label.style.top = `${currentYScreenPos.y}px`; 
-                label.style.transform = 'translateY(-50%) translateX(-100%)'; 
-                scaleContainerElement.appendChild(label); 
-            } 
+        const hiddenScaleConcepts = ['wave_scattering', 'atomic_form_factor', 'form_factor_2_centers', 'snell'];
+        const axisTitleConcepts = ['wavelength_amplitude', 'phase', 'interference', 'standing_waves', 'attenuation', 'doppler_effect',
+            'beats', 'phase_group_velocity', 'poynting_vector', 'wave_type_comparison', 'reflection_transmission'];
+        const scaleLabelPool = [];
+        let axisTitleX = null, axisTitleY = null;
+        // Labels are reused between frames instead of being rebuilt in the DOM.
+        function acquireScaleLabel(i) {
+            if (!scaleLabelPool[i]) {
+                const label = document.createElement('span');
+                label.className = 'scale-label';
+                scaleContainerElement.appendChild(label);
+                scaleLabelPool[i] = label;
+            }
+            return scaleLabelPool[i];
         }
-        
+        function updateScales() {
+            if (!scaleContainerElement || !renderer) return;
+            if (!axisTitleX) {
+                axisTitleX = document.createElement('span'); axisTitleX.id = 'axis-title-x'; axisTitleX.className = 'scale-label axis-title'; axisTitleX.textContent = 'Position x';
+                axisTitleY = document.createElement('span'); axisTitleY.id = 'axis-title-y'; axisTitleY.className = 'scale-label axis-title'; axisTitleY.textContent = 'Displacement';
+                scaleContainerElement.append(axisTitleX, axisTitleY);
+            }
+            const canvas = renderer.domElement;
+            const showLabels = !hiddenScaleConcepts.includes(currentConcept) && canvas.clientWidth > 0 && canvas.clientHeight > 0;
+            let used = 0;
+            const place = (text, left, top, transform) => {
+                const label = acquireScaleLabel(used++);
+                label.style.display = 'block';
+                label.textContent = text;
+                label.style.left = `${left}px`;
+                label.style.top = `${top}px`;
+                label.style.transform = transform;
+            };
+            if (showLabels) {
+                let xAxisZeroScreenPos = null;
+                const xAxisYOffset = 30;
+                const numXTicks = 11;
+                const xMin = -waveParams.extent / 2;
+                for (let i = 0; i < numXTicks; i++) {
+                    const value = xMin + i * (waveParams.extent / (numXTicks - 1));
+                    const worldPos = new THREE.Vector3(value, 0, 0);
+                    const screenPos = worldToScreen(worldPos, camera, canvas);
+                    const projected = worldPos.clone().project(camera);
+                    if (Math.abs(projected.x) > 1.1 || Math.abs(projected.y) > 1.1) {
+                        if (!(Math.abs(value) < 0.001 && Math.abs(projected.x) <= 1.1)) continue;
+                    }
+                    place(value.toFixed(Math.abs(value) < 0.01 && value !== 0 ? 2 : 0), screenPos.x, screenPos.y + xAxisYOffset, 'translateX(-50%)');
+                    if (Math.abs(value) < 0.001) xAxisZeroScreenPos = { x: screenPos.x, y: screenPos.y + xAxisYOffset };
+                }
+                const yAxisXOffset = -20;
+                const displayAmplitude = waveParams.amplitude;
+                const amplitudeValues = Math.abs(displayAmplitude) > 0.01 ? [-displayAmplitude, 0, displayAmplitude] : [0];
+                for (const value of amplitudeValues) {
+                    if (Math.abs(value) < 0.001 && xAxisZeroScreenPos && Math.abs(displayAmplitude) > 0.01) {
+                        const yZeroScreenPos = worldToScreen(new THREE.Vector3(0, 0, 0), camera, canvas);
+                        const distBetweenZeros = Math.hypot((yZeroScreenPos.x + yAxisXOffset) - xAxisZeroScreenPos.x, yZeroScreenPos.y - (xAxisZeroScreenPos.y - xAxisYOffset));
+                        if (distBetweenZeros < 25) continue;
+                    }
+                    const worldPos = new THREE.Vector3(0, value, 0);
+                    const screenPos = worldToScreen(worldPos, camera, canvas);
+                    const projected = worldPos.clone().project(camera);
+                    if (Math.abs(projected.y) > 1.1 || Math.abs(projected.x) > 1.1) {
+                        if (!(Math.abs(value) < 0.001 && Math.abs(projected.y) <= 1.1)) continue;
+                    }
+                    place(value.toFixed(1), screenPos.x + yAxisXOffset, screenPos.y, 'translateY(-50%) translateX(-100%)');
+                }
+            }
+            for (let i = used; i < scaleLabelPool.length; i++) scaleLabelPool[i].style.display = 'none';
+            const showTitles = showLabels && axisTitleConcepts.includes(currentConcept);
+            axisTitleX.style.display = axisTitleY.style.display = showTitles ? 'block' : 'none';
+        }
+
         function setupResizer() {
             const resizer = document.getElementById('drag-handle'); const leftPanel = document.getElementById('controls-panel'); let isResizing = false;
             resizer.addEventListener('mousedown', function(e) { e.preventDefault(); isResizing = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', stopResize); });
