@@ -231,7 +231,8 @@ function motifKey(m) { return m.p.toArray().map(x=>Math.round(x/EPS)).join(',')+
 function canonicalDirection(v) { const first=v.find(x=>x!==0); return first>0; }
 function candidates() {
  const list=[];
- for(let x=-2;x<=2;x++)for(let y=-2;y<=2;y++)for(let z=-2;z<=2;z++)if(canonicalDirection([x,y,z]) && [x,y,z].some(v=>Math.abs(v)===1))list.push([x,y,z]);
+ const m=['hexagonal','trigonal'].includes(currentSystem)?2:1;
+ for(let x=-m;x<=m;x++)for(let y=-m;y<=m;y++)for(let z=-m;z<=m;z++)if(canonicalDirection([x,y,z]) && [x,y,z].some(v=>Math.abs(v)===1))list.push([x,y,z]);
  return list.sort((a,b)=>a.reduce((s,v)=>s+Math.abs(v),0)-b.reduce((s,v)=>s+Math.abs(v),0));
 }
 function latticeOperation(q) {
@@ -336,7 +337,7 @@ function setupEventListeners(){
   $(id).addEventListener('input',event=>{
    const input=event.target;if(!input.matches('input'))return;
    const value=numberValue(input);if(value===null){input.setAttribute('aria-invalid','true');return;}
-   input.removeAttribute('aria-invalid');const row=input.closest('.input-row');for(const peer of row.querySelectorAll('input')){peer.value=value;peer.dataset.valid=value;}
+   input.removeAttribute('aria-invalid');const row=input.closest('.input-row');for(const peer of row.querySelectorAll('input')){if(peer!==input)peer.value=value;peer.dataset.valid=value;}
    const element=input.closest('.sym-element');if(element){const e=symmetryElements.find(x=>x.id===Number(element.dataset.id));e.p[input.dataset.axis]=value;}
    updateScene();if(id==='cell-display-controls')fitView();
   });
@@ -361,13 +362,13 @@ function drawCells(){
  for(let i=0;i<3;i++){const v=[0,0,0];v[i]=1.15;const end=linear(basis,V(v));unitCellVisuals.add(new THREE.ArrowHelper(end.clone().normalize(),new THREE.Vector3(),end.length(),[0xff0000,0x009900,0x0000ff][i],.08,.04));}
 }
 function drawElements(){
- const [nx,ny,nz]=ranges();
+ const [nx,ny,nz]=ranges(),planeSize=1.5*Math.max(1,...[[1,0,0],[0,1,0],[0,0,1]].map(v=>linear(basis,V(v)).length()));
  for(const e of symmetryElements){
   const d=e.d;if(['Identity','Translations'].includes(d.kind))continue;
   let template;
   if(d.h){
    const mat=new THREE.MeshBasicMaterial({color:d.kind==='Mirrors'?0xf87171:0x34d399,transparent:true,opacity:.22,side:THREE.DoubleSide,depthWrite:false});
-   template=new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.5),mat);template.quaternion.setFromUnitVectors(V([0,0,1]),d.n);
+   template=new THREE.Mesh(new THREE.PlaneGeometry(planeSize,planeSize),mat);template.quaternion.setFromUnitVectors(V([0,0,1]),d.n);
    const anchor=linear(basis,e.p),center=linear(basis,V([.5,.5,.5]));template.position.copy(center.addScaledVector(d.n,anchor.clone().sub(center).dot(d.n)));
   }else if(d.axis){
    const anchor=linear(basis,e.p),end=d.axis.clone().multiplyScalar(2.5);
@@ -506,6 +507,7 @@ function updateScene(){
                 };
                 
                 const onWheel = e => {
+                    e.preventDefault();
                     const next = this.object.zoom * (e.deltaY > 0 ? 0.9 : 1.1);
                     this.object.zoom = THREE.MathUtils.clamp(next, 0.1, 50);
                     this.object.updateProjectionMatrix();
@@ -518,7 +520,7 @@ function updateScene(){
                 // does not leave the model stuck in drag mode.
                 window.addEventListener('mouseup', onMouseUp);
                 window.addEventListener('mousemove', onMouseMove);
-                domElement.addEventListener('wheel', onWheel, { passive: true });
+                domElement.addEventListener('wheel', onWheel, { passive: false });
                 domElement.addEventListener('contextmenu', onContextMenu);
 
                 this.update = () => {};
