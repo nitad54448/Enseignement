@@ -419,6 +419,15 @@
             cursor: help; margin-left: 6px;
             font-family: serif;
         }
+
+        details.notes { border: 1px solid var(--panel-border); border-radius: 0.5rem; margin-bottom: 0.6rem; background: rgba(255,255,255,0.025); }
+        details.notes summary { cursor: pointer; padding: 0.55rem 0.8rem; font-weight: 600; color: #e5e7eb; font-size: 0.88em; }
+        details.notes .body { padding: 0 0.8rem 0.7rem; font-size: 0.82em; line-height: 1.55; color: #cbd5e1; }
+        details.notes .body p { margin: 0.4rem 0; }
+        details.notes .body ul { margin: 0.3rem 0 0.3rem 1.1rem; padding: 0; list-style: revert; }
+        details.notes .body li { margin-bottom: 0.3rem; }
+        details.notes .eq { font-family: ui-monospace, Menlo, Consolas, monospace; background: #0b1220; border-radius: 0.375rem;
+                            padding: 0.4rem 0.6rem; margin: 0.4rem 0; color: #6ee7b7; overflow-x: auto; white-space: pre; }
     </style>
 </head>
 <body>
@@ -483,11 +492,11 @@
                     <label class="switch"><input type="checkbox" id="toggleDuaneHunt" checked><span class="slider-toggle"></span></label>
                 </div>
                 <div class="slider-row" style="margin-top:10px;">
-                    <label for="yScaleSelect" style="display:block; margin-bottom:6px;">Intensity axis</label>
+                    <label for="yScaleSelect" style="display:block; margin-bottom:6px;">Photon-flux axis</label>
                     <select id="yScaleSelect">
-                        <option value="linear">Linear I</option>
-                        <option value="sqrt" selected>&#8730;I  (recommended)</option>
-                        <option value="log">Logarithmic I</option>
+                        <option value="linear">Linear N(λ)</option>
+                        <option value="sqrt" selected>&#8730;N(λ)  (recommended)</option>
+                        <option value="log">Logarithmic N(λ)</option>
                     </select>
                 </div>
             </div>
@@ -505,6 +514,31 @@
             <div class="control-group" id="overlaysListGroup" style="display: none;">
                 <h3><span class="section-num">5</span>Overlays <span id="overlayCount" class="count-badge">0</span></h3>
                 <div id="overlaysList"></div>
+            </div>
+
+            <div class="control-group">
+                <h3>Notes</h3>
+                <details class="notes" open><summary>What is plotted</summary><div class="body">
+                    <p>The vertical axis is the <b>photon flux per unit wavelength</b>, N(&lambda;), in arbitrary units per &Aring;ngstr&ouml;m: the number of photons, not the energy they carry. The <i>X-Ray Filters</i> page uses the same quantity, so the two pages show the same continuum shape.</p>
+                    <p>The energy flux would be N(&lambda;)&middot;hc/&lambda;. The continuum is then proportional to (&lambda;/&lambda;<sub>min</sub> &minus; 1)/&lambda;&sup3; and peaks at 1.5&nbsp;&lambda;<sub>min</sub>; as a photon flux it falls as 1/&lambda;&sup2; and peaks at 2&nbsp;&lambda;<sub>min</sub>.</p>
+                </div></details>
+                <details class="notes"><summary>Equations</summary><div class="body">
+                    <div class="eq">&lambda;<sub>min</sub> = hc/(eV) = 12.398 / V[kV]  &Aring;   (Duane&ndash;Hunt)
+continuum:  N(&lambda;) = K&middot;i&middot;Z&middot;(&lambda;/&lambda;<sub>min</sub> &minus; 1)/&lambda;&sup2;
+K lines:    area = K<sub>K</sub>&middot;i&middot;(U &minus; 1)<sup>1.67</sup>,  U = V/V<sub>K</sub>
+shape:      Lorentzian (natural width), K&alpha;<sub>1</sub> : K&alpha;<sub>2</sub> = 2 : 1
+output:     N<sub>out</sub> = N&middot;exp(&minus;&mu;<sub>anode</sub>&rho;x &minus; &mu;<sub>Be</sub>&rho;t)</div>
+                    <p>Kramers' law gives the energy per unit frequency, &prop; Z(&nu;<sub>max</sub> &minus; &nu;). Dividing by h&nu; gives photons per unit frequency, and d&nu; = c&nbsp;d&lambda;/&lambda;&sup2; converts to wavelength.</p>
+                </div></details>
+                <details class="notes"><summary>Absorption in the tube</summary><div class="body">
+                    <p>Photons are absorbed in the anode on their way out (depth from the Kanaya&ndash;Okayama range, take-off angle 20&deg;) and in a 0.25&nbsp;mm beryllium window. This removes the long-wavelength part of the continuum and puts a step at the anode's own K edge. Without it, the photon number would diverge logarithmically at long wavelength.</p>
+                </div></details>
+                <details class="notes"><summary>Normalisation and limits</summary><div class="body"><ul>
+                    <li>Intensities are relative. The K-line scale is fixed so that, for Cu at 40&nbsp;kV and before absorption, the energy in the K lines is 35&nbsp;% of the energy in the continuum.</li>
+                    <li>The anode attenuation uses the Bragg&ndash;Pierce form with a K-edge jump (no L or M edges): do not read absolute values from it. The Be coefficient is fitted to NIST (about 10&nbsp;% from 1 to 10&nbsp;keV).</li>
+                    <li>Only K&alpha;<sub>1,2</sub>, K&beta; and L&alpha;/L&beta; lines are modelled. Detector resolution is not applied, so the natural line widths are shown.</li>
+                    <li>The <i>X-Ray Filters</i> page uses the same photon-flux units but a simpler source: no anode or window absorption, and a line intensity &prop; (V &minus; V<sub>K</sub>)<sup>1.5</sup>. Peak-to-continuum ratios therefore differ between the two pages.</li>
+                </ul></div></details>
             </div>
         </div>
 
@@ -534,25 +568,25 @@
 
   
             // ----------------------------------------------------------------
-            //  NORMALISATION
-            //  The two scale factors are fixed by an *integrated* (energy-budget)
-            //  criterion, not by a peak-height criterion.  Integrating Kramers'
-            //  law analytically:
-            //      ∫ I_brems dλ  =  K_BREMS · i · Z / (2 λ_min²)   ∝  i·Z·V²
-            //  which recovers the classic  η ≈ 1.1e-9·Z·V  efficiency scaling.
-            //  K_CHAR is then set so that at Cu / 40 kV the total K-line output
-            //  is ≈ 35 % of the total continuum output — the right order for a
-            //  sealed Cu tube at overvoltage ratio U ≈ 4.5.
+            //  UNITS AND NORMALISATION
+            //  The plotted quantity is the PHOTON FLUX per unit wavelength,
+            //  N(λ) [arbitrary units per Å] (photons per second, not energy).
+            //  This is the same quantity as in the "X-Ray Filters" page.
+            //  The energy flux would be N(λ)·hc/λ.
             //
-            //  NOTE: peak *height* is NOT a free parameter any more — it follows
-            //  from the integrated intensity divided by the line width, which is
-            //  the physically correct chain.  With the default 130 eV detector
-            //  this gives a Cu Kα1 peak ≈ 37× the local continuum (a realistic
-            //  measured value); with the detector set to 0 eV it gives ≈ 1400×,
-            //  which is the true natural-linewidth ratio.
+            //  Continuum :  N(λ) = K_BREMS · i · Z · (λ/λ_min − 1) / λ²
+            //  K lines   :  area = K_CHAR · i · (U − 1)^n  (photons), U = V/V_K
+            //
+            //  K_CHAR is fixed by an ENERGY-BUDGET criterion: for a Cu tube at
+            //  40 kV, before any absorption, the energy carried by the K lines
+            //  (photons × hc/λ) is 35 % of the energy carried by the continuum,
+            //  K_BREMS·i·Z·hc / (2 λ_min²).  That gives K_CHAR = 10.14.
+            //  Peak heights follow from the line area divided by the line
+            //  width (no free parameter): with natural widths only, the Cu Kα1
+            //  peak is about 1400 times the local continuum.
             // ----------------------------------------------------------------
-            const K_BREMS      = 1.0;      // overall scaling of Kramers' law (arbitrary units)
-            const K_CHAR       = 6.7;      // characteristic scaling, fixed by the criterion above
+            const K_BREMS      = 1.0;      // overall scaling of Kramers' law (arbitrary units of photon flux per Å)
+            const K_CHAR       = 10.14;    // characteristic scaling (photon units), fixed by the criterion above
             const LINE_EXPONENT_N = 1.67;  // exponent in  I_line ∝ i·(U−1)^n   (Worthington–Tomlin)
             const L_INTENSITY_FACTOR = 0.05;  // L shell fluorescence yield is much lower than K
 
@@ -733,30 +767,35 @@
             }
 
             /**
-             * Kramers' law for the continuous (Bremsstrahlung) spectrum.
+             * Kramers' law for the continuous (Bremsstrahlung) spectrum, as a PHOTON
+             * flux per unit wavelength.
              *
-             * Kramers' law is flat in FREQUENCY:  I(ν) ∝ Z·(ν_max − ν).
-             * Changing variable with dν = c/λ²·dλ gives the wavelength form
-             *   I_brems(λ) dλ = K · i · Z · (λ/λ_min − 1) · dλ / λ³
-             * i.e. 1/λ³, not 1/λ². This matters: the 1/λ³ form peaks at exactly
-             * 1.5·λ_min (the observed value) and has a convergent integral,
-             *   ∫ I dλ = K·i·Z / (2 λ_min²)  ∝  i·Z·V²,
-             * whereas a 1/λ² form peaks at 2·λ_min and diverges logarithmically.
+             * Kramers' law gives the energy per unit frequency:  I(ν) ∝ Z·(ν_max − ν).
+             * Dividing by the photon energy hν gives the photon flux per unit
+             * frequency, N(ν) ∝ Z·(ν_max − ν)/ν, and dν = c/λ²·dλ turns it into
+             *   N(λ) dλ = K · i · Z · (λ/λ_min − 1) · dλ / λ².
+             * (The energy flux per unit wavelength is this times hc/λ, i.e. it falls as
+             * 1/λ³ and peaks at 1.5·λ_min; the photon flux peaks at 2·λ_min.)
+             * Without absorption the photon number diverges logarithmically at long
+             * wavelength; in a real tube the anode and the window make it finite.
              */
             function bremsstrahlung(lambda_A, lambda_min_A, i_mA, Z) {
                 if (lambda_A <= lambda_min_A) return 0;
                 return K_BREMS * i_mA * Z * (lambda_A / lambda_min_A - 1)
-                       / (lambda_A * lambda_A * lambda_A);
+                       / (lambda_A * lambda_A);
             }
 
             /**
-             * Mass attenuation coefficient of beryllium [cm²/g].
-             * Photoelectric power law + a roughly constant scattering floor.
-             * Accurate to ~15 % over 1–20 keV, which is ample here.
+             * Mass attenuation coefficient of beryllium [cm²/g]:
+             * photoelectric power law + an almost constant scattering term,
+             *   μ/ρ = 603.9·E^−3.121 + 0.19   (E in keV).
+             * Fitted to the NIST XCOM values at 1 keV (604 cm²/g) and 10 keV
+             * (0.647 cm²/g); it reproduces them within about 10 % from 1 to 10 keV,
+             * and is only indicative above (e.g. ≈ 0.24 at 20 keV).
              */
             function muRho_Be(E_keV) {
                 if (E_keV <= 0) return MU_MAX;
-                return Math.min(MU_MAX, 600 * Math.pow(E_keV, -2.9) + 0.22);
+                return Math.min(MU_MAX, 603.9 * Math.pow(E_keV, -3.121) + 0.19);
             }
 
             /**
@@ -805,7 +844,8 @@
 
             /**
              * Build the list of characteristic emission lines for the current
-             * voltage.  Each entry = { lambda_A, intensity, profile, label }.
+             * voltage.  Each entry = { lambda_A, intensity, profile, label }, where
+             * `intensity` is the line AREA in photon-flux units (same units as the continuum).
              * Intensity of a K line :   I_K = C · i · (U − 1)^n,  U = V / V_edge
              * with n ≈ 1.67 (Worthington–Tomlin).  The overvoltage must enter as
              * the DIMENSIONLESS ratio U: using (V − V_edge) in absolute kV makes
@@ -1255,9 +1295,9 @@
                 ctx.rotate(-Math.PI / 2);
                 ctx.textAlign = "center";
                 ctx.font = `600 ${baseTitleSize}px ${AXIS_FONT_FAMILY}`;
-                ctx.fillText(yScale === 'sqrt' ? "Intensity (arb. u., sqrt scale)"
-                           : yScale === 'log'  ? "Intensity (arb. u., log)"
-                           : "Intensity (arb. u.)", 0, 0);
+                ctx.fillText(yScale === 'sqrt' ? "Photon flux (arb. u. / Å, sqrt scale)"
+                           : yScale === 'log'  ? "Photon flux (arb. u. / Å, log)"
+                           : "Photon flux (arb. u. / Å)", 0, 0);
                 ctx.restore();
 
                 // X-axis titles

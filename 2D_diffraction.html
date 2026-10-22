@@ -63,7 +63,7 @@
             <div class="control-group">
                 <p class="text-sm text-gray-400">
                     1. Select atom type & click on the crystal canvas to add it.<br>
-                    2. Adjust controls to see their effect on the pattern. Diffraction intensities are in log scale.<br>
+                    2. Adjust controls to see their effect on the pattern. The spot area is proportional to the intensity (other scales are available below).<br>
                     3. The calculations are made in P-type cell, some shallow points might appear due to rounding errors.<br>
                 </p>
             </div>
@@ -92,10 +92,10 @@
         <div id="drag-handle"></div>
 
         <div id="results-area">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                 <div class="bg-white p-4 shadow-md rounded-lg flex flex-col gap-4">
                     <h2 class="text-lg font-semibold">Crystal Structure</h2>
-                    <div class="plot-grid flex-grow">
+                    <div class="plot-grid">
                         <div id="real-y-axis" class="y-axis-labels"></div>
                         <div id="real-x-axis" class="x-axis-labels"></div>
                         <div class="plot-area canvas-wrapper"><canvas id="real-space-canvas"></canvas></div>
@@ -111,6 +111,19 @@
                            <input type="range" id="fb-slider" min="1" max="80" value="29" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                        </div>
                    </div>
+                   <div class="space-y-4 pt-4 border-t">
+                        <h3 class="font-semibold text-gray-700">Cell and amplitude damping</h3>
+                        <div>
+                            <label for="cell-a-slider" class="block mb-2 text-sm font-medium text-gray-700">Cell parameter a: <span id="cell-a-value" class="font-bold">4.0</span> &Aring;</label>
+                            <input type="range" id="cell-a-slider" min="2" max="12" value="4" step="0.1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <label for="damp-b-slider" class="block mb-2 text-sm font-medium text-gray-700">Amplitude damping B: <span id="damp-b-value" class="font-bold">5.0</span> &Aring;&sup2;</label>
+                            <input type="range" id="damp-b-slider" min="0" max="15" value="5" step="0.1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            <p class="text-xs text-gray-500 mt-1">Every atom's amplitude is multiplied by exp(&minus;B&middot;s&sup2;), with s = sin&theta;/&lambda;. B adds two effects: the finite size of the atom (form factor f(s) &asymp; f<sub>0</sub>&middot;exp(&minus;B<sub>f</sub>s&sup2;)) and the thermal motion (Debye&ndash;Waller, B<sub>T</sub> = 8&pi;&sup2;&lang;u&sup2;&rang;): B = B<sub>f</sub> + B<sub>T</sub>. B = 0 gives point atoms with a constant f.</p>
+                        </div>
+                        <p id="model-info" class="text-xs text-gray-500"></p>
+                   </div>
                 </div>
                 <div class="bg-white p-4 shadow-md rounded-lg flex flex-col gap-4">
                      <div class="flex justify-between items-center">
@@ -123,13 +136,22 @@
                             </div>
                         </div>
                     </div>
-                    <div class="plot-grid flex-grow">
+                    <div class="plot-grid">
                         <div id="diffraction-y-axis" class="y-axis-labels"></div>
                         <div id="diffraction-x-axis" class="x-axis-labels"></div>
                         <div class="plot-area canvas-wrapper"><canvas id="diffraction-canvas"></canvas></div>
                     </div>
                     <div class="space-y-4 pt-4 border-t">
                         <h3 class="font-semibold text-gray-700">Diffraction Controls</h3>
+
+                        <div>
+                            <label for="intensity-scale" class="block mb-2 text-sm font-medium text-gray-700">Intensity scale</label>
+                            <select id="intensity-scale" class="w-full border border-gray-300 rounded-md p-1.5 text-sm bg-white">
+                                <option value="linear" selected>Linear: spot area &prop; I</option>
+                                <option value="sqrt">Square root: spot area &prop; |F|</option>
+                                <option value="log">Logarithmic: spot area &prop; log(1+I)</option>
+                            </select>
+                        </div>
 
                         <div>
    <label for="hk-range-slider" class="block mb-2 text-sm font-medium text-gray-700">Range (h,k): <span id="hk-range-value" class="font-bold">4</span></label>
@@ -170,6 +192,12 @@
             const toggleHkLabels = document.getElementById('toggle-hk-labels');
             const spotSizeSlider = document.getElementById('spot-size-slider');
             const spotSizeValue = document.getElementById('spot-size-value');
+            const cellASlider = document.getElementById('cell-a-slider');
+            const cellAValue = document.getElementById('cell-a-value');
+            const dampBSlider = document.getElementById('damp-b-slider');
+            const dampBValue = document.getElementById('damp-b-value');
+            const modelInfo = document.getElementById('model-info');
+            const intensityScaleSelect = document.getElementById('intensity-scale');
 
             const realCtx = realCanvas.getContext('2d');
             const diffractionCtx = diffractionCanvas.getContext('2d');
@@ -180,40 +208,66 @@
             let diffractionGridSize = 4;
             let showHkLabels = true;
             let diffractionSpotSizeFactor = 5;
+            // Atomic model. s = sin(theta)/lambda = |G|/2 = sqrt(h^2+k^2)/(2a) for the square cell of side a.
+            let cellA = 4.0;           // cell parameter, angstrom
+            let dampB = 5.0;           // angstrom^2: amplitude factor exp(-B s^2) = atomic size (Bf) + thermal motion (8 pi^2 <u^2>)
+            let intensityScale = 'linear';
 
             const ATOM_COLOR_A = '#3b82f6', ATOM_COLOR_B = '#ef4444';
             const MIN_ATOM_RADIUS = 3, MAX_ATOM_RADIUS = 15;
             
+            // Amplitude scattered by one atom at (h,k): f0 · exp(−B s²), with B = B_f (atomic size) + B_T (thermal motion)
+            const sOf = (h, k) => Math.hypot(h, k) / (2 * cellA);
+            function atomAmplitude(type, s) {
+                return scatteringFactors[type] * Math.exp(-dampB * s * s);
+            }
+
             function calculateDiffractionPattern() {
                 diffractionIntensities = [];
                 if (atoms.length === 0) return;
+                let maxI = 0;
                 for (let h = -diffractionGridSize; h <= diffractionGridSize; h++) {
                     for (let k = -diffractionGridSize; k <= diffractionGridSize; k++) {
                         let F_real = 0, F_imag = 0;
+                        const s = sOf(h, k);
                         atoms.forEach(atom => {
                             const phase = 2 * Math.PI * (h * atom.x + k * atom.y);
-                            const f = scatteringFactors[atom.type];
+                            const f = atomAmplitude(atom.type, s);
                             F_real += f * Math.cos(phase); F_imag += f * Math.sin(phase);
                         });
-                        let intensity = F_real * F_real + F_imag * F_imag;
-                        diffractionIntensities.push({ h, k, intensity: (intensity < 1e-5) ? 0 : intensity });
+                        const intensity = F_real * F_real + F_imag * F_imag;
+                        diffractionIntensities.push({ h, k, intensity });
+                        if ((h || k) && intensity > maxI) maxI = intensity;
                     }
                 }
+                // Zero what is only rounding noise, relative to the strongest reflection (the intensities fall with s)
+                const floor = 1e-10 * Math.max(maxI, 1e-30);
+                diffractionIntensities.forEach(spot => { if (spot.intensity < floor) spot.intensity = 0; });
+            }
+
+            // Sizes below are defined for a 500 px canvas and scale with the actual canvas width.
+            const REF_SIZE = 500;
+            const uiScale = size => Math.max(0.5, size / REF_SIZE);
+            // Start a drawing pass in CSS pixels (the canvas buffer is larger on high-density screens).
+            function beginDraw(ctx) {
+                const d = window.devicePixelRatio || 1;
+                ctx.setTransform(d, 0, 0, d, 0, 0);
+                return ctx.canvas.clientWidth;
             }
 
             function resizeCanvases() {
+                const d = window.devicePixelRatio || 1;
                 [realCanvas, diffractionCanvas].forEach(canvas => {
                     const wrapper = canvas.parentElement;
                     if (wrapper && wrapper.clientWidth > 0) {
                         const size = wrapper.clientWidth;
-                        canvas.width = size; canvas.height = size;
+                        const px = Math.round(size * d);
+                        if (canvas.width !== px || canvas.height !== px) { canvas.width = px; canvas.height = px; }
                     }
                 });
                 redrawAll();
             }
 
-
-        
             function drawAxisLabels(yId, xId, centered, isDiffraction, theme) {
                 const yEl = document.getElementById(yId), xEl = document.getElementById(xId);
                 yEl.innerHTML = ''; xEl.innerHTML = '';
@@ -224,7 +278,7 @@
                 xEl.className = `x-axis-labels flex justify-between text-center text-xs pt-1 ${textColor}`;
 
                 if (isDiffraction) {
-                    const size = diffractionCanvas.width;
+                    const size = diffractionCanvas.clientWidth;
                     const { padding, extent } = diffractionPlotMetrics(size);
                     const tickPercent = index => 100 * (padding + index * extent / diffractionGridSize) / size;
                     // Create a label for every integer from -hk to +hk.
@@ -262,7 +316,7 @@
             }
 
             function drawGridOnCanvas(ctx) {
-                const size = ctx.canvas.width;
+                const size = beginDraw(ctx);
                 ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, size, size);
                 ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
                 for (let i = 0; i <= 10; i++) {
@@ -273,12 +327,12 @@
             }
 
             function diffractionPlotMetrics(size) {
-                const padding = Math.min(32, size / 4);
+                const padding = Math.min(0.07 * size, size / 4);
                 return { center: size / 2, extent: size / 2 - padding, padding };
             }
 
             function drawDiffractionGrid(ctx) {
-                const size = ctx.canvas.width;
+                const size = beginDraw(ctx);
                 const { center, extent } = diffractionPlotMetrics(size);
                 ctx.fillStyle = 'black'; ctx.fillRect(0, 0, size, size);
                 ctx.strokeStyle = '#374151'; ctx.lineWidth = 0.5;
@@ -293,57 +347,76 @@
                 ctx.beginPath(); ctx.moveTo(center, 0); ctx.lineTo(center, size); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(0, center); ctx.lineTo(size, center); ctx.stroke();
             }
-            
-            function getAtomRadius(type) {
+
+            // Atom radius grows with f0; scaled with the canvas
+            function getAtomRadius(type, ui) {
                 const normalized = (scatteringFactors[type] - 1) / 79;
-                return MIN_ATOM_RADIUS + normalized * (MAX_ATOM_RADIUS - MIN_ATOM_RADIUS);
+                return (MIN_ATOM_RADIUS + normalized * (MAX_ATOM_RADIUS - MIN_ATOM_RADIUS)) * ui;
             }
 
             function drawAtoms() {
                 drawGridOnCanvas(realCtx);
-                const size = realCanvas.width;
+                const size = realCanvas.clientWidth, ui = uiScale(size), maxR = MAX_ATOM_RADIUS * ui;
+                realCtx.lineWidth = 2 * ui;
                 atoms.forEach((atom) => {
                     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
                         const x = (atom.x + i) * size, y = (1 - (atom.y + j)) * size;
-                        if (x > -MAX_ATOM_RADIUS && x < size + MAX_ATOM_RADIUS && y > -MAX_ATOM_RADIUS && y < size + MAX_ATOM_RADIUS) {
+                        if (x > -maxR && x < size + maxR && y > -maxR && y < size + maxR) {
                             realCtx.fillStyle = atom.type === 'A' ? ATOM_COLOR_A : ATOM_COLOR_B;
-                            realCtx.strokeStyle = 'white'; realCtx.lineWidth = 2;
-                            realCtx.beginPath(); realCtx.arc(x, y, getAtomRadius(atom.type), 0, 7); realCtx.fill(); realCtx.stroke();
+                            realCtx.strokeStyle = 'white';
+                            realCtx.beginPath(); realCtx.arc(x, y, getAtomRadius(atom.type, ui), 0, 7); realCtx.fill(); realCtx.stroke();
                         }
                     }
                 });
             }
 
+            // Displayed intensity n in [0,1] for the chosen scale; spot area and brightness follow n.
+            function displayValue(intensity, maxI) {
+                const rel = intensity / maxI;
+                if (intensityScale === 'sqrt') return Math.sqrt(rel);
+                if (intensityScale === 'log') return Math.log(1 + intensity) / Math.log(1 + maxI);
+                return rel;
+            }
+
             function drawDiffractionPattern() {
                 drawDiffractionGrid(diffractionCtx);
-                const size = diffractionCanvas.width;
+                const size = diffractionCanvas.clientWidth, ui = uiScale(size);
                 const { center, extent } = diffractionPlotMetrics(size);
-                let maxI = Math.max(1e-9, ...diffractionIntensities.filter(s => s.h || s.k).map(s => s.intensity));
-                const maxLogI = Math.log(1 + maxI);
+                const spots = diffractionIntensities.filter(sp => sp.h || sp.k);
+                const maxI = Math.max(1e-30, ...spots.map(sp => sp.intensity));
+                const rMax = (2 + 1.2 * diffractionSpotSizeFactor) * ui;      // radius of the strongest spot
+                const fontPx = Math.max(9, Math.round(10 * ui));
 
-                diffractionIntensities.forEach(spot => {
-                    if ((!spot.h && !spot.k) || !spot.intensity) return;
-                    const normI = Math.log(1 + spot.intensity) / maxLogI;
-                    if (normI < 0.01) return;
-                    const radius = 1 + diffractionSpotSizeFactor * normI;
+                spots.forEach(spot => {
+                    if (!spot.intensity) return;
+                    const n = displayValue(spot.intensity, maxI);
+                    if (n < 0.002) return;
+                    const radius = Math.max(1.2 * ui, rMax * Math.sqrt(n));     // area ∝ displayed intensity
                     const x = center + (spot.h / diffractionGridSize) * extent, y = center - (spot.k / diffractionGridSize) * extent;
-                    const colorVal = Math.floor(200 * normI) + 55;
+                    const colorVal = Math.floor(200 * n) + 55;
                     diffractionCtx.fillStyle = `rgb(${colorVal},${colorVal},${colorVal})`;
                     diffractionCtx.beginPath(); diffractionCtx.arc(x, y, radius, 0, 7); diffractionCtx.fill();
-                    
-                    if (showHkLabels && normI >= 0.15) {
-                        diffractionCtx.fillStyle = '#fbbf24'; diffractionCtx.font = '10px Inter';
+
+                    if (showHkLabels && spot.intensity / maxI >= 0.02) {
+                        diffractionCtx.fillStyle = '#fbbf24'; diffractionCtx.font = `${fontPx}px Inter`;
                         diffractionCtx.textAlign = 'center'; diffractionCtx.textBaseline = 'middle';
-                        diffractionCtx.fillText(`${spot.h},${spot.k}`, x, y - 12);
+                        diffractionCtx.fillText(`${spot.h},${spot.k}`, x, y - radius - 6 * ui);
                     }
                 });
                 if (showHkLabels) {
-                    diffractionCtx.fillStyle = '#ef4444'; diffractionCtx.font = '10px Inter';
+                    diffractionCtx.fillStyle = '#ef4444'; diffractionCtx.font = `${fontPx}px Inter`;
                     diffractionCtx.textAlign = 'center'; diffractionCtx.textBaseline = 'middle';
-                    diffractionCtx.fillText('0,0', center, center - 10);
+                    diffractionCtx.fillText('0,0', center, center - 10 * ui);
                 }
             }
-            
+
+            // Reminder of what the model does at the edge of the plotted range
+            function updateModelInfo() {
+                const sEdge = diffractionGridSize / (2 * cellA);
+                const damp = Math.exp(-dampB * sEdge * sEdge);
+                modelInfo.innerHTML = `At (${diffractionGridSize},0): s = sin&theta;/&lambda; = ${sEdge.toFixed(2)} &Aring;<sup>&minus;1</sup>, each atom's amplitude is multiplied by ${damp.toFixed(2)} (intensity &times; ${(damp * damp).toFixed(3)}).`;
+            }
+
             function updateAtomList() {
                 const activeId = document.activeElement ? document.activeElement.id : null;
                 atomList.innerHTML = '';
@@ -364,6 +437,7 @@
             }
 
             function redrawAll() {
+                updateModelInfo();
                 calculateDiffractionPattern(); 
                 updateAtomList();
                 drawAxisLabels('real-y-axis', 'real-x-axis', false, false, 'light');
@@ -442,7 +516,15 @@
             fbSlider.addEventListener('input', handleScatteringFactorChange);
             hkRangeSlider.addEventListener('input', handleHkRangeChange);
             spotSizeSlider.addEventListener('input', handleSpotSizeChange);
+
+            cellASlider.addEventListener('input', () => { cellA = parseFloat(cellASlider.value); cellAValue.textContent = cellA.toFixed(1); redrawAll(); });
+            dampBSlider.addEventListener('input', () => { dampB = parseFloat(dampBSlider.value); dampBValue.textContent = dampB.toFixed(1); redrawAll(); });
+            intensityScaleSelect.addEventListener('change', () => { intensityScale = intensityScaleSelect.value; redrawAll(); });
             
+            // Follow the size of the plots (window, panel dragging) and of the screen's pixel ratio
+            const ro = new ResizeObserver(() => resizeCanvases());
+            ro.observe(realCanvas.parentElement);
+            ro.observe(diffractionCanvas.parentElement);
             window.addEventListener('resize', () => setTimeout(resizeCanvases, 50));
             setTimeout(resizeCanvases, 100);
         });

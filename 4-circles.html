@@ -258,7 +258,7 @@
         const clock = new THREE.Clock();
 
         const state = {
-            items: [], worldPos: [], visible: [],
+            items: [], worldPos: [], visible: [], vis: new Uint8Array(0), infoText: '',
             maxG: 1, pointRadius: 0.01, pointMesh: null, marker: null,
             R: 1 / 1.54, ewaldCenter: new THREE.Vector3(0, 0, -1 / 1.54),
             det: null, selected: null, selectedKey: null,
@@ -353,12 +353,14 @@
             const kout = [], koutCol = [], ext = [];
             let n = 0, nDiff = 0;
             state.visible.length = 0;
+            state.vis.fill(0);
             state.live.length = 0;
 
             state.items.forEach((p, i) => {
                 const w = state.worldPos[i].copy(p.pos).applyMatrix3(rot3);
                 p.I = Math.exp(-B * p.g * p.g / 2);              // Debye–Waller: exp(−2B s²), s = |g|/2
-                p.tol = Math.max(0.5 * p.g * mosaic, 1e-6);       // cap radius |g|·Δω/2
+                // cap radius |g|·Δω/2; for a perfect crystal (Δω = 0) the spot shows when the drawn point touches the sphere
+                p.tol = Math.max(0.5 * p.g * mosaic, 0.5 * state.pointRadius);
                 p.dev = w.distanceTo(C) - R;                      // distance from the Ewald sphere
                 p.diff = Math.abs(p.dev) <= p.tol;
                 p.part = p.diff ? 1 - Math.abs(p.dev) / p.tol : 0;   // partiality
@@ -381,6 +383,7 @@
                 mesh.setMatrixAt(n, _m4b.makeScale(p.scale, p.scale, p.scale).setPosition(p.pos));
                 mesh.setColorAt(n, _color.copy(COLOR_BG).lerp(p.diff ? COLOR_DIFF : COLOR_NORMAL, 0.2 + 0.8 * p.I));
                 state.visible.push(i);
+                state.vis[i] = 1;
                 n++;
                 if (p.diff && showRays) {
                     kout.push(C.x, C.y, C.z, w.x, w.y, w.z);
@@ -527,9 +530,9 @@
                     else if (LATTICE.has(id)) rebuildLattice();
                     else if (LAB.has(id)) {
                         if (rebuildLab()) {
-                            if (METHOD_BEAM_IDS.includes(id) && id !== 'showRings') clearExposure();   // new wavelength, new pattern
+                            if (METHOD_BEAM_IDS.includes(id)) clearExposure();   // new wavelength, new pattern
                             updateDiffraction();
-                            if (!['showLimiting', 'showRings'].includes(id)) fitCamera();
+                            if (id !== 'showLimiting') fitCamera();
                         }
                     }
                     else if (id === 'showInset') $('inset').style.display = el.checked ? 'block' : 'none';
@@ -736,6 +739,7 @@
 
             state.items = items;
             state.worldPos = items.map(() => new THREE.Vector3());
+            state.vis = new Uint8Array(items.length);   // 1 = drawn in the current frame
             state.maxG = base.reduce((m, p) => Math.max(m, p.g), 0) || 1;
             state.pointRadius = POINT_SCALE * Math.min(...basis.map(v => v.length()));
 
@@ -835,12 +839,32 @@
             return true;
         }
 
+        // Update a LineSegments object in place: the buffers only grow (doubling) when needed, and the
+        // draw range hides the unused part, so a scan does not allocate new geometry on every frame.
         function setLineSegments(lines, arr, colors) {
-            lines.geometry.dispose();
-            const geom = new THREE.BufferGeometry();
-            geom.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-            if (colors) geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-            lines.geometry = geom;
+            let geom = lines.geometry, pos = geom.getAttribute('position');
+            if (!pos || pos.array.length < arr.length) {
+                const cap = Math.max(arr.length, 2 * (pos ? pos.array.length : 0), 600);
+                geom.dispose();
+                geom = new THREE.BufferGeometry();
+                pos = new THREE.BufferAttribute(new Float32Array(cap), 3);
+                pos.setUsage(THREE.DynamicDrawUsage);
+                geom.setAttribute('position', pos);
+                if (colors) {
+                    const col = new THREE.BufferAttribute(new Float32Array(cap), 3);
+                    col.setUsage(THREE.DynamicDrawUsage);
+                    geom.setAttribute('color', col);
+                }
+                lines.geometry = geom;
+            }
+            pos.array.set(arr);
+            pos.needsUpdate = true;
+            if (colors) {
+                const col = geom.getAttribute('color');
+                col.array.set(colors);
+                col.needsUpdate = true;
+            }
+            geom.setDrawRange(0, arr.length / 3);
         }
 
         // Draw a set of spots on the 3D detector.
@@ -1073,13 +1097,13 @@
                 if (marker) {
                     marker.position.copy(p.pos);
                     marker.scale.setScalar(p.scale || 1);
-                    marker.visible = state.visible.includes(state.selected);
+                    marker.visible = state.vis[state.selected] === 1;
                 }
             } else {
                 text += '\nClick a reciprocal lattice point or a detector spot.';
                 if (marker) marker.visible = false;
             }
-            $('hklInfo').textContent = text;
+            if (text !== state.infoText) { state.infoText = text; $('hklInfo').textContent = text; }   // avoid a DOM write every frame
         }
 
         // ---------- View ----------

@@ -425,15 +425,17 @@
             switch(bravaisType) {
                 case 'P': return true;
                 case 'I': return (h + k + l) % 2 === 0;
-                case 'F': return (h%2===k%2) && (k%2===l%2);
+                case 'F': { const odd = n => Math.abs(n % 2); return odd(h) === odd(k) && odd(k) === odd(l); }   // all odd or all even, any sign
                 case 'C': return (h + k) % 2 === 0;
-                case 'R': return (-h + k + l) % 3 === 0;
+                case 'R': return true;   // the trigonal cell here uses rhombohedral axes (primitive): no absences.
+                          // (−h+k+l = 3n only applies to the hexagonal-axes setting.)
                 default: return true;
             }
         }
         
         function onCanvasClick(event) {
-            const pointsToTest = mainGroup.children.filter(obj => obj.isMesh);
+            const pointsToTest = [];
+            mainGroup.traverse(obj => { if (obj.isMesh && obj.userData.h !== undefined) pointsToTest.push(obj); });
             if (pointsToTest.length === 0) return;
 
             const canvasBounds = renderer.domElement.getBoundingClientRect();
@@ -490,7 +492,8 @@
                 } else if (document.getElementById('diffractionMethod').value === 'laue') {
                     const world_z = tempWorldPosition.z;
                     if (world_z < 0) {
-                        const lambda_diff = -tempWorldPosition.lengthSq() / (2 * world_z);
+                        // |g + (1/λ) ẑ| = 1/λ  ⇒  λ = −2 g_z / |g|²  (g_z < 0)
+                        const lambda_diff = -2 * world_z / tempWorldPosition.lengthSq();
                         const [min,max] = ['lambda_min','lambda_max'].map(id => parseFloat(document.getElementById(id).value));
                         if (!isNaN(min) && !isNaN(max) && lambda_diff >= min && lambda_diff <= max) {
                            isDiffracting = true; 
@@ -536,7 +539,10 @@
             for (let i = 0; i < numCrystallites; i++) {
                 const crystalliteGroup = new THREE.Group();
                 mainGroup.add(crystalliteGroup);
-                randomRotation.setFromEuler(new THREE.Euler(Math.random()*2*Math.PI, Math.random()*2*Math.PI, Math.random()*2*Math.PI));
+                {   // uniform random rotation (Shoemake's method)
+                    const u1 = Math.random(), u2 = 2*Math.PI*Math.random(), u3 = 2*Math.PI*Math.random();
+                    randomRotation.set(Math.sqrt(1-u1)*Math.sin(u2), Math.sqrt(1-u1)*Math.cos(u2), Math.sqrt(u1)*Math.sin(u3), Math.sqrt(u1)*Math.cos(u3));
+                }
                 crystalliteGroup.setRotationFromQuaternion(randomRotation);
 
                 pointSubset.forEach(p => {
