@@ -1,205 +1,1003 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thermocouple Seebeck Coefficient Calculator</title>
+    <title>Seebeck Charts - Thermocouple Seebeck Coefficients</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <link href="./dist/output.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        // Initialize theme before render to prevent flash
+        (function() {
+            try {
+                const saved = localStorage.getItem('seebeck-theme');
+                if (saved === 'light' || saved === 'dark') {
+                    document.documentElement.setAttribute('data-theme', saved);
+                } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                }
+            } catch (e) {}
+        })();
+    </script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
+        /* CSS Variables - Theme System */
+        :root {
+            --bg-page: #f1f5f9;
+            --bg-panel: #ffffff;
+            --bg-card: #f8fafc;
+            --bg-input: #ffffff;
+            --bg-plot: #ffffff;
+            --border: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --border-focus: #3b82f6;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-dim: #94a3b8;
+            --accent-blue: #2563eb;
+            --accent-blue-hover: #1d4ed8;
+            --accent-blue-soft: rgba(37, 99, 235, 0.1);
+            --color-s: #2563eb;
+            --color-spos: #059669;
+            --color-sneg: #dc2626;
+            --axis-line: #cbd5e1;
+            --axis-grid: #e2e8f0;
+            --axis-zero: #94a3b8;
+            --tooltip-bg: rgba(15, 23, 42, 0.92);
+            --tooltip-text: #f8fafc;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            --resizer-bg: #cbd5e1;
+            --resizer-hover: #3b82f6;
+        }
+
+        [data-theme="dark"] {
+            --bg-page: #0b0f19;
+            --bg-panel: #111827;
+            --bg-card: #1f2937;
+            --bg-input: #1e293b;
+            --bg-plot: #0d131f;
+            --border: #334155;
+            --border-hover: #475569;
+            --border-focus: #60a5fa;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --accent-blue: #3b82f6;
+            --accent-blue-hover: #60a5fa;
+            --accent-blue-soft: rgba(59, 130, 246, 0.15);
+            --color-s: #3b82f6;
+            --color-spos: #10b981;
+            --color-sneg: #ef4444;
+            --axis-line: #334155;
+            --axis-grid: #1e293b;
+            --axis-zero: #475569;
+            --tooltip-bg: rgba(15, 23, 42, 0.96);
+            --tooltip-text: #f8fafc;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            --resizer-bg: #334155;
+            --resizer-hover: #60a5fa;
+        }
+
+        * {
+            box-sizing: border-box;
             margin: 0;
-            background-color: #f0f0f0;
-            color: #e5e7eb; /* Default light text for dark theme */
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-main);
             display: flex;
             flex-direction: column;
             height: 100vh;
             overflow: hidden;
+            transition: background-color 0.2s ease, color 0.2s ease;
         }
+
+        /* Top Header Bar */
+        header.top-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.25rem;
+            height: 52px;
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--color-s), var(--color-spos));
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 1rem;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+        }
+
+        .header-title-group {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+        }
+
+        .header-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+        }
+
+        .header-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-icon:hover {
+            background-color: var(--border);
+            border-color: var(--border-hover);
+        }
+
+        .btn-icon svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* Main Workspace Container */
         #app-container {
             display: flex;
             width: 100%;
-            flex-grow: 1;
+            flex: 1;
             min-height: 0;
         }
+
+        /* Controls Sidebar */
         #controls-panel {
-            width: 380px;
-            min-width: 300px;
-            max-width: 600px;
+            width: 390px;
+            min-width: 320px;
+            max-width: 620px;
             flex-shrink: 0;
-            padding: 24px;
-            background-color: #111827; /* Dark blue-gray */
-            border-right: 1px solid #374151;
+            padding: 1.25rem;
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border);
             overflow-y: auto;
-            color: #d1d5db;
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            gap: 1.15rem;
         }
+
+        /* Resizer Drag Handle */
         #drag-handle {
             width: 6px;
             cursor: col-resize;
-            background-color: #374151;
+            background-color: var(--resizer-bg);
             flex-shrink: 0;
             transition: background-color 0.2s;
+            position: relative;
         }
-        #drag-handle:hover {
-            background-color: #3b82f6;
+
+        #drag-handle:hover, #drag-handle.dragging {
+            background-color: var(--resizer-hover);
         }
+
+        /* Panel Cards */
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        /* Inputs and Selects */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .form-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .form-label .unit-badge {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            font-family: monospace;
+        }
+
+        select.form-select {
+            width: 100%;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 6px;
+            padding: 0.6rem 0.75rem;
+            font-size: 0.88rem;
+            font-weight: 500;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        select.form-select:hover {
+            border-color: var(--border-hover);
+        }
+
+        select.form-select:focus {
+            border-color: var(--border-focus);
+            box-shadow: 0 0 0 3px var(--accent-blue-soft);
+        }
+
+        .select-desc-badge {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.65rem;
+            background-color: var(--bg-input);
+            border-radius: 6px;
+            border: 1px dashed var(--border);
+            font-size: 0.78rem;
+        }
+
+        .desc-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .desc-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-weight: 500;
+        }
+
+        .tag-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .tag-dot.pos { background-color: var(--color-spos); }
+        .tag-dot.neg { background-color: var(--color-sneg); }
+
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        input[type="number"].num-input {
+            width: 84px;
+            flex-shrink: 0;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 6px;
+            padding: 0.45rem 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            font-family: monospace;
+            text-align: right;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        input[type="number"].num-input:focus {
+            border-color: var(--border-focus);
+            box-shadow: 0 0 0 2px var(--accent-blue-soft);
+        }
+
+        /* Custom Range Slider */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            margin: 0.4rem 0;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+            border: 2px solid var(--bg-panel);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+            transition: transform 0.1s ease, background-color 0.15s ease;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+            border: 2px solid var(--bg-panel);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+
+        input[type="range"]:hover::-webkit-slider-thumb {
+            transform: scale(1.15);
+            background: var(--accent-blue-hover);
+        }
+
+        /* Preset Buttons */
+        .preset-row {
+            display: flex;
+            gap: 0.4rem;
+            margin-top: 0.65rem;
+            flex-wrap: wrap;
+        }
+
+        .btn-chip {
+            background-color: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            border-radius: 6px;
+            padding: 0.25rem 0.55rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-chip:hover {
+            border-color: var(--border-hover);
+            color: var(--text-main);
+            background-color: var(--border);
+        }
+
+        /* Live Inspection Card */
+        .live-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-input) 100%);
+            border: 1px solid var(--border);
+        }
+
+        .live-temp-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .live-temp-val {
+            font-size: 1.25rem;
+            font-weight: 700;
+            font-family: monospace;
+            color: var(--text-main);
+        }
+
+        .live-celsius {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.5rem;
+        }
+
+        .stat-box {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.65rem;
+            border-radius: 6px;
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border);
+            transition: transform 0.15s ease;
+        }
+
+        .stat-box.total {
+            border-left: 4px solid var(--color-s);
+        }
+
+        .stat-box.pos {
+            border-left: 4px solid var(--color-spos);
+        }
+
+        .stat-box.neg {
+            border-left: 4px solid var(--color-sneg);
+        }
+
+        .stat-label-wrap {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-name {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .stat-sub {
+            font-size: 0.72rem;
+            color: var(--text-dim);
+        }
+
+        .stat-val {
+            font-size: 1rem;
+            font-weight: 700;
+            font-family: monospace;
+            color: var(--text-main);
+        }
+
+        .stat-box.total .stat-val { color: var(--color-s); }
+        .stat-box.pos .stat-val { color: var(--color-spos); }
+        .stat-box.neg .stat-val { color: var(--color-sneg); }
+
+        /* Action Buttons */
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            background-color: var(--accent-blue);
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 0.65rem 1rem;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+            transition: background-color 0.15s ease, transform 0.1s ease;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--accent-blue-hover);
+        }
+
+        .btn-primary:active {
+            transform: scale(0.99);
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-secondary {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.45rem;
+            flex: 1;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 6px;
+            padding: 0.55rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--border);
+            border-color: var(--border-hover);
+        }
+
+        .btn-secondary svg, .btn-primary svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Visualization Area */
         #visualization-area {
             flex-grow: 1;
             position: relative;
-            background-color: #ffffff;
+            background-color: var(--bg-plot);
             min-width: 0;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
-            color: #1f2937;
+            padding: 1.25rem 1.5rem 1rem 1rem;
+            overflow: hidden;
         }
-        #plot-container, #plot-container svg {
+
+        #plot-container {
             width: 100%;
             height: 100%;
+            position: relative;
         }
-        /* Controls Styling */
-        #controls-panel h1 { font-size: 1.8em; margin-bottom: 8px; font-weight: 700; color: #ffffff; }
-        #controls-panel > p { font-size: 0.9em; margin-bottom: 24px; color: #9ca3af; line-height: 1.5; }
-        #controls-panel label { display: block; margin-bottom: 8px; font-weight: 500; color: #9ca3af; }
-        #controls-panel input[type="number"], #controls-panel select, #controls-panel button {
+
+        #plot-container svg {
             width: 100%;
-            background-color: #374151;
-            border: 1px solid #4b5563;
-            color: #e5e7eb;
-            border-radius: 0.375rem;
-            padding: 0.5rem;
+            height: 100%;
+            display: block;
         }
-        #controls-panel button {
-            background-color: #3b82f6; /* Light Blue */
+
+        /* D3 Chart Specific Styles */
+        .axis path, .axis .tick line {
+            stroke: var(--axis-line);
+        }
+
+        .axis .tick text {
+            fill: var(--text-muted);
+            font-size: 12px;
+            font-family: inherit;
+        }
+
+        .grid-line line {
+            stroke: var(--axis-grid);
+            stroke-dasharray: 2, 3;
+            stroke-opacity: 0.9;
+        }
+
+        .grid-line path {
+            display: none;
+        }
+
+        .zero-axis-line {
+            stroke: var(--axis-zero);
+            stroke-width: 1.5px;
+            stroke-dasharray: 4, 4;
+            pointer-events: none;
+        }
+
+        .axis-label {
+            font-size: 13px;
+            fill: var(--text-main);
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .plot-line {
+            fill: none;
+            stroke-width: 2.5px;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+            transition: opacity 0.2s ease, stroke-width 0.2s ease;
+        }
+
+        .plot-line.line-s { stroke: var(--color-s); }
+        .plot-line.line-spos { stroke: var(--color-spos); }
+        .plot-line.line-sneg { stroke: var(--color-sneg); }
+
+        /* Interactive Legend */
+        .legend-group {
+            user-select: none;
+        }
+
+        .legend-pill {
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: opacity 0.15s ease;
+        }
+
+        .legend-pill rect.pill-bg {
+            fill: var(--bg-panel);
+            stroke: var(--border);
+            stroke-width: 1px;
+            rx: 6px;
+        }
+
+        .legend-pill:hover rect.pill-bg {
+            stroke: var(--border-hover);
+        }
+
+        .legend-pill text {
+            font-size: 12px;
             font-weight: 500;
+            fill: var(--text-main);
         }
-        #controls-panel button:hover {
-             background-color: #2563eb; /* Darker Blue on hover */
+
+        /* Marker and Scrubber */
+        .marker-line {
+            stroke: var(--accent-blue);
+            stroke-width: 1.5px;
+            stroke-dasharray: 4, 3;
+            pointer-events: none;
         }
-        .control-group { margin-bottom: 1.5rem; }
-        .control-row { display: flex; align-items: center; gap: 1rem; }
-        input[type="range"] {
-            -webkit-appearance: none; appearance: none;
-            width: 100%; height: 6px; background: #4b5563;
-            border-radius: 3px; outline: none; opacity: 0.8; transition: opacity .2s;
-            flex-grow: 1;
+
+        .marker-handle {
+            fill: var(--accent-blue);
+            stroke: var(--bg-panel);
+            stroke-width: 2.5px;
+            cursor: ew-resize;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+            transition: r 0.15s ease;
         }
-        input[type="range"]:hover { opacity: 1; }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none; appearance: none;
-            width: 18px; height: 18px; background: #3b82f6; /* Light Blue */
-            cursor: pointer; border-radius: 50%;
+
+        .marker-handle:hover {
+            r: 7.5;
         }
-        input[type="range"]::-moz-range-thumb {
-            width: 18px; height: 18px; background: #3b82f6; /* Light Blue */
-            cursor: pointer; border-radius: 50%; border: 0;
+
+        .intersect-dot {
+            stroke: var(--bg-panel);
+            stroke-width: 2px;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
         }
-        .data-display { background-color: #1f2937; padding: 1rem; border-radius: 0.5rem; margin-top: 1.5rem; }
-        .data-display h2 { font-size: 1.2rem; font-weight: 600; color: #ffffff; margin-bottom: 1rem; }
-        .data-field { display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; margin-bottom: 0.5rem; }
-        .data-field .label { color: #9ca3af; }
-        .data-field .value { color: #e5e7eb; font-weight: 500; font-family: monospace; }
-        /* D3 Plot Styles */
-        .axis path, .axis .tick line { stroke: #d1d5db; }
-        .axis .tick text { fill: #4b5563; font-size: 14px; }
-        .axis-label { font-size: 16px; fill: #111827; font-weight: 500; }
-        .plot-line { fill: none; stroke-width: 2.5px; }
-        .legend-item { cursor: pointer; }
-        .legend-item text { font-size: 14px; user-select: none; }
-        .marker-line { stroke: #3b82f6; stroke-width: 1.5px; stroke-dasharray: 4 4; pointer-events: none; } /* Light Blue */
-        .marker-handle { fill: #3b82f6; stroke: #ffffff; stroke-width: 2px; cursor: ew-resize; } /* Light Blue */
-        .event-overlay { fill: none; pointer-events: all; }
+
+        .event-overlay {
+            fill: transparent;
+            cursor: crosshair;
+            pointer-events: all;
+        }
+
+        /* Chart Floating Tooltip */
+        .chart-tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: var(--tooltip-bg);
+            color: var(--tooltip-text);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: inherit;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(4px);
+            z-index: 20;
+            display: none;
+            line-height: 1.45;
+            min-width: 140px;
+        }
+
+        .chart-tooltip .tt-temp {
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            padding-bottom: 3px;
+        }
+
+        .chart-tooltip .tt-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .chart-tooltip .tt-key {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .chart-tooltip .tt-val {
+            font-family: monospace;
+            font-weight: 600;
+        }
+
         /* Footer */
-        footer {
+        footer.app-footer {
             width: 100%;
-            background-color: #ffffff;
-            padding: 8px 24px;
-            text-align: left;
-            font-size: 0.8em;
-            color: #4b5563;
-            border-top: 1px solid #e5e7eb;
+            background-color: var(--bg-panel);
+            padding: 6px 1.25rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             flex-shrink: 0;
+        }
+
+        .footer-ref {
+            display: flex;
+            gap: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            #app-container {
+                flex-direction: column;
+            }
+            #controls-panel {
+                width: 100% !important;
+                max-width: none;
+                height: 48%;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+            #drag-handle {
+                display: none;
+            }
+            #visualization-area {
+                height: 52%;
+                padding: 0.75rem;
+            }
+            .header-subtitle {
+                display: none;
+            }
         }
     </style>
 </head>
 <body>
 
+    <!-- Header -->
+    <header class="top-header">
+        <div class="header-brand">
+            <div class="header-icon" title="Seebeck Coefficient">S</div>
+            <div class="header-title-group">
+                <h1 class="header-title">Seebeck Charts</h1>
+                <span class="header-subtitle">Thermocouple Coefficients (NIST ITS-90)</span>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="theme-toggle-btn" class="btn-icon" title="Toggle Light/Dark Theme" aria-label="Toggle Theme">
+                <svg id="theme-icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+            </button>
+        </div>
+    </header>
+
     <div id="app-container">
-        <div id="controls-panel">
-            <h1>Seebeck Calculator</h1>
-            <p>Seebeck coefficient for standard thermocouples based on NIST ITS-90 data.</p>
+        <!-- Controls Panel -->
+        <aside id="controls-panel">
             
-            <div class="control-group">
-                <label for="thermo-type">Thermocouple Type</label>
-                <select id="thermo-type">
-                    <option value="S">Type S (Pt-10%Rh / Pt)</option>
-                    <option value="R">Type R (Pt-13%Rh / Pt)</option>
-                    <option value="B">Type B (Pt-30%Rh / Pt-6%Rh)</option>
-                    <option value="K" selected>Type K (Chromel / Alumel)</option>
-                    <option value="J">Type J (Iron / Constantan)</option>
-                    <option value="T">Type T (Copper / Constantan)</option>
-                    <option value="E">Type E (Chromel / Constantan)</option>
-                    <option value="N">Type N (Nicrosil / Nisil)</option>
-                </select>
-            </div>
-            
-            <div class="control-group">
-                <label for="temp-min-slider">Min Temperature, K</label>
-                <div class="control-row">
-                    <input type="range" id="temp-min-slider" step="1">
-                    <input type="number" id="temp-min-value" step="1" class="w-24">
+            <!-- Thermocouple Type Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Thermocouple Type</span>
+                </div>
+                <div class="form-group">
+                    <select id="thermo-type" class="form-select">
+                        <option value="K" selected>Type K (Chromel / Alumel)</option>
+                        <option value="J">Type J (Iron / Constantan)</option>
+                        <option value="T">Type T (Copper / Constantan)</option>
+                        <option value="E">Type E (Chromel / Constantan)</option>
+                        <option value="N">Type N (Nicrosil / Nisil)</option>
+                        <option value="S">Type S (Pt-10%Rh / Pt)</option>
+                        <option value="R">Type R (Pt-13%Rh / Pt)</option>
+                        <option value="B">Type B (Pt-30%Rh / Pt-6%Rh)</option>
+                    </select>
+                    <div class="select-desc-badge">
+                        <div class="desc-row">
+                            <span class="desc-tag">
+                                <span class="tag-dot pos"></span>
+                                <strong id="type-pos-name">Chromel</strong>
+                            </span>
+                            <span style="color: var(--text-dim);" id="type-pos-desc">Positive leg</span>
+                        </div>
+                        <div class="desc-row">
+                            <span class="desc-tag">
+                                <span class="tag-dot neg"></span>
+                                <strong id="type-neg-name">Alumel</strong>
+                            </span>
+                            <span style="color: var(--text-dim);" id="type-neg-desc">Negative leg</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="control-group">
-                <label for="temp-max-slider">Max Temperature, K</label>
-                <div class="control-row">
-                    <input type="range" id="temp-max-slider" step="1">
-                    <input type="number" id="temp-max-value" step="1" class="w-24">
+            <!-- Temperature Range Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Temperature Range</span>
+                    <span id="range-limit-hint" style="font-size: 0.72rem; color: var(--text-dim);">ITS-90 standard</span>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-label">
+                        <span>Min Temperature</span>
+                        <span class="unit-badge" id="min-celsius-badge">-- °C</span>
+                    </div>
+                    <div class="slider-row">
+                        <input type="range" id="temp-min-slider" step="1">
+                        <input type="number" id="temp-min-value" step="1" class="num-input">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-label">
+                        <span>Max Temperature</span>
+                        <span class="unit-badge" id="max-celsius-badge">-- °C</span>
+                    </div>
+                    <div class="slider-row">
+                        <input type="range" id="temp-max-slider" step="1">
+                        <input type="number" id="temp-max-value" step="1" class="num-input">
+                    </div>
+                </div>
+
+                <div class="preset-row">
+                    <button class="btn-chip" id="preset-full" type="button">Full Range</button>
+                    <button class="btn-chip" id="preset-room" type="button">0–100 °C (273–373 K)</button>
+                    <button class="btn-chip" id="preset-ambient" type="button">200–500 K</button>
+                    <button class="btn-chip" id="preset-high" type="button">High Temp</button>
                 </div>
             </div>
-            
-            <div class="data-display">
-          
-                <div class="data-field">
-                    <span class="label">Temperature</span>
-                    <span class="value" id="live-temp">--- K</span>
+
+            <!-- Live Inspection Card -->
+            <div class="card live-card">
+                <div class="card-header">
+                    <span class="card-title">Interactive Inspection</span>
+                    <span style="font-size: 0.72rem; color: var(--accent-blue);">Drag marker on chart</span>
                 </div>
-                <div class="data-field">
-                    <span class="label">S (Total)</span>
-                    <span class="value" id="live-s">--- µV/K</span>
+
+                <div class="live-temp-display">
+                    <div>
+                        <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Temperature T</span>
+                        <span class="live-temp-val" id="live-temp">--- K</span>
+                    </div>
+                    <span class="live-celsius" id="live-celsius">(-- °C)</span>
                 </div>
-                <div class="data-field">
-                    <span class="label">S+ (Pos. Leg)</span>
-                    <span class="value" id="live-s-pos">--- µV/K</span>
-                </div>
-                <div class="data-field">
-                    <span class="label">S- (Neg. Leg)</span>
-                    <span class="value" id="live-s-neg">--- µV/K</span>
+
+                <div class="stat-grid">
+                    <div class="stat-box total">
+                        <div class="stat-label-wrap">
+                            <span class="stat-name">S (Total)</span>
+                            <span class="stat-sub">S+ − S- net Seebeck</span>
+                        </div>
+                        <span class="stat-val" id="live-s">--- µV/K</span>
+                    </div>
+
+                    <div class="stat-box pos">
+                        <div class="stat-label-wrap">
+                            <span class="stat-name">S+ (Pos. Leg)</span>
+                            <span class="stat-sub" id="live-pos-label">---</span>
+                        </div>
+                        <span class="stat-val" id="live-s-pos">--- µV/K</span>
+                    </div>
+
+                    <div class="stat-box neg">
+                        <div class="stat-label-wrap">
+                            <span class="stat-name">S- (Neg. Leg)</span>
+                            <span class="stat-sub" id="live-neg-label">---</span>
+                        </div>
+                        <span class="stat-val" id="live-s-neg">--- µV/K</span>
+                    </div>
                 </div>
             </div>
 
-            <div class="control-group" style="margin-top: 1.5rem;">
-                <button id="save-data-button">Save Data as .csv</button>
+            <!-- Data & Export Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Export Options</span>
+                </div>
+                <div class="btn-group">
+                    <button id="save-data-button" class="btn-primary" type="button">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Download CSV Dataset
+                    </button>
+                    <div class="btn-row">
+                        <button id="export-svg-btn" class="btn-secondary" type="button">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                <polyline points="21 15 16 10 5 21"></polyline>
+                            </svg>
+                            Export SVG
+                        </button>
+                        <button id="export-png-btn" class="btn-secondary" type="button">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                                <circle cx="12" cy="13" r="4"></circle>
+                            </svg>
+                            Export PNG
+                        </button>
+                    </div>
+                </div>
             </div>
 
-        </div>
+        </aside>
 
-        <div id="drag-handle"></div>
+        <!-- Drag handle between panel and visualization -->
+        <div id="drag-handle" title="Drag to resize panel"></div>
 
-        <div id="visualization-area">
+        <!-- Visualization Area -->
+        <main id="visualization-area">
             <div id="plot-container"></div>
-        </div>
+            <div id="chart-tooltip" class="chart-tooltip"></div>
+        </main>
     </div>
-    
-    <footer>
-        NitaD, Univ Paris-Saclay, 15 July 2025.
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div>
+            <strong>Seebeck Charts</strong> &mdash; Thermocouple Analysis Tool
+        </div>
+        <div class="footer-ref">
+            <span>NitaD, Univ Paris-Saclay</span>
+            <span>&bull;</span>
+            <span>NIST ITS-90 Standards</span>
+        </div>
     </footer>
 
     <script>
@@ -207,7 +1005,7 @@
             // --- DATA SOURCES ---
             // Absolute Seebeck Coefficients S(T) in µV/K. T is in Kelvin.
             // Source: Z. Zuo, et al., "A new method for calculating the Seebeck coefficient of thermocouples", 2013
-            // and other established physics literature.
+            // and NIST ITS-90 thermocouple literature.
             const materialData = {
                 'Pt': { name: 'Pt', ranges: [
                     { min: 13.8, max: 273.15, coeffs: [0.03816, 0.02381, -5.73e-5] },
@@ -249,19 +1047,20 @@
                 ]}
             };
 
-            // --- Thermocouple Type Definitions ---
+            // Thermocouple Type Definitions
+            // tempMaxK is set to the valid range of the polynomial equations so data is always continuous
             const typeDefinitions = {
-                'S': { name: 'Type S', pos: 'Pt10Rh', neg: 'Pt', tempMinK: 273.15, tempMaxK: 2041.95 },
-                'R': { name: 'Type R', pos: 'Pt13Rh', neg: 'Pt', tempMinK: 273.15, tempMaxK: 2041.25 },
-                'B': { name: 'Type B', pos: 'Pt30Rh', neg: 'Pt6Rh', tempMinK: 273.15, tempMaxK: 2093.15 },
-                'K': { name: 'Type K', pos: 'Chromel', neg: 'Alumel', tempMinK: 73.15, tempMaxK: 1645.15 },
-                'J': { name: 'Type J', pos: 'Iron', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 1023 },
-                'T': { name: 'Type T', pos: 'Copper', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 673.15 },
-                'E': { name: 'Type E', pos: 'Chromel', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 1273.15 },
-                'N': { name: 'Type N', pos: 'Nicrosil', neg: 'Nisil', tempMinK: 73.15, tempMaxK: 1573.15 },
+                'K': { name: 'Type K', pos: 'Chromel', neg: 'Alumel', tempMinK: 73.15, tempMaxK: 1273.15, posDesc: 'Chromel (Ni-90%, Cr-10%)', negDesc: 'Alumel (Ni-95%, Al, Mn, Si)' },
+                'J': { name: 'Type J', pos: 'Iron', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 1023, posDesc: 'Iron (Fe)', negDesc: 'Constantan (Cu-55%, Ni-45%)' },
+                'T': { name: 'Type T', pos: 'Copper', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 673.15, posDesc: 'Copper (High purity Cu)', negDesc: 'Constantan (Cu-55%, Ni-45%)' },
+                'E': { name: 'Type E', pos: 'Chromel', neg: 'Constantan', tempMinK: 73.15, tempMaxK: 1273.15, posDesc: 'Chromel (Ni-90%, Cr-10%)', negDesc: 'Constantan (Cu-55%, Ni-45%)' },
+                'N': { name: 'Type N', pos: 'Nicrosil', neg: 'Nisil', tempMinK: 73.15, tempMaxK: 1573.15, posDesc: 'Nicrosil (Ni-Cr-Si)', negDesc: 'Nisil (Ni-Si-Mg)' },
+                'S': { name: 'Type S', pos: 'Pt10Rh', neg: 'Pt', tempMinK: 273.15, tempMaxK: 1500, posDesc: 'Pt-10%Rh (Platinum-Rhodium)', negDesc: 'Pure Platinum (Pt)' },
+                'R': { name: 'Type R', pos: 'Pt13Rh', neg: 'Pt', tempMinK: 273.15, tempMaxK: 1500, posDesc: 'Pt-13%Rh (Platinum-Rhodium)', negDesc: 'Pure Platinum (Pt)' },
+                'B': { name: 'Type B', pos: 'Pt30Rh', neg: 'Pt6Rh', tempMinK: 273.15, tempMaxK: 2000, posDesc: 'Pt-30%Rh (Platinum-Rhodium)', negDesc: 'Pt-6%Rh (Platinum-Rhodium)' }
             };
 
-            // --- Calculation Functions ---
+            // Calculation Functions
             function getAbsoluteSeebeck(tempK, material) {
                 if (!materialData[material]) return null;
                 const ranges = materialData[material].ranges;
@@ -288,7 +1087,7 @@
                 if (!typeInfo) return { s: [], s_pos: [], s_neg: [] };
 
                 const dataS = [], dataSPos = [], dataSNeg = [];
-                const steps = Math.ceil(tempMaxK - tempMinK);
+                const steps = Math.max(120, Math.ceil(tempMaxK - tempMinK));
                 const tempStep = (tempMaxK - tempMinK) / steps;
 
                 for (let i = 0; i <= steps; i++) {
@@ -297,26 +1096,66 @@
                     const s_neg = getAbsoluteSeebeck(tempK, typeInfo.neg);
                     
                     if (s_pos !== null && s_neg !== null) {
-                         const s_total = s_pos - s_neg;
-                         dataS.push({ temp: tempK, val: s_total });
-                         dataSPos.push({ temp: tempK, val: s_pos });
-                         dataSNeg.push({ temp: tempK, val: s_neg });
+                        const s_total = s_pos - s_neg;
+                        dataS.push({ temp: tempK, val: s_total });
+                        dataSPos.push({ temp: tempK, val: s_pos });
+                        dataSNeg.push({ temp: tempK, val: s_neg });
                     }
                 }
                 return { s: dataS, s_pos: dataSPos, s_neg: dataSNeg };
             }
 
-            // --- D3 Plot Setup ---
-            const margin = { top: 40, right: 30, bottom: 60, left: 70 };
+            // Theme Toggle Management
+            const themeToggleBtn = document.getElementById('theme-toggle-btn');
+            function updateThemeIcon(theme) {
+                const icon = document.getElementById('theme-icon');
+                if (theme === 'dark') {
+                    icon.innerHTML = `
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    `;
+                } else {
+                    icon.innerHTML = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>`;
+                }
+            }
+
+            const initialTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            updateThemeIcon(initialTheme);
+
+            function toggleTheme() {
+                const current = document.documentElement.getAttribute('data-theme') || 'dark';
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                updateThemeIcon(next);
+                try {
+                    localStorage.setItem('seebeck-theme', next);
+                } catch (e) {}
+                drawPlot();
+            }
+            themeToggleBtn.addEventListener('click', toggleTheme);
+
+            // D3 Plot Setup
+            const margin = { top: 35, right: 35, bottom: 55, left: 75 };
             const container = d3.select("#plot-container");
-            let svg, xScale, yScale, xAxisGroup, yAxisGroup;
+            const tooltip = d3.select("#chart-tooltip");
+            let svg, xScale, yScale, xAxisGroup, yAxisGroup, gridXGroup, gridYGroup, zeroLine;
             let lineS, lineSPos, lineSNeg;
             let pathS, pathSPos, pathSNeg;
             let xAxisLabel, yAxisLabel, legend;
-            let marker, markerLine, markerHandle;
+            let marker, markerLine, markerHandle, intersectDots;
             let eventOverlay;
             let isPlotInitialized = false;
-            const lineColors = { s: '#3b82f6', s_pos: '#22c55e', s_neg: '#ef4444' };
+            let currentTempK = null;
+
+            // Visibility states of curves for interactive legend
+            const curveVisibility = { s: true, s_pos: true, s_neg: true };
 
             function initPlot() {
                 if (isPlotInitialized) return;
@@ -328,6 +1167,14 @@
                 xScale = d3.scaleLinear();
                 yScale = d3.scaleLinear();
 
+                // Background grid groups
+                gridXGroup = plotArea.append("g").attr("class", "grid-line grid-x");
+                gridYGroup = plotArea.append("g").attr("class", "grid-line grid-y");
+
+                // Zero horizontal line
+                zeroLine = plotArea.append("line").attr("class", "zero-axis-line");
+
+                // Axis groups
                 xAxisGroup = plotArea.append("g").attr("class", "axis x-axis");
                 yAxisGroup = plotArea.append("g").attr("class", "axis y-axis");
 
@@ -338,34 +1185,54 @@
                     .attr("id", "plot-area-clip")
                     .append("rect");
 
-                pathSPos = plotArea.append("path").attr("class", "plot-line").style("stroke", lineColors.s_pos).attr("clip-path", "url(#plot-area-clip)");
-                pathSNeg = plotArea.append("path").attr("class", "plot-line").style("stroke", lineColors.s_neg).attr("clip-path", "url(#plot-area-clip)");
-                pathS = plotArea.append("path").attr("class", "plot-line").style("stroke", lineColors.s).attr("clip-path", "url(#plot-area-clip)");
+                // Curves
+                pathSPos = plotArea.append("path").attr("class", "plot-line line-spos").attr("clip-path", "url(#plot-area-clip)");
+                pathSNeg = plotArea.append("path").attr("class", "plot-line line-sneg").attr("clip-path", "url(#plot-area-clip)");
+                pathS = plotArea.append("path").attr("class", "plot-line line-s").attr("clip-path", "url(#plot-area-clip)");
 
-                lineS = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val));
-                lineSPos = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val));
-                lineSNeg = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val));
+                lineS = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val)).curve(d3.curveMonotoneX);
+                lineSPos = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val)).curve(d3.curveMonotoneX);
+                lineSNeg = d3.line().x(d => xScale(d.temp)).y(d => yScale(d.val)).curve(d3.curveMonotoneX);
                 
-                legend = svg.append("g").attr("class", "legend");
+                // Legend
+                legend = svg.append("g").attr("class", "legend-group");
+
+                // Marker / Cursor
                 marker = plotArea.append("g").attr("class", "marker");
                 markerLine = marker.append("line").attr("class", "marker-line").attr("y1", 0);
-                markerHandle = marker.append("circle").attr("class", "marker-handle").attr("r", 6);
+                
+                // Dots at intersections
+                intersectDots = {
+                    s: marker.append("circle").attr("class", "intersect-dot").attr("r", 5).style("fill", "var(--color-s)"),
+                    s_pos: marker.append("circle").attr("class", "intersect-dot").attr("r", 4.5).style("fill", "var(--color-spos)"),
+                    s_neg: marker.append("circle").attr("class", "intersect-dot").attr("r", 4.5).style("fill", "var(--color-sneg)")
+                };
+
+                markerHandle = marker.append("circle").attr("class", "marker-handle").attr("r", 6.5);
                 eventOverlay = plotArea.append("rect").attr("class", "event-overlay");
 
-                eventOverlay.call(d3.drag().on("start drag", handleDrag));
+                // Drag & Hover Interactions
+                const dragBehavior = d3.drag()
+                    .on("start drag", handlePointerEvent)
+                    .on("end", () => tooltip.style("display", "none"));
+
+                eventOverlay
+                    .call(dragBehavior)
+                    .on("mousemove", handlePointerEvent)
+                    .on("mouseleave", () => tooltip.style("display", "none"));
             }
 
             function drawPlot() {
                 const bounds = container.node().getBoundingClientRect();
                 if (bounds.width <= 0) return;
-                const height = bounds.height > 0 ? bounds.height : bounds.width * 0.6;
+                const height = bounds.height > 0 ? bounds.height : bounds.width * 0.58;
                 const width = bounds.width;
 
                 initPlot();
 
                 svg.attr("viewBox", `0 0 ${width} ${height}`);
-                const plotWidth = width - margin.left - margin.right;
-                const plotHeight = height - margin.top - margin.bottom;
+                const plotWidth = Math.max(10, width - margin.left - margin.right);
+                const plotHeight = Math.max(10, height - margin.top - margin.bottom);
                 
                 svg.select("#plot-area-clip rect").attr("width", plotWidth).attr("height", plotHeight);
 
@@ -378,95 +1245,207 @@
                 const { s, s_pos, s_neg } = getPlotData(type, tempMin, tempMax);
 
                 const allData = [...s, ...s_pos, ...s_neg];
-                const yDomain = allData.length > 0 ? d3.extent(allData, d => d.val) : [0, 1];
-                const yPadding = (yDomain[1] - yDomain[0]) * 0.1 || 1;
+                const yDomain = allData.length > 0 ? d3.extent(allData, d => d.val) : [-10, 50];
+                const ySpan = Math.abs(yDomain[1] - yDomain[0]);
+                const yPadding = ySpan * 0.12 || 2;
+
+                // Ensure zero is included in plot range if appropriate
+                const yMin = Math.min(yDomain[0] - yPadding, 0);
+                const yMax = Math.max(yDomain[1] + yPadding, 0);
 
                 xScale.domain([tempMin, tempMax]).range([0, plotWidth]);
-                yScale.domain([yDomain[0] - yPadding, yDomain[1] + yPadding]).range([plotHeight, 0]);
+                yScale.domain([yMin, yMax]).range([plotHeight, 0]).nice();
 
-                xAxisGroup.attr("transform", `translate(0,${plotHeight})`).call(d3.axisBottom(xScale).ticks(7));
-                yAxisGroup.call(d3.axisLeft(yScale));
+                // Grid lines
+                gridXGroup.attr("transform", `translate(0,${plotHeight})`)
+                    .call(d3.axisBottom(xScale).ticks(8).tickSize(-plotHeight).tickFormat(""));
+                gridYGroup.call(d3.axisLeft(yScale).ticks(8).tickSize(-plotWidth).tickFormat(""));
 
-                xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 15).text("Temperature (K)");
-                yAxisLabel.attr("y", 15).attr("x", 0 - (margin.top + plotHeight / 2)).attr("dy", "1em").text("Seebeck Coefficient (µV/K)");
+                // Zero line
+                if (yScale.domain()[0] <= 0 && yScale.domain()[1] >= 0) {
+                    zeroLine
+                        .style("display", null)
+                        .attr("x1", 0)
+                        .attr("x2", plotWidth)
+                        .attr("y1", yScale(0))
+                        .attr("y2", yScale(0));
+                } else {
+                    zeroLine.style("display", "none");
+                }
 
-                pathS.datum(s).attr("d", lineS);
-                pathSPos.datum(s_pos).attr("d", lineSPos);
-                pathSNeg.datum(s_neg).attr("d", lineSNeg);
+                // Axes
+                xAxisGroup.attr("transform", `translate(0,${plotHeight})`)
+                    .call(d3.axisBottom(xScale).ticks(8).tickFormat(d => `${d} K`));
+                yAxisGroup.call(d3.axisLeft(yScale).ticks(8));
+
+                xAxisLabel.attr("x", margin.left + plotWidth / 2).attr("y", height - 14).text("Temperature T (Kelvin)");
+                yAxisLabel.attr("y", 22).attr("x", 0 - (margin.top + plotHeight / 2)).attr("dy", "1em").text("Seebeck Coefficient S (µV/K)");
+
+                // Render Paths
+                pathS.datum(s).attr("d", lineS).style("opacity", curveVisibility.s ? 1 : 0.08);
+                pathSPos.datum(s_pos).attr("d", lineSPos).style("opacity", curveVisibility.s_pos ? 1 : 0.08);
+                pathSNeg.datum(s_neg).attr("d", lineSNeg).style("opacity", curveVisibility.s_neg ? 1 : 0.08);
                 
                 markerLine.attr("y2", plotHeight);
-                
+                eventOverlay.attr("width", plotWidth).attr("height", plotHeight);
+
+                // Build Interactive Legend
                 const typeInfo = typeDefinitions[type];
                 const legendData = [
-                    { label: `S (Total)`, color: lineColors.s, path: pathS },
-                    { label: `S+ (${materialData[typeInfo.pos].name})`, color: lineColors.s_pos, path: pathSPos },
-                    { label: `S- (${materialData[typeInfo.neg].name})`, color: lineColors.s_neg, path: pathSNeg },
+                    { key: 's', label: `S (Total)`, color: 'var(--color-s)', path: pathS },
+                    { key: 's_pos', label: `S+ (${materialData[typeInfo.pos].name})`, color: 'var(--color-spos)', path: pathSPos },
+                    { key: 's_neg', label: `S- (${materialData[typeInfo.neg].name})`, color: 'var(--color-sneg)', path: pathSNeg },
                 ];
+
                 legend.selectAll("*").remove();
-                const legendItems = legend.selectAll(".legend-item").data(legendData).enter().append("g")
-                    .attr("class", "legend-item")
-                    .attr("transform", (d, i) => `translate(${margin.left + i * 120}, 20)`)
+                
+                let currentOffset = width - margin.right;
+                const legendPills = [];
+
+                legendData.slice().reverse().forEach((d) => {
+                    const textWidth = d.label.length * 7.5 + 34;
+                    currentOffset -= (textWidth + 10);
+                    legendPills.push({ ...d, x: currentOffset, width: textWidth });
+                });
+
+                const legendItems = legend.selectAll(".legend-pill")
+                    .data(legendPills.reverse())
+                    .enter().append("g")
+                    .attr("class", "legend-pill")
+                    .attr("transform", d => `translate(${Math.max(margin.left, d.x)}, 14)`)
+                    .style("opacity", d => curveVisibility[d.key] ? 1 : 0.4)
                     .on("click", function(event, d) {
-                        const isVisible = d.path.style("opacity") !== "0.1";
-                        d.path.style("opacity", isVisible ? 0.1 : 1);
-                        d3.select(this).style("opacity", isVisible ? 0.5 : 1);
+                        curveVisibility[d.key] = !curveVisibility[d.key];
+                        d.path.style("opacity", curveVisibility[d.key] ? 1 : 0.08);
+                        d3.select(this).style("opacity", curveVisibility[d.key] ? 1 : 0.4);
+                        if (currentTempK !== null) updateMarkerAndData(currentTempK);
                     });
-                
-                legendItems.append("rect").attr("width", 18).attr("height", 3).attr("y", -4).attr("fill", d => d.color);
-                legendItems.append("text").attr("x", 24).attr("y", 0).attr("dy", "0.32em").text(d => d.label);
-                
-                eventOverlay.attr("width", plotWidth).attr("height", plotHeight);
-                
-                const initialTemp = (tempMin + tempMax) / 2;
-                updateMarkerAndData(initialTemp);
+
+                legendItems.append("rect")
+                    .attr("class", "pill-bg")
+                    .attr("width", d => d.width)
+                    .attr("height", 22)
+                    .attr("y", -11);
+
+                legendItems.append("circle")
+                    .attr("cx", 12)
+                    .attr("cy", 0)
+                    .attr("r", 4.5)
+                    .style("fill", d => d.color);
+
+                legendItems.append("text")
+                    .attr("x", 22)
+                    .attr("y", 0)
+                    .attr("dy", "0.34em")
+                    .text(d => d.label);
+
+                // Initial or preserved marker position
+                if (currentTempK === null || currentTempK < tempMin || currentTempK > tempMax) {
+                    currentTempK = (tempMin + tempMax) / 2;
+                }
+                updateMarkerAndData(currentTempK);
             }
             
-            function handleDrag(event) {
+            function handlePointerEvent(event) {
                 const plotWidth = xScale.range()[1];
-                const mouseX = Math.max(0, Math.min(plotWidth, event.x));
+                const mouseCoords = d3.pointer(event, eventOverlay.node());
+                const mouseX = Math.max(0, Math.min(plotWidth, mouseCoords[0]));
                 const tempK = xScale.invert(mouseX);
+                currentTempK = tempK;
                 updateMarkerAndData(tempK);
+
+                // Tooltip positioning
+                const bounds = container.node().getBoundingClientRect();
+                const tooltipX = mouseCoords[0] + margin.left + 15;
+                const tooltipY = Math.min(bounds.height - 110, Math.max(20, mouseCoords[1] + margin.top - 40));
+
+                const type = document.getElementById('thermo-type').value;
+                const typeInfo = typeDefinitions[type];
+                const s_pos = getAbsoluteSeebeck(tempK, typeInfo.pos);
+                const s_neg = getAbsoluteSeebeck(tempK, typeInfo.neg);
+
+                if (s_pos !== null && s_neg !== null) {
+                    const s_total = s_pos - s_neg;
+                    tooltip
+                        .style("display", "block")
+                        .style("left", `${tooltipX}px`)
+                        .style("top", `${tooltipY}px`)
+                        .html(`
+                            <div class="tt-temp">${tempK.toFixed(1)} K (${(tempK - 273.15).toFixed(1)} °C)</div>
+                            <div class="tt-row"><span class="tt-key" style="color:var(--color-s);">● S(total)</span><span class="tt-val">${s_total.toFixed(2)} µV/K</span></div>
+                            <div class="tt-row"><span class="tt-key" style="color:var(--color-spos);">● S+</span><span class="tt-val">${s_pos.toFixed(2)} µV/K</span></div>
+                            <div class="tt-row"><span class="tt-key" style="color:var(--color-sneg);">● S-</span><span class="tt-val">${s_neg.toFixed(2)} µV/K</span></div>
+                        `);
+                }
             }
 
             function updateMarkerAndData(tempK) {
-                marker.attr("transform", `translate(${xScale(tempK)},0)`);
+                const xPos = xScale(tempK);
+                marker.attr("transform", `translate(${xPos},0)`);
                 
                 const type = document.getElementById('thermo-type').value;
                 const typeInfo = typeDefinitions[type];
                 const s_pos = getAbsoluteSeebeck(tempK, typeInfo.pos);
                 const s_neg = getAbsoluteSeebeck(tempK, typeInfo.neg);
 
+                const celsius = tempK - 273.15;
                 document.getElementById('live-temp').textContent = `${tempK.toFixed(1)} K`;
+                document.getElementById('live-celsius').textContent = `(${celsius >= 0 ? '+' : ''}${celsius.toFixed(1)} °C)`;
 
                 if (s_pos !== null && s_neg !== null) {
                     const s_total = s_pos - s_neg;
-                    markerHandle.style("display", null).attr("cy", yScale(s_total));
-                    document.getElementById('live-s').textContent = `${s_total.toFixed(2)} µV/K`;
-                    document.getElementById('live-s-pos').textContent = `${s_pos.toFixed(2)} µV/K`;
-                    document.getElementById('live-s-neg').textContent = `${s_neg.toFixed(2)} µV/K`;
+                    const yPosTotal = yScale(s_total);
+                    const yPosPos = yScale(s_pos);
+                    const yPosNeg = yScale(s_neg);
+
+                    markerHandle.style("display", null).attr("cy", yPosTotal);
+
+                    // Update intersection dots
+                    intersectDots.s
+                        .style("display", curveVisibility.s ? null : "none")
+                        .attr("cy", yPosTotal);
+                    intersectDots.s_pos
+                        .style("display", curveVisibility.s_pos ? null : "none")
+                        .attr("cy", yPosPos);
+                    intersectDots.s_neg
+                        .style("display", curveVisibility.s_neg ? null : "none")
+                        .attr("cy", yPosNeg);
+
+                    document.getElementById('live-s').textContent = `${s_total >= 0 ? '+' : ''}${s_total.toFixed(2)} µV/K`;
+                    document.getElementById('live-s-pos').textContent = `${s_pos >= 0 ? '+' : ''}${s_pos.toFixed(2)} µV/K`;
+                    document.getElementById('live-s-neg').textContent = `${s_neg >= 0 ? '+' : ''}${s_neg.toFixed(2)} µV/K`;
                 } else {
                     markerHandle.style("display", "none");
+                    intersectDots.s.style("display", "none");
+                    intersectDots.s_pos.style("display", "none");
+                    intersectDots.s_neg.style("display", "none");
+
                     document.getElementById('live-s').textContent = `--- µV/K`;
                     document.getElementById('live-s-pos').textContent = `--- µV/K`;
                     document.getElementById('live-s-neg').textContent = `--- µV/K`;
                 }
             }
 
+            // Export CSV Dataset
             function exportDataFile() {
                 const type = document.getElementById('thermo-type').value;
                 const tempMin = +document.getElementById('temp-min-value').value;
                 const tempMax = +document.getElementById('temp-max-value').value;
                 const { s, s_pos, s_neg } = getPlotData(type, tempMin, tempMax);
 
-                let csvContent = "# Seebeck Coefficient Data\n";
-                csvContent += `# Thermocouple Type: ${typeDefinitions[type].name}\n`;
-                csvContent += `# Temperature Range: ${tempMin} K to ${tempMax} K\n`;
+                let csvContent = "# Seebeck Charts - Thermocouple Seebeck Coefficient Data\n";
+                csvContent += `# Thermocouple: ${typeDefinitions[type].name} (${typeDefinitions[type].posDesc} / ${typeDefinitions[type].negDesc})\n`;
+                csvContent += `# Temperature Range: ${tempMin} K to ${tempMax} K (${(tempMin - 273.15).toFixed(1)} C to ${(tempMax - 273.15).toFixed(1)} C)\n`;
+                csvContent += "# Standard: NIST ITS-90 polynomials\n";
                 csvContent += "# ---\n";
-                csvContent += "Temperature(K),S_total(uV/K),S_pos(uV/K),S_neg(uV/K)\n";
+                csvContent += "Temperature_K,Temperature_C,S_total_uV_per_K,S_pos_uV_per_K,S_neg_uV_per_K\n";
 
                 for (let i = 0; i < s.length; i++) {
+                    const tK = s[i].temp;
+                    const tC = tK - 273.15;
                     const row = [
-                        s[i].temp.toFixed(2),
+                        tK.toFixed(2),
+                        tC.toFixed(2),
                         s[i].val.toFixed(4),
                         s_pos[i].val.toFixed(4),
                         s_neg[i].val.toFixed(4)
@@ -478,13 +1457,135 @@
                 const link = document.createElement("a");
                 const url = URL.createObjectURL(blob);
                 link.setAttribute("href", url);
-                link.setAttribute("download", `seebeck_data_type_${type}.csv`);
+                link.setAttribute("download", `seebeck_charts_type_${type}_${tempMin}-${tempMax}K.csv`);
                 link.style.visibility = 'hidden';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
             }
 
+            // Export SVG Chart Image
+            function exportSVGFile() {
+                if (!svg) return;
+                const type = document.getElementById('thermo-type').value;
+                const svgNode = svg.node().cloneNode(true);
+
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                const bgColor = isDark ? '#0d131f' : '#ffffff';
+                const textColor = isDark ? '#f8fafc' : '#0f172a';
+                const colorS = isDark ? '#3b82f6' : '#2563eb';
+                const colorSPos = isDark ? '#10b981' : '#059669';
+                const colorSNeg = isDark ? '#ef4444' : '#dc2626';
+                const axisColor = isDark ? '#334155' : '#cbd5e1';
+                const gridColor = isDark ? '#1e293b' : '#e2e8f0';
+
+                svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                
+                // Add rect for background
+                const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                bgRect.setAttribute('width', '100%');
+                bgRect.setAttribute('height', '100%');
+                bgRect.setAttribute('fill', bgColor);
+                svgNode.insertBefore(bgRect, svgNode.firstChild);
+
+                // Add embedded CSS for standalone viewing
+                const styleElem = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+                styleElem.textContent = `
+                    text { font-family: 'Inter', system-ui, sans-serif; }
+                    .axis text { fill: ${textColor}; font-size: 12px; }
+                    .axis path, .axis line { stroke: ${axisColor}; }
+                    .grid-line line { stroke: ${gridColor}; stroke-dasharray: 2, 3; }
+                    .zero-axis-line { stroke: ${axisColor}; stroke-dasharray: 4, 4; stroke-width: 1.5px; }
+                    .axis-label { fill: ${textColor}; font-size: 13px; font-weight: 600; }
+                    .line-s { stroke: ${colorS}; stroke-width: 2.5px; fill: none; }
+                    .line-spos { stroke: ${colorSPos}; stroke-width: 2.5px; fill: none; }
+                    .line-sneg { stroke: ${colorSNeg}; stroke-width: 2.5px; fill: none; }
+                    .pill-bg { fill: ${isDark ? '#111827' : '#ffffff'}; stroke: ${axisColor}; }
+                    .legend-pill text { fill: ${textColor}; font-size: 12px; }
+                `;
+                svgNode.insertBefore(styleElem, svgNode.firstChild);
+
+                const serializer = new XMLSerializer();
+                const svgString = serializer.serializeToString(svgNode);
+                const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `seebeck_chart_type_${type}.svg`;
+                link.click();
+                URL.revokeObjectURL(url);
+            }
+
+            // Export PNG Chart Image
+            function exportPNGFile() {
+                if (!svg) return;
+                const type = document.getElementById('thermo-type').value;
+                const bounds = container.node().getBoundingClientRect();
+                const width = Math.max(800, bounds.width * 2);
+                const height = Math.max(500, bounds.height * 2);
+
+                const svgNode = svg.node().cloneNode(true);
+                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                const bgColor = isDark ? '#0d131f' : '#ffffff';
+                const textColor = isDark ? '#f8fafc' : '#0f172a';
+                const colorS = isDark ? '#3b82f6' : '#2563eb';
+                const colorSPos = isDark ? '#10b981' : '#059669';
+                const colorSNeg = isDark ? '#ef4444' : '#dc2626';
+                const axisColor = isDark ? '#334155' : '#cbd5e1';
+                const gridColor = isDark ? '#1e293b' : '#e2e8f0';
+
+                svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                svgNode.setAttribute('width', width);
+                svgNode.setAttribute('height', height);
+
+                const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                bgRect.setAttribute('width', '100%');
+                bgRect.setAttribute('height', '100%');
+                bgRect.setAttribute('fill', bgColor);
+                svgNode.insertBefore(bgRect, svgNode.firstChild);
+
+                const styleElem = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+                styleElem.textContent = `
+                    text { font-family: 'Inter', system-ui, sans-serif; }
+                    .axis text { fill: ${textColor}; font-size: 12px; }
+                    .axis path, .axis line { stroke: ${axisColor}; }
+                    .grid-line line { stroke: ${gridColor}; stroke-dasharray: 2, 3; }
+                    .zero-axis-line { stroke: ${axisColor}; stroke-dasharray: 4, 4; stroke-width: 1.5px; }
+                    .axis-label { fill: ${textColor}; font-size: 13px; font-weight: 600; }
+                    .line-s { stroke: ${colorS}; stroke-width: 2.5px; fill: none; }
+                    .line-spos { stroke: ${colorSPos}; stroke-width: 2.5px; fill: none; }
+                    .line-sneg { stroke: ${colorSNeg}; stroke-width: 2.5px; fill: none; }
+                    .pill-bg { fill: ${isDark ? '#111827' : '#ffffff'}; stroke: ${axisColor}; }
+                    .legend-pill text { fill: ${textColor}; font-size: 12px; }
+                `;
+                svgNode.insertBefore(styleElem, svgNode.firstChild);
+
+                const serializer = new XMLSerializer();
+                const svgString = serializer.serializeToString(svgNode);
+                const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+                const blobUrl = URL.createObjectURL(svgBlob);
+
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    URL.revokeObjectURL(blobUrl);
+
+                    canvas.toBlob(blob => {
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `seebeck_chart_type_${type}.png`;
+                        link.click();
+                        URL.revokeObjectURL(link.href);
+                    }, 'image/png');
+                };
+                img.src = blobUrl;
+            }
+
+            // Setup UI Controls & Listeners
             function setupControls() {
                 const typeSelector = document.getElementById('thermo-type');
                 const minSlider = document.getElementById('temp-min-slider');
@@ -492,6 +1593,25 @@
                 const maxSlider = document.getElementById('temp-max-slider');
                 const maxValue = document.getElementById('temp-max-value');
                 const saveButton = document.getElementById('save-data-button');
+                const exportSvgBtn = document.getElementById('export-svg-btn');
+                const exportPngBtn = document.getElementById('export-png-btn');
+
+                const minCelsiusBadge = document.getElementById('min-celsius-badge');
+                const maxCelsiusBadge = document.getElementById('max-celsius-badge');
+
+                const typePosName = document.getElementById('type-pos-name');
+                const typePosDesc = document.getElementById('type-pos-desc');
+                const typeNegName = document.getElementById('type-neg-name');
+                const typeNegDesc = document.getElementById('type-neg-desc');
+                const livePosLabel = document.getElementById('live-pos-label');
+                const liveNegLabel = document.getElementById('live-neg-label');
+
+                function updateCelsiusBadges() {
+                    const minK = +minValue.value;
+                    const maxK = +maxValue.value;
+                    minCelsiusBadge.textContent = `${(minK - 273.15).toFixed(1)} °C`;
+                    maxCelsiusBadge.textContent = `${(maxK - 273.15).toFixed(1)} °C`;
+                }
 
                 function setTempControlsForType() {
                     const type = typeSelector.value;
@@ -499,6 +1619,17 @@
                     
                     const newMin = Math.ceil(typeInfo.tempMinK);
                     const newMax = Math.floor(typeInfo.tempMaxK);
+
+                    // Update material badges
+                    typePosName.textContent = materialData[typeInfo.pos].name;
+                    typePosDesc.textContent = typeInfo.posDesc;
+                    typeNegName.textContent = materialData[typeInfo.neg].name;
+                    typeNegDesc.textContent = typeInfo.negDesc;
+
+                    livePosLabel.textContent = typeInfo.posDesc;
+                    liveNegLabel.textContent = typeInfo.negDesc;
+
+                    document.getElementById('range-limit-hint').textContent = `Valid: ${newMin} – ${newMax} K`;
 
                     minSlider.min = newMin;
                     minValue.min = newMin;
@@ -512,46 +1643,146 @@
                     minValue.value = newMin;
                     maxSlider.value = newMax;
                     maxValue.value = newMax;
-                    
+
+                    updateCelsiusBadges();
                     drawPlot();
                 }
 
                 typeSelector.addEventListener('change', setTempControlsForType);
                 
-                minSlider.addEventListener('input', () => { minValue.value = minSlider.value; if (+minSlider.value > +maxSlider.value) { maxSlider.value = minSlider.value; maxValue.value = minSlider.value; }; drawPlot(); });
-                minValue.addEventListener('change', () => { minSlider.value = minValue.value; if (+minValue.value > +maxValue.value) { maxValue.value = minValue.value; maxSlider.value = minValue.value; }; drawPlot(); });
+                minSlider.addEventListener('input', () => { 
+                    minValue.value = minSlider.value; 
+                    if (+minSlider.value > +maxSlider.value) { 
+                        maxSlider.value = minSlider.value; 
+                        maxValue.value = minSlider.value; 
+                    }
+                    updateCelsiusBadges();
+                    drawPlot(); 
+                });
+
+                minValue.addEventListener('change', () => { 
+                    let val = +minValue.value;
+                    const min = +minSlider.min;
+                    const max = +minSlider.max;
+                    if (val < min) val = min;
+                    if (val > max) val = max;
+                    minValue.value = val;
+                    minSlider.value = val;
+                    if (+minValue.value > +maxValue.value) { 
+                        maxValue.value = minValue.value; 
+                        maxSlider.value = minValue.value; 
+                    }
+                    updateCelsiusBadges();
+                    drawPlot(); 
+                });
                 
-                maxSlider.addEventListener('input', () => { maxValue.value = maxSlider.value; if (+maxSlider.value < +minSlider.value) { minSlider.value = maxSlider.value; minValue.value = maxSlider.value; }; drawPlot(); });
-                maxValue.addEventListener('change', () => { maxSlider.value = maxValue.value; if (+maxValue.value < +minValue.value) { minValue.value = maxValue.value; minSlider.value = maxValue.value; }; drawPlot(); });
+                maxSlider.addEventListener('input', () => { 
+                    maxValue.value = maxSlider.value; 
+                    if (+maxSlider.value < +minSlider.value) { 
+                        minSlider.value = maxSlider.value; 
+                        minValue.value = maxSlider.value; 
+                    }
+                    updateCelsiusBadges();
+                    drawPlot(); 
+                });
+
+                maxValue.addEventListener('change', () => { 
+                    let val = +maxValue.value;
+                    const min = +maxSlider.min;
+                    const max = +maxSlider.max;
+                    if (val < min) val = min;
+                    if (val > max) val = max;
+                    maxValue.value = val;
+                    maxSlider.value = val;
+                    if (+maxValue.value < +minValue.value) { 
+                        minValue.value = maxValue.value; 
+                        minSlider.value = maxValue.value; 
+                    }
+                    updateCelsiusBadges();
+                    drawPlot(); 
+                });
+
+                // Range Presets
+                document.getElementById('preset-full').addEventListener('click', () => {
+                    const type = typeSelector.value;
+                    const typeInfo = typeDefinitions[type];
+                    minSlider.value = Math.ceil(typeInfo.tempMinK);
+                    minValue.value = minSlider.value;
+                    maxSlider.value = Math.floor(typeInfo.tempMaxK);
+                    maxValue.value = maxSlider.value;
+                    updateCelsiusBadges();
+                    drawPlot();
+                });
+
+                document.getElementById('preset-room').addEventListener('click', () => {
+                    const minAllowed = +minSlider.min;
+                    const maxAllowed = +maxSlider.max;
+                    minSlider.value = Math.max(minAllowed, 273);
+                    minValue.value = minSlider.value;
+                    maxSlider.value = Math.min(maxAllowed, 373);
+                    maxValue.value = maxSlider.value;
+                    updateCelsiusBadges();
+                    drawPlot();
+                });
+
+                document.getElementById('preset-ambient').addEventListener('click', () => {
+                    const minAllowed = +minSlider.min;
+                    const maxAllowed = +maxSlider.max;
+                    minSlider.value = Math.max(minAllowed, 200);
+                    minValue.value = minSlider.value;
+                    maxSlider.value = Math.min(maxAllowed, 500);
+                    maxValue.value = maxSlider.value;
+                    updateCelsiusBadges();
+                    drawPlot();
+                });
+
+                document.getElementById('preset-high').addEventListener('click', () => {
+                    const minAllowed = +minSlider.min;
+                    const maxAllowed = +maxSlider.max;
+                    minSlider.value = Math.max(minAllowed, 500);
+                    minValue.value = minSlider.value;
+                    maxSlider.value = maxAllowed;
+                    maxValue.value = maxSlider.value;
+                    updateCelsiusBadges();
+                    drawPlot();
+                });
 
                 saveButton.addEventListener('click', exportDataFile);
+                exportSvgBtn.addEventListener('click', exportSVGFile);
+                exportPngBtn.addEventListener('click', exportPNGFile);
 
                 setTempControlsForType(); // Initial setup
             }
 
-            // --- Resizer Logic ---
+            // Resizer Drag Logic
             const resizer = document.getElementById('drag-handle');
             const leftPanel = document.getElementById('controls-panel');
             let isResizing = false;
+
             resizer.addEventListener('mousedown', e => {
                 e.preventDefault();
                 isResizing = true;
+                resizer.classList.add('dragging');
                 document.body.style.cursor = 'col-resize';
                 document.body.style.userSelect = 'none';
                 window.addEventListener('mousemove', handleMouseMove);
                 window.addEventListener('mouseup', stopResize);
             });
+
             function handleMouseMove(e) {
                 if (!isResizing) return;
                 const p = resizer.parentElement;
                 const w = e.clientX - p.getBoundingClientRect().left;
-                if (w > 300 && w < p.clientWidth - 400) {
+                if (w > 300 && w < p.clientWidth - 350) {
                     leftPanel.style.width = `${w}px`;
                     drawPlot();
                 }
             }
+
             function stopResize() {
+                if (!isResizing) return;
                 isResizing = false;
+                resizer.classList.remove('dragging');
                 document.body.style.cursor = 'default';
                 document.body.style.userSelect = 'auto';
                 window.removeEventListener('mousemove', handleMouseMove);
@@ -559,8 +1790,10 @@
                 drawPlot();
             }
 
-            // --- Initial Load ---
-            const ro = new ResizeObserver(drawPlot);
+            // Resize Observer for Chart Area
+            const ro = new ResizeObserver(() => {
+                drawPlot();
+            });
             const pc = container.node();
             if (pc) ro.observe(pc);
             
