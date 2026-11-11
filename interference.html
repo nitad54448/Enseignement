@@ -4,10 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Diffraction & Interference Simulator</title>
-    <link href="./dist/output.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; }
+        /* Minimal reset (replaces former utility-framework preflight) */
+        *, *::before, *::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #e5e7eb; }
+        html { line-height: 1.5; -webkit-text-size-adjust: 100%; }
+        h1, h2, h3, p { margin: 0; }
+        h1, h2, h3 { font-size: inherit; font-weight: inherit; }
+        button, input, select { font-family: inherit; font-size: 100%; line-height: inherit; color: inherit; margin: 0; padding: 0; }
+        canvas { display: block; vertical-align: middle; }
+        .warning-note { font-size: 0.75rem; line-height: 1rem; color: #fbbf24; margin-top: 0.5rem; }
+        .app-footer { background-color: #ffffff; border-top: 1px solid #e5e7eb; padding: 0.5rem 1.5rem; font-size: 0.875rem; line-height: 1.25rem; color: #4b5563; flex-shrink: 0; text-align: center; }
         .hidden { display: none !important; }
         body {
             font-family: 'Inter', sans-serif;
@@ -204,7 +211,7 @@
                     <input type="range" id="separation-slider" min="0.2" max="20" value="3" step="0.1">
                     <input type="number" id="separation-val" min="0.2" max="20" value="3" step="0.1">
                 </div>
-                <p id="separation-warning" class="text-xs text-amber-400 mt-2 hidden">Separation (d) must be greater than width (a).</p>
+                <p id="separation-warning" class="warning-note hidden">Separation (d) must be greater than width (a).</p>
             </div>
         </div>
 
@@ -217,7 +224,7 @@
                 </div>
                 <p id="aperture-note" class="view-note"></p>
                 <div class="geometry-view"><canvas id="geometry-canvas"></canvas></div>
-                <p class="view-note">Detector: 20 cm wide. Fraunhofer far-field model; intensity normalized to the central maximum.</p>
+                <p class="view-note">Detector: 20 cm wide. Fraunhofer far-field model with obliquity, 1/r² and flat-screen corrections; intensity normalized to the central maximum.</p>
                 <p id="model-note" class="view-note"></p>
                 <div class="detector-and-scale-container">
                     <div class="detector-container">
@@ -231,7 +238,7 @@
         </div>
     </div>
 
-    <footer class="bg-white border-t border-gray-200 px-6 py-2 text-sm text-gray-600 flex-shrink-0 text-center">
+    <footer class="app-footer">
         <p>NitaD, Univ Paris-Saclay, Aug 19, 2025</p>
     </footer>
 
@@ -305,13 +312,16 @@
                     let total = 0;
                     for (let j = 0; j < samples; j++) {
                         const x = ((i + (j + 0.5) / samples) / count - 0.5) * detectorWidth_physical;
-                        const sinTheta = x / Math.hypot(x, L);
+                        const rDist = Math.hypot(x, L), sinTheta = x / rDist, cosTheta = L / rDist;
                         const beta = Math.PI * a_m * sinTheta / lambda_m;
                         const alpha = Math.PI * d_m * sinTheta / lambda_m;
                         // Reducing modulo pi handles every principal maximum stably.
                         const delta = alpha - Math.round(alpha / Math.PI) * Math.PI;
                         const arrayFactor = N === 1 ? 1 : sinc(N * delta) / sinc(delta);
-                        total += (sinc(beta) * arrayFactor) ** 2;
+                        // Off-axis corrections, relative to the centre of the screen:
+                        // obliquity ((1 + cos)/2)^2, spreading 1/r^2 (= cos^2/L^2) and the tilt of the flat screen (cos).
+                        const offAxis = ((1 + cosTheta) / 2) ** 2 * cosTheta ** 3;
+                        total += (sinc(beta) * arrayFactor) ** 2 * offAxis;
                     }
                     intensities[i] = Math.max(0, Math.min(1, total / samples));
                 }
@@ -469,8 +479,10 @@
                 drawGeometry(L_cm, rgbColor);
                 const aperture = ((N - 1) * d + a) * 1e-6;
                 const fresnelNumber = (aperture / 2) ** 2 / (lambda * 1e-9 * L);
-                document.getElementById('model-note').textContent = fresnelNumber >= 0.1
-                    ? 'Wide aperture / short distance: near-field effects may matter; this far-field pattern is approximate.' : '';
+                const notes = [];
+                if (fresnelNumber >= 0.1) notes.push('Wide aperture / short distance: near-field effects may matter; this far-field pattern is approximate.');
+                if (a * 1e3 < lambda) notes.push('Slit narrower than the wavelength: scalar diffraction theory is only qualitative here (polarization effects are ignored).');
+                document.getElementById('model-note').textContent = notes.join(' ');
                 drawSlits(N, a, d, rgbColor);
                 
                 setupCanvas(detectorCanvas, detectorCtx);
