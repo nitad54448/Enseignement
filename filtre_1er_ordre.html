@@ -5,12 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Filtres Électroniques RC (1er Ordre)</title>
     
-    <!-- Tailwind CSS for UI -->
-    <script src="https://cdn.tailwindcss.com"></script>
     <!-- Plotly.js for charting -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     
     <style>
+        /* Reset (replaces Tailwind preflight) */
+        *, ::before, ::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #e5e7eb; }
+        html { line-height: 1.5; -webkit-text-size-adjust: 100%; font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }
+        body, h1, p, hr, div { margin: 0; }
+        hr { height: 0; color: inherit; border-top-width: 1px; }
+        h1 { font-size: inherit; font-weight: inherit; }
+        button, input, select, textarea { font-family: inherit; font-size: 100%; font-weight: inherit; line-height: inherit; color: inherit; margin: 0; padding: 0; }
+        button, select { text-transform: none; }
+        svg, img, canvas { display: block; vertical-align: middle; }
+
+        /* Layout */
+        .app-body { color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .sidebar { width: 100%; background: #fff; border-right-width: 1px; border-color: #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 40vh; z-index: 10; flex-shrink: 0; }
+        .sidebar-header { padding: 1rem; border-bottom-width: 1px; border-color: #e2e8f0; background: #f8fafc; }
+        .sidebar-title { font-size: 1.25rem; line-height: 1.75rem; font-weight: 700; color: #1e293b; line-height: 1.25; }
+        .sidebar-subtitle { font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; color: #64748b; }
+        .sidebar-body { padding: 1.25rem; flex: 1 1 0%; overflow-y: auto; }
+        .sidebar-body > :not([hidden]) ~ :not([hidden]) { margin-top: 1.5rem; }
+        .field-label { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+        .field-label-block { display: block; margin-bottom: 0.25rem; }
+        .field-label-green { color: #047857; }
+        .field-head { display: flex; justify-content: space-between; margin-bottom: 0.25rem; }
+        .unit-label { font-size: 0.75rem; line-height: 1rem; color: #64748b; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+        .field-row { display: flex; align-items: center; }
+        .field-row > :not([hidden]) ~ :not([hidden]) { margin-left: 0.5rem; }
+        .divider { border-color: #e2e8f0; }
+        .select-field { width: 100%; border-width: 1px; border-color: #cbd5e1; border-radius: 0.375rem; padding: 0.5rem; background-color: #f8fafc; outline: 2px solid transparent; outline-offset: 2px; }
+        .select-field:focus { box-shadow: 0 0 0 2px #3b82f6; }
+        .range-input { width: 66.666667%; }
+        .range-blue { accent-color: #2563eb; }
+        .range-green { accent-color: #059669; }
+        .num-input { width: 33.333333%; border-width: 1px; border-color: #cbd5e1; border-radius: 0.25rem; padding: 0.25rem; font-size: 0.875rem; line-height: 1.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; text-align: right; }
+        .num-input:focus { outline: 2px solid transparent; outline-offset: 2px; }
+        .num-blue:focus { box-shadow: 0 0 0 2px #3b82f6; }
+        .num-green:focus { box-shadow: 0 0 0 2px #10b981; }
+        .readout { padding: 1rem; background: #1e293b; color: #fff; box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.05); }
+        .readout-label { font-size: 0.875rem; line-height: 1.25rem; color: #cbd5e1; margin-bottom: 0.25rem; }
+        .readout-value { font-size: 1.5rem; line-height: 2rem; font-weight: 700; color: #60a5fa; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+        .main-area { flex: 1 1 0%; background: #f1f5f9; overflow-y: auto; height: 60vh; padding: 0.5rem; }
+        .plot-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; height: 100%; }
+        .plot-card { background: #fff; border-radius: 0.5rem; box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05); border-width: 1px; border-color: #e2e8f0; padding: 0.5rem; position: relative; display: flex; flex-direction: column; }
+        .plot-fill { flex: 1 1 0%; }
+        @media (min-width: 768px) {
+            .app-body { flex-direction: row; }
+            .sidebar { width: 20rem; height: 100vh; }
+            .main-area { height: 100vh; padding: 1rem; }
+        }
+        @media (min-width: 1280px) {
+            .plot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: #f8fafc;
@@ -31,20 +80,20 @@
         }
     </style>
 </head>
-<body class="text-slate-800 h-screen flex flex-col md:flex-row overflow-hidden">
+<body class="app-body">
 
     <!-- Control Panel -->
-    <aside class="w-full md:w-80 bg-white border-r border-slate-200 shadow-sm flex flex-col h-[40vh] md:h-screen z-10 shrink-0">
-        <div class="p-4 border-b border-slate-200 bg-slate-50">
-            <h1 class="text-xl font-bold text-slate-800 leading-tight">Filtres RC <br/><span class="text-sm font-normal text-slate-500">1er Ordre - Simulateur</span></h1>
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h1 class="sidebar-title">Filtres RC <br/><span class="sidebar-subtitle">1er Ordre - Simulateur</span></h1>
         </div>
         
-        <div class="p-5 flex-1 overflow-y-auto sidebar-scroll space-y-6">
+        <div class="sidebar-body sidebar-scroll">
             
             <!-- Type de filtre -->
             <div>
-                <label for="filterType" class="block text-sm font-semibold mb-1">Type de filtre</label>
-                <select id="filterType" class="w-full border border-slate-300 rounded-md p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 outline-none">
+                <label for="filterType" class="field-label field-label-block">Type de filtre</label>
+                <select id="filterType" class="select-field">
                     <option value="lowpass">Passe-bas (Low Pass)</option>
                     <option value="highpass">Passe-haut (High Pass)</option>
                 </select>
@@ -52,90 +101,90 @@
 
             <!-- Résistance -->
             <div>
-                <div class="flex justify-between mb-1">
-                    <label for="resInput" class="text-sm font-semibold">Résistance (R)</label>
-                    <span class="text-xs text-slate-500 font-mono">Ω</span>
+                <div class="field-head">
+                    <label for="resInput" class="field-label">Résistance (R)</label>
+                    <span class="unit-label">Ω</span>
                 </div>
-                <div class="flex items-center space-x-2">
-                    <input type="range" id="resSlider" min="100" max="100000" step="100" value="22000" class="w-2/3 accent-blue-600">
-                    <input type="number" id="resInput" min="100" max="100000" step="100" value="22000" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-blue-500">
+                <div class="field-row">
+                    <input type="range" id="resSlider" min="100" max="100000" step="100" value="22000" class="range-input range-blue">
+                    <input type="number" id="resInput" min="100" max="100000" step="100" value="22000" class="num-input num-blue">
                 </div>
             </div>
 
             <!-- Capacité -->
             <div>
-                <div class="flex justify-between mb-1">
-                    <label for="capInput" class="text-sm font-semibold">Capacité (C)</label>
-                    <span class="text-xs text-slate-500 font-mono">F</span>
+                <div class="field-head">
+                    <label for="capInput" class="field-label">Capacité (C)</label>
+                    <span class="unit-label">F</span>
                 </div>
                 <!-- Using nF internally for slider to avoid floating point slider issues, but displaying scientific/farads in input -->
-                <div class="flex items-center space-x-2">
-                    <input type="range" id="capSlider" min="1" max="1000" step="1" value="100" class="w-2/3 accent-blue-600" title="1 nF to 1000 nF">
-                    <input type="number" id="capInput" value="100e-9" step="1e-9" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-blue-500">
+                <div class="field-row">
+                    <input type="range" id="capSlider" min="1" max="1000" step="1" value="100" class="range-input range-blue" title="1 nF to 1000 nF">
+                    <input type="number" id="capInput" value="100e-9" step="1e-9" class="num-input num-blue">
                 </div>
             </div>
 
             <!-- Gain K -->
             <div>
-                <div class="flex justify-between mb-1">
-                    <label for="gainInput" class="text-sm font-semibold">Gain statique (K)</label>
-                    <span class="text-xs text-slate-500 font-mono">Linéaire</span>
+                <div class="field-head">
+                    <label for="gainInput" class="field-label">Gain statique (K)</label>
+                    <span class="unit-label">Linéaire</span>
                 </div>
-                <div class="flex items-center space-x-2">
-                    <input type="range" id="gainSlider" min="0.1" max="10" step="0.1" value="1" class="w-2/3 accent-blue-600">
-                    <input type="number" id="gainInput" min="0.1" max="10" step="0.1" value="1" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-blue-500">
+                <div class="field-row">
+                    <input type="range" id="gainSlider" min="0.1" max="10" step="0.1" value="1" class="range-input range-blue">
+                    <input type="number" id="gainInput" min="0.1" max="10" step="0.1" value="1" class="num-input num-blue">
                 </div>
             </div>
 
-            <hr class="border-slate-200">
+            <hr class="divider">
 
             <!-- Freq Entrée -->
             <div>
-                <div class="flex justify-between mb-1">
-                    <label for="freqInput" class="text-sm font-semibold text-emerald-700">Fréquence du signal</label>
-                    <span class="text-xs text-slate-500 font-mono">Hz</span>
+                <div class="field-head">
+                    <label for="freqInput" class="field-label field-label-green">Fréquence du signal</label>
+                    <span class="unit-label">Hz</span>
                 </div>
-                <div class="flex items-center space-x-2">
-                    <input type="range" id="freqSlider" min="1" max="5000" step="1" value="70" class="w-2/3 accent-emerald-600">
-                    <input type="number" id="freqInput" min="1" max="100000" step="1" value="70" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-emerald-500">
+                <div class="field-row">
+                    <input type="range" id="freqSlider" min="1" max="5000" step="1" value="70" class="range-input range-green">
+                    <input type="number" id="freqInput" min="1" max="100000" step="1" value="70" class="num-input num-green">
                 </div>
             </div>
 
             <!-- Amplitude Entrée -->
             <div>
-                <div class="flex justify-between mb-1">
-                    <label for="ampInput" class="text-sm font-semibold text-emerald-700">Amplitude d'entrée</label>
-                    <span class="text-xs text-slate-500 font-mono">V</span>
+                <div class="field-head">
+                    <label for="ampInput" class="field-label field-label-green">Amplitude d'entrée</label>
+                    <span class="unit-label">V</span>
                 </div>
-                <div class="flex items-center space-x-2">
-                    <input type="range" id="ampSlider" min="0.1" max="10" step="0.1" value="1" class="w-2/3 accent-emerald-600">
-                    <input type="number" id="ampInput" min="0.1" max="10" step="0.1" value="1" class="w-1/3 border border-slate-300 rounded p-1 text-sm font-mono text-right focus:ring-2 focus:ring-emerald-500">
+                <div class="field-row">
+                    <input type="range" id="ampSlider" min="0.1" max="10" step="0.1" value="1" class="range-input range-green">
+                    <input type="number" id="ampInput" min="0.1" max="10" step="0.1" value="1" class="num-input num-green">
                 </div>
             </div>
 
         </div>
         
         <!-- Display computed parameters -->
-        <div class="p-4 bg-slate-800 text-white shadow-inner">
-            <div class="text-sm text-slate-300 mb-1">Fréquence de coupure (fc)</div>
-            <div class="text-2xl font-mono font-bold text-blue-400" id="fcDisplay">72.34 Hz</div>
+        <div class="readout">
+            <div class="readout-label">Fréquence de coupure (fc)</div>
+            <div class="readout-value" id="fcDisplay">72.34 Hz</div>
         </div>
     </aside>
 
     <!-- Main Content - Plots -->
-    <main class="flex-1 bg-slate-100 overflow-y-auto h-[60vh] md:h-screen p-2 md:p-4">
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 h-full">
-            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
-                <div id="plotBodeGain" class="flex-1 plot-container"></div>
+    <main class="main-area">
+        <div class="plot-grid">
+            <div class="plot-card">
+                <div id="plotBodeGain" class="plot-container plot-fill"></div>
             </div>
-            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
-                <div id="plotBodePhase" class="flex-1 plot-container"></div>
+            <div class="plot-card">
+                <div id="plotBodePhase" class="plot-container plot-fill"></div>
             </div>
-            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
-                <div id="plotNyquist" class="flex-1 plot-container"></div>
+            <div class="plot-card">
+                <div id="plotNyquist" class="plot-container plot-fill"></div>
             </div>
-            <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-2 relative flex flex-col">
-                <div id="plotTime" class="flex-1 plot-container"></div>
+            <div class="plot-card">
+                <div id="plotTime" class="plot-container plot-fill"></div>
             </div>
         </div>
     </main>
