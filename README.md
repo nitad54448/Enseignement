@@ -319,4 +319,4 @@ An interactive explorer for visualizing the principles of the Hough Transform fo
 
 ---
 
-Feel free to contribute or report issues!
+All of them are now edited and corrected with AI.
