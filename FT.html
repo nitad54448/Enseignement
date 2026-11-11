@@ -4,14 +4,65 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>2D Fourier Transform Explorer</title>
-    <link href="./dist/output.css" rel="stylesheet">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        * { box-sizing: border-box; }
+        /* --- Reset (replaces Tailwind preflight) --- */
+        *, ::before, ::after { box-sizing: border-box; border: 0 solid #e5e7eb; }
+        html { line-height: 1.5; -webkit-text-size-adjust: 100%; tab-size: 4; font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"; }
+        body { margin: 0; line-height: inherit; }
+        h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
+        h1, h2, h3, h4, h5, h6, p { margin: 0; }
+        img, svg, video, canvas { display: block; vertical-align: middle; }
+        img, video { max-width: 100%; height: auto; }
+        button, input, optgroup, select, textarea { font-family: inherit; font-size: 100%; font-weight: inherit; line-height: inherit; color: inherit; margin: 0; padding: 0; }
+        button, select { text-transform: none; }
+        button, [type="button"] { -webkit-appearance: button; background-color: transparent; background-image: none; cursor: pointer; }
+        input::placeholder { opacity: 1; color: #9ca3af; }
         .hidden { display: none !important; }
-        body {
-            font-family: 'Inter', sans-serif;
-        }
+        .container { width: 100%; margin-left: auto; margin-right: auto; }
+        @media (min-width: 640px) { .container { max-width: 640px; } }
+        @media (min-width: 768px) { .container { max-width: 768px; } }
+        @media (min-width: 1024px) { .container { max-width: 1024px; } }
+        @media (min-width: 1280px) { .container { max-width: 1280px; } }
+        @media (min-width: 1536px) { .container { max-width: 1536px; } }
+
+        /* --- Layout --- */
+        body { display: flex; flex-direction: column; height: 100vh; background-color: #f3f4f6; overflow: hidden; }
+        .app-header { background-color: #fff; padding: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); width: 100%; z-index: 10; }
+        .row { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+        .spacer { flex-grow: 1; }
+        .group { display: flex; align-items: center; gap: 0.5rem; }
+        .group-lg { display: flex; align-items: center; gap: 0.75rem; }
+        /* Title was effectively always hidden (the .hidden !important rule beat sm:block); kept as is */
+        .app-title { font-size: 1.25rem; line-height: 1.75rem; font-weight: 700; color: #1f2937; display: none !important; }
+        .btn { color: #fff; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1); }
+        .btn:focus { outline: 2px solid transparent; outline-offset: 2px; }
+        .btn-blue { background-color: #3b82f6; }
+        .btn-blue:hover { background-color: #2563eb; }
+        .btn-blue.active-btn { box-shadow: 0 0 0 2px #fff, 0 0 0 5px #3b82f6; }
+        .btn-green { background-color: #22c55e; }
+        .btn-green:hover { background-color: #16a34a; }
+        .btn-green.active-btn { box-shadow: 0 0 0 2px #fff, 0 0 0 5px #22c55e; }
+        .status { font-size: 0.875rem; line-height: 1.25rem; color: #4b5563; font-weight: 500; }
+        #function-section { margin-top: 0.75rem; }
+        .preset-select { background-color: #f9fafb; border: 1px solid #d1d5db; color: #111827; font-size: 0.875rem; line-height: 1.25rem; border-radius: 0.5rem; padding: 0.5rem; }
+        .text-input { flex-grow: 1; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; }
+        .label { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; color: #374151; }
+        .label-plain { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; }
+        .slider { width: 6rem; }
+        .value { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+        .value-sigma { width: 2rem; text-align: left; color: #1f2937; }
+        .w-1 { width: 1rem; }
+        .w-15 { width: 1.5rem; }
+        #crystal-controls { margin-top: 0.75rem; padding: 0.75rem; background-color: #f9fafb; border-radius: 0.5rem; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; column-gap: 1.5rem; row-gap: 0.5rem; }
+        .motif-select { background-color: #fff; border: 1px solid #d1d5db; font-size: 0.875rem; line-height: 1.25rem; border-radius: 0.375rem; padding: 0.25rem; }
+        .app-main { flex-grow: 1; padding: 1rem; display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1.5rem; align-items: center; justify-items: center; overflow: auto; }
+        @media (min-width: 768px) { .app-main { padding: 1.5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        .panel { width: 100%; display: flex; flex-direction: column; align-items: center; }
+        .panel-title { font-size: 1.125rem; line-height: 1.75rem; font-weight: 600; text-align: center; margin-bottom: 0.75rem; color: #374151; }
+        .app-footer { width: 100%; padding: 0.75rem; background-color: #fff; border-top: 1px solid #e5e7eb; }
+        .footer-row { font-size: 0.75rem; line-height: 1rem; color: #4b5563; display: flex; justify-content: space-between; align-items: center; }
+        .footer-right { text-align: right; font-weight: 500; }
         .canvas-wrapper {
             background-color: #e5e7eb; /* gray-200 */
             aspect-ratio: 1 / 1;
@@ -34,35 +85,30 @@
             cursor: not-allowed;
             opacity: 0.5;
         }
-        .active-btn {
-            --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
-            --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);
-            box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
-        }
         #crystal-controls { transition: opacity 0.3s; }
     </style>
 </head>
-<body class="flex flex-col h-screen bg-gray-100 overflow-hidden">
+<body>
 
-    <header class="bg-white p-3 shadow-md w-full z-10">
-        <div class="container mx-auto">
-            <div class="flex items-center flex-wrap gap-4">
-                <h1 class="text-xl font-bold text-gray-800 hidden sm:block">2D FT Explorer</h1>
-                <div class="flex-grow"></div> <div class="flex items-center gap-3">
-                    <button id="use-upload-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 focus:outline-none ring-blue-500 ring-offset-2 transition-all duration-200">
+    <header class="app-header">
+        <div class="container">
+            <div class="row">
+                <h1 class="app-title">2D FT Explorer</h1>
+                <div class="spacer"></div> <div class="group-lg">
+                    <button id="use-upload-btn" class="btn btn-blue">
                         Upload Image
                     </button>
-                    <button id="use-webcam-btn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 focus:outline-none ring-green-500 ring-offset-2 transition-all duration-200">
+                    <button id="use-webcam-btn" class="btn btn-green">
                         Use Webcam
                     </button>
                     <input type="file" id="image-upload" class="hidden" accept="image/png, image/jpeg">
                 </div>
-                <div id="status" class="text-sm text-gray-600 font-medium">Select a source to begin.</div>
+                <div id="status" class="status">Select a source to begin.</div>
             </div>
 
-            <div id="function-section" class="mt-3">
-                <div class="flex items-center flex-wrap gap-4">
-                    <select id="function-presets" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2">
+            <div id="function-section">
+                <div class="row">
+                    <select id="function-presets" class="preset-select">
                         <option value="">Choose a function or pattern...</option>
                         <optgroup label="Crystallography &amp; Diffraction">
                             <option value="cubic-lattice">Square Lattice (2D)</option>
@@ -88,60 +134,60 @@
                         </optgroup>
                     </select>
 
-                    <input type="text" id="function-input" placeholder="...or type a function to auto-generate" class="flex-grow p-2 border rounded-lg" style="min-width: 200px;">
+                    <input type="text" id="function-input" placeholder="...or type a function to auto-generate" class="text-input" style="min-width: 200px;">
                     
-                    <div class="flex items-center gap-2">
-                        <label for="sigma-slider" class="text-sm font-medium text-gray-700">Gaussian window σ</label>
-                        <input type="range" id="sigma-slider" min="0.1" max="1.5" value="0.4" step="0.05" class="w-24">
-                        <span id="sigma-value" class="text-sm font-semibold w-8 text-left text-gray-800">0.4</span>
+                    <div class="group">
+                        <label for="sigma-slider" class="label">Gaussian window σ</label>
+                        <input type="range" id="sigma-slider" min="0.1" max="1.5" value="0.4" step="0.05" class="slider">
+                        <span id="sigma-value" class="value value-sigma">0.4</span>
                     </div>
                 </div>
 
-                <div id="crystal-controls" class="hidden mt-3 p-3 bg-gray-50 rounded-lg flex items-center justify-start flex-wrap gap-x-6 gap-y-2">
-                    <div class="flex items-center gap-2">
-                        <label for="motif-type" class="text-sm font-medium">Motif:</label>
-                        <select id="motif-type" class="bg-white border border-gray-300 text-sm rounded-md p-1">
+                <div id="crystal-controls" class="hidden">
+                    <div class="group">
+                        <label for="motif-type" class="label-plain">Motif:</label>
+                        <select id="motif-type" class="motif-select">
                             <option value="point">Point</option>
                             <option value="duck">Duck</option>
                             <option value="circle" selected>Circle</option>
                             <option value="square">Square</option>
                         </select>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <label for="motif-size" class="text-sm font-medium">Motif Size:</label>
-                        <input type="range" id="motif-size" min="1" max="20" value="8" class="w-24">
-                        <span id="motif-size-value" class="text-sm font-semibold w-4">8</span>
+                    <div class="group">
+                        <label for="motif-size" class="label-plain">Motif Size:</label>
+                        <input type="range" id="motif-size" min="1" max="20" value="8" class="slider">
+                        <span id="motif-size-value" class="value w-1">8</span>
                     </div>
-                     <div class="flex items-center gap-2">
-                        <label for="cell-size" class="text-sm font-medium">Cell Size:</label>
-                        <input type="range" id="cell-size" min="10" max="100" value="40" class="w-24">
-                        <span id="cell-size-value" class="text-sm font-semibold w-6">40</span>
+                     <div class="group">
+                        <label for="cell-size" class="label-plain">Cell Size:</label>
+                        <input type="range" id="cell-size" min="10" max="100" value="40" class="slider">
+                        <span id="cell-size-value" class="value w-15">40</span>
                     </div>
                 </div>
             </div>
         </div>
     </header>
 
-    <main class="flex-grow p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-6 items-center justify-items-center overflow-auto">
-        <div class="w-full flex flex-col items-center">
-            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Source (Direct Space)</h3>
+    <main class="app-main">
+        <div class="panel">
+            <h3 class="panel-title">Source (Direct Space)</h3>
             <div class="canvas-wrapper">
                 <video id="webcam-video" class="hidden" autoplay playsinline></video>
                 <canvas id="sourceCanvas"></canvas>
             </div>
         </div>
-        <div class="w-full flex flex-col items-center">
-            <h3 class="text-lg font-semibold text-center mb-3 text-gray-700">Fourier Transform (Reciprocal Space)</h3>
+        <div class="panel">
+            <h3 class="panel-title">Fourier Transform (Reciprocal Space)</h3>
             <div class="canvas-wrapper">
                 <canvas id="fftCanvas"></canvas>
             </div>
         </div>
     </main>
 
-    <footer class="w-full p-3 bg-white border-t border-gray-200">
-        <div class="container mx-auto text-xs text-gray-600 flex justify-between items-center">
+    <footer class="app-footer">
+        <div class="container footer-row">
             <p>Log FFT magnitude of grayscale × Gaussian window; σ is relative to the image half-width. Red scale bars are display annotations only.</p>
-            <p class="text-right font-medium">NitaD, Univ. Paris-Saclay, 1 May 2025</p>
+            <p class="footer-right">NitaD, Univ. Paris-Saclay, 1 May 2025</p>
         </div>
     </footer>
     
