@@ -25,13 +25,26 @@
 | 🔬 [**Diffraction Methods**](https://nitad54448.github.io/Enseignement/DiffractionMethods.html) | Visualizes different experimental diffraction methods. |
 | 🖥️ [**Single Crystal Diffraction**](https://nitad54448.github.io/Enseignement/4-circles.html) | Advanced simulator for single-crystal X-ray diffraction. |
 | ✨ [**2D diffraction**](https://nitad54448.github.io/Enseignement/2D_diffraction.html) | Diffraction patterns of 2D structures. |
-| 🔄 [**Patterson function**](https://nitad54448.github.io/Enseignement/Patterson.html) | Demonstrates the relationship between a crystal structure, its diffraction pattern, and the Patterson function. |
 | 🎞️ [**Kiessig Fringes**](https://nitad54448.github.io/Enseignement/kiessig.html) | Demonstrates X-ray Reflectivity (XRR) for a single film. |
 | ✨ [**2D Fourier Transform**](https://nitad54448.github.io/Enseignement/FT.html) | Visualizes the 2D Fourier Transform of various sources. |
 | 🔄 [**2D Radon Transform**](https://nitad54448.github.io/Enseignement/Radon.html) | Computes and displays the 2D Radon Transform (Sinogram). |
 | 🎨 [**Color Radon Transform**](https://nitad54448.github.io/Enseignement/ColorRadon.html) | Explorer for the 2D Radon Transform on color images. |
 | 🧊 [**3D Radon Transform**](https://nitad54448.github.io/Enseignement/3D_Radon.html) | A 3D explorer for computed tomography. |
 | ✍️ [**2D Hough Transform**](https://nitad54448.github.io/Enseignement/Hough.html) | An interactive explorer for line detection in images. |
+| ➕ [**1D & 2D Convolution Explorer**](https://nitad54448.github.io/Enseignement/Convolutions.html) | Interactive 1D and 2D convolutions. |
+| ➕ [**Powder Diffraction**](https://nitad54448.github.io/Enseignement/Powder.html) | Powder diffraction patterns. |
+| ➕ [**Cubic Powder XRD Simulator**](https://nitad54448.github.io/Enseignement/scpxrd.html) | Powder XRD patterns for cubic space groups. |
+| ➕ [**XRR Simulator**](https://nitad54448.github.io/Enseignement/xrr.html) | X-ray reflectivity (Parratt formalism). |
+| ➕ [**2D EXAFS Explorer**](https://nitad54448.github.io/Enseignement/exafs.html) | Interactive 2D EXAFS. |
+| ➕ [**Atomic Vibrations in Crystals**](https://nitad54448.github.io/Enseignement/harmonic.html) | Atomic vibrations (phonons) in crystals. |
+| ➕ [**Diffraction & Interference Simulator**](https://nitad54448.github.io/Enseignement/interference.html) | Diffraction and interference of waves. |
+| ➕ [**2D Pattern Generator**](https://nitad54448.github.io/Enseignement/patterns.html) | Generates 2D patterns. |
+| ➕ [**3D Point Group Symmetry Tool**](https://nitad54448.github.io/Enseignement/point_symmetry.html) | Point-group symmetry in 3D. |
+| ➕ [**Crystal Symmetry Explorer**](https://nitad54448.github.io/Enseignement/symmetry_tool.html) | Crystal symmetry operations and motifs. |
+| ➕ [**Stereographic Projection & 3D Sphere**](https://nitad54448.github.io/Enseignement/stereo.html) | Stereographic projection and its 3D sphere. |
+| ➕ [**Lock-in Amplifier Simulator**](https://nitad54448.github.io/Enseignement/lia.html) | Lock-in amplifier simulation. |
+| ➕ [**First-order RC Filters**](https://nitad54448.github.io/Enseignement/filtre_1er_ordre.html) | First-order electronic RC filters. |
+| ➕ [**Seebeck Charts**](https://nitad54448.github.io/Enseignement/seebeck.html) | Thermocouple Seebeck coefficients. |
 
 ---
 
@@ -224,16 +237,7 @@ A visualization tool for displaying diffraction patterns of 2D structures.
 
 ---
 
-### 🔄 14. Patterson function
-[**Launch Patterson function Simulator**](https://nitad54448.github.io/Enseignement/Patterson.html)
-
-This tool demonstrates the relationship between a crystal structure, its diffraction pattern, and the Patterson function.
-
-
-
----
-
-### 🎞️ 15. Kiessig Fringes Simulator
+### 🎞️ 14. Kiessig Fringes Simulator
 [**Launch Kiessig Fringes Simulator**](https://nitad54448.github.io/Enseignement/kiessig.html)
 
 This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single film with interface roughness. The footer of the program notes it uses the Parratt formalism with Névot-Croce roughness.
@@ -247,7 +251,7 @@ This simulator interactively demonstrates X-ray Reflectivity (XRR) for a single 
 
 ---
 
-### ✨ 16. 2D Fourier Transform Explorer
+### ✨ 15. 2D Fourier Transform Explorer
 [**Launch FT Explorer**](https://nitad54448.github.io/Enseignement/FT.html)
 
 This explorer visualizes the 2D Fourier Transform of various sources.
@@ -260,7 +264,7 @@ This explorer visualizes the 2D Fourier Transform of various sources.
 
 ---
 
-### 🔄 17. 2D Radon Transform Explorer
+### 🔄 16. 2D Radon Transform Explorer
 [**Launch Radon Explorer**](https://nitad54448.github.io/Enseignement/Radon.html)
 
 This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
@@ -272,7 +276,7 @@ This tool computes and displays the 2D Radon Transform (Sinogram) of an image.
 
 ---
 
-### 🎨 18. Color Radon Transform Explorer
+### 🎨 17. Color Radon Transform Explorer
 [**Launch Color Radon Explorer**](https://nitad54448.github.io/Enseignement/ColorRadon.html)
 
 An interactive explorer for the 2D Radon Transform on color images, demonstrating filtered back-projection for tomographic reconstruction.
@@ -288,7 +292,7 @@ An interactive explorer for the 2D Radon Transform on color images, demonstratin
 
 ---
 
-### 🧊 19. 3D Radon Transform Explorer
+### 🧊 18. 3D Radon Transform Explorer
 [**Launch 3D Radon Explorer**](https://nitad54448.github.io/Enseignement/3D_Radon.html)
 
 An interactive explorer for visualizing the principles of computed tomography (CT) in three dimensions. It demonstrates how a 3D object can be reconstructed from a series of 2D projections (slices).
@@ -303,7 +307,7 @@ An interactive explorer for visualizing the principles of computed tomography (C
 
 ---
 
-### ✍️ 20. 2D Hough Explorer
+### ✍️ 19. 2D Hough Explorer
 [**Launch Hough Explorer**](https://nitad54448.github.io/Enseignement/Hough.html)
 
 An interactive explorer for visualizing the principles of the Hough Transform for line detection in 2D images.
@@ -316,6 +320,25 @@ An interactive explorer for visualizing the principles of the Hough Transform fo
     * **Edge Detection**: Automatically applies a Sobel filter to the source image to detect edges before applying the transform.
     * **Results**: Shows the final detected lines overlaid on a black background.
 
+
+---
+
+### More simulators
+
+* [**1D & 2D Convolution Explorer**](https://nitad54448.github.io/Enseignement/Convolutions.html): Interactive 1D and 2D convolutions.
+* [**Powder Diffraction**](https://nitad54448.github.io/Enseignement/Powder.html): Powder diffraction patterns.
+* [**Cubic Powder XRD Simulator**](https://nitad54448.github.io/Enseignement/scpxrd.html): Powder XRD patterns for cubic space groups.
+* [**XRR Simulator**](https://nitad54448.github.io/Enseignement/xrr.html): X-ray reflectivity (Parratt formalism).
+* [**2D EXAFS Explorer**](https://nitad54448.github.io/Enseignement/exafs.html): Interactive 2D EXAFS.
+* [**Atomic Vibrations in Crystals**](https://nitad54448.github.io/Enseignement/harmonic.html): Atomic vibrations (phonons) in crystals.
+* [**Diffraction & Interference Simulator**](https://nitad54448.github.io/Enseignement/interference.html): Diffraction and interference of waves.
+* [**2D Pattern Generator**](https://nitad54448.github.io/Enseignement/patterns.html): Generates 2D patterns.
+* [**3D Point Group Symmetry Tool**](https://nitad54448.github.io/Enseignement/point_symmetry.html): Point-group symmetry in 3D.
+* [**Crystal Symmetry Explorer**](https://nitad54448.github.io/Enseignement/symmetry_tool.html): Crystal symmetry operations and motifs.
+* [**Stereographic Projection & 3D Sphere**](https://nitad54448.github.io/Enseignement/stereo.html): Stereographic projection and its 3D sphere.
+* [**Lock-in Amplifier Simulator**](https://nitad54448.github.io/Enseignement/lia.html): Lock-in amplifier simulation.
+* [**First-order RC Filters**](https://nitad54448.github.io/Enseignement/filtre_1er_ordre.html): First-order electronic RC filters.
+* [**Seebeck Charts**](https://nitad54448.github.io/Enseignement/seebeck.html): Thermocouple Seebeck coefficients.
 
 ---
 
